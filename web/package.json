@@ -1,6 +1,7 @@
 {
   "name": "tabsh-web",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "astro dev",
