@@ -54,4 +54,3 @@ pub(crate) fn presented_token(req: &Request) -> Option<&str> {
             .find_map(|kv| kv.strip_prefix("token="))
     })
 }
-

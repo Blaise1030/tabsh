@@ -1,16 +1,22 @@
+mod auth;
+mod error;
+mod web;
+
+use auth::random_hex;
 use axum::{
     Json, Router,
     body::Bytes,
     extract::{
-        ConnectInfo, DefaultBodyLimit, Path, Query, Request, State,
+        DefaultBodyLimit, Path, Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     handler::Handler,
     http::{HeaderMap, HeaderValue, Method, StatusCode, header},
-    middleware::{self, Next},
-    response::{IntoResponse, Redirect, Response},
+    middleware,
+    response::{IntoResponse, Response},
     routing::{get, patch, post},
 };
+use error::internal_error;
 use futures_util::{SinkExt, StreamExt};
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -29,7 +35,7 @@ use std::{
 };
 use tokio::sync::broadcast;
 
-type BoxError = Box<dyn std::error::Error + Send + Sync>;
+use error::BoxError;
 
 /// Output kept per session so a reconnecting client can redraw its screen.
 const SCROLLBACK_BYTES: usize = 512 * 1024;
@@ -143,16 +149,16 @@ struct Output {
 /// The database is the source of truth for which sessions exist; `live`
 /// holds the ones with a running shell. Lock order: `live` before `db`.
 #[derive(Clone)]
-struct AppState {
-    db: Arc<Mutex<Connection>>,
-    live: Arc<Mutex<HashMap<String, Arc<Session>>>>,
-    db_path: Arc<str>,
-    started: std::time::Instant,
+pub(crate) struct AppState {
+    pub(crate) db: Arc<Mutex<Connection>>,
+    pub(crate) live: Arc<Mutex<HashMap<String, Arc<Session>>>>,
+    pub(crate) db_path: Arc<str>,
+    pub(crate) started: std::time::Instant,
     /// Secret the hosted UI must present.
-    token: Arc<str>,
-    origins: Arc<[String]>,
+    pub(crate) token: Arc<str>,
+    pub(crate) origins: Arc<[String]>,
     /// The hosted UI, pointed at this daemon, without the token.
-    app_url: Option<Arc<str>>,
+    pub(crate) app_url: Option<Arc<str>>,
 }
 
 #[derive(Serialize)]
@@ -176,38 +182,6 @@ struct UploadQuery {
     name: String,
 }
 
-/// Where the UI (web/) is served from. It may drive this daemon once paired
-/// with the token. TABSH_ORIGINS (comma-separated) replaces this list, e.g.
-/// `http://localhost:4321` to work on the site with `astro dev`.
-const HOSTED_ORIGINS: &[&str] = &["https://tabsh.cc"];
-
-/// The app page, built from web/ (`npm run build` there copies it here). The
-/// daemon serves its own copy at /app/ for browsers that won't let the hosted
-/// one reach it: WebKit blocks https pages from calling http://127.0.0.1.
-const APP_HTML: &str = include_str!("app.html");
-/// The page's daemon address as built for the hosted site, emptied when this
-/// daemon serves it so the page talks to its own origin.
-const HOSTED_DAEMON_META: &str = r#"<meta name="tabsh-daemon" content="http://127.0.0.1:7681">"#;
-static APP_PAGE: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    APP_HTML.replacen(
-        HOSTED_DAEMON_META,
-        r#"<meta name="tabsh-daemon" content="">"#,
-        1,
-    )
-});
-/// The hosted site's policy for /app/ (web/public/_headers), for our copy.
-const APP_CSP: &str = "default-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; \
-style-src 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; \
-img-src data: blob:; frame-src blob:; connect-src 'self' ws://tabsh.localhost:* ws://localhost:* ws://127.0.0.1:*; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
-/// The name our own copy of the app is opened at, rather than a bare
-/// `localhost`.
-const LOCAL_NAME: &str = "tabsh.localhost";
-
-// The page's typing sound samples, from web/public/sounds (see build.rs).
-include!(concat!(env!("OUT_DIR"), "/sounds.rs"));
-// The app page's bundled scripts and styles, from src/app-assets (see build.rs).
-include!(concat!(env!("OUT_DIR"), "/app_assets.rs"));
-
 /// Largest file accepted from a drag-and-drop into a terminal.
 const UPLOAD_LIMIT_BYTES: usize = 100 * 1024 * 1024;
 /// Largest text file whose content the file pane receives (and can edit).
@@ -218,19 +192,13 @@ const RAW_LIMIT_BYTES: u64 = 50 * 1024 * 1024;
 /// Builds the app router with all routes and the guard middleware applied.
 fn router(state: AppState) -> Router {
     Router::new()
-        .route("/", get(open_app))
-        .route("/open", get(open_local_app))
-        .route("/app", get(|| async { Redirect::permanent("/app/") }))
-        .route("/app/", get(local_app))
-        .route("/sounds/{*path}", get(sound))
-        .route("/_astro/{name}", get(app_asset))
+        .merge(web::routes())
         .route("/api/sessions", get(list_sessions).post(create_session))
         .route(
             "/api/sessions/{id}",
             patch(rename_session).delete(delete_session),
         )
         .route("/api/settings", get(get_settings).put(put_settings))
-        .route("/api/about", get(about))
         .route(
             "/api/uploads",
             post(upload).layer(DefaultBodyLimit::max(UPLOAD_LIMIT_BYTES)),
@@ -241,7 +209,10 @@ fn router(state: AppState) -> Router {
         )
         .route("/api/files/raw", get(file_raw))
         .route("/ws", get(ws_handler))
-        .layer(middleware::from_fn_with_state(state.clone(), guard))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            web::guard::guard,
+        ))
         .with_state(state)
 }
 
@@ -269,7 +240,7 @@ async fn main() {
     });
     let db = open_db(&db_path).unwrap_or_else(|e| panic!("failed to open {db_path}: {e}"));
     let token_path = std::path::Path::new(&db_path).with_file_name("token");
-    let token = load_or_create_token(&token_path)
+    let token = auth::load_or_create_token(&token_path)
         .unwrap_or_else(|e| panic!("failed to read {}: {e}", token_path.display()));
     let origins: Vec<String> = match std::env::var("TABSH_ORIGINS") {
         Ok(list) => list
@@ -277,7 +248,10 @@ async fn main() {
             .map(|o| o.trim().trim_end_matches('/').to_owned())
             .filter(|o| !o.is_empty())
             .collect(),
-        Err(_) => HOSTED_ORIGINS.iter().map(|o| o.to_string()).collect(),
+        Err(_) => web::guard::HOSTED_ORIGINS
+            .iter()
+            .map(|o| o.to_string())
+            .collect(),
     };
     let app_url = origins.first().map(|origin| {
         let daemon = if host == "127.0.0.1" && port == "7681" {
@@ -312,7 +286,7 @@ async fn main() {
         .unwrap_or_else(|e| panic!("failed to bind {addr}: {e}"));
     println!("tabsh listening on http://{addr} (state: {db_path})");
     let local_host = match host.parse::<std::net::IpAddr>() {
-        Ok(ip) if ip.is_loopback() || ip.is_unspecified() => LOCAL_NAME.into(),
+        Ok(ip) if ip.is_loopback() || ip.is_unspecified() => web::guard::LOCAL_NAME.into(),
         _ => host.clone(),
     };
     let local_url = format!("http://{local_host}:{port}/app/#token={}", state.token);
@@ -328,7 +302,7 @@ async fn main() {
             local_url
         }
     };
-    open_browser(&open_url);
+    web::pages::open_browser(&open_url);
 
     tokio::select! {
         res = axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()) => res.unwrap(),
@@ -339,38 +313,6 @@ async fn main() {
             std::process::exit(0);
         }
     }
-}
-
-/// Opens the app in the default browser, unless there's no one at this
-/// machine's screen to see it (an SSH session, a Linux box without a
-/// display) or TABSH_NO_BROWSER is set, e.g. when run as a service. Safari
-/// can't use the hosted page, which sends it on to our copy.
-fn open_browser(url: &str) {
-    let env = |name| std::env::var_os(name).is_some_and(|v| !v.is_empty());
-    let headless = if cfg!(target_os = "macos") {
-        false
-    } else {
-        !env("DISPLAY") && !env("WAYLAND_DISPLAY")
-    };
-    if env("TABSH_NO_BROWSER") || env("SSH_CONNECTION") || headless {
-        return;
-    }
-    let opener = if cfg!(target_os = "macos") {
-        "open"
-    } else {
-        "xdg-open"
-    };
-    let mut cmd = std::process::Command::new(opener);
-    cmd.arg(url)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    // Reap it in the background; the link above is the fallback if it fails.
-    std::thread::spawn(move || {
-        if let Err(e) = cmd.status() {
-            eprintln!("tabsh: could not open a browser ({opener}): {e}");
-        }
-    });
 }
 
 async fn shutdown_signal() {
@@ -468,250 +410,6 @@ fn process_cwd(pid: u32) -> Option<String> {
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn process_cwd(_pid: u32) -> Option<String> {
     None
-}
-
-fn internal_error(e: impl std::fmt::Display) -> StatusCode {
-    eprintln!("internal error: {e}");
-    StatusCode::INTERNAL_SERVER_ERROR
-}
-
-/// Reads the pairing token from `path`, creating it on first run. It is kept
-/// across restarts so a paired browser stays paired.
-fn load_or_create_token(path: &std::path::Path) -> std::io::Result<String> {
-    match std::fs::read_to_string(path) {
-        Ok(t) if t.trim().len() >= 32 => return Ok(t.trim().to_owned()),
-        Ok(_) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return Err(e),
-    }
-    let token = random_hex(32)?;
-    std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(path)?
-        .write_all(token.as_bytes())?;
-    Ok(token)
-}
-
-fn random_hex(len: usize) -> std::io::Result<String> {
-    let mut bytes = vec![0u8; len];
-    std::fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
-    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
-}
-
-/// Browsers let any site send requests to localhost, so every request passes
-/// through here:
-/// - The Host must be `localhost`, `tabsh.localhost` or an IP address. Any
-///   other DNS name means DNS rebinding: a page whose own domain resolves to
-///   us, which would otherwise look same-origin. (`.localhost` names never
-///   reach public DNS; browsers and the OS resolve them to loopback.)
-/// - No Origin: not a cross-site browser request (browsers always send it on
-///   cross-site writes and WebSockets; see `ws_handler`). The file API still
-///   needs the token (`admits_without_origin`).
-/// - A hosted UI origin, or our own (the page at /app/): allowed, but only
-///   with the token.
-/// - Anything else is refused.
-async fn guard(State(st): State<AppState>, req: Request, next: Next) -> Response {
-    let headers = req.headers();
-    if !host_is_address(headers) {
-        return StatusCode::FORBIDDEN.into_response();
-    }
-    // Public build assets; script loads can't carry the token.
-    if is_public_asset(req.method(), req.uri().path()) {
-        return next.run(req).await;
-    }
-    let Some(origin) = headers.get(header::ORIGIN).cloned() else {
-        if !admits_without_origin(req.uri().path(), presented_token(&req), &st.token) {
-            return StatusCode::UNAUTHORIZED.into_response();
-        }
-        return next.run(req).await;
-    };
-    // The Host was checked above, so this is a page we served, not a
-    // rebound domain or another port on this machine.
-    let own = headers
-        .get(header::HOST)
-        .and_then(|h| h.to_str().ok())
-        .is_some_and(|host| origin.as_bytes() == format!("http://{host}").as_bytes());
-    if !own && !st.origins.iter().any(|o| origin == o.as_str()) {
-        return StatusCode::FORBIDDEN.into_response();
-    }
-
-    let mut res = if req.method() == Method::OPTIONS {
-        let mut res = StatusCode::NO_CONTENT.into_response();
-        let h = res.headers_mut();
-        h.insert(
-            header::ACCESS_CONTROL_ALLOW_METHODS,
-            HeaderValue::from_static("GET, POST, PUT, PATCH, DELETE"),
-        );
-        h.insert(
-            header::ACCESS_CONTROL_ALLOW_HEADERS,
-            HeaderValue::from_static("authorization, content-type"),
-        );
-        h.insert(
-            header::ACCESS_CONTROL_MAX_AGE,
-            HeaderValue::from_static("600"),
-        );
-        // Chrome's Private Network Access preflight for public pages reaching localhost.
-        h.insert(
-            "access-control-allow-private-network",
-            HeaderValue::from_static("true"),
-        );
-        res
-    } else if presented_token(&req).is_some_and(|t| token_eq(t, &st.token)) {
-        next.run(req).await
-    } else {
-        StatusCode::UNAUTHORIZED.into_response()
-    };
-    let h = res.headers_mut();
-    h.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
-    h.insert(header::VARY, HeaderValue::from_static("origin"));
-    res
-}
-
-/// Whether a request with no Origin may pass. The file API reads and writes
-/// any file the user can, so it always needs the token, whoever is asking.
-fn admits_without_origin(path: &str, token: Option<&str>, expected: &str) -> bool {
-    !path.starts_with("/api/files") || token.is_some_and(|t| token_eq(t, expected))
-}
-
-/// The page's bundled scripts and styles: read-only, same for everyone.
-fn is_public_asset(method: &Method, path: &str) -> bool {
-    (method == Method::GET || method == Method::HEAD)
-        && path
-            .strip_prefix("/_astro/")
-            .is_some_and(|rest| !rest.is_empty() && !rest.contains('/'))
-}
-
-fn host_is_address(headers: &HeaderMap) -> bool {
-    let Some(host) = headers.get(header::HOST).and_then(|v| v.to_str().ok()) else {
-        return false;
-    };
-    let name = match host.strip_prefix('[') {
-        Some(v6) => v6.split(']').next().unwrap_or(""),
-        None => host.rsplit_once(':').map_or(host, |(name, _)| name),
-    };
-    name.eq_ignore_ascii_case("localhost")
-        || name.eq_ignore_ascii_case(LOCAL_NAME)
-        || name.parse::<std::net::IpAddr>().is_ok()
-}
-
-/// The UI lives on the hosted site, so visiting the daemon sends you there,
-/// paired: the token rides in the fragment, which is never sent onward. Only
-/// browsers on this machine get it; with HOST set to a LAN address, others
-/// land on the pairing screen instead.
-async fn open_app(
-    State(st): State<AppState>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
-) -> Response {
-    let Some(app_url) = &st.app_url else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    if peer.ip().is_loopback() {
-        Redirect::temporary(&format!("{app_url}#token={}", st.token)).into_response()
-    } else {
-        Redirect::temporary(app_url).into_response()
-    }
-}
-
-/// Like `open_app`, but to our own copy of the page. The hosted page links
-/// here when the browser won't let it reach us.
-async fn open_local_app(
-    State(st): State<AppState>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
-) -> Redirect {
-    if peer.ip().is_loopback() {
-        Redirect::temporary(&format!("/app/#token={}", st.token))
-    } else {
-        Redirect::temporary("/app/")
-    }
-}
-
-async fn local_app() -> Response {
-    (
-        [
-            (header::CONTENT_TYPE, "text/html; charset=utf-8"),
-            (header::CONTENT_SECURITY_POLICY, APP_CSP),
-            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
-            (header::REFERRER_POLICY, "no-referrer"),
-            (header::CACHE_CONTROL, "no-cache"),
-            (
-                header::HeaderName::from_static("cross-origin-opener-policy"),
-                "same-origin",
-            ),
-        ],
-        APP_PAGE.as_str(),
-    )
-        .into_response()
-}
-
-async fn sound(Path(path): Path<String>) -> Response {
-    let Some((_, bytes)) = SOUNDS.iter().find(|(name, _)| *name == path) else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    let kind = if path.ends_with(".mp3") {
-        "audio/mpeg"
-    } else {
-        "text/plain; charset=utf-8"
-    };
-    (
-        [
-            (header::CONTENT_TYPE, kind),
-            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
-            (header::CACHE_CONTROL, "max-age=86400"),
-        ],
-        *bytes,
-    )
-        .into_response()
-}
-
-async fn app_asset(Path(name): Path<String>) -> Response {
-    let Some((_, bytes)) = APP_ASSETS.iter().find(|(n, _)| *n == name) else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    let kind = if name.ends_with(".js") {
-        "text/javascript; charset=utf-8"
-    } else if name.ends_with(".css") {
-        "text/css; charset=utf-8"
-    } else {
-        "application/octet-stream"
-    };
-    (
-        [
-            (header::CONTENT_TYPE, kind),
-            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
-            // File names carry a content hash.
-            (header::CACHE_CONTROL, "max-age=31536000, immutable"),
-        ],
-        *bytes,
-    )
-        .into_response()
-}
-
-/// `Authorization: Bearer <token>`, or `?token=` for WebSockets, which can't
-/// set headers from a browser.
-fn presented_token(req: &Request) -> Option<&str> {
-    let bearer = req
-        .headers()
-        .get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "));
-    bearer.or_else(|| {
-        req.uri()
-            .query()?
-            .split('&')
-            .find_map(|kv| kv.strip_prefix("token="))
-    })
-}
-
-/// Compares in constant time so response timing doesn't leak the token.
-fn token_eq(a: &str, b: &str) -> bool {
-    a.len() == b.len()
-        && a.bytes()
-            .zip(b.bytes())
-            .fold(0, |acc, (x, y)| acc | (x ^ y))
-            == 0
 }
 
 async fn list_sessions(State(st): State<AppState>) -> Result<Json<Vec<SessionInfo>>, StatusCode> {
@@ -1262,24 +960,6 @@ fn session_base_dir(st: &AppState, session: &str) -> PathBuf {
         .unwrap_or_else(|| std::env::var_os("HOME").map_or_else(|| "/".into(), PathBuf::from))
 }
 
-async fn about(State(st): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
-    let running = st.live.lock().unwrap().len();
-    let total: i64 = st
-        .db
-        .lock()
-        .unwrap()
-        .query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))
-        .map_err(internal_error)?;
-    Ok(Json(serde_json::json!({
-        "version": env!("CARGO_PKG_VERSION"),
-        "shell": std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into()),
-        "state_path": &*st.db_path,
-        "uptime_secs": st.started.elapsed().as_secs(),
-        "sessions_running": running,
-        "sessions_total": total,
-    })))
-}
-
 /// Close a tab. A running shell is killed and its reader thread removes the
 /// row (and tells attached clients); a not-yet-restored one is just deleted.
 async fn delete_session(State(st): State<AppState>, Path(id): Path<String>) -> StatusCode {
@@ -1520,90 +1200,8 @@ mod tests {
         );
     }
 
-    /// Our copy of the page must talk to us, not to the default address.
-    #[test]
-    fn local_app_points_at_its_own_origin() {
-        assert_eq!(APP_HTML.matches(HOSTED_DAEMON_META).count(), 1);
-        assert!(!APP_PAGE.contains(HOSTED_DAEMON_META));
-    }
-
-    #[test]
-    fn host_must_be_local_or_an_address() {
-        let host = |h: &str| {
-            let mut headers = HeaderMap::new();
-            headers.insert(header::HOST, HeaderValue::from_str(h).unwrap());
-            host_is_address(&headers)
-        };
-        for ok in [
-            "localhost:7681",
-            "tabsh.localhost:7681",
-            "TABSH.localhost",
-            "127.0.0.1:7681",
-            "[::1]:7681",
-        ] {
-            assert!(host(ok), "{ok}");
-        }
-        for bad in [
-            "evil.example:7681",
-            "evil.localhost:7681",
-            "tabsh.localhost.evil.example",
-        ] {
-            assert!(!host(bad), "{bad}");
-        }
-    }
-
-    #[test]
-    fn app_page_scripts_are_embedded() {
-        // Every /_astro/ file the page references must be servable by the daemon.
-        for src in APP_HTML.split("/_astro/").skip(1) {
-            let name = src.split(['"', '\'', ')']).next().unwrap();
-            assert!(APP_ASSETS.iter().any(|(n, _)| *n == name), "missing {name}");
-        }
-        assert!(APP_ASSETS.iter().any(|(n, _)| n.ends_with(".js")));
-    }
-
-    #[test]
-    fn only_astro_assets_skip_the_token() {
-        assert!(is_public_asset(&Method::GET, "/_astro/a.js"));
-        assert!(is_public_asset(&Method::HEAD, "/_astro/a.js"));
-        assert!(!is_public_asset(&Method::POST, "/_astro/a.js"));
-        assert!(!is_public_asset(&Method::PUT, "/_astro/a.js"));
-        assert!(!is_public_asset(&Method::GET, "/api/sessions"));
-        assert!(!is_public_asset(&Method::GET, "/sounds/a.mp3"));
-        assert!(!is_public_asset(&Method::GET, "/_astrox/a.js"));
-        for path in [
-            "/_astro",
-            "/_astro/",
-            "/_astro/x/y",
-            "/_astro/../api/sessions",
-        ] {
-            assert!(!is_public_asset(&Method::GET, path), "{path}");
-        }
-    }
-
-    #[test]
-    fn file_api_needs_the_token_without_origin() {
-        let token = "s3cret";
-        for path in ["/api/files", "/api/files/raw"] {
-            assert!(!admits_without_origin(path, None, token), "{path}");
-            assert!(
-                !admits_without_origin(path, Some("wrong!"), token),
-                "{path}"
-            );
-            assert!(admits_without_origin(path, Some(token), token), "{path}");
-        }
-        // Everything else is left to its own hardening for now.
-        assert!(admits_without_origin("/api/sessions", None, token));
-        assert!(admits_without_origin("/ws", None, token));
-    }
-
-    #[test]
-    fn typing_sounds_are_embedded() {
-        assert!(SOUNDS.iter().any(|(name, _)| name.ends_with(".mp3")));
-    }
-
     fn scratch() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("tabsh-test-{}", random_hex(8).unwrap()));
+        let dir = std::env::temp_dir().join(format!("tabsh-test-{}", auth::random_hex(8).unwrap()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -1888,10 +1486,7 @@ mod tests {
         let state = test_state();
 
         // The first asset name from APP_ASSETS for the public asset test.
-        let first_asset = APP_ASSETS
-            .first()
-            .map(|(name, _)| *name)
-            .expect("APP_ASSETS is empty");
+        let first_asset = web::assets::first_asset_name().expect("APP_ASSETS is empty");
 
         // Routes that require a token: each returns 401 with Origin but no token.
         let guarded_routes: &[(Method, &str)] = &[
