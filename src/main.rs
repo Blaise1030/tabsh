@@ -198,7 +198,7 @@ static APP_PAGE: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
 /// The hosted site's policy for /app/ (web/public/_headers), for our copy.
 const APP_CSP: &str = "default-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; \
 style-src 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; \
-img-src data:; connect-src 'self' ws://tabsh.localhost:* ws://localhost:* ws://127.0.0.1:*; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+img-src data: blob:; frame-src blob:; connect-src 'self' ws://tabsh.localhost:* ws://localhost:* ws://127.0.0.1:*; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 /// The name our own copy of the app is opened at, rather than a bare
 /// `localhost`.
 const LOCAL_NAME: &str = "tabsh.localhost";
