@@ -5,6 +5,7 @@ use axum::{
         ConnectInfo, DefaultBodyLimit, Path, Query, Request, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
+    handler::Handler,
     http::{HeaderMap, HeaderValue, Method, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
@@ -283,7 +284,10 @@ async fn main() {
             "/api/uploads",
             post(upload).layer(DefaultBodyLimit::max(UPLOAD_LIMIT_BYTES)),
         )
-        .route("/api/files", get(file_info))
+        .route(
+            "/api/files",
+            get(file_info).put(save.layer(DefaultBodyLimit::max(4 * TEXT_LIMIT_BYTES as usize))),
+        )
         .route("/api/files/raw", get(file_raw))
         .route("/ws", get(ws_handler))
         .layer(middleware::from_fn_with_state(state.clone(), guard))
@@ -857,6 +861,96 @@ fn file_error(e: std::io::Error) -> Response {
         std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND.into_response(),
         std::io::ErrorKind::PermissionDenied => StatusCode::FORBIDDEN.into_response(),
         _ => internal_error(e).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct SaveFile {
+    path: String,
+    content: String,
+    version: String,
+}
+
+enum SaveError {
+    /// The file changed since it was read; carries its current version.
+    Conflict(String),
+    TooLarge,
+    Io(std::io::Error),
+}
+
+impl From<std::io::Error> for SaveError {
+    fn from(e: std::io::Error) -> Self {
+        SaveError::Io(e)
+    }
+}
+
+/// Replaces the file with `content` unless it changed since `expected` was
+/// read. Writes a temp file beside it and renames over it, so a crash never
+/// leaves a half-written file; a symlink's target is saved, not the link.
+fn save_file(path: &std::path::Path, content: &[u8], expected: &str) -> Result<String, SaveError> {
+    if content.len() as u64 > TEXT_LIMIT_BYTES {
+        return Err(SaveError::TooLarge);
+    }
+    let path = std::fs::canonicalize(path)?;
+    let meta = std::fs::metadata(&path)?;
+    let current = version_of(&meta);
+    if current != expected {
+        return Err(SaveError::Conflict(current));
+    }
+    let name = path
+        .file_name()
+        .map_or_else(|| "file".to_string(), |n| n.to_string_lossy().into_owned());
+    let tmp = path.with_file_name(format!(".{name}.tabsh-{}", random_hex(6)?));
+    let write = || -> std::io::Result<String> {
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)?;
+        f.write_all(content)?;
+        f.sync_all()?;
+        std::fs::set_permissions(&tmp, meta.permissions())?;
+        std::fs::rename(&tmp, &path)?;
+        Ok(version_of(&std::fs::metadata(&path)?))
+    };
+    write().map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        SaveError::Io(e)
+    })
+}
+
+/// Saves the pane's editor. The page reads the new version from a header.
+async fn save(Json(body): Json<SaveFile>) -> Response {
+    if !std::path::Path::new(&body.path).is_absolute() {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    let saved = tokio::task::spawn_blocking(move || {
+        save_file(
+            std::path::Path::new(&body.path),
+            body.content.as_bytes(),
+            &body.version,
+        )
+    })
+    .await;
+    match saved {
+        Ok(Ok(version)) => (
+            StatusCode::NO_CONTENT,
+            [
+                ("x-tabsh-version", version),
+                (
+                    "access-control-expose-headers",
+                    "x-tabsh-version".to_string(),
+                ),
+            ],
+        )
+            .into_response(),
+        Ok(Err(SaveError::Conflict(version))) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "version": version })),
+        )
+            .into_response(),
+        Ok(Err(SaveError::TooLarge)) => StatusCode::PAYLOAD_TOO_LARGE.into_response(),
+        Ok(Err(SaveError::Io(e))) => file_error(e),
+        Err(e) => internal_error(e).into_response(),
     }
 }
 
@@ -1466,5 +1560,61 @@ mod tests {
         let info = read_file_info(&big).unwrap();
         assert_eq!(info.kind, FileKind::Text);
         assert!(info.content.is_none());
+    }
+
+    #[test]
+    fn save_file_writes_and_returns_new_version() {
+        let dir = scratch();
+        let f = dir.join("a.txt");
+        std::fs::write(&f, "old").unwrap();
+        let v = version_of(&std::fs::metadata(&f).unwrap());
+        let nv = save_file(&f, b"new!", &v).ok().unwrap();
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "new!");
+        assert_eq!(nv, version_of(&std::fs::metadata(&f).unwrap()));
+        assert_eq!(
+            std::fs::read_dir(&dir).unwrap().count(),
+            1,
+            "no temp file left behind"
+        );
+    }
+
+    #[test]
+    fn save_file_refuses_a_stale_version() {
+        let dir = scratch();
+        let f = dir.join("a.txt");
+        std::fs::write(&f, "old").unwrap();
+        let v = version_of(&std::fs::metadata(&f).unwrap());
+        std::fs::write(&f, "changed in vim").unwrap();
+        match save_file(&f, b"mine", &v) {
+            Err(SaveError::Conflict(cur)) => {
+                assert_eq!(cur, version_of(&std::fs::metadata(&f).unwrap()))
+            }
+            _ => panic!("expected a conflict"),
+        }
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "changed in vim");
+    }
+
+    #[test]
+    fn save_file_keeps_permissions_and_symlinks() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch();
+        let f = dir.join("run.sh");
+        std::fs::write(&f, "echo hi").unwrap();
+        std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let link = dir.join("link.sh");
+        std::os::unix::fs::symlink(&f, &link).unwrap();
+        let v = version_of(&std::fs::metadata(&f).unwrap());
+        save_file(&link, b"echo bye", &v).ok().unwrap();
+        assert!(
+            std::fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "echo bye");
+        assert_eq!(
+            std::fs::metadata(&f).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
     }
 }
