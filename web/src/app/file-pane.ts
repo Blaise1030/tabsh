@@ -57,12 +57,13 @@ export function init(h: Host): void {
   // Esc goes back to the terminal, after CodeMirror's own Esc (closing search).
   paneEl.addEventListener('keydown', (e) => {
     const st = current === null ? undefined : states.get(current);
+    const key = e.key.toLowerCase();
     const mod = (isMac ? e.metaKey : e.ctrlKey) && !e.altKey && !e.shiftKey;
-    if (mod && st && (e.key === 's' || e.key === 'e')) {
+    if (mod && st && (key === 's' || key === 'e')) {
       // The editor's own Mod-s has already saved and set defaultPrevented.
       const handled = e.defaultPrevented;
       e.preventDefault();
-      if (!handled) { if (e.key === 's') void save(st); else toggleMode(st); }
+      if (!handled) { if (key === 's') void save(st); else toggleMode(st); }
     } else if (e.key === 'Escape' && !e.defaultPrevented) host.focusTerminal();
   });
 
@@ -211,14 +212,16 @@ async function save(st: PaneState, overwrite = false): Promise<void> {
   } catch (err) {
     error = err instanceof FileError ? err.message : "Couldn't reach tabsh";
   }
-  st.saving = false;
   if (st.epoch !== epoch || states.get(st.id) !== st) return; // reloaded or closed meanwhile
+  st.saving = false;
   if (res && 'conflict' in res) {
     st.conflict = res.conflict;
     st.ui!.bar.hidden = false;
     setStatus(st, '');
   } else if (res && !res.version) {
     // Written, but we can't tell the next save's base version.
+    st.conflict = null;
+    st.ui!.bar.hidden = true;
     setStatus(st, "Saved, but the server didn't return a version; reload before saving again");
   } else if (res) {
     st.version = res.version;
@@ -376,6 +379,10 @@ async function load(sessionId: string, path: string, line?: number, col?: number
   if (error || !info) { body.append(message(error ?? 'Not found')); return; }
   try {
     await renderBody(state, info, body, isCurrent);
+    // So the keyboard (Cmd/Ctrl-E, -S) works at once; Esc goes back to the terminal.
+    if (isCurrent() && current === sessionId) {
+      if (state.editor) state.editor.view.focus(); else paneEl.focus();
+    }
   } catch (err) {
     if (!isCurrent()) return;
     const big = err instanceof FileError && err.status === 413;
