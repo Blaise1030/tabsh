@@ -1,10 +1,12 @@
 name: Release
 
-# Push a tag like v0.2.0 (matching the version in Cargo.toml) to build the
-# daemon for macOS and Linux and publish the binaries as a GitHub release.
+# Runs when a merged release PR lands on main (package.json's version changed
+# and has no tag yet): builds the daemon for macOS and Linux, then publishes a
+# GitHub release tagged vX.Y.Z with that version's CHANGELOG.md section.
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+    paths: [package.json]
 
 permissions:
   contents: read
@@ -13,8 +15,30 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.version.outputs.release }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - id: version
+        run: |
+          version=$(node -p "require('./package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          before=$(git show HEAD^:package.json 2>/dev/null | node -p 'JSON.parse(require("fs").readFileSync(0)).version' 2>/dev/null || true)
+          if [ -n "$before" ] && [ "$before" != "$version" ] && [ -z "$(git ls-remote --tags origin "refs/tags/v$version")" ]; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No new version to release (was ${before:-none}, now $version)."
+          fi
+
   build:
     name: Build ${{ matrix.target }}
+    needs: check
+    if: needs.check.outputs.release == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -26,10 +50,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      - name: Check the tag matches Cargo.toml
-        run: |
-          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
-          test "v$version" = "$GITHUB_REF_NAME" || { echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml version $version"; exit 1; }
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -39,9 +59,9 @@ jobs:
       - run: cargo build --release --locked --target ${{ matrix.target }}
       - name: Package
         run: |
-          name=tabsh-${{ github.ref_name }}-${{ matrix.target }}
+          name=tabsh-v${{ needs.check.outputs.version }}-${{ matrix.target }}
           mkdir "$name"
-          cp target/${{ matrix.target }}/release/tabsh README.md "$name/"
+          cp target/${{ matrix.target }}/release/tabsh README.md CHANGELOG.md "$name/"
           tar -czf "$name.tar.gz" "$name"
           shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
       - uses: actions/upload-artifact@v7
@@ -50,17 +70,21 @@ jobs:
           path: tabsh-*.tar.gz*
 
   publish:
-    name: Publish release
-    needs: build
+    name: Publish v${{ needs.check.outputs.version }}
+    needs: [check, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
-      - name: Create the GitHub release
-        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+      - name: Create the tag and GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          awk -v h="## v$VERSION" '$0 == h {on=1; next} on && /^## / {exit} on' CHANGELOG.md > notes.md
+          gh release create "v$VERSION" dist/* --target "$GITHUB_SHA" --title "v$VERSION" --notes-file notes.md

@@ -1,0 +1,105 @@
+---
+import { REPO_URL } from '../site';
+
+interface Props { title: string; description: string }
+const { title, description } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;600&display=swap" />
+  </head>
+  <body>
+    <main>
+      <header class="masthead">
+        <div>
+          <p><a class="home" href="/">TABSH</a> <span class="cursor" aria-hidden="true"></span></p>
+          <p>YOUR TERMINAL, IN A BROWSER TAB</p>
+          <p>2026</p>
+        </div>
+        <nav aria-label="Primary">
+          <a href="/app/">[ START APP ]</a>
+          <a href="/changelog/">[ CHANGELOG ]</a>
+          <a href={REPO_URL}>[ GITHUB ]</a>
+        </nav>
+      </header>
+
+      <slot />
+    </main>
+    <slot name="after" />
+  </body>
+</html>
+
+<style is:global>
+  :root {
+    /* Same palette as the app's "tabsh" theme (src/pages/app/index.astro):
+       greys are mixed from bg and fg exactly as the app derives its own. */
+    --bg: #f7f7f7;
+    --fg: #1a1a1a;
+    --line: #c9d6ec;
+    --link: #3b78d8;
+    --code-bg: color-mix(in srgb, var(--fg) 8%, var(--bg));
+    --muted: color-mix(in srgb, var(--fg) 60%, var(--bg));
+    --mono: 'Geist Mono', ui-monospace, Menlo, monospace;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141414;
+      --fg: #e6e6e6;
+      --line: #2f4366;
+      --link: #7aa7ee;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.6 var(--mono); letter-spacing: 0; -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: var(--fg); color: var(--bg); }
+
+  /* Shared page typography: global so it reaches each page's slotted content. */
+  main { max-width: 46rem; padding: 2.5rem 1rem 4rem; margin-inline: auto; }
+
+  p, ul, ol, pre { margin: 0 0 1rem; }
+  code { font: inherit; }
+  b { font-weight: 600; }
+  .mark, .muted { color: var(--muted); }
+
+  .masthead { margin-bottom: 8rem; line-height: 1.5; }
+  .masthead p { margin: 0; }
+  .masthead { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+  .masthead nav { display: flex; flex-direction: column; align-items: flex-end; white-space: nowrap; }
+  .masthead nav a { color: var(--fg); border: 0; }
+  .masthead nav a:hover { color: var(--link); }
+  .cursor {
+    display: inline-block; width: .6em; height: 1.1em; vertical-align: -.2em;
+    background: var(--fg); animation: blink 1.1s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .cursor { animation: none; } }
+  @media (max-width: 520px) { .masthead { margin-bottom: 5rem; } }
+
+  .sig { margin-block: 2rem; }
+  .end { margin-top: 3rem; }
+
+  h1, h2 { margin: 2.5rem 0 1rem; font-size: 1em; font-weight: 600; letter-spacing: .02em; scroll-margin-top: 2rem; }
+
+  main a { color: var(--link); text-decoration: none; border-bottom: 1px solid var(--line); transition: border-color .2s; }
+  main a:hover { border-color: var(--link); }
+
+
+  pre { font: inherit; line-height: 1.45; overflow-x: auto; scrollbar-width: thin; }
+  .masthead a { color: var(--fg); border: 0; }
+  .masthead nav a:hover { color: var(--link); }
+</style>
