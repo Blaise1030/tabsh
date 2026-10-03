@@ -502,7 +502,8 @@ fn random_hex(len: usize) -> std::io::Result<String> {
 ///   us, which would otherwise look same-origin. (`.localhost` names never
 ///   reach public DNS; browsers and the OS resolve them to loopback.)
 /// - No Origin: not a cross-site browser request (browsers always send it on
-///   cross-site writes and WebSockets; see `ws_handler`).
+///   cross-site writes and WebSockets; see `ws_handler`). The file API still
+///   needs the token (`admits_without_origin`).
 /// - A hosted UI origin, or our own (the page at /app/): allowed, but only
 ///   with the token.
 /// - Anything else is refused.
@@ -516,6 +517,9 @@ async fn guard(State(st): State<AppState>, req: Request, next: Next) -> Response
         return next.run(req).await;
     }
     let Some(origin) = headers.get(header::ORIGIN).cloned() else {
+        if !admits_without_origin(req.uri().path(), presented_token(&req), &st.token) {
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
         return next.run(req).await;
     };
     // The Host was checked above, so this is a page we served, not a
@@ -560,9 +564,18 @@ async fn guard(State(st): State<AppState>, req: Request, next: Next) -> Response
     res
 }
 
+/// Whether a request with no Origin may pass. The file API reads and writes
+/// any file the user can, so it always needs the token, whoever is asking.
+fn admits_without_origin(path: &str, token: Option<&str>, expected: &str) -> bool {
+    !path.starts_with("/api/files") || token.is_some_and(|t| token_eq(t, expected))
+}
+
 /// The page's bundled scripts and styles: read-only, same for everyone.
 fn is_public_asset(method: &Method, path: &str) -> bool {
-    (method == Method::GET || method == Method::HEAD) && path.starts_with("/_astro/")
+    (method == Method::GET || method == Method::HEAD)
+        && path
+            .strip_prefix("/_astro/")
+            .is_some_and(|rest| !rest.is_empty() && !rest.contains('/'))
 }
 
 fn host_is_address(headers: &HeaderMap) -> bool {
@@ -884,10 +897,11 @@ fn read_file_info(path: &std::path::Path) -> std::io::Result<FileInfo> {
     if meta.is_dir() {
         return Ok(info);
     }
+    if !meta.is_file() {
+        return Err(not_a_regular_file());
+    }
     let mut head = Vec::new();
-    std::fs::File::open(path)?
-        .take(8192)
-        .read_to_end(&mut head)?;
+    open_regular(path)?.take(8192).read_to_end(&mut head)?;
     info.kind = file_kind(path, &head, false);
     let texty = matches!(
         info.kind,
@@ -895,7 +909,7 @@ fn read_file_info(path: &std::path::Path) -> std::io::Result<FileInfo> {
     );
     if texty && meta.len() <= TEXT_LIMIT_BYTES {
         let mut bytes = Vec::new();
-        std::fs::File::open(path)?
+        open_regular(path)?
             .take(TEXT_LIMIT_BYTES + 1)
             .read_to_end(&mut bytes)?;
         if bytes.len() as u64 <= TEXT_LIMIT_BYTES
@@ -909,8 +923,27 @@ fn read_file_info(path: &std::path::Path) -> std::io::Result<FileInfo> {
     Ok(info)
 }
 
+fn not_a_regular_file() -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidInput, "not a regular file")
+}
+
+/// Opens a regular file for reading. FIFOs, devices and sockets are refused;
+/// `O_NONBLOCK` keeps a path swapped for a FIFO from hanging the open.
+fn open_regular(path: &std::path::Path) -> std::io::Result<std::fs::File> {
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(not_a_regular_file());
+    }
+    Ok(file)
+}
+
 fn file_error(e: std::io::Error) -> Response {
     match e.kind() {
+        // Directories and FIFOs, devices and sockets where a file is needed.
+        std::io::ErrorKind::InvalidInput => StatusCode::BAD_REQUEST.into_response(),
         std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND.into_response(),
         std::io::ErrorKind::PermissionDenied => StatusCode::FORBIDDEN.into_response(),
         _ => internal_error(e).into_response(),
@@ -955,12 +988,11 @@ fn save_file(path: &std::path::Path, content: &[u8], expected: &str) -> Result<S
         .map_or_else(|| "file".to_string(), |n| n.to_string_lossy().into_owned());
     let tmp = path.with_file_name(format!(".{name}.tabsh-{}", random_hex(6)?));
     let write = || -> std::io::Result<String> {
-        let mut f = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&tmp)?;
+        use std::os::unix::fs::PermissionsExt;
+        let mut f = create_temp(&tmp, meta.permissions().mode())?;
         f.write_all(content)?;
         f.sync_all()?;
+        // Again, for any bits the umask stripped at creation.
         std::fs::set_permissions(&tmp, meta.permissions())?;
         std::fs::rename(&tmp, &path)?;
         Ok(version_of(&std::fs::metadata(&path)?))
@@ -969,6 +1001,16 @@ fn save_file(path: &std::path::Path, content: &[u8], expected: &str) -> Result<S
         let _ = std::fs::remove_file(&tmp);
         SaveError::Io(e)
     })
+}
+
+/// A new file that has `mode` from the moment it exists, so a private file's
+/// contents are never readable by others while it is being written.
+fn create_temp(tmp: &std::path::Path, mode: u32) -> std::io::Result<std::fs::File> {
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(mode)
+        .open(tmp)
 }
 
 /// Saves the pane's editor. The page reads the new version from a header.
@@ -1038,12 +1080,11 @@ async fn file_raw(Query(q): Query<FileQuery>) -> Response {
     }
     let read = tokio::task::spawn_blocking(move || {
         let path = std::fs::canonicalize(&q.path)?;
-        let file = std::fs::File::open(&path)?;
-        let meta = file.metadata()?;
-        if meta.is_dir() {
-            return Err(std::io::Error::other("is a directory"));
+        if !std::fs::metadata(&path)?.is_file() {
+            return Err(not_a_regular_file());
         }
-        if meta.len() > RAW_LIMIT_BYTES {
+        let file = open_regular(&path)?;
+        if file.metadata()?.len() > RAW_LIMIT_BYTES {
             return Ok(None);
         }
         let mut bytes = Vec::new();
@@ -1054,9 +1095,6 @@ async fn file_raw(Query(q): Query<FileQuery>) -> Response {
     let (path, bytes) = match read {
         Ok(Ok(Some(found))) => found,
         Ok(Ok(None)) => return StatusCode::PAYLOAD_TOO_LARGE.into_response(),
-        Ok(Err(e)) if e.to_string() == "is a directory" => {
-            return StatusCode::BAD_REQUEST.into_response();
-        }
         Ok(Err(e)) => return file_error(e),
         Err(e) => return internal_error(e).into_response(),
     };
@@ -1065,24 +1103,7 @@ async fn file_raw(Query(q): Query<FileQuery>) -> Response {
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
-    let kind = match ext.as_str() {
-        "html" | "htm" => "text/html; charset=utf-8",
-        "svg" => "image/svg+xml",
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "avif" => "image/avif",
-        "ico" => "image/x-icon",
-        "bmp" => "image/bmp",
-        "pdf" => "application/pdf",
-        "mp4" => "video/mp4",
-        "webm" => "video/webm",
-        "mp3" => "audio/mpeg",
-        "wav" => "audio/wav",
-        "json" => "application/json",
-        _ => "application/octet-stream",
-    };
+    let kind = raw_content_type(&ext);
     let mut res = (
         [
             (header::CONTENT_TYPE, kind),
@@ -1101,6 +1122,28 @@ async fn file_raw(Query(q): Query<FileQuery>) -> Response {
         );
     }
     res
+}
+
+/// The type `file_raw` serves for a lower-case extension.
+fn raw_content_type(ext: &str) -> &'static str {
+    match ext {
+        "html" | "htm" => "text/html; charset=utf-8",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "avif" => "image/avif",
+        "ico" => "image/x-icon",
+        "bmp" => "image/bmp",
+        "pdf" => "application/pdf",
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "json" => "application/json",
+        _ => "application/octet-stream",
+    }
 }
 
 /// Resolves a path printed in a terminal: `~` is `home`, a relative path is
@@ -1137,6 +1180,9 @@ enum FileKind {
     Binary,
 }
 
+/// Extensions the pane previews as images (lower case).
+const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "avif", "ico", "bmp"];
+
 /// What the file pane should do with a path: by extension where that's
 /// decisive, otherwise by sniffing `head` (the start of the file).
 fn file_kind(path: &std::path::Path, head: &[u8], is_dir: bool) -> FileKind {
@@ -1152,7 +1198,7 @@ fn file_kind(path: &std::path::Path, head: &[u8], is_dir: bool) -> FileKind {
         "html" | "htm" => FileKind::Html,
         "md" | "markdown" => FileKind::Markdown,
         "svg" => FileKind::Svg,
-        "png" | "jpg" | "jpeg" | "gif" | "webp" | "avif" | "ico" | "bmp" => FileKind::Image,
+        e if IMAGE_EXTS.contains(&e) => FileKind::Image,
         "pdf" => FileKind::Pdf,
         _ => {
             // `head` may end inside a multi-byte character; that's still text.
@@ -1511,7 +1557,7 @@ mod tests {
     }
 
     #[test]
-    fn only_astro_gets_skip_the_token() {
+    fn only_astro_assets_skip_the_token() {
         assert!(is_public_asset(&Method::GET, "/_astro/a.js"));
         assert!(is_public_asset(&Method::HEAD, "/_astro/a.js"));
         assert!(!is_public_asset(&Method::POST, "/_astro/a.js"));
@@ -1519,6 +1565,30 @@ mod tests {
         assert!(!is_public_asset(&Method::GET, "/api/sessions"));
         assert!(!is_public_asset(&Method::GET, "/sounds/a.mp3"));
         assert!(!is_public_asset(&Method::GET, "/_astrox/a.js"));
+        for path in [
+            "/_astro",
+            "/_astro/",
+            "/_astro/x/y",
+            "/_astro/../api/sessions",
+        ] {
+            assert!(!is_public_asset(&Method::GET, path), "{path}");
+        }
+    }
+
+    #[test]
+    fn file_api_needs_the_token_without_origin() {
+        let token = "s3cret";
+        for path in ["/api/files", "/api/files/raw"] {
+            assert!(!admits_without_origin(path, None, token), "{path}");
+            assert!(
+                !admits_without_origin(path, Some("wrong!"), token),
+                "{path}"
+            );
+            assert!(admits_without_origin(path, Some(token), token), "{path}");
+        }
+        // Everything else is left to its own hardening for now.
+        assert!(admits_without_origin("/api/sessions", None, token));
+        assert!(admits_without_origin("/ws", None, token));
     }
 
     #[test]
@@ -1690,6 +1760,89 @@ mod tests {
             std::fs::metadata(&f).unwrap().permissions().mode() & 0o777,
             0o755
         );
+    }
+
+    #[test]
+    fn save_file_keeps_a_private_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch();
+        let f = dir.join("secret.env");
+        std::fs::write(&f, "A=1").unwrap();
+        std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let v = version_of(&std::fs::metadata(&f).unwrap());
+        save_file(&f, b"A=2", &v).ok().unwrap();
+        assert_eq!(
+            std::fs::metadata(&f).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+
+    #[test]
+    fn temp_file_is_created_with_the_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        // No set_permissions here: the mode must be on the file from creation,
+        // so it is never readable by others, even briefly. Without it the
+        // umask would leave 0o644 (or similar).
+        let dir = scratch();
+        let tmp = dir.join(".x.tabsh-tmp");
+        let _f = create_temp(&tmp, 0o600).unwrap();
+        assert_eq!(
+            std::fs::metadata(&tmp).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert!(create_temp(&tmp, 0o600).is_err(), "never reuses a file");
+    }
+
+    #[test]
+    fn file_info_refuses_a_fifo_without_blocking() {
+        let dir = scratch();
+        let fifo = dir.join("pipe");
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap();
+        assert!(made.success());
+        let (tx, rx) = std::sync::mpsc::channel();
+        let p = fifo.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(read_file_info(&p).map(|_| ()));
+        });
+        let res = rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("read_file_info blocked on a FIFO");
+        let err = res.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert_eq!(
+            file_error(err).status(),
+            StatusCode::BAD_REQUEST,
+            "a FIFO is a bad request"
+        );
+        // Wake the reader in case it is stuck in open().
+        let _ = std::fs::OpenOptions::new()
+            .write(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(&fifo);
+    }
+
+    #[test]
+    fn previewed_kinds_get_a_safe_content_type() {
+        let p = |e: &str| PathBuf::from(format!("a.{e}"));
+        let mut checked = 0;
+        for ext in IMAGE_EXTS.iter().chain(&["pdf"]) {
+            let kind = file_kind(&p(ext), b"", false);
+            assert!(matches!(kind, FileKind::Image | FileKind::Pdf), "{ext}");
+            let ct = raw_content_type(ext);
+            assert!(
+                ct.starts_with("image/") || ct == "application/pdf",
+                "{ext} served as {ct}"
+            );
+            checked += 1;
+        }
+        assert!(checked >= 9);
+        // And the upper-case spellings the pane also sees.
+        assert_eq!(file_kind(&p("PNG"), b"", false), FileKind::Image);
+        assert_eq!(raw_content_type("pdf"), "application/pdf");
+        assert_eq!(raw_content_type("exe"), "application/octet-stream");
     }
 
     #[test]
