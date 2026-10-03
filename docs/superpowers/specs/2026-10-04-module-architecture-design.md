@@ -131,6 +131,12 @@ Each existing test file moves next to its module (`links/links.test.ts`,
 To make that possible, these functions take their inputs as parameters
 (state, `isMac`) rather than reading globals.
 
+Pure logic lives in files that don't touch the DOM when imported, so
+`node --test` can load them. That adds a few small files to the map above:
+`daemon/parse.ts` (token parsing), `settings/schema.ts` (`Settings`,
+`defaults`, `cleanSettings`), `sessions/bell-scan.ts` and `ui/drop-paths.ts`
+(`shellQuote`, `localPaths`).
+
 **Rules**
 - Modules talk to each other only through `export`s. The `window.tabshFilePane`,
   `window.tabshFiles` and `window.tabshLinks` hooks are removed.
@@ -194,7 +200,9 @@ Every commit leaves the build and every test green.
    files, settings, sound, palette, ui, and finally `main.ts`. Remove the
    `window.tabsh*` hooks once nothing uses them. Every commit that changes
    the app rebuilds `src/app.html` and `src/app-assets`.
-4. Tighten the CSP.
+4. Tighten the CSP. This happens as soon as the inline script is a bundled
+   module, before the feature-by-feature split, so the split itself runs
+   under the stricter policy.
 5. Write `docs/architecture.md` and `CLAUDE.md`.
 
 ## 6. Proving behaviour didn't change
