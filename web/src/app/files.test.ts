@@ -1,13 +1,25 @@
-import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { test } from 'node:test';
 import {
-  FileError, displayPath, exists, filesUrl, formatSize, fromDisk, rawBlobUrl, readFile, saveFile, toDisk,
+  displayPath,
+  exists,
   type Fetcher,
+  FileError,
+  filesUrl,
+  formatSize,
+  fromDisk,
+  rawBlobUrl,
+  readFile,
+  saveFile,
+  toDisk,
 } from './files.ts';
 
 function stub(res: Response) {
   const calls: { path: string; init?: RequestInit }[] = [];
-  const f: Fetcher = async (path, init) => { calls.push({ path, init }); return res; };
+  const f: Fetcher = async (path, init) => {
+    calls.push({ path, init });
+    return res;
+  };
   return { f, calls };
 }
 
@@ -23,8 +35,10 @@ test('exists uses HEAD', async () => {
 test('readFile', async () => {
   const info = { path: '/a', kind: 'text', size: 1, version: 'v', content: 'x', eol: 'lf' };
   assert.deepEqual(await readFile(stub(Response.json(info)).f, 's', 'a'), info);
-  await assert.rejects(readFile(stub(new Response(null, { status: 403 })).f, 's', 'a'), (e: unknown) =>
-    e instanceof FileError && e.status === 403 && e.message === 'Permission denied');
+  await assert.rejects(
+    readFile(stub(new Response(null, { status: 403 })).f, 's', 'a'),
+    (e: unknown) => e instanceof FileError && e.status === 403 && e.message === 'Permission denied',
+  );
   await assert.rejects(readFile(stub(new Response(null, { status: 404 })).f, 's', 'a'), /Not found/);
   await assert.rejects(readFile(stub(new Response(null, { status: 413 })).f, 's', 'a'), /Too large to open here/);
   await assert.rejects(readFile(stub(new Response(null, { status: 500 })).f, 's', 'a'), /Request failed \(500\)/);

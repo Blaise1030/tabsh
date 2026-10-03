@@ -1,5 +1,5 @@
-import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { test } from 'node:test';
 import { findLinks } from './links.ts';
 
 const texts = (s: string) => findLinks(s).map((f) => [f.kind, f.text, f.line, f.col]);
@@ -7,7 +7,9 @@ const texts = (s: string) => findLinks(s).map((f) => [f.kind, f.text, f.line, f.
 test('urls', () => {
   assert.deepEqual(texts('see https://x.dev/a.'), [['url', 'https://x.dev/a', undefined, undefined]]);
   assert.deepEqual(texts('(see https://x.dev/a)'), [['url', 'https://x.dev/a', undefined, undefined]]);
-  assert.deepEqual(texts('https://en.wikipedia.org/wiki/Foo_(bar)'), [['url', 'https://en.wikipedia.org/wiki/Foo_(bar)', undefined, undefined]]);
+  assert.deepEqual(texts('https://en.wikipedia.org/wiki/Foo_(bar)'), [
+    ['url', 'https://en.wikipedia.org/wiki/Foo_(bar)', undefined, undefined],
+  ]);
   assert.deepEqual(texts('ftp://x.dev'), []);
 });
 test('paths with positions', () => {
@@ -16,14 +18,22 @@ test('paths with positions', () => {
   assert.deepEqual(texts('~/notes.md:3'), [['path', '~/notes.md', 3, undefined]]);
 });
 test('ls and git status output', () => {
-  assert.deepEqual(texts('Cargo.toml  README.md  src'), [['path', 'Cargo.toml', undefined, undefined], ['path', 'README.md', undefined, undefined]]);
-  assert.deepEqual(texts('\tmodified:   web/src/pages/app/index.astro'), [['path', 'web/src/pages/app/index.astro', undefined, undefined]]);
+  assert.deepEqual(texts('Cargo.toml  README.md  src'), [
+    ['path', 'Cargo.toml', undefined, undefined],
+    ['path', 'README.md', undefined, undefined],
+  ]);
+  assert.deepEqual(texts('\tmodified:   web/src/pages/app/index.astro'), [
+    ['path', 'web/src/pages/app/index.astro', undefined, undefined],
+  ]);
 });
 test('not paths', () => {
   assert.deepEqual(texts('and/or 1.2.3 e.g. v1.2 // ...'), [['path', 'and/or', undefined, undefined]]);
 });
 test('a url is not also a path', () => {
-  assert.deepEqual(texts('http://localhost:5173/src/x.ts').map(([k]) => k), ['url']);
+  assert.deepEqual(
+    texts('http://localhost:5173/src/x.ts').map(([k]) => k),
+    ['url'],
+  );
 });
 test('offsets cover the suffix', () => {
   const [f] = findLinks('x src/a.rs:1:2 y');
