@@ -1,0 +1,11 @@
+{
+  "repo": "github:Blaise1030/tabsh",
+  "noAuthors": true,
+  "types": {
+    "feat": { "title": "Features" },
+    "fix": { "title": "Fixes" },
+    "perf": { "title": "Performance" },
+    "revert": { "title": "Reverts" },
+    "chore": false, "ci": false, "build": false, "test": false, "style": false, "refactor": false, "docs": false, "types": false, "examples": false
+  }
+}

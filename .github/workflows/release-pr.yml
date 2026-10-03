@@ -1,0 +1,89 @@
+name: Release PR
+
+# Keeps one open "chore(release): vX.Y.Z" pull request up to date with main.
+# changelogen turns the conventional commits since the last tag into a new
+# CHANGELOG.md section and bumps the version; merging the PR releases it
+# (see release.yml).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release as this exact version (e.g. 0.2.0) instead of the computed one
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-pr
+  cancel-in-progress: true
+
+jobs:
+  release-pr:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # changelogen needs the tags and full history
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Decide the next version
+        id: plan
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          current=$(node -p "require('./package.json').version")
+          # A merged release PR changes the version; release.yml takes it from there.
+          if git cat-file -e HEAD^:package.json 2>/dev/null &&
+             [ "$(git show HEAD^:package.json | node -p 'JSON.parse(require("fs").readFileSync(0)).version')" != "$current" ]; then
+            echo "This push is a release (v$current); nothing to propose."
+            echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          last_tag=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+          range=${last_tag:+$last_tag..}HEAD
+          if [ -n "$INPUT_VERSION" ]; then
+            next=$INPUT_VERSION
+          elif ! git log "$range" --format=%s | grep -qE '^(feat|fix|perf)(\([^)]*\))?!?: |^[a-z]+(\([^)]*\))?!: '; then
+            echo "No feat/fix/perf or breaking commits since ${last_tag:-the first commit}; no release PR."
+            echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+          elif [ "$current" = 0.0.0 ]; then
+            next=0.1.0 # the first release
+          fi
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Write the changelog and bump the version
+        id: bump
+        if: steps.plan.outputs.skip != 'true'
+        env:
+          NEXT: ${{ steps.plan.outputs.next }}
+        run: |
+          npx --yes changelogen@0.6.2 --bump ${NEXT:+-r "$NEXT"}
+          version=$(node -p "require('./package.json').version")
+          # Copy it into Cargo.toml's [package] version (the first `version =` line).
+          # shellcheck disable=SC2016 # the ${...} below is JavaScript, not shell
+          node -e 'const fs = require("fs"); fs.writeFileSync("Cargo.toml", fs.readFileSync("Cargo.toml", "utf8").replace(/^version = ".*"$/m, `version = "${process.argv[1]}"`))' "$version"
+          cargo update --workspace
+          # The new section, for the PR description.
+          awk -v h="## v$version" '$0 == h {on=1; next} on && /^## / {exit} on' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update the release PR
+        if: steps.plan.outputs.skip != 'true'
+        uses: peter-evans/create-pull-request@v8
+        with:
+          # PRs opened with the default token don't trigger CI. Add a
+          # RELEASE_TOKEN secret (a fine-grained PAT) to have CI run on them.
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+          branch: release/next
+          delete-branch: true
+          commit-message: 'chore(release): v${{ steps.bump.outputs.version }}'
+          title: 'chore(release): v${{ steps.bump.outputs.version }}'
+          body-path: ${{ runner.temp }}/notes.md
+          labels: release

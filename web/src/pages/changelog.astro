@@ -1,0 +1,26 @@
+---
+import Site from '../layouts/Site.astro';
+// Written by changelogen in the release PR (see .github/workflows/release-pr.yml).
+import { Content, rawContent } from '../../../CHANGELOG.md';
+
+const released = /^## v/m.test(rawContent());
+---
+
+<Site title="Changelog · tabsh" description="What changed in each tabsh release.">
+  <h1><span class="mark">#</span> CHANGELOG</h1>
+  {released
+    ? <div class="log"><Content /></div>
+    : <p class="muted"><span class="mark">&gt;</span> Nothing released yet. The first version is on its way.</p>}
+</Site>
+
+<style>
+  /* The file's own "# Changelog" title is replaced by the page heading. */
+  .log :global(h1) { display: none; }
+  .log :global(h2) { margin: 3rem 0 .5rem; font-size: 1em; font-weight: 600; }
+  .log :global(h2)::before { content: '## '; color: var(--muted); }
+  .log :global(h3) { margin: 1.5rem 0 .5rem; font-size: 1em; font-weight: 400; color: var(--muted); }
+  .log :global(ul) { padding-left: 1.5rem; list-style: none; }
+  .log :global(li) { position: relative; margin-bottom: .25rem; }
+  .log :global(li)::before { content: '*'; position: absolute; left: -1.5rem; color: var(--muted); }
+  .log :global(code) { font: inherit; }
+</style>
