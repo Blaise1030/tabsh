@@ -1,5 +1,5 @@
 import {
-  FileError, displayPath, editorUrl, formatSize, fromDisk, rawBlobUrl, readFile, saveFile, toDisk, type Fetcher, type FileInfo,
+  FileError, displayPath, formatSize, fromDisk, rawBlobUrl, readFile, saveFile, toDisk, type Fetcher, type FileInfo,
 } from './files.ts';
 import { createEditor, type Editor } from './editor.ts';
 
@@ -7,7 +7,6 @@ export interface PaneTheme { background: string; foreground: string; cursor: str
 export interface Host {
   fetch: Fetcher;
   theme(): PaneTheme;
-  editor(): 'vscode' | 'cursor' | 'zed';
   layout(): void;                                  // refit the active terminal (sendSize(active))
   newTabAt(cwd: string): void;                     // POST /api/sessions {cwd} then activate
   focusTerminal(): void;
@@ -82,6 +81,33 @@ function button(label: string, onclick: () => void, title = label): HTMLButtonEl
   return b;
 }
 
+// Lucide icons (ISC). Static markup only: nothing from a file goes in here.
+const ICONS = {
+  edit: '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
+  preview: '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
+  collapse: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m8 9 3 3-3 3"/>',
+};
+
+function setIcon(b: HTMLButtonElement, icon: keyof typeof ICONS, label: string): void {
+  b.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[icon]}</svg>`;
+  b.title = label;
+  b.setAttribute('aria-label', label);
+}
+
+function iconButton(icon: keyof typeof ICONS, label: string, onclick: () => void): HTMLButtonElement {
+  const b = el('button', { type: 'button', className: 'btn', onclick });
+  b.dataset.variant = 'ghost';
+  b.dataset.size = 'icon-sm';
+  setIcon(b, icon, label);
+  return b;
+}
+
+// The Edit/Preview toggle shows what pressing it does.
+function setEditIcon(st: PaneState, editing: boolean): void {
+  const mod = isMac ? '⌘' : 'Ctrl-';
+  setIcon(st.ui!.edit, editing ? 'preview' : 'edit', `${editing ? 'Preview' : 'Edit'} (${mod}E)`);
+}
+
 // Drops whatever the body shows, freeing the editor and any blob.
 function clear(st: PaneState): void {
   st.editor?.destroy();
@@ -138,10 +164,6 @@ export function close(sessionId: string): void {
   host.focusTerminal();
 }
 
-function openInEditor(st: PaneState): void {
-  if (st.info) location.href = editorUrl(host.editor(), st.info.path, st.line, st.col);
-}
-
 // A relative path is shown relative to the directory it was resolved from.
 function shownPath(st: PaneState, abs: string): string {
   const rel = st.requested.replace(/^\.\//, '');
@@ -154,19 +176,16 @@ function header(sessionId: string, st: PaneState, info: FileInfo | null): HTMLEl
   const path = el('span', { className: 'pane-path', textContent: info ? shownPath(st, abs) : abs, title: abs });
   const dot = el('span', { className: 'pane-dot', textContent: '●', title: 'Unsaved changes', hidden: true });
   const status = el('span', { className: 'pane-status', role: 'status' });
-  const mod = isMac ? '⌘' : 'Ctrl-';
-  const edit = button('Edit', () => toggleMode(st), `Edit (${mod}E)`);
+  const edit = iconButton('edit', 'Edit', () => toggleMode(st));
   edit.disabled = !st.editable;
-  const ext = button('Open in editor', () => openInEditor(st));
-  ext.disabled = !info;
-  const x = button('✕', () => close(sessionId), 'Close file');
-  x.setAttribute('aria-label', 'Close file');
+  const x = iconButton('collapse', 'Close file', () => close(sessionId));
   const bar = el('div', { className: 'pane-bar', hidden: true, role: 'alert' },
     el('span', { textContent: 'Changed on disk since you opened it' }),
     button('Reload', () => void reload(st)),
     button('Overwrite', () => void save(st, true)));
   st.ui = { edit, dot, status, bar };
-  return el('header', { className: 'pane-head' }, path, status, dot, edit, ext, x);
+  setEditIcon(st, st.mode === 'edit');
+  return el('header', { className: 'pane-head' }, x, path, status, dot, edit);
 }
 
 function setStatus(st: PaneState, text: string, ms?: number): void {
@@ -194,11 +213,11 @@ function toggleMode(st: PaneState): void {
     if (st.editor) st.doc = st.editor.text();
     st.mode = edit ? 'edit' : 'view';
     mountRich(st);
-    st.ui!.edit.textContent = edit ? 'Preview' : 'Edit';
+    setEditIcon(st, edit);
     return;
   }
   st.mode = edit ? 'edit' : 'view';
-  st.ui!.edit.textContent = edit ? 'Preview' : 'Edit';
+  setEditIcon(st, edit);
 }
 
 async function save(st: PaneState, overwrite = false): Promise<void> {
@@ -244,10 +263,8 @@ function reload(st: PaneState): Promise<void> {
   return load(st.id, st.info?.path ?? st.requested, undefined, undefined);
 }
 
-function message(text: string, st?: PaneState): HTMLElement {
-  const box = el('div', { className: 'pane-msg' }, el('p', { textContent: text }));
-  if (st) box.append(button('Open in editor', () => openInEditor(st)));
-  return box;
+function message(text: string): HTMLElement {
+  return el('div', { className: 'pane-msg' }, el('p', { textContent: text }));
 }
 
 function markdownDoc(html: string, th: PaneTheme): string {
@@ -312,7 +329,7 @@ function mountRich(st: PaneState): void {
 }
 
 async function renderBody(st: PaneState, info: FileInfo, body: HTMLElement, isCurrent: () => boolean): Promise<void> {
-  const tooLarge = () => message(`Too large to open here (${formatSize(info.size)})`, st);
+  const tooLarge = () => message(`Too large to open here (${formatSize(info.size)})`);
   switch (info.kind) {
     case 'image': case 'pdf': {
       const url = await rawBlobUrl(host.fetch, info.path);
@@ -390,7 +407,7 @@ async function load(sessionId: string, path: string, line?: number, col?: number
   } catch (err) {
     if (!isCurrent()) return;
     const big = err instanceof FileError && err.status === 413;
-    body.replaceChildren(big ? message(`Too large to open here (${formatSize(info.size)})`, state)
+    body.replaceChildren(big ? message(`Too large to open here (${formatSize(info.size)})`)
       : message(err instanceof FileError ? err.message : `Couldn't open ${info.path}`));
   }
 }

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  FileError, displayPath, editorUrl, exists, filesUrl, formatSize, fromDisk, rawBlobUrl, readFile, saveFile, toDisk,
+  FileError, displayPath, exists, filesUrl, formatSize, fromDisk, rawBlobUrl, readFile, saveFile, toDisk,
   type Fetcher,
 } from './files.ts';
 
@@ -48,10 +48,6 @@ test('saveFile', async () => {
 test('line endings', () => {
   assert.equal(toDisk(fromDisk('a\r\nb\r\n'), 'crlf'), 'a\r\nb\r\n');
   assert.equal(toDisk('a\nb', 'lf'), 'a\nb');
-});
-test('editorUrl', () => {
-  assert.equal(editorUrl('vscode', '/Users/me/my app/x.rs', 42, 7), 'vscode://file/Users/me/my%20app/x.rs:42:7');
-  assert.ok(editorUrl('zed', '/a/b.rs').endsWith(':1:1'));
 });
 test('displayPath', () => {
   assert.equal(displayPath('/p/src/a.rs', '/p'), 'src/a.rs');
