@@ -134,14 +134,19 @@ function markdownDoc(html: string, th: PaneTheme): string {
   return `<!doctype html><meta charset="utf-8"><style>${style}</style>${html}`;
 }
 
+function svgDoc(svg: string): string {
+  return '<!doctype html><meta charset="utf-8"><style>html,body{height:100%;margin:0}' +
+    'body{display:grid;place-items:center}svg{max-width:100%;max-height:100%}</style>' + svg;
+}
+
 async function renderBody(st: PaneState, info: FileInfo, body: HTMLElement, isCurrent: () => boolean): Promise<void> {
   const tooLarge = () => message(`Too large to open here (${formatSize(info.size)})`, st);
   switch (info.kind) {
-    case 'image': case 'svg': case 'pdf': {
+    case 'image': case 'pdf': {
       const url = await rawBlobUrl(host.fetch, info.path);
       if (!isCurrent()) { URL.revokeObjectURL(url); return; }
       st.blobUrl = url;
-      // Scripts never run in an <img>; a PDF gets the browser's own viewer.
+      // A raster image can't run scripts; a PDF gets the browser's own viewer.
       body.append(info.kind === 'pdf'
         ? el('iframe', { className: 'pane-frame', src: url, title: info.path })
         : el('img', { className: 'pane-img', src: url, alt: info.path }));
@@ -155,6 +160,15 @@ async function renderBody(st: PaneState, info: FileInfo, body: HTMLElement, isCu
       // No allow-same-origin: the page gets an opaque origin, away from the token.
       const frame = el('iframe', { className: 'pane-frame', srcdoc: info.content, title: info.path });
       frame.setAttribute('sandbox', 'allow-scripts allow-popups');
+      body.append(frame);
+      return;
+    }
+    case 'svg': {
+      if (info.content === undefined) { body.append(tooLarge()); return; }
+      // Not a blob: an image/svg+xml blob URL has the app's origin, and opened
+      // as a page it could run script there. An empty sandbox can't.
+      const frame = el('iframe', { className: 'pane-frame', srcdoc: svgDoc(info.content), title: info.path });
+      frame.setAttribute('sandbox', '');
       body.append(frame);
       return;
     }

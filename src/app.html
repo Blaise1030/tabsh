@@ -470,14 +470,15 @@
     };
 
     let pane = null; // the file-pane module, once loaded
-    async function filePane() {
-      if (!pane) {
-        const m = await window.tabshFilePane();
+    let paneLoad = null; // shared by clicks made while it loads, so init runs once
+    function filePane() {
+      paneLoad ??= Promise.resolve().then(() => window.tabshFilePane()).then((m) => {
         m.init(host);
         pane = m;
         pane.show(active?.id ?? null);
-      }
-      return pane;
+        return m;
+      }, (err) => { paneLoad = null; throw err; });
+      return paneLoad;
     }
 
     async function openInPane(s, f, retried = false) {
@@ -506,7 +507,7 @@
       again.textContent = 'Retry';
       again.onclick = () => {
         if (retried) return location.reload();
-        pane = null;
+        pane = paneLoad = null;
         box.hidden = divider.hidden = true;
         box.replaceChildren();
         retry();
@@ -1197,4 +1198,4 @@
       if (!sessions.length) return newSession();
       activate(sessions.find((s) => s.id === activeId) ?? sessions[0]);
     })();
-  </script><script type="module" src="/_astro/index.astro_astro_type_script_index_0_lang.BgOUmzjz.js"></script></body></html>
+  </script><script type="module" src="/_astro/index.astro_astro_type_script_index_0_lang.uyFGXIgK.js"></script></body></html>
