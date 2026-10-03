@@ -1,5 +1,12 @@
 export type Kind = 'dir' | 'text' | 'html' | 'markdown' | 'svg' | 'image' | 'pdf' | 'binary';
-export interface FileInfo { path: string; kind: Kind; size: number; version: string; content?: string; eol?: 'crlf' | 'lf' }
+export interface FileInfo {
+  path: string;
+  kind: Kind;
+  size: number;
+  version: string;
+  content?: string;
+  eol?: 'crlf' | 'lf';
+}
 // The page's daemonFetch: it adds the daemon origin and auth header.
 export type Fetcher = (path: string, init?: RequestInit) => Promise<Response>;
 
@@ -12,10 +19,14 @@ export class FileError extends Error {
 }
 
 function fail(res: Response): FileError {
-  const msg = res.status === 404 ? 'Not found'
-    : res.status === 403 ? 'Permission denied'
-    : res.status === 413 ? 'Too large to open here'
-    : `Request failed (${res.status})`;
+  const msg =
+    res.status === 404
+      ? 'Not found'
+      : res.status === 403
+        ? 'Permission denied'
+        : res.status === 413
+          ? 'Too large to open here'
+          : `Request failed (${res.status})`;
   return new FileError(res.status, msg);
 }
 
@@ -40,7 +51,12 @@ export async function rawBlobUrl(f: Fetcher, absPath: string): Promise<string> {
   return URL.createObjectURL(await res.blob());
 }
 
-export async function saveFile(f: Fetcher, path: string, content: string, version: string): Promise<{ version: string } | { conflict: string }> {
+export async function saveFile(
+  f: Fetcher,
+  path: string,
+  content: string,
+  version: string,
+): Promise<{ version: string } | { conflict: string }> {
   const res = await f('/api/files', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },

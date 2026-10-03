@@ -1,31 +1,46 @@
-import {
-  FileError, displayPath, formatSize, fromDisk, rawBlobUrl, readFile, saveFile, toDisk, type Fetcher, type FileInfo,
-} from './files.ts';
 import { createEditor, type Editor } from './editor.ts';
+import {
+  displayPath,
+  type Fetcher,
+  FileError,
+  type FileInfo,
+  formatSize,
+  fromDisk,
+  rawBlobUrl,
+  readFile,
+  saveFile,
+  toDisk,
+} from './files.ts';
 
-export interface PaneTheme { background: string; foreground: string; cursor: string; selectionBackground: string; light: boolean }
+export interface PaneTheme {
+  background: string;
+  foreground: string;
+  cursor: string;
+  selectionBackground: string;
+  light: boolean;
+}
 export interface Host {
   fetch: Fetcher;
   theme(): PaneTheme;
-  layout(): void;                                  // refit the active terminal (sendSize(active))
-  newTabAt(cwd: string): void;                     // POST /api/sessions {cwd} then activate
+  layout(): void; // refit the active terminal (sendSize(active))
+  newTabAt(cwd: string): void; // POST /api/sessions {cwd} then activate
   focusTerminal(): void;
 }
 
 interface PaneState {
   id: string;
-  view: HTMLElement;          // this session's header and body, inside #pane
+  view: HTMLElement; // this session's header and body, inside #pane
   body: HTMLElement | null;
   ui: { edit: HTMLButtonElement; dot: HTMLElement; status: HTMLElement; bar: HTMLElement } | null;
   editable: boolean;
   mode: 'view' | 'edit';
-  doc: string;                // current text (\n endings) while no editor is mounted
+  doc: string; // current text (\n endings) while no editor is mounted
   version: string;
   eol: 'crlf' | 'lf';
   dirty: boolean;
   saving: boolean;
-  conflict: string | null;    // the version found on disk when a save was refused
-  epoch: number;              // bumped when the view is rebuilt, so a late save result is dropped
+  conflict: string | null; // the version found on disk when a save was refused
+  epoch: number; // bumped when the view is rebuilt, so a late save result is dropped
   previewSeq: number;
   timer: number | undefined;
   info: FileInfo | null;
@@ -34,7 +49,7 @@ interface PaneState {
   col?: number;
   editor: Editor | null;
   blobUrl: string | null;
-  markdown: string | null;    // rendered HTML, re-wrapped when the theme changes
+  markdown: string | null; // rendered HTML, re-wrapped when the theme changes
   frame: HTMLIFrameElement | null;
 }
 
@@ -62,13 +77,19 @@ export function init(h: Host): void {
       // The editor's own Mod-s has already saved and set defaultPrevented.
       const handled = e.defaultPrevented;
       e.preventDefault();
-      if (!handled) { if (key === 's') void save(st); else toggleMode(st); }
+      if (!handled) {
+        if (key === 's') void save(st);
+        else toggleMode(st);
+      }
     } else if (e.key === 'Escape' && !e.defaultPrevented) host.focusTerminal();
   });
-
 }
 
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]> = {}, ...kids: (Node | string)[]) {
+function el<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  props: Partial<HTMLElementTagNameMap[K]> = {},
+  ...kids: (Node | string)[]
+) {
   const node = Object.assign(document.createElement(tag), props);
   node.append(...kids);
   return node;
@@ -84,7 +105,8 @@ function button(label: string, onclick: () => void, title = label): HTMLButtonEl
 // Lucide icons (ISC). Static markup only: nothing from a file goes in here.
 const ICONS = {
   edit: '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
-  preview: '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
+  preview:
+    '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
   collapse: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m8 9 3 3-3 3"/>',
 };
 
@@ -179,10 +201,13 @@ function header(sessionId: string, st: PaneState, info: FileInfo | null): HTMLEl
   const edit = iconButton('edit', 'Edit', () => toggleMode(st));
   edit.disabled = !st.editable;
   const x = iconButton('collapse', 'Close file', () => close(sessionId));
-  const bar = el('div', { className: 'pane-bar', hidden: true, role: 'alert' },
+  const bar = el(
+    'div',
+    { className: 'pane-bar', hidden: true, role: 'alert' },
     el('span', { textContent: 'Changed on disk since you opened it' }),
     button('Reload', () => void reload(st)),
-    button('Overwrite', () => void save(st, true)));
+    button('Overwrite', () => void save(st, true)),
+  );
   st.ui = { edit, dot, status, bar };
   setEditIcon(st, st.mode === 'edit');
   return el('header', { className: 'pane-head' }, x, path, status, dot, edit);
@@ -191,7 +216,10 @@ function header(sessionId: string, st: PaneState, info: FileInfo | null): HTMLEl
 function setStatus(st: PaneState, text: string, ms?: number): void {
   clearTimeout(st.timer);
   st.ui!.status.textContent = text;
-  if (ms) st.timer = window.setTimeout(() => { st.ui!.status.textContent = ''; }, ms);
+  if (ms)
+    st.timer = window.setTimeout(() => {
+      st.ui!.status.textContent = '';
+    }, ms);
 }
 
 function setDirty(st: PaneState, on: boolean): void {
@@ -268,7 +296,8 @@ function message(text: string): HTMLElement {
 }
 
 function markdownDoc(html: string, th: PaneTheme): string {
-  const style = `body{margin:0;padding:1rem 1.5rem;font:14px/1.6 system-ui,sans-serif;background:${th.background};color:${th.foreground}}` +
+  const style =
+    `body{margin:0;padding:1rem 1.5rem;font:14px/1.6 system-ui,sans-serif;background:${th.background};color:${th.foreground}}` +
     `a{color:${th.cursor}}pre,code{font-family:ui-monospace,Menlo,monospace;font-size:.9em}` +
     `pre{padding:.75rem;overflow:auto;background:color-mix(in srgb,${th.foreground} 8%,${th.background})}` +
     `img{max-width:100%}table{border-collapse:collapse}td,th{border:1px solid color-mix(in srgb,${th.foreground} 20%,${th.background});padding:.25rem .5rem}`;
@@ -276,21 +305,31 @@ function markdownDoc(html: string, th: PaneTheme): string {
 }
 
 function svgDoc(svg: string): string {
-  return '<!doctype html><meta charset="utf-8"><style>html,body{height:100%;margin:0}' +
-    'body{display:grid;place-items:center}svg{max-width:100%;max-height:100%}</style>' + svg;
+  return (
+    '<!doctype html><meta charset="utf-8"><style>html,body{height:100%;margin:0}' +
+    'body{display:grid;place-items:center}svg{max-width:100%;max-height:100%}</style>' +
+    svg
+  );
 }
 
 function newEditor(st: PaneState, body: HTMLElement, readOnly: boolean): Editor {
   return createEditor(body, {
-    doc: st.doc, path: st.info!.path, readOnly, theme: host.theme(),
-    onChange: () => { setDirty(st, true); if (st.ui) st.ui.status.textContent = ''; },
+    doc: st.doc,
+    path: st.info!.path,
+    readOnly,
+    theme: host.theme(),
+    onChange: () => {
+      setDirty(st, true);
+      if (st.ui) st.ui.status.textContent = '';
+    },
     onSave: () => void save(st),
   });
 }
 
 // Markdown, HTML and SVG: sandboxed preview of the current text, or its source in CodeMirror.
 function mountRich(st: PaneState): void {
-  const body = st.body!, kind = st.info!.kind;
+  const body = st.body!,
+    kind = st.info!.kind;
   const seq = ++st.previewSeq;
   st.editor?.destroy();
   st.editor = null;
@@ -317,39 +356,58 @@ function mountRich(st: PaneState): void {
     // as a page it could run script there. An empty sandbox can't.
     show(svgDoc(st.doc), '');
   } else {
-    void import('marked').then(({ marked }) => marked.parse(st.doc)).then((html) => {
-      if (st.previewSeq !== seq || st.body !== body || st.mode !== 'view') return;
-      // An empty sandbox: no scripts, an opaque origin.
-      st.markdown = html;
-      st.frame = show(markdownDoc(html, host.theme()), '');
-    }, () => {
-      if (st.previewSeq === seq) body.replaceChildren(message("Couldn't render the preview"));
-    });
+    void import('marked')
+      .then(({ marked }) => marked.parse(st.doc))
+      .then(
+        (html) => {
+          if (st.previewSeq !== seq || st.body !== body || st.mode !== 'view') return;
+          // An empty sandbox: no scripts, an opaque origin.
+          st.markdown = html;
+          st.frame = show(markdownDoc(html, host.theme()), '');
+        },
+        () => {
+          if (st.previewSeq === seq) body.replaceChildren(message("Couldn't render the preview"));
+        },
+      );
   }
 }
 
 async function renderBody(st: PaneState, info: FileInfo, body: HTMLElement, isCurrent: () => boolean): Promise<void> {
   const tooLarge = () => message(`Too large to open here (${formatSize(info.size)})`);
   switch (info.kind) {
-    case 'image': case 'pdf': {
+    case 'image':
+    case 'pdf': {
       const url = await rawBlobUrl(host.fetch, info.path);
-      if (!isCurrent()) { URL.revokeObjectURL(url); return; }
+      if (!isCurrent()) {
+        URL.revokeObjectURL(url);
+        return;
+      }
       st.blobUrl = url;
       // A raster image can't run scripts; a PDF gets the browser's own viewer.
-      body.append(info.kind === 'pdf'
-        ? el('iframe', { className: 'pane-frame', src: url, title: info.path })
-        : el('img', { className: 'pane-img', src: url, alt: info.path }));
+      body.append(
+        info.kind === 'pdf'
+          ? el('iframe', { className: 'pane-frame', src: url, title: info.path })
+          : el('img', { className: 'pane-img', src: url, alt: info.path }),
+      );
       return;
     }
     case 'binary':
       body.append(message(`Binary file, ${formatSize(info.size)}`));
       return;
-    case 'html': case 'svg': case 'markdown':
-      if (info.content === undefined) { body.append(tooLarge()); return; }
+    case 'html':
+    case 'svg':
+    case 'markdown':
+      if (info.content === undefined) {
+        body.append(tooLarge());
+        return;
+      }
       mountRich(st);
       return;
     case 'text': {
-      if (info.content === undefined) { body.append(tooLarge()); return; }
+      if (info.content === undefined) {
+        body.append(tooLarge());
+        return;
+      }
       st.editor = newEditor(st, body, true);
       st.editor.goTo(st.line ?? 1, st.col);
       return;
@@ -373,13 +431,36 @@ async function load(sessionId: string, path: string, line?: number, col?: number
     error = err instanceof FileError ? `${err.message}: ${path}` : `Couldn't reach tabsh: ${path}`;
   }
   if (seqs.get(sessionId) !== seq) return;
-  if (info?.kind === 'dir') { host.newTabAt(info.path); return; }
+  if (info?.kind === 'dir') {
+    host.newTabAt(info.path);
+    return;
+  }
 
   let st = states.get(sessionId);
   if (!st) {
-    st = { id: sessionId, view: el('section', { className: 'pane-view' }), body: null, ui: null, editable: false, mode: 'view',
-      doc: '', version: '', eol: 'lf', dirty: false, saving: false, conflict: null, epoch: 0, previewSeq: 0, timer: undefined,
-      info: null, requested: path, editor: null, blobUrl: null, markdown: null, frame: null };
+    st = {
+      id: sessionId,
+      view: el('section', { className: 'pane-view' }),
+      body: null,
+      ui: null,
+      editable: false,
+      mode: 'view',
+      doc: '',
+      version: '',
+      eol: 'lf',
+      dirty: false,
+      saving: false,
+      conflict: null,
+      epoch: 0,
+      previewSeq: 0,
+      timer: undefined,
+      info: null,
+      requested: path,
+      editor: null,
+      blobUrl: null,
+      markdown: null,
+      frame: null,
+    };
     states.set(sessionId, st);
     paneEl.append(st.view);
   }
@@ -388,8 +469,20 @@ async function load(sessionId: string, path: string, line?: number, col?: number
   st.epoch++;
   st.previewSeq++;
   const editable = !!info && info.content !== undefined && EDITABLE.has(info.kind);
-  Object.assign(st, { info, requested: path, line, col, editable, mode: 'view', dirty: false, saving: false, conflict: null,
-    doc: editable ? fromDisk(info!.content!) : '', version: info?.version ?? '', eol: info?.eol ?? 'lf' });
+  Object.assign(st, {
+    info,
+    requested: path,
+    line,
+    col,
+    editable,
+    mode: 'view',
+    dirty: false,
+    saving: false,
+    conflict: null,
+    doc: editable ? fromDisk(info!.content!) : '',
+    version: info?.version ?? '',
+    eol: info?.eol ?? 'lf',
+  });
   const body = el('div', { className: 'pane-body' });
   st.body = body;
   st.view.replaceChildren(header(sessionId, st, info), st.ui!.bar, body);
@@ -397,18 +490,25 @@ async function load(sessionId: string, path: string, line?: number, col?: number
 
   const state = st;
   const isCurrent = () => states.get(sessionId) === state && seqs.get(sessionId) === seq;
-  if (error || !info) { body.append(message(error ?? 'Not found')); return; }
+  if (error || !info) {
+    body.append(message(error ?? 'Not found'));
+    return;
+  }
   try {
     await renderBody(state, info, body, isCurrent);
     // So the keyboard (Cmd/Ctrl-E, -S) works at once; Esc goes back to the terminal.
     if (isCurrent() && current === sessionId) {
-      if (state.editor) state.editor.view.focus(); else paneEl.focus();
+      if (state.editor) state.editor.view.focus();
+      else paneEl.focus();
     }
   } catch (err) {
     if (!isCurrent()) return;
     const big = err instanceof FileError && err.status === 413;
-    body.replaceChildren(big ? message(`Too large to open here (${formatSize(info.size)})`)
-      : message(err instanceof FileError ? err.message : `Couldn't open ${info.path}`));
+    body.replaceChildren(
+      big
+        ? message(`Too large to open here (${formatSize(info.size)})`)
+        : message(err instanceof FileError ? err.message : `Couldn't open ${info.path}`),
+    );
   }
 }
 

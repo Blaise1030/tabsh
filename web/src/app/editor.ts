@@ -1,8 +1,14 @@
-import { basicSetup } from 'codemirror';
-import { Compartment, EditorSelection, EditorState, StateEffect, StateField, type Extension } from '@codemirror/state';
-import { Decoration, EditorView, keymap, type DecorationSet } from '@codemirror/view';
-import { HighlightStyle, StreamLanguage, defaultHighlightStyle, syntaxHighlighting, type StreamParser } from '@codemirror/language';
+import {
+  defaultHighlightStyle,
+  HighlightStyle,
+  StreamLanguage,
+  type StreamParser,
+  syntaxHighlighting,
+} from '@codemirror/language';
+import { Compartment, EditorSelection, EditorState, type Extension, StateEffect, StateField } from '@codemirror/state';
+import { Decoration, type DecorationSet, EditorView, keymap } from '@codemirror/view';
 import { tags as t } from '@lezer/highlight';
+import { basicSetup } from 'codemirror';
 import type { PaneTheme } from './file-pane.ts';
 
 export interface Editor {
@@ -15,12 +21,19 @@ export interface Editor {
 }
 
 const legacy = (load: () => Promise<StreamParser<unknown>>) => async () => StreamLanguage.define(await load());
-const js = (typescript: boolean) => async () => (await import('@codemirror/lang-javascript')).javascript({ jsx: true, typescript });
+const js = (typescript: boolean) => async () =>
+  (await import('@codemirror/lang-javascript')).javascript({ jsx: true, typescript });
 
 // Each language is fetched the first time a file of that kind is opened.
 const LANGS: Record<string, () => Promise<Extension>> = {
-  js: js(false), mjs: js(false), cjs: js(false), jsx: js(false),
-  ts: js(true), mts: js(true), cts: js(true), tsx: js(true),
+  js: js(false),
+  mjs: js(false),
+  cjs: js(false),
+  jsx: js(false),
+  ts: js(true),
+  mts: js(true),
+  cts: js(true),
+  tsx: js(true),
   rs: async () => (await import('@codemirror/lang-rust')).rust(),
   py: async () => (await import('@codemirror/lang-python')).python(),
   go: async () => (await import('@codemirror/lang-go')).go(),
@@ -62,17 +75,22 @@ const darkHighlight = HighlightStyle.define([
 function themeExtension(th: PaneTheme): Extension {
   const muted = `color-mix(in srgb, ${th.foreground} 45%, ${th.background})`;
   return [
-    EditorView.theme({
-      '&': { color: th.foreground, backgroundColor: th.background, height: '100%', fontSize: '13px' },
-      '.cm-scroller': { fontFamily: 'ui-monospace, Menlo, Monaco, monospace' },
-      '.cm-content': { caretColor: th.cursor },
-      '.cm-cursor, .cm-dropCursor': { borderLeftColor: th.cursor },
-      '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, ::selection':
-        { backgroundColor: th.selectionBackground },
-      '.cm-gutters': { backgroundColor: th.background, color: muted, border: 'none' },
-      '.cm-activeLine, .cm-activeLineGutter': { backgroundColor: `color-mix(in srgb, ${th.foreground} 6%, transparent)` },
-      '.cm-goto-line': { backgroundColor: `color-mix(in srgb, ${th.cursor} 22%, transparent)` },
-    }, { dark: !th.light }),
+    EditorView.theme(
+      {
+        '&': { color: th.foreground, backgroundColor: th.background, height: '100%', fontSize: '13px' },
+        '.cm-scroller': { fontFamily: 'ui-monospace, Menlo, Monaco, monospace' },
+        '.cm-content': { caretColor: th.cursor },
+        '.cm-cursor, .cm-dropCursor': { borderLeftColor: th.cursor },
+        '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, ::selection':
+          { backgroundColor: th.selectionBackground },
+        '.cm-gutters': { backgroundColor: th.background, color: muted, border: 'none' },
+        '.cm-activeLine, .cm-activeLineGutter': {
+          backgroundColor: `color-mix(in srgb, ${th.foreground} 6%, transparent)`,
+        },
+        '.cm-goto-line': { backgroundColor: `color-mix(in srgb, ${th.cursor} 22%, transparent)` },
+      },
+      { dark: !th.light },
+    ),
     syntaxHighlighting(th.light ? defaultHighlightStyle : darkHighlight),
   ];
 }
@@ -85,8 +103,10 @@ const gotoLine = StateField.define<DecorationSet>({
     deco = deco.map(tr.changes);
     for (const e of tr.effects) {
       if (e.is(setGoto)) {
-        deco = e.value === null ? Decoration.none
-          : Decoration.set([Decoration.line({ class: 'cm-goto-line' }).range(e.value)]);
+        deco =
+          e.value === null
+            ? Decoration.none
+            : Decoration.set([Decoration.line({ class: 'cm-goto-line' }).range(e.value)]);
       }
     }
     return deco;
@@ -94,31 +114,55 @@ const gotoLine = StateField.define<DecorationSet>({
   provide: (f) => EditorView.decorations.from(f),
 });
 
-export function createEditor(parent: HTMLElement, opts: {
-  doc: string; path: string; readOnly: boolean; theme: PaneTheme; onChange(): void; onSave(): void;
-}): Editor {
-  const readOnly = new Compartment(), theme = new Compartment(), language = new Compartment();
+export function createEditor(
+  parent: HTMLElement,
+  opts: {
+    doc: string;
+    path: string;
+    readOnly: boolean;
+    theme: PaneTheme;
+    onChange(): void;
+    onSave(): void;
+  },
+): Editor {
+  const readOnly = new Compartment(),
+    theme = new Compartment(),
+    language = new Compartment();
   const ro = (on: boolean) => EditorState.readOnly.of(on);
   const view = new EditorView({
     parent,
     state: EditorState.create({
       doc: opts.doc,
       extensions: [
-        keymap.of([{ key: 'Mod-s', preventDefault: true, run: () => { opts.onSave(); return true; } }]),
+        keymap.of([
+          {
+            key: 'Mod-s',
+            preventDefault: true,
+            run: () => {
+              opts.onSave();
+              return true;
+            },
+          },
+        ]),
         basicSetup,
         readOnly.of(ro(opts.readOnly)),
         theme.of(themeExtension(opts.theme)),
         language.of([]),
         gotoLine,
-        EditorView.updateListener.of((u) => { if (u.docChanged) opts.onChange(); }),
+        EditorView.updateListener.of((u) => {
+          if (u.docChanged) opts.onChange();
+        }),
       ],
     }),
   });
   let destroyed = false;
   const load = languageFor(opts.path);
-  load?.().then((ext) => {
-    if (!destroyed) view.dispatch({ effects: language.reconfigure(ext) });
-  }, () => {}); // plain text if the chunk can't be fetched
+  load?.().then(
+    (ext) => {
+      if (!destroyed) view.dispatch({ effects: language.reconfigure(ext) });
+    },
+    () => {},
+  ); // plain text if the chunk can't be fetched
 
   return {
     view,
@@ -134,6 +178,9 @@ export function createEditor(parent: HTMLElement, opts: {
       });
     },
     text: () => view.state.doc.toString(),
-    destroy() { destroyed = true; view.destroy(); },
+    destroy() {
+      destroyed = true;
+      view.destroy();
+    },
   };
 }

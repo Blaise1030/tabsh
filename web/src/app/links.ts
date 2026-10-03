@@ -1,4 +1,11 @@
-export interface Found { kind: 'url' | 'path'; start: number; end: number; text: string; line?: number; col?: number }
+export interface Found {
+  kind: 'url' | 'path';
+  start: number;
+  end: number;
+  text: string;
+  line?: number;
+  col?: number;
+}
 
 const URL_RE = /https?:\/\/[^\s<>"'`]+/g;
 const PATH_RE = /([\w.~@+/-]+)((?::(\d+)(?::(\d+))?)?)/g;
@@ -18,8 +25,15 @@ function trimUrl(url: string): string {
   let end = url.length;
   while (end > 0) {
     const last = url[end - 1];
-    if ('.,;:!?'.includes(last)) { end--; continue; }
-    if (last in CLOSERS && balance[last] > 0) { balance[last]--; end--; continue; }
+    if ('.,;:!?'.includes(last)) {
+      end--;
+      continue;
+    }
+    if (last in CLOSERS && balance[last] > 0) {
+      balance[last]--;
+      end--;
+      continue;
+    }
     break;
   }
   return url.slice(0, end);
