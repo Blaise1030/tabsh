@@ -5,8 +5,20 @@ your machine; open them from any browser tab at https://tabsh.cc.
 
 ```sh
 cargo install --git https://github.com/Blaise1030/tabsh
-tabsh   # prints a link that opens the app, paired
+tabsh   # opens the app in your browser, paired
 ```
+
+Safari (and every iOS browser) won't let https://tabsh.cc reach the daemon, so
+tabsh also serves the app itself, and tabsh.cc sends Safari there:
+`http://tabsh.localhost:7681`. File → Add to Dock opens it like an app.
+
+Set `TABSH_NO_BROWSER=1` to start without opening a browser (e.g. as a service);
+it's skipped over SSH and on Linux without a display anyway.
+
+## Working on the app page
+
+The daemon embeds a copy of the app page (`src/app.html`). `npm run build` in
+`web/` refreshes it; commit it along with your changes, or CI fails.
 
 ## Commits and releases
 
