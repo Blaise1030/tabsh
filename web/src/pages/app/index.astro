@@ -130,6 +130,7 @@ import { DAEMON_URL } from '../../site';
       flex: 0 0 calc(var(--pane-width, .5) * 100%); min-width: 0;
       display: flex; flex-direction: column; background: var(--background);
     }
+    #pane:focus { outline: none; }
     #pane[hidden], #pane-divider[hidden] { display: none; }
     @media (max-width: 799px) {
       #pane { position: absolute; inset: 0; z-index: 5; }
@@ -272,7 +273,7 @@ import { DAEMON_URL } from '../../site';
       </div>
     </div>
     <div id="pane-divider" hidden></div>
-    <aside id="pane" hidden aria-label="File"></aside>
+    <aside id="pane" hidden tabindex="-1" aria-label="File"></aside>
   </div>
 
   <div id="drop-glow" aria-hidden="true"></div>
