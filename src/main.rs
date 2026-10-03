@@ -166,6 +166,11 @@ struct Rename {
     name: String,
 }
 
+#[derive(Deserialize, Default)]
+struct NewSession {
+    cwd: Option<String>,
+}
+
 #[derive(Deserialize)]
 struct UploadQuery {
     name: String,
@@ -672,7 +677,7 @@ async fn list_sessions(State(st): State<AppState>) -> Result<Json<Vec<SessionInf
     Ok(Json(rows))
 }
 
-async fn create_session(State(st): State<AppState>) -> Result<Json<SessionInfo>, StatusCode> {
+fn insert_session(db: &Connection, cwd: Option<&str>) -> rusqlite::Result<SessionInfo> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -680,11 +685,10 @@ async fn create_session(State(st): State<AppState>) -> Result<Json<SessionInfo>,
         .as_nanos();
     let id = format!("{nanos:x}-{:x}", COUNTER.fetch_add(1, Ordering::Relaxed));
 
-    let db = st.db.lock().unwrap();
     let names: Vec<String> = db
-        .prepare("SELECT name FROM sessions")
-        .and_then(|mut s| s.query_map([], |r| r.get(0))?.collect())
-        .map_err(internal_error)?;
+        .prepare("SELECT name FROM sessions")?
+        .query_map([], |r| r.get(0))?
+        .collect::<Result<Vec<_>, _>>()?;
     let n = names
         .iter()
         .filter_map(|n| n.strip_prefix("Terminal ")?.parse::<u32>().ok())
@@ -693,12 +697,26 @@ async fn create_session(State(st): State<AppState>) -> Result<Json<SessionInfo>,
         + 1;
     let name = format!("Terminal {n}");
     db.execute(
-        "INSERT INTO sessions (id, name, position)
-         VALUES (?1, ?2, (SELECT COALESCE(MAX(position), 0) + 1 FROM sessions))",
-        params![id, name],
-    )
-    .map_err(internal_error)?;
-    Ok(Json(SessionInfo { id, name }))
+        "INSERT INTO sessions (id, name, position, cwd)
+         VALUES (?1, ?2, (SELECT COALESCE(MAX(position), 0) + 1 FROM sessions), ?3)",
+        params![id, name, cwd],
+    )?;
+    Ok(SessionInfo { id, name })
+}
+
+async fn create_session(
+    State(st): State<AppState>,
+    body: Option<Json<NewSession>>,
+) -> Result<Json<SessionInfo>, StatusCode> {
+    let cwd = body.as_ref().and_then(|b| b.cwd.as_deref());
+    if let Some(cwd_path) = cwd
+        && !std::path::Path::new(cwd_path).is_dir()
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let db = st.db.lock().unwrap();
+    insert_session(&db, cwd).map(Json).map_err(internal_error)
 }
 
 async fn rename_session(
@@ -1616,5 +1634,22 @@ mod tests {
             std::fs::metadata(&f).unwrap().permissions().mode() & 0o777,
             0o755
         );
+    }
+
+    #[test]
+    fn new_session_can_start_in_a_directory() {
+        let db = open_db(":memory:").unwrap();
+        let a = insert_session(&db, None).unwrap();
+        let b = insert_session(&db, Some("/tmp")).unwrap();
+        assert_eq!(a.name, "Terminal 1");
+        assert_eq!(b.name, "Terminal 2");
+        let cwd: Option<String> = db
+            .query_row(
+                "SELECT cwd FROM sessions WHERE id = ?1",
+                params![b.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(cwd.as_deref(), Some("/tmp"));
     }
 }
