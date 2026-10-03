@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "astro dev",
     "test": "node --test src/app/*.test.ts",
-    "build": "astro build && cp dist/app/index.html ../src/app.html",
+    "build": "astro build && cp dist/app/index.html ../src/app.html && rm -rf ../src/app-assets && cp -R dist/_astro ../src/app-assets",
     "preview": "astro build && wrangler dev",
     "deploy": "astro build && wrangler deploy"
   },
