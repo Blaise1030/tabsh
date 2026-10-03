@@ -3,18 +3,26 @@ export interface Found { kind: 'url' | 'path'; start: number; end: number; text:
 const URL_RE = /https?:\/\/[^\s<>"'`]+/g;
 const PATH_RE = /([\w.~@+/-]+)((?::(\d+)(?::(\d+))?)?)/g;
 const CLOSERS: Record<string, string> = { ')': '(', ']': '[', '}': '{' };
+const OPENERS: Record<string, string> = { '(': ')', '[': ']', '{': '}' };
 
 // Drop sentence punctuation and unbalanced closers, so "(see https://x/a)." works
-// while a Wikipedia-style "Foo_(bar)" keeps its parenthesis.
+// while a Wikipedia-style "Foo_(bar)" keeps its parenthesis. Counts each bracket
+// once, then walks back from the end, so a long run of closers stays linear.
 function trimUrl(url: string): string {
-  for (;;) {
-    const last = url[url.length - 1];
-    if (last === undefined) return url;
-    if ('.,;:!?'.includes(last)) { url = url.slice(0, -1); continue; }
-    const open = CLOSERS[last];
-    if (open && url.split(last).length > url.split(open).length) { url = url.slice(0, -1); continue; }
-    return url;
+  // Closes minus opens, per closer.
+  const balance: Record<string, number> = { ')': 0, ']': 0, '}': 0 };
+  for (const ch of url) {
+    if (ch in CLOSERS) balance[ch]++;
+    else if (ch in OPENERS) balance[OPENERS[ch]]--;
   }
+  let end = url.length;
+  while (end > 0) {
+    const last = url[end - 1];
+    if ('.,;:!?'.includes(last)) { end--; continue; }
+    if (last in CLOSERS && balance[last] > 0) { balance[last]--; end--; continue; }
+    break;
+  }
+  return url.slice(0, end);
 }
 
 function acceptPath(base: string): boolean {

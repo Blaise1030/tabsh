@@ -29,3 +29,26 @@ test('offsets cover the suffix', () => {
   const [f] = findLinks('x src/a.rs:1:2 y');
   assert.equal('x src/a.rs:1:2 y'.slice(f.start, f.end), 'src/a.rs:1:2');
 });
+test('trailing closers are trimmed in linear time', () => {
+  const t0 = performance.now();
+  const found = texts('https://x.dev/a' + ')'.repeat(20_000));
+  const ms = performance.now() - t0;
+  assert.deepEqual(found, [['url', 'https://x.dev/a', undefined, undefined]]);
+  assert.ok(ms < 200, `took ${ms.toFixed(0)} ms`);
+});
+test('abbreviations are not links', () => {
+  assert.deepEqual(texts('e.g.'), []);
+  assert.deepEqual(texts('i.e.'), []);
+  assert.deepEqual(texts('as in e.g. this, i.e. that'), []);
+});
+test('a sentence-ending path keeps its position', () => {
+  assert.deepEqual(texts('src/a.rs:1:2.'), [['path', 'src/a.rs', 1, 2]]);
+});
+test('only http(s) urls', () => {
+  assert.deepEqual(texts('ftp://x.dev/a'), []);
+});
+test('mixed closers and punctuation', () => {
+  assert.deepEqual(texts('[see https://x.dev/a_(b)].'), [['url', 'https://x.dev/a_(b)', undefined, undefined]]);
+  assert.deepEqual(texts('{https://x.dev/a?}'), [['url', 'https://x.dev/a', undefined, undefined]]);
+  assert.deepEqual(texts('https://x.dev/a)).;'), [['url', 'https://x.dev/a', undefined, undefined]]);
+});
