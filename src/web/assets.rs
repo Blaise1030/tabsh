@@ -12,19 +12,19 @@ include!(concat!(env!("OUT_DIR"), "/sounds.rs"));
 include!(concat!(env!("OUT_DIR"), "/app_assets.rs"));
 
 /// Helper to check if an asset with the given name exists.
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn has_app_asset(name: &str) -> bool {
     APP_ASSETS.iter().any(|(n, _)| *n == name)
 }
 
 /// Helper to check if any JS asset exists.
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn has_js_asset() -> bool {
     APP_ASSETS.iter().any(|(n, _)| n.ends_with(".js"))
 }
 
 /// Get the first asset name for testing.
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn first_asset_name() -> Option<&'static str> {
     APP_ASSETS.first().map(|(name, _)| *name)
 }

@@ -10,7 +10,12 @@ use axum::{
 use crate::AppState;
 use crate::auth::{presented_token, token_eq};
 
+/// Where the UI (web/) is served from. It may drive this daemon once paired
+/// with the token. TABSH_ORIGINS (comma-separated) replaces this list, e.g.
+/// `http://localhost:4321` to work on the site with `astro dev`.
 pub(crate) const HOSTED_ORIGINS: &[&str] = &["https://tabsh.cc"];
+/// The name our own copy of the app is opened at, rather than a bare
+/// `localhost`.
 pub(crate) const LOCAL_NAME: &str = "tabsh.localhost";
 
 /// Browsers let any site send requests to localhost, so every request passes

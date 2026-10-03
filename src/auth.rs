@@ -6,6 +6,8 @@ use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
+/// Reads the pairing token from `path`, creating it on first run. It is kept
+/// across restarts so a paired browser stays paired.
 pub(crate) fn load_or_create_token(path: &Path) -> std::io::Result<String> {
     match std::fs::read_to_string(path) {
         Ok(t) if t.trim().len() >= 32 => return Ok(t.trim().to_owned()),
