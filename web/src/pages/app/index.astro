@@ -146,6 +146,14 @@ import { DAEMON_URL } from '../../site';
       font-family: ui-monospace, Menlo, monospace; color: var(--muted-foreground);
     }
     .pane-dot { color: var(--primary); }
+    .pane-dot[hidden] { display: none; }
+    .pane-status { font-size: .75rem; color: var(--muted-foreground); white-space: nowrap; }
+    .pane-bar {
+      display: flex; align-items: center; gap: .25rem; padding: .25rem .5rem .25rem .75rem;
+      border-bottom: 1px solid var(--border); font-size: .8125rem; color: var(--destructive, #e5484d);
+    }
+    .pane-bar[hidden] { display: none; }
+    .pane-bar span { flex: 1; }
     .pane-body { flex: 1; min-height: 0; position: relative; overflow: auto; }
     .pane-body .cm-editor { height: 100%; }
     .pane-frame { display: block; width: 100%; height: 100%; border: 0; background: #fff; }
@@ -693,11 +701,18 @@ import { DAEMON_URL } from '../../site';
     document.getElementById('favicon').href = FAVICON;
 
     async function closeSession(s) {
+      if (!(pane?.confirmDiscard(s.id) ?? true)) return;
       // A running shell is killed and the server answers on the socket with
       // {"exit":true}; one that never started is just gone.
       await api('DELETE', `/${s.id}`).catch(() => {});
       if (s.ws?.readyState !== WebSocket.OPEN) removeSession(s);
     }
+
+    addEventListener('beforeunload', (e) => {
+      if (!pane?.hasUnsaved()) return;
+      e.preventDefault();
+      e.returnValue = ''; // older browsers
+    });
 
     function removeSession(s) {
       if (s.closed) return;

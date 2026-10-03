@@ -1,5 +1,5 @@
 import {
-  FileError, displayPath, editorUrl, formatSize, fromDisk, rawBlobUrl, readFile, type Fetcher, type FileInfo,
+  FileError, displayPath, editorUrl, formatSize, fromDisk, rawBlobUrl, readFile, saveFile, toDisk, type Fetcher, type FileInfo,
 } from './files.ts';
 import { createEditor, type Editor } from './editor.ts';
 
@@ -14,7 +14,21 @@ export interface Host {
 }
 
 interface PaneState {
+  id: string;
   view: HTMLElement;          // this session's header and body, inside #pane
+  body: HTMLElement | null;
+  ui: { edit: HTMLButtonElement; dot: HTMLElement; status: HTMLElement; bar: HTMLElement } | null;
+  editable: boolean;
+  mode: 'view' | 'edit';
+  doc: string;                // current text (\n endings) while no editor is mounted
+  version: string;
+  eol: 'crlf' | 'lf';
+  dirty: boolean;
+  saving: boolean;
+  conflict: string | null;    // the version found on disk when a save was refused
+  epoch: number;              // bumped when the view is rebuilt, so a late save result is dropped
+  previewSeq: number;
+  timer: number | undefined;
   info: FileInfo | null;
   requested: string;
   line?: number;
@@ -32,6 +46,8 @@ const states = new Map<string, PaneState>();
 // Bumped by every open and forget, so a slow response to a superseded one is dropped.
 const seqs = new Map<string, number>();
 let current: string | null = null;
+const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+const EDITABLE = new Set(['text', 'html', 'markdown', 'svg']);
 
 export function init(h: Host): void {
   host = h;
@@ -40,8 +56,16 @@ export function init(h: Host): void {
   paneEl.replaceChildren(); // drop a "couldn't load" message from an earlier attempt
   // Esc goes back to the terminal, after CodeMirror's own Esc (closing search).
   paneEl.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !e.defaultPrevented) host.focusTerminal();
+    const st = current === null ? undefined : states.get(current);
+    const mod = (isMac ? e.metaKey : e.ctrlKey) && !e.altKey && !e.shiftKey;
+    if (mod && st && (e.key === 's' || e.key === 'e')) {
+      // The editor's own Mod-s has already saved and set defaultPrevented.
+      const handled = e.defaultPrevented;
+      e.preventDefault();
+      if (!handled) { if (e.key === 's') void save(st); else toggleMode(st); }
+    } else if (e.key === 'Escape' && !e.defaultPrevented) host.focusTerminal();
   });
+
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]> = {}, ...kids: (Node | string)[]) {
@@ -91,7 +115,20 @@ export function forget(sessionId: string): void {
   refresh();
 }
 
+export function hasUnsaved(): boolean {
+  for (const st of states.values()) if (st.dirty) return true;
+  return false;
+}
+
+export function confirmDiscard(sessionId: string): boolean {
+  const st = states.get(sessionId);
+  if (!st?.dirty) return true;
+  const name = (st.info?.path ?? st.requested).split('/').pop();
+  return confirm(`Discard unsaved changes to ${name}?`);
+}
+
 function close(sessionId: string): void {
+  if (!confirmDiscard(sessionId)) return;
   forget(sessionId);
   host.focusTerminal();
 }
@@ -111,13 +148,93 @@ function header(sessionId: string, st: PaneState, info: FileInfo | null): HTMLEl
   const abs = info?.path ?? st.requested;
   const path = el('span', { className: 'pane-path', textContent: info ? shownPath(st, abs) : abs, title: abs });
   const dot = el('span', { className: 'pane-dot', textContent: '●', title: 'Unsaved changes', hidden: true });
-  const edit = button('Edit', () => {});
-  edit.disabled = true;
+  const status = el('span', { className: 'pane-status', role: 'status' });
+  const mod = isMac ? '⌘' : 'Ctrl-';
+  const edit = button('Edit', () => toggleMode(st), `Edit (${mod}E)`);
+  edit.disabled = !st.editable;
   const ext = button('Open in editor', () => openInEditor(st));
   ext.disabled = !info;
   const x = button('✕', () => close(sessionId), 'Close file');
   x.setAttribute('aria-label', 'Close file');
-  return el('header', { className: 'pane-head' }, path, dot, edit, ext, x);
+  const bar = el('div', { className: 'pane-bar', hidden: true, role: 'alert' },
+    el('span', { textContent: 'Changed on disk since you opened it' }),
+    button('Reload', () => void reload(st)),
+    button('Overwrite', () => void save(st, true)));
+  st.ui = { edit, dot, status, bar };
+  return el('header', { className: 'pane-head' }, path, status, dot, edit, ext, x);
+}
+
+function setStatus(st: PaneState, text: string, ms?: number): void {
+  clearTimeout(st.timer);
+  st.ui!.status.textContent = text;
+  if (ms) st.timer = window.setTimeout(() => { st.ui!.status.textContent = ''; }, ms);
+}
+
+function setDirty(st: PaneState, on: boolean): void {
+  st.dirty = on;
+  if (st.ui) st.ui.dot.hidden = !on;
+}
+
+function currentText(st: PaneState): string {
+  return st.editor ? st.editor.text() : st.doc;
+}
+
+function toggleMode(st: PaneState): void {
+  if (!st.editable || !st.info) return;
+  const edit = st.mode === 'view';
+  if (st.info.kind === 'text') {
+    st.editor?.setReadOnly(!edit);
+    if (edit) st.editor?.view.focus();
+  } else {
+    if (st.editor) st.doc = st.editor.text();
+    st.mode = edit ? 'edit' : 'view';
+    mountRich(st);
+    st.ui!.edit.textContent = edit ? 'Preview' : 'Edit';
+    return;
+  }
+  st.mode = edit ? 'edit' : 'view';
+  st.ui!.edit.textContent = edit ? 'Preview' : 'Edit';
+}
+
+async function save(st: PaneState, overwrite = false): Promise<void> {
+  const info = st.info;
+  if (!info || !st.editable || st.saving) return;
+  if (!overwrite && !st.dirty) return;
+  const version = overwrite && st.conflict !== null ? st.conflict : st.version;
+  const text = currentText(st);
+  const epoch = st.epoch;
+  st.saving = true;
+  let res: { version: string } | { conflict: string } | null = null;
+  let error = '';
+  try {
+    res = await saveFile(host.fetch, info.path, toDisk(text, st.eol), version);
+  } catch (err) {
+    error = err instanceof FileError ? err.message : "Couldn't reach tabsh";
+  }
+  st.saving = false;
+  if (st.epoch !== epoch || states.get(st.id) !== st) return; // reloaded or closed meanwhile
+  if (res && 'conflict' in res) {
+    st.conflict = res.conflict;
+    st.ui!.bar.hidden = false;
+    setStatus(st, '');
+  } else if (res && !res.version) {
+    // Written, but we can't tell the next save's base version.
+    setStatus(st, "Saved, but the server didn't return a version; reload before saving again");
+  } else if (res) {
+    st.version = res.version;
+    st.conflict = null;
+    st.ui!.bar.hidden = true;
+    // Edits made while the save was in flight stay unsaved.
+    if (currentText(st) === text) setDirty(st, false);
+    setStatus(st, 'Saved', 1500);
+  } else {
+    setStatus(st, error);
+  }
+}
+
+// Re-reads the file, dropping the edits.
+function reload(st: PaneState): Promise<void> {
+  return load(st.id, st.info?.path ?? st.requested, undefined, undefined);
 }
 
 function message(text: string, st?: PaneState): HTMLElement {
@@ -139,6 +256,54 @@ function svgDoc(svg: string): string {
     'body{display:grid;place-items:center}svg{max-width:100%;max-height:100%}</style>' + svg;
 }
 
+function newEditor(st: PaneState, body: HTMLElement, readOnly: boolean): Editor {
+  return createEditor(body, {
+    doc: st.doc, path: st.info!.path, readOnly, theme: host.theme(),
+    onChange: () => { setDirty(st, true); if (st.ui) st.ui.status.textContent = ''; },
+    onSave: () => void save(st),
+  });
+}
+
+// Markdown, HTML and SVG: sandboxed preview of the current text, or its source in CodeMirror.
+function mountRich(st: PaneState): void {
+  const body = st.body!, kind = st.info!.kind;
+  const seq = ++st.previewSeq;
+  st.editor?.destroy();
+  st.editor = null;
+  st.frame = null;
+  st.markdown = null;
+  body.replaceChildren();
+  if (st.mode === 'edit') {
+    st.editor = newEditor(st, body, false);
+    st.editor.view.focus();
+    return;
+  }
+  const title = st.info!.path;
+  const show = (srcdoc: string, sandbox: string) => {
+    const frame = el('iframe', { className: 'pane-frame', srcdoc, title });
+    frame.setAttribute('sandbox', sandbox);
+    body.append(frame);
+    return frame;
+  };
+  if (kind === 'html') {
+    // No allow-same-origin: the page gets an opaque origin, away from the token.
+    show(st.doc, 'allow-scripts allow-popups');
+  } else if (kind === 'svg') {
+    // Not a blob: an image/svg+xml blob URL has the app's origin, and opened
+    // as a page it could run script there. An empty sandbox can't.
+    show(svgDoc(st.doc), '');
+  } else {
+    void import('marked').then(({ marked }) => marked.parse(st.doc)).then((html) => {
+      if (st.previewSeq !== seq || st.body !== body || st.mode !== 'view') return;
+      // An empty sandbox: no scripts, an opaque origin.
+      st.markdown = html;
+      st.frame = show(markdownDoc(html, host.theme()), '');
+    }, () => {
+      if (st.previewSeq === seq) body.replaceChildren(message("Couldn't render the preview"));
+    });
+  }
+}
+
 async function renderBody(st: PaneState, info: FileInfo, body: HTMLElement, isCurrent: () => boolean): Promise<void> {
   const tooLarge = () => message(`Too large to open here (${formatSize(info.size)})`, st);
   switch (info.kind) {
@@ -155,49 +320,25 @@ async function renderBody(st: PaneState, info: FileInfo, body: HTMLElement, isCu
     case 'binary':
       body.append(message(`Binary file, ${formatSize(info.size)}`));
       return;
-    case 'html': {
+    case 'html': case 'svg': case 'markdown':
       if (info.content === undefined) { body.append(tooLarge()); return; }
-      // No allow-same-origin: the page gets an opaque origin, away from the token.
-      const frame = el('iframe', { className: 'pane-frame', srcdoc: info.content, title: info.path });
-      frame.setAttribute('sandbox', 'allow-scripts allow-popups');
-      body.append(frame);
+      mountRich(st);
       return;
-    }
-    case 'svg': {
-      if (info.content === undefined) { body.append(tooLarge()); return; }
-      // Not a blob: an image/svg+xml blob URL has the app's origin, and opened
-      // as a page it could run script there. An empty sandbox can't.
-      const frame = el('iframe', { className: 'pane-frame', srcdoc: svgDoc(info.content), title: info.path });
-      frame.setAttribute('sandbox', '');
-      body.append(frame);
-      return;
-    }
-    case 'markdown': {
-      if (info.content === undefined) { body.append(tooLarge()); return; }
-      const { marked } = await import('marked');
-      const html = await marked.parse(info.content);
-      if (!isCurrent()) return;
-      // An empty sandbox: no scripts, an opaque origin.
-      const frame = el('iframe', { className: 'pane-frame', srcdoc: markdownDoc(html, host.theme()), title: info.path });
-      frame.setAttribute('sandbox', '');
-      st.markdown = html;
-      st.frame = frame;
-      body.append(frame);
-      return;
-    }
     case 'text': {
       if (info.content === undefined) { body.append(tooLarge()); return; }
-      st.editor = createEditor(body, {
-        doc: fromDisk(info.content), path: info.path, readOnly: true, theme: host.theme(),
-        onChange: () => {}, onSave: () => {},
-      });
+      st.editor = newEditor(st, body, true);
       st.editor.goTo(st.line ?? 1, st.col);
       return;
     }
   }
 }
 
-export async function openPath(sessionId: string, path: string, line?: number, col?: number): Promise<void> {
+export function openPath(sessionId: string, path: string, line?: number, col?: number): Promise<void> {
+  if (!confirmDiscard(sessionId)) return Promise.resolve();
+  return load(sessionId, path, line, col);
+}
+
+async function load(sessionId: string, path: string, line?: number, col?: number): Promise<void> {
   const seq = (seqs.get(sessionId) ?? 0) + 1;
   seqs.set(sessionId, seq);
   let info: FileInfo | null = null;
@@ -212,15 +353,22 @@ export async function openPath(sessionId: string, path: string, line?: number, c
 
   let st = states.get(sessionId);
   if (!st) {
-    st = { view: el('section', { className: 'pane-view' }), info: null, requested: path, editor: null, blobUrl: null,
-      markdown: null, frame: null };
+    st = { id: sessionId, view: el('section', { className: 'pane-view' }), body: null, ui: null, editable: false, mode: 'view',
+      doc: '', version: '', eol: 'lf', dirty: false, saving: false, conflict: null, epoch: 0, previewSeq: 0, timer: undefined,
+      info: null, requested: path, editor: null, blobUrl: null, markdown: null, frame: null };
     states.set(sessionId, st);
     paneEl.append(st.view);
   }
   clear(st);
-  Object.assign(st, { info, requested: path, line, col });
+  clearTimeout(st.timer);
+  st.epoch++;
+  st.previewSeq++;
+  const editable = !!info && info.content !== undefined && EDITABLE.has(info.kind);
+  Object.assign(st, { info, requested: path, line, col, editable, mode: 'view', dirty: false, saving: false, conflict: null,
+    doc: editable ? fromDisk(info!.content!) : '', version: info?.version ?? '', eol: info?.eol ?? 'lf' });
   const body = el('div', { className: 'pane-body' });
-  st.view.replaceChildren(header(sessionId, st, info), body);
+  st.body = body;
+  st.view.replaceChildren(header(sessionId, st, info), st.ui!.bar, body);
   refresh();
 
   const state = st;
