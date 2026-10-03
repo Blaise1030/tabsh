@@ -205,6 +205,8 @@ const LOCAL_NAME: &str = "tabsh.localhost";
 
 // The page's typing sound samples, from web/public/sounds (see build.rs).
 include!(concat!(env!("OUT_DIR"), "/sounds.rs"));
+// The app page's bundled scripts and styles, from src/app-assets (see build.rs).
+include!(concat!(env!("OUT_DIR"), "/app_assets.rs"));
 
 /// Largest file accepted from a drag-and-drop into a terminal.
 const UPLOAD_LIMIT_BYTES: usize = 100 * 1024 * 1024;
@@ -278,6 +280,7 @@ async fn main() {
         .route("/app", get(|| async { Redirect::permanent("/app/") }))
         .route("/app/", get(local_app))
         .route("/sounds/{*path}", get(sound))
+        .route("/_astro/{name}", get(app_asset))
         .route("/api/sessions", get(list_sessions).post(create_session))
         .route(
             "/api/sessions/{id}",
@@ -508,6 +511,10 @@ async fn guard(State(st): State<AppState>, req: Request, next: Next) -> Response
     if !host_is_address(headers) {
         return StatusCode::FORBIDDEN.into_response();
     }
+    // Public build assets; script loads can't carry the token.
+    if is_public_asset(req.method(), req.uri().path()) {
+        return next.run(req).await;
+    }
     let Some(origin) = headers.get(header::ORIGIN).cloned() else {
         return next.run(req).await;
     };
@@ -551,6 +558,11 @@ async fn guard(State(st): State<AppState>, req: Request, next: Next) -> Response
     h.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
     h.insert(header::VARY, HeaderValue::from_static("origin"));
     res
+}
+
+/// The page's bundled scripts and styles: read-only, same for everyone.
+fn is_public_asset(method: &Method, path: &str) -> bool {
+    (method == Method::GET || method == Method::HEAD) && path.starts_with("/_astro/")
 }
 
 fn host_is_address(headers: &HeaderMap) -> bool {
@@ -629,6 +641,29 @@ async fn sound(Path(path): Path<String>) -> Response {
             (header::CONTENT_TYPE, kind),
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
             (header::CACHE_CONTROL, "max-age=86400"),
+        ],
+        *bytes,
+    )
+        .into_response()
+}
+
+async fn app_asset(Path(name): Path<String>) -> Response {
+    let Some((_, bytes)) = APP_ASSETS.iter().find(|(n, _)| *n == name) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let kind = if name.ends_with(".js") {
+        "text/javascript; charset=utf-8"
+    } else if name.ends_with(".css") {
+        "text/css; charset=utf-8"
+    } else {
+        "application/octet-stream"
+    };
+    (
+        [
+            (header::CONTENT_TYPE, kind),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            // File names carry a content hash.
+            (header::CACHE_CONTROL, "max-age=31536000, immutable"),
         ],
         *bytes,
     )
@@ -1463,6 +1498,27 @@ mod tests {
         ] {
             assert!(!host(bad), "{bad}");
         }
+    }
+
+    #[test]
+    fn app_page_scripts_are_embedded() {
+        // Every /_astro/ file the page references must be servable by the daemon.
+        for src in APP_HTML.split("/_astro/").skip(1) {
+            let name = src.split(['"', '\'', ')']).next().unwrap();
+            assert!(APP_ASSETS.iter().any(|(n, _)| *n == name), "missing {name}");
+        }
+        assert!(APP_ASSETS.iter().any(|(n, _)| n.ends_with(".js")));
+    }
+
+    #[test]
+    fn only_astro_gets_skip_the_token() {
+        assert!(is_public_asset(&Method::GET, "/_astro/a.js"));
+        assert!(is_public_asset(&Method::HEAD, "/_astro/a.js"));
+        assert!(!is_public_asset(&Method::POST, "/_astro/a.js"));
+        assert!(!is_public_asset(&Method::PUT, "/_astro/a.js"));
+        assert!(!is_public_asset(&Method::GET, "/api/sessions"));
+        assert!(!is_public_asset(&Method::GET, "/sounds/a.mp3"));
+        assert!(!is_public_asset(&Method::GET, "/_astrox/a.js"));
     }
 
     #[test]
