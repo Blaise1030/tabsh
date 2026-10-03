@@ -1891,10 +1891,9 @@ mod tests {
         let first_asset = APP_ASSETS
             .first()
             .map(|(name, _)| *name)
-            .unwrap_or("index.js");
+            .expect("APP_ASSETS is empty");
 
-        // All routes that require a token with a cross-origin request.
-        // These should all return 401 without a token.
+        // Routes that require a token: each returns 401 with Origin but no token.
         let guarded_routes: &[(Method, &str)] = &[
             (Method::GET, "/"),
             (Method::GET, "/open"),
@@ -1914,9 +1913,10 @@ mod tests {
             (Method::PUT, "/api/files"),
             (Method::GET, "/api/files/raw?path=/a"),
             (Method::GET, "/ws?id=x"),
+            (Method::GET, "/nope"),
         ];
 
-        // Test 1: Origin https://tabsh.cc, no token → 401 for all guarded routes
+        // All guarded routes with Origin but no token → 401
         for (method, path) in guarded_routes {
             let req = axum::http::Request::builder()
                 .method(method.clone())
@@ -1936,7 +1936,7 @@ mod tests {
             );
         }
 
-        // Test 2: Public asset with Origin but no token → 200
+        // Public assets pass without a token
         let req = axum::http::Request::builder()
             .method(Method::GET)
             .uri(format!("/_astro/{}", first_asset))
@@ -1946,9 +1946,14 @@ mod tests {
             .unwrap();
         let app = router(state.clone());
         let res = app.oneshot(req).await.unwrap();
-        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(
+            res.status(),
+            StatusCode::OK,
+            "GET /_astro/{} with Origin should be 200",
+            first_asset
+        );
 
-        // Test 3: No Origin, no token on /api/files* → 401
+        // File API requires token when no Origin header
         for path in &["/api/files?session=x&path=a", "/api/files/raw?path=/a"] {
             let req = axum::http::Request::builder()
                 .method(Method::GET)
@@ -1961,12 +1966,12 @@ mod tests {
             assert_eq!(
                 res.status(),
                 StatusCode::UNAUTHORIZED,
-                "expected 401 for GET {}",
+                "GET {} without Origin should be 401",
                 path
             );
         }
 
-        // Test 4: Foreign Origin → 403
+        // Foreign origins are rejected
         let req = axum::http::Request::builder()
             .method(Method::GET)
             .uri("/api/sessions")
@@ -1976,9 +1981,13 @@ mod tests {
             .unwrap();
         let app = router(state.clone());
         let res = app.oneshot(req).await.unwrap();
-        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            res.status(),
+            StatusCode::FORBIDDEN,
+            "GET /api/sessions with foreign Origin should be 403"
+        );
 
-        // Test 5: Non-address Host → 403
+        // Non-address hostnames are rejected (DNS rebinding protection)
         let req = axum::http::Request::builder()
             .method(Method::GET)
             .uri("/api/sessions")
@@ -1988,9 +1997,13 @@ mod tests {
             .unwrap();
         let app = router(state.clone());
         let res = app.oneshot(req).await.unwrap();
-        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            res.status(),
+            StatusCode::FORBIDDEN,
+            "GET /api/sessions with non-address Host should be 403"
+        );
 
-        // Test 6: Unrouted path with proper auth → 404
+        // Unrouted paths with valid auth return 404
         let req = axum::http::Request::builder()
             .method(Method::GET)
             .uri("/nope")
@@ -2001,6 +2014,10 @@ mod tests {
             .unwrap();
         let app = router(state);
         let res = app.oneshot(req).await.unwrap();
-        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            res.status(),
+            StatusCode::NOT_FOUND,
+            "GET /nope with valid auth should be 404"
+        );
     }
 }
