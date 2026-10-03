@@ -19,6 +19,7 @@ use std::{
     io::{Read, Write},
     net::SocketAddr,
     os::unix::fs::OpenOptionsExt,
+    path::PathBuf,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -151,13 +152,6 @@ struct AppState {
     origins: Arc<[String]>,
     /// The hosted UI, pointed at this daemon, without the token.
     app_url: Option<Arc<str>>,
-    /// Files opened from a terminal, by the secret in their /files/ URL.
-    opened: Arc<Mutex<HashMap<String, Opened>>>,
-}
-
-struct Opened {
-    path: std::path::PathBuf,
-    expires: std::time::Instant,
 }
 
 #[derive(Serialize)]
@@ -174,14 +168,6 @@ struct Rename {
 #[derive(Deserialize)]
 struct UploadQuery {
     name: String,
-}
-
-#[derive(Deserialize)]
-struct OpenFile {
-    /// The tab the path was printed in; a relative path is resolved
-    /// against its shell's working directory.
-    session: String,
-    path: String,
 }
 
 /// Where the UI (web/) is served from. It may drive this daemon once paired
@@ -216,11 +202,12 @@ include!(concat!(env!("OUT_DIR"), "/sounds.rs"));
 
 /// Largest file accepted from a drag-and-drop into a terminal.
 const UPLOAD_LIMIT_BYTES: usize = 100 * 1024 * 1024;
-/// Largest file served when a path in a terminal is opened.
-const OPEN_LIMIT_BYTES: u64 = 100 * 1024 * 1024;
-/// How long the link to an opened file keeps working (so reloading it does).
-const OPEN_TTL: Duration = Duration::from_secs(60 * 60);
-
+/// Largest text file whose content the file pane receives (and can edit).
+#[allow(dead_code)] // until the file API uses it
+const TEXT_LIMIT_BYTES: u64 = 2 * 1024 * 1024;
+/// Largest file served raw, for previews of images, PDFs and pages.
+#[allow(dead_code)] // until the file API uses it
+const RAW_LIMIT_BYTES: u64 = 50 * 1024 * 1024;
 #[tokio::main]
 async fn main() {
     let port = std::env::args()
@@ -271,7 +258,6 @@ async fn main() {
         token: token.into(),
         origins: origins.into(),
         app_url,
-        opened: Default::default(),
     };
 
     let flusher = state.clone();
@@ -299,8 +285,6 @@ async fn main() {
             "/api/uploads",
             post(upload).layer(DefaultBodyLimit::max(UPLOAD_LIMIT_BYTES)),
         )
-        .route("/api/files", post(open_file))
-        .route("/files/{secret}/{*name}", get(opened_file))
         .route("/ws", get(ws_handler))
         .layer(middleware::from_fn_with_state(state.clone(), guard))
         .with_state(state.clone());
@@ -810,155 +794,117 @@ async fn upload(
     Ok(Json(serde_json::json!({ "path": path.to_string_lossy() })))
 }
 
-/// Opens a path clicked in a terminal: resolves it where that tab's shell is
-/// and returns an unguessable URL that serves the file. The URL is the only
-/// credential, because a browser tab navigating to it can't send the token.
-async fn open_file(
-    State(st): State<AppState>,
-    Json(req): Json<OpenFile>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
-    let pid = st
-        .live
-        .lock()
-        .unwrap()
-        .get(&req.session)
-        .and_then(|s| s.pid);
-    let cwd = match pid.and_then(process_cwd) {
-        Some(cwd) => Some(cwd),
-        None => st
-            .db
-            .lock()
-            .unwrap()
-            .query_row(
-                "SELECT cwd FROM sessions WHERE id = ?1",
-                params![req.session],
-                |r| r.get::<_, Option<String>>(0),
-            )
-            .optional()
-            .map_err(internal_error)?
-            .flatten(),
+/// Resolves a path printed in a terminal: `~` is `home`, a relative path is
+/// taken from `base`. Symlinks and `..` are resolved. `git diff` prints
+/// `a/…` and `b/…` for files that don't have those prefixes, so those are
+/// tried without the prefix when the literal path doesn't exist.
+#[allow(dead_code)] // until the file API uses it
+fn resolve_path(base: &std::path::Path, home: &std::path::Path, input: &str) -> Option<PathBuf> {
+    let resolve = |s: &str| {
+        let path = match s.strip_prefix('~') {
+            Some("") => home.to_path_buf(),
+            Some(rest) if rest.starts_with('/') => home.join(rest.trim_start_matches('/')),
+            _ => base.join(s),
+        };
+        std::fs::canonicalize(path).ok()
     };
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
-    let path = match req.path.strip_prefix('~') {
-        Some(rest) if rest.is_empty() || rest.starts_with('/') => format!("{home}{rest}").into(),
-        _ => std::path::Path::new(&cwd.unwrap_or(home)).join(&req.path),
-    };
-    let path = tokio::task::spawn_blocking(move || {
-        let path = std::fs::canonicalize(path).ok()?;
-        path.is_file().then_some(path)
+    resolve(input).or_else(|| {
+        input
+            .strip_prefix("a/")
+            .or_else(|| input.strip_prefix("b/"))
+            .and_then(resolve)
     })
-    .await
-    .map_err(internal_error)?
-    .ok_or(StatusCode::NOT_FOUND)?;
-
-    let secret = random_hex(16).map_err(internal_error)?;
-    let name: String = path
-        .file_name()
-        .map(|n| n.to_string_lossy())
-        .unwrap_or_default()
-        .bytes()
-        .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'.' | b'_' | b'-' => (b as char).to_string(),
-            _ => format!("%{b:02X}"),
-        })
-        .collect();
-    let now = std::time::Instant::now();
-    let mut opened = st.opened.lock().unwrap();
-    opened.retain(|_, o| o.expires > now);
-    opened.insert(
-        secret.clone(),
-        Opened {
-            path,
-            expires: now + OPEN_TTL,
-        },
-    );
-    Ok(Json(
-        serde_json::json!({ "url": format!("/files/{secret}/{name}") }),
-    ))
 }
 
-/// Serves a file opened with `open_file`. Pages and images that can run
-/// script get a sandbox: they load in an origin of their own, so they can't
-/// reach the token or this daemon's API the way the app page does.
-async fn opened_file(
-    State(st): State<AppState>,
-    Path((secret, _name)): Path<(String, String)>,
-) -> Response {
-    let path = {
-        let opened = st.opened.lock().unwrap();
-        match opened.get(&secret) {
-            Some(o) if o.expires > std::time::Instant::now() => o.path.clone(),
-            _ => return StatusCode::NOT_FOUND.into_response(),
-        }
-    };
+#[allow(dead_code)] // until the file API uses it
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "lowercase")]
+enum FileKind {
+    Dir,
+    Text,
+    Html,
+    Markdown,
+    Svg,
+    Image,
+    Pdf,
+    Binary,
+}
+
+/// What the file pane should do with a path: by extension where that's
+/// decisive, otherwise by sniffing `head` (the start of the file).
+#[allow(dead_code)] // until the file API uses it
+fn file_kind(path: &std::path::Path, head: &[u8], is_dir: bool) -> FileKind {
+    if is_dir {
+        return FileKind::Dir;
+    }
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
-    let read = tokio::task::spawn_blocking(move || {
-        let file = std::fs::File::open(&path)?;
-        if file.metadata()?.len() > OPEN_LIMIT_BYTES {
-            return Ok(None);
+    match ext.as_str() {
+        "html" | "htm" => FileKind::Html,
+        "md" | "markdown" => FileKind::Markdown,
+        "svg" => FileKind::Svg,
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "avif" | "ico" | "bmp" => FileKind::Image,
+        "pdf" => FileKind::Pdf,
+        _ => {
+            // `head` may end inside a multi-byte character; that's still text.
+            let utf8 = match std::str::from_utf8(head) {
+                Ok(_) => true,
+                Err(e) => e.error_len().is_none(),
+            };
+            if utf8 && !head.contains(&0) {
+                FileKind::Text
+            } else {
+                FileKind::Binary
+            }
         }
-        let mut bytes = Vec::new();
-        file.take(OPEN_LIMIT_BYTES).read_to_end(&mut bytes)?;
-        Ok::<_, std::io::Error>(Some(bytes))
-    })
-    .await;
-    let bytes = match read {
-        Ok(Ok(Some(bytes))) => bytes,
-        Ok(Ok(None)) => return StatusCode::PAYLOAD_TOO_LARGE.into_response(),
-        Ok(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => {
-            return StatusCode::NOT_FOUND.into_response();
-        }
-        Ok(Err(e)) => return internal_error(e).into_response(),
-        Err(e) => return internal_error(e).into_response(),
-    };
-    let kind = match ext.as_str() {
-        "html" | "htm" => "text/html; charset=utf-8",
-        "svg" => "image/svg+xml",
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "avif" => "image/avif",
-        "ico" => "image/x-icon",
-        "pdf" => "application/pdf",
-        "mp4" => "video/mp4",
-        "webm" => "video/webm",
-        "mp3" => "audio/mpeg",
-        "wav" => "audio/wav",
-        "json" => "application/json",
-        // Source, logs, Markdown…: shown as text rather than run or downloaded.
-        _ if std::str::from_utf8(&bytes).is_ok() => "text/plain; charset=utf-8",
-        _ => "application/octet-stream",
-    };
-    let mut res = (
-        [
-            (header::CONTENT_TYPE, kind),
-            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
-            (header::REFERRER_POLICY, "no-referrer"),
-            (header::CACHE_CONTROL, "no-store"),
-        ],
-        bytes,
-    )
-        .into_response();
-    if matches!(ext.as_str(), "html" | "htm" | "svg") {
-        res.headers_mut().insert(
-            header::CONTENT_SECURITY_POLICY,
-            HeaderValue::from_static(
-                "sandbox allow-scripts allow-popups allow-modals allow-downloads",
-            ),
-        );
     }
-    if kind == "application/octet-stream" {
-        res.headers_mut().insert(
-            header::CONTENT_DISPOSITION,
-            HeaderValue::from_static("attachment"),
-        );
+}
+
+/// Changes whenever the file does, so a save can tell if it was edited
+/// elsewhere meanwhile.
+#[allow(dead_code)] // until the file API uses it
+fn version_of(meta: &std::fs::Metadata) -> String {
+    let ns = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos());
+    format!("{ns}-{}", meta.len())
+}
+
+/// Line endings of `text`, by its first line break, so an edit keeps them.
+#[allow(dead_code)] // until the file API uses it
+fn detect_eol(text: &str) -> &'static str {
+    match text.find('\n') {
+        Some(i) if text[..i].ends_with('\r') => "crlf",
+        _ => "lf",
     }
-    res
+}
+
+/// Where a relative path from this tab is resolved: its shell's live working
+/// directory, else the last one saved, else home.
+#[allow(dead_code)] // until the file API uses it
+fn session_base_dir(st: &AppState, session: &str) -> PathBuf {
+    let pid = st.live.lock().unwrap().get(session).and_then(|s| s.pid);
+    let cwd = pid.and_then(process_cwd).or_else(|| {
+        st.db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT cwd FROM sessions WHERE id = ?1",
+                params![session],
+                |r| r.get::<_, Option<String>>(0),
+            )
+            .optional()
+            .ok()
+            .flatten()
+            .flatten()
+    });
+    cwd.map(PathBuf::from)
+        .unwrap_or_else(|| std::env::var_os("HOME").map_or_else(|| "/".into(), PathBuf::from))
 }
 
 async fn about(State(st): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
@@ -1254,5 +1200,82 @@ mod tests {
     #[test]
     fn typing_sounds_are_embedded() {
         assert!(SOUNDS.iter().any(|(name, _)| name.ends_with(".mp3")));
+    }
+
+    fn scratch() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("tabsh-test-{}", random_hex(8).unwrap()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn resolve_path_handles_relative_home_symlinks_and_git_prefixes() {
+        let dir = scratch();
+        let base = dir.join("proj");
+        std::fs::create_dir_all(base.join("src")).unwrap();
+        std::fs::write(base.join("src/main.rs"), "fn main() {}").unwrap();
+        std::fs::write(base.join("ü notes.md"), "hi").unwrap();
+        std::os::unix::fs::symlink(base.join("src/main.rs"), base.join("link.rs")).unwrap();
+        let real = std::fs::canonicalize(base.join("src/main.rs")).unwrap();
+
+        assert_eq!(resolve_path(&base, &dir, "src/main.rs"), Some(real.clone()));
+        assert_eq!(
+            resolve_path(&base, &dir, "./src/../src/main.rs"),
+            Some(real.clone())
+        );
+        assert_eq!(
+            resolve_path(&base, &dir, "~/proj/src/main.rs"),
+            Some(real.clone())
+        );
+        assert_eq!(resolve_path(&base, &dir, "link.rs"), Some(real.clone()));
+        assert_eq!(
+            resolve_path(&base, &dir, "a/src/main.rs"),
+            Some(real.clone())
+        );
+        assert_eq!(resolve_path(&base, &dir, "b/src/main.rs"), Some(real));
+        assert!(resolve_path(&base, &dir, "ü notes.md").is_some());
+        assert_eq!(
+            resolve_path(&base, &dir, "~"),
+            Some(std::fs::canonicalize(&dir).unwrap())
+        );
+        assert_eq!(resolve_path(&base, &dir, "missing.rs"), None);
+        assert_eq!(resolve_path(&base, &dir, "a/missing.rs"), None);
+    }
+
+    #[test]
+    fn file_kind_by_extension_then_content() {
+        let p = |s: &str| PathBuf::from(s);
+        assert_eq!(file_kind(&p("x"), b"", true), FileKind::Dir);
+        assert_eq!(file_kind(&p("a.HTML"), b"<p>", false), FileKind::Html);
+        assert_eq!(file_kind(&p("a.md"), b"# hi", false), FileKind::Markdown);
+        assert_eq!(file_kind(&p("a.svg"), b"<svg", false), FileKind::Svg);
+        assert_eq!(file_kind(&p("a.png"), b"\x89PNG", false), FileKind::Image);
+        assert_eq!(file_kind(&p("a.pdf"), b"%PDF", false), FileKind::Pdf);
+        assert_eq!(
+            file_kind(&p("main.rs"), "fn ü() {}".as_bytes(), false),
+            FileKind::Text
+        );
+        assert_eq!(file_kind(&p("Makefile"), b"all:\n", false), FileKind::Text);
+        assert_eq!(file_kind(&p("a.bin"), b"ab\0cd", false), FileKind::Binary);
+        assert_eq!(file_kind(&p("a.bin"), b"\xff\xfe", false), FileKind::Binary);
+        // A multi-byte character cut off at the end of the sniffed head is still text.
+        assert_eq!(
+            file_kind(&p("a.txt"), &"ü".as_bytes()[..1], false),
+            FileKind::Text
+        );
+    }
+
+    #[test]
+    fn version_and_eol() {
+        let dir = scratch();
+        let f = dir.join("v.txt");
+        std::fs::write(&f, "12345").unwrap();
+        let v = version_of(&std::fs::metadata(&f).unwrap());
+        let (ns, size) = v.split_once('-').unwrap();
+        assert!(ns.parse::<u128>().unwrap() > 0);
+        assert_eq!(size, "5");
+        assert_eq!(detect_eol("a\r\nb\nc"), "crlf");
+        assert_eq!(detect_eol("a\nb\r\n"), "lf");
+        assert_eq!(detect_eol("no newline"), "lf");
     }
 }
