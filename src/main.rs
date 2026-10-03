@@ -203,10 +203,8 @@ include!(concat!(env!("OUT_DIR"), "/sounds.rs"));
 /// Largest file accepted from a drag-and-drop into a terminal.
 const UPLOAD_LIMIT_BYTES: usize = 100 * 1024 * 1024;
 /// Largest text file whose content the file pane receives (and can edit).
-#[allow(dead_code)] // until the file API uses it
 const TEXT_LIMIT_BYTES: u64 = 2 * 1024 * 1024;
 /// Largest file served raw, for previews of images, PDFs and pages.
-#[allow(dead_code)] // until the file API uses it
 const RAW_LIMIT_BYTES: u64 = 50 * 1024 * 1024;
 #[tokio::main]
 async fn main() {
@@ -285,6 +283,8 @@ async fn main() {
             "/api/uploads",
             post(upload).layer(DefaultBodyLimit::max(UPLOAD_LIMIT_BYTES)),
         )
+        .route("/api/files", get(file_info))
+        .route("/api/files/raw", get(file_raw))
         .route("/ws", get(ws_handler))
         .layer(middleware::from_fn_with_state(state.clone(), guard))
         .with_state(state.clone());
@@ -794,11 +794,172 @@ async fn upload(
     Ok(Json(serde_json::json!({ "path": path.to_string_lossy() })))
 }
 
+#[derive(Deserialize)]
+struct FileQuery {
+    session: Option<String>,
+    path: String,
+}
+
+#[derive(Serialize)]
+struct FileInfo {
+    path: String,
+    kind: FileKind,
+    size: u64,
+    version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    eol: Option<&'static str>,
+}
+
+/// Describes `path`, with its text when it is small enough to edit in the
+/// pane. Files that aren't wholly valid text get no `content`.
+fn read_file_info(path: &std::path::Path) -> std::io::Result<FileInfo> {
+    let meta = std::fs::metadata(path)?;
+    let mut info = FileInfo {
+        path: path.to_string_lossy().into_owned(),
+        kind: FileKind::Dir,
+        size: meta.len(),
+        version: version_of(&meta),
+        content: None,
+        eol: None,
+    };
+    if meta.is_dir() {
+        return Ok(info);
+    }
+    let mut head = Vec::new();
+    std::fs::File::open(path)?
+        .take(8192)
+        .read_to_end(&mut head)?;
+    info.kind = file_kind(path, &head, false);
+    let texty = matches!(
+        info.kind,
+        FileKind::Text | FileKind::Html | FileKind::Markdown | FileKind::Svg
+    );
+    if texty && meta.len() <= TEXT_LIMIT_BYTES {
+        let mut bytes = Vec::new();
+        std::fs::File::open(path)?
+            .take(TEXT_LIMIT_BYTES + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() as u64 <= TEXT_LIMIT_BYTES
+            && !bytes.contains(&0)
+            && let Ok(text) = String::from_utf8(bytes)
+        {
+            info.eol = Some(detect_eol(&text));
+            info.content = Some(text);
+        }
+    }
+    Ok(info)
+}
+
+fn file_error(e: std::io::Error) -> Response {
+    match e.kind() {
+        std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND.into_response(),
+        std::io::ErrorKind::PermissionDenied => StatusCode::FORBIDDEN.into_response(),
+        _ => internal_error(e).into_response(),
+    }
+}
+
+/// Describes a path printed in a terminal (`HEAD` only says whether it
+/// resolves). Relative paths are taken from the tab's working directory.
+async fn file_info(
+    State(st): State<AppState>,
+    method: Method,
+    Query(q): Query<FileQuery>,
+) -> Response {
+    let home = PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/".into()));
+    let base = session_base_dir(&st, q.session.as_deref().unwrap_or(""));
+    let Some(path) = resolve_path(&base, &home, &q.path) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    if method == Method::HEAD {
+        return StatusCode::OK.into_response();
+    }
+    match tokio::task::spawn_blocking(move || read_file_info(&path)).await {
+        Ok(Ok(info)) => Json(info).into_response(),
+        Ok(Err(e)) => file_error(e),
+        Err(e) => internal_error(e).into_response(),
+    }
+}
+
+/// Serves a file's bytes for the pane's image, PDF and HTML previews. Pages
+/// and SVGs that can run script get a sandbox, so they can't reach the token
+/// or this daemon's API.
+async fn file_raw(Query(q): Query<FileQuery>) -> Response {
+    if !std::path::Path::new(&q.path).is_absolute() {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    let read = tokio::task::spawn_blocking(move || {
+        let path = std::fs::canonicalize(&q.path)?;
+        let file = std::fs::File::open(&path)?;
+        let meta = file.metadata()?;
+        if meta.is_dir() {
+            return Err(std::io::Error::other("is a directory"));
+        }
+        if meta.len() > RAW_LIMIT_BYTES {
+            return Ok(None);
+        }
+        let mut bytes = Vec::new();
+        file.take(RAW_LIMIT_BYTES).read_to_end(&mut bytes)?;
+        Ok(Some((path, bytes)))
+    })
+    .await;
+    let (path, bytes) = match read {
+        Ok(Ok(Some(found))) => found,
+        Ok(Ok(None)) => return StatusCode::PAYLOAD_TOO_LARGE.into_response(),
+        Ok(Err(e)) if e.to_string() == "is a directory" => {
+            return StatusCode::BAD_REQUEST.into_response();
+        }
+        Ok(Err(e)) => return file_error(e),
+        Err(e) => return internal_error(e).into_response(),
+    };
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let kind = match ext.as_str() {
+        "html" | "htm" => "text/html; charset=utf-8",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "avif" => "image/avif",
+        "ico" => "image/x-icon",
+        "bmp" => "image/bmp",
+        "pdf" => "application/pdf",
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "json" => "application/json",
+        _ => "application/octet-stream",
+    };
+    let mut res = (
+        [
+            (header::CONTENT_TYPE, kind),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
+        bytes,
+    )
+        .into_response();
+    if matches!(ext.as_str(), "html" | "htm" | "svg") {
+        res.headers_mut().insert(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static(
+                "sandbox allow-scripts allow-popups allow-modals allow-downloads",
+            ),
+        );
+    }
+    res
+}
+
 /// Resolves a path printed in a terminal: `~` is `home`, a relative path is
 /// taken from `base`. Symlinks and `..` are resolved. `git diff` prints
 /// `a/…` and `b/…` for files that don't have those prefixes, so those are
 /// tried without the prefix when the literal path doesn't exist.
-#[allow(dead_code)] // until the file API uses it
 fn resolve_path(base: &std::path::Path, home: &std::path::Path, input: &str) -> Option<PathBuf> {
     let resolve = |s: &str| {
         let path = match s.strip_prefix('~') {
@@ -816,7 +977,6 @@ fn resolve_path(base: &std::path::Path, home: &std::path::Path, input: &str) -> 
     })
 }
 
-#[allow(dead_code)] // until the file API uses it
 #[derive(Serialize, Debug, PartialEq)]
 #[serde(rename_all = "lowercase")]
 enum FileKind {
@@ -832,7 +992,6 @@ enum FileKind {
 
 /// What the file pane should do with a path: by extension where that's
 /// decisive, otherwise by sniffing `head` (the start of the file).
-#[allow(dead_code)] // until the file API uses it
 fn file_kind(path: &std::path::Path, head: &[u8], is_dir: bool) -> FileKind {
     if is_dir {
         return FileKind::Dir;
@@ -865,7 +1024,6 @@ fn file_kind(path: &std::path::Path, head: &[u8], is_dir: bool) -> FileKind {
 
 /// Changes whenever the file does, so a save can tell if it was edited
 /// elsewhere meanwhile.
-#[allow(dead_code)] // until the file API uses it
 fn version_of(meta: &std::fs::Metadata) -> String {
     let ns = meta
         .modified()
@@ -876,7 +1034,6 @@ fn version_of(meta: &std::fs::Metadata) -> String {
 }
 
 /// Line endings of `text`, by its first line break, so an edit keeps them.
-#[allow(dead_code)] // until the file API uses it
 fn detect_eol(text: &str) -> &'static str {
     match text.find('\n') {
         Some(i) if text[..i].ends_with('\r') => "crlf",
@@ -886,7 +1043,6 @@ fn detect_eol(text: &str) -> &'static str {
 
 /// Where a relative path from this tab is resolved: its shell's live working
 /// directory, else the last one saved, else home.
-#[allow(dead_code)] // until the file API uses it
 fn session_base_dir(st: &AppState, session: &str) -> PathBuf {
     let pid = st.live.lock().unwrap().get(session).and_then(|s| s.pid);
     let cwd = pid.and_then(process_cwd).or_else(|| {
@@ -1277,5 +1433,38 @@ mod tests {
         assert_eq!(detect_eol("a\r\nb\nc"), "crlf");
         assert_eq!(detect_eol("a\nb\r\n"), "lf");
         assert_eq!(detect_eol("no newline"), "lf");
+    }
+
+    #[test]
+    fn file_info_returns_text_with_version_and_eol() {
+        let dir = scratch();
+        let f = dir.join("a.rs");
+        std::fs::write(&f, "x\r\ny\r\n").unwrap();
+        let info = read_file_info(&f).unwrap();
+        assert_eq!(info.kind, FileKind::Text);
+        assert_eq!(info.content.as_deref(), Some("x\r\ny\r\n"));
+        assert_eq!(info.eol, Some("crlf"));
+        assert_eq!(info.size, 6);
+        assert_eq!(info.version, version_of(&std::fs::metadata(&f).unwrap()));
+    }
+
+    #[test]
+    fn file_info_omits_content_for_binary_dirs_and_large_text() {
+        let dir = scratch();
+        std::fs::write(dir.join("b.bin"), b"a\0b").unwrap();
+        assert!(
+            read_file_info(&dir.join("b.bin"))
+                .unwrap()
+                .content
+                .is_none()
+        );
+        let d = read_file_info(&dir).unwrap();
+        assert_eq!(d.kind, FileKind::Dir);
+        assert!(d.content.is_none());
+        let big = dir.join("big.txt");
+        std::fs::write(&big, vec![b'a'; TEXT_LIMIT_BYTES as usize + 1]).unwrap();
+        let info = read_file_info(&big).unwrap();
+        assert_eq!(info.kind, FileKind::Text);
+        assert!(info.content.is_none());
     }
 }
