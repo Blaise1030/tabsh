@@ -174,6 +174,31 @@ struct UploadQuery {
 /// `http://localhost:4321` to work on the site with `astro dev`.
 const HOSTED_ORIGINS: &[&str] = &["https://tabsh.cc"];
 
+/// The app page, built from web/ (`npm run build` there copies it here). The
+/// daemon serves its own copy at /app/ for browsers that won't let the hosted
+/// one reach it: WebKit blocks https pages from calling http://127.0.0.1.
+const APP_HTML: &str = include_str!("app.html");
+/// The page's daemon address as built for the hosted site, emptied when this
+/// daemon serves it so the page talks to its own origin.
+const HOSTED_DAEMON_META: &str = r#"<meta name="tabsh-daemon" content="http://127.0.0.1:7681">"#;
+static APP_PAGE: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    APP_HTML.replacen(
+        HOSTED_DAEMON_META,
+        r#"<meta name="tabsh-daemon" content="">"#,
+        1,
+    )
+});
+/// The hosted site's policy for /app/ (web/public/_headers), for our copy.
+const APP_CSP: &str = "default-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; \
+style-src 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; \
+img-src data:; connect-src 'self' ws://tabsh.localhost:* ws://localhost:* ws://127.0.0.1:*; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+/// The name our own copy of the app is opened at, rather than a bare
+/// `localhost`.
+const LOCAL_NAME: &str = "tabsh.localhost";
+
+// The page's typing sound samples, from web/public/sounds (see build.rs).
+include!(concat!(env!("OUT_DIR"), "/sounds.rs"));
+
 /// Largest file accepted from a drag-and-drop into a terminal.
 const UPLOAD_LIMIT_BYTES: usize = 100 * 1024 * 1024;
 
@@ -239,6 +264,10 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(open_app))
+        .route("/open", get(open_local_app))
+        .route("/app", get(|| async { Redirect::permanent("/app/") }))
+        .route("/app/", get(local_app))
+        .route("/sounds/{*path}", get(sound))
         .route("/api/sessions", get(list_sessions).post(create_session))
         .route(
             "/api/sessions/{id}",
@@ -258,9 +287,24 @@ async fn main() {
         .await
         .unwrap_or_else(|e| panic!("failed to bind {addr}: {e}"));
     println!("tabsh listening on http://{addr} (state: {db_path})");
-    if let Some(app_url) = &state.app_url {
-        println!("open the app: {app_url}#token={}", state.token);
-    }
+    let local_host = match host.parse::<std::net::IpAddr>() {
+        Ok(ip) if ip.is_loopback() || ip.is_unspecified() => LOCAL_NAME.into(),
+        _ => host.clone(),
+    };
+    let local_url = format!("http://{local_host}:{port}/app/#token={}", state.token);
+    let open_url = match &state.app_url {
+        Some(app_url) => {
+            let url = format!("{app_url}#token={}", state.token);
+            println!("open the app: {url}");
+            println!("  or, in Safari: {local_url}");
+            url
+        }
+        None => {
+            println!("open the app: {local_url}");
+            local_url
+        }
+    };
+    open_browser(&open_url);
 
     tokio::select! {
         res = axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()) => res.unwrap(),
@@ -271,6 +315,38 @@ async fn main() {
             std::process::exit(0);
         }
     }
+}
+
+/// Opens the app in the default browser, unless there's no one at this
+/// machine's screen to see it (an SSH session, a Linux box without a
+/// display) or TABSH_NO_BROWSER is set, e.g. when run as a service. Safari
+/// can't use the hosted page, which sends it on to our copy.
+fn open_browser(url: &str) {
+    let env = |name| std::env::var_os(name).is_some_and(|v| !v.is_empty());
+    let headless = if cfg!(target_os = "macos") {
+        false
+    } else {
+        !env("DISPLAY") && !env("WAYLAND_DISPLAY")
+    };
+    if env("TABSH_NO_BROWSER") || env("SSH_CONNECTION") || headless {
+        return;
+    }
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    let mut cmd = std::process::Command::new(opener);
+    cmd.arg(url)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    // Reap it in the background; the link above is the fallback if it fails.
+    std::thread::spawn(move || {
+        if let Err(e) = cmd.status() {
+            eprintln!("tabsh: could not open a browser ({opener}): {e}");
+        }
+    });
 }
 
 async fn shutdown_signal() {
@@ -399,13 +475,15 @@ fn load_or_create_token(path: &std::path::Path) -> std::io::Result<String> {
 
 /// Browsers let any site send requests to localhost, so every request passes
 /// through here:
-/// - The Host must be `localhost` or an IP address. A DNS name means DNS
-///   rebinding: a page whose own domain resolves to us, which would
-///   otherwise look same-origin.
+/// - The Host must be `localhost`, `tabsh.localhost` or an IP address. Any
+///   other DNS name means DNS rebinding: a page whose own domain resolves to
+///   us, which would otherwise look same-origin. (`.localhost` names never
+///   reach public DNS; browsers and the OS resolve them to loopback.)
 /// - No Origin: not a cross-site browser request (browsers always send it on
 ///   cross-site writes and WebSockets; see `ws_handler`).
-/// - A hosted UI origin: allowed with CORS, but only with the token.
-/// - Anything else, our own origin included (we serve no page), is refused.
+/// - A hosted UI origin, or our own (the page at /app/): allowed, but only
+///   with the token.
+/// - Anything else is refused.
 async fn guard(State(st): State<AppState>, req: Request, next: Next) -> Response {
     let headers = req.headers();
     if !host_is_address(headers) {
@@ -414,7 +492,13 @@ async fn guard(State(st): State<AppState>, req: Request, next: Next) -> Response
     let Some(origin) = headers.get(header::ORIGIN).cloned() else {
         return next.run(req).await;
     };
-    if !st.origins.iter().any(|o| origin == o.as_str()) {
+    // The Host was checked above, so this is a page we served, not a
+    // rebound domain or another port on this machine.
+    let own = headers
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .is_some_and(|host| origin.as_bytes() == format!("http://{host}").as_bytes());
+    if !own && !st.origins.iter().any(|o| origin == o.as_str()) {
         return StatusCode::FORBIDDEN.into_response();
     }
 
@@ -458,7 +542,9 @@ fn host_is_address(headers: &HeaderMap) -> bool {
         Some(v6) => v6.split(']').next().unwrap_or(""),
         None => host.rsplit_once(':').map_or(host, |(name, _)| name),
     };
-    name.eq_ignore_ascii_case("localhost") || name.parse::<std::net::IpAddr>().is_ok()
+    name.eq_ignore_ascii_case("localhost")
+        || name.eq_ignore_ascii_case(LOCAL_NAME)
+        || name.parse::<std::net::IpAddr>().is_ok()
 }
 
 /// The UI lives on the hosted site, so visiting the daemon sends you there,
@@ -477,6 +563,57 @@ async fn open_app(
     } else {
         Redirect::temporary(app_url).into_response()
     }
+}
+
+/// Like `open_app`, but to our own copy of the page. The hosted page links
+/// here when the browser won't let it reach us.
+async fn open_local_app(
+    State(st): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+) -> Redirect {
+    if peer.ip().is_loopback() {
+        Redirect::temporary(&format!("/app/#token={}", st.token))
+    } else {
+        Redirect::temporary("/app/")
+    }
+}
+
+async fn local_app() -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+            (header::CONTENT_SECURITY_POLICY, APP_CSP),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            (header::REFERRER_POLICY, "no-referrer"),
+            (header::CACHE_CONTROL, "no-cache"),
+            (
+                header::HeaderName::from_static("cross-origin-opener-policy"),
+                "same-origin",
+            ),
+        ],
+        APP_PAGE.as_str(),
+    )
+        .into_response()
+}
+
+async fn sound(Path(path): Path<String>) -> Response {
+    let Some((_, bytes)) = SOUNDS.iter().find(|(name, _)| *name == path) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let kind = if path.ends_with(".mp3") {
+        "audio/mpeg"
+    } else {
+        "text/plain; charset=utf-8"
+    };
+    (
+        [
+            (header::CONTENT_TYPE, kind),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            (header::CACHE_CONTROL, "max-age=86400"),
+        ],
+        *bytes,
+    )
+        .into_response()
 }
 
 /// `Authorization: Bearer <token>`, or `?token=` for WebSockets, which can't
@@ -903,5 +1040,42 @@ mod tests {
             t.replay_prefix(),
             b"\x1b[?25l\x1b[?1000l\x1b[?1006h\x1b[?1049h"
         );
+    }
+
+    /// Our copy of the page must talk to us, not to the default address.
+    #[test]
+    fn local_app_points_at_its_own_origin() {
+        assert_eq!(APP_HTML.matches(HOSTED_DAEMON_META).count(), 1);
+        assert!(!APP_PAGE.contains(HOSTED_DAEMON_META));
+    }
+
+    #[test]
+    fn host_must_be_local_or_an_address() {
+        let host = |h: &str| {
+            let mut headers = HeaderMap::new();
+            headers.insert(header::HOST, HeaderValue::from_str(h).unwrap());
+            host_is_address(&headers)
+        };
+        for ok in [
+            "localhost:7681",
+            "tabsh.localhost:7681",
+            "TABSH.localhost",
+            "127.0.0.1:7681",
+            "[::1]:7681",
+        ] {
+            assert!(host(ok), "{ok}");
+        }
+        for bad in [
+            "evil.example:7681",
+            "evil.localhost:7681",
+            "tabsh.localhost.evil.example",
+        ] {
+            assert!(!host(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn typing_sounds_are_embedded() {
+        assert!(SOUNDS.iter().any(|(name, _)| name.ends_with(".mp3")));
     }
 }
