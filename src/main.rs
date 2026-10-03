@@ -214,6 +214,37 @@ const UPLOAD_LIMIT_BYTES: usize = 100 * 1024 * 1024;
 const TEXT_LIMIT_BYTES: u64 = 2 * 1024 * 1024;
 /// Largest file served raw, for previews of images, PDFs and pages.
 const RAW_LIMIT_BYTES: u64 = 50 * 1024 * 1024;
+
+/// Builds the app router with all routes and the guard middleware applied.
+fn router(state: AppState) -> Router {
+    Router::new()
+        .route("/", get(open_app))
+        .route("/open", get(open_local_app))
+        .route("/app", get(|| async { Redirect::permanent("/app/") }))
+        .route("/app/", get(local_app))
+        .route("/sounds/{*path}", get(sound))
+        .route("/_astro/{name}", get(app_asset))
+        .route("/api/sessions", get(list_sessions).post(create_session))
+        .route(
+            "/api/sessions/{id}",
+            patch(rename_session).delete(delete_session),
+        )
+        .route("/api/settings", get(get_settings).put(put_settings))
+        .route("/api/about", get(about))
+        .route(
+            "/api/uploads",
+            post(upload).layer(DefaultBodyLimit::max(UPLOAD_LIMIT_BYTES)),
+        )
+        .route(
+            "/api/files",
+            get(file_info).put(save.layer(DefaultBodyLimit::max(4 * TEXT_LIMIT_BYTES as usize))),
+        )
+        .route("/api/files/raw", get(file_raw))
+        .route("/ws", get(ws_handler))
+        .layer(middleware::from_fn_with_state(state.clone(), guard))
+        .with_state(state)
+}
+
 #[tokio::main]
 async fn main() {
     let port = std::env::args()
@@ -274,32 +305,7 @@ async fn main() {
         }
     });
 
-    let app = Router::new()
-        .route("/", get(open_app))
-        .route("/open", get(open_local_app))
-        .route("/app", get(|| async { Redirect::permanent("/app/") }))
-        .route("/app/", get(local_app))
-        .route("/sounds/{*path}", get(sound))
-        .route("/_astro/{name}", get(app_asset))
-        .route("/api/sessions", get(list_sessions).post(create_session))
-        .route(
-            "/api/sessions/{id}",
-            patch(rename_session).delete(delete_session),
-        )
-        .route("/api/settings", get(get_settings).put(put_settings))
-        .route("/api/about", get(about))
-        .route(
-            "/api/uploads",
-            post(upload).layer(DefaultBodyLimit::max(UPLOAD_LIMIT_BYTES)),
-        )
-        .route(
-            "/api/files",
-            get(file_info).put(save.layer(DefaultBodyLimit::max(4 * TEXT_LIMIT_BYTES as usize))),
-        )
-        .route("/api/files/raw", get(file_raw))
-        .route("/ws", get(ws_handler))
-        .layer(middleware::from_fn_with_state(state.clone(), guard))
-        .with_state(state.clone());
+    let app = router(state.clone());
 
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
@@ -1860,5 +1866,141 @@ mod tests {
             )
             .unwrap();
         assert_eq!(cwd.as_deref(), Some("/tmp"));
+    }
+
+    fn test_state() -> AppState {
+        let db = open_db(":memory:").unwrap();
+        AppState {
+            db: Arc::new(Mutex::new(db)),
+            live: Default::default(),
+            db_path: ":memory:".into(),
+            started: std::time::Instant::now(),
+            token: "t0k3n".into(),
+            origins: vec!["https://tabsh.cc".to_string()].into(),
+            app_url: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn every_route_is_guarded() {
+        use tower::ServiceExt;
+
+        let state = test_state();
+
+        // The first asset name from APP_ASSETS for the public asset test.
+        let first_asset = APP_ASSETS
+            .first()
+            .map(|(name, _)| *name)
+            .unwrap_or("index.js");
+
+        // All routes that require a token with a cross-origin request.
+        // These should all return 401 without a token.
+        let guarded_routes: &[(Method, &str)] = &[
+            (Method::GET, "/"),
+            (Method::GET, "/open"),
+            (Method::GET, "/app"),
+            (Method::GET, "/app/"),
+            (Method::GET, "/sounds/mx-blue/press_key1.mp3"),
+            (Method::GET, "/api/sessions"),
+            (Method::POST, "/api/sessions"),
+            (Method::PATCH, "/api/sessions/x"),
+            (Method::DELETE, "/api/sessions/x"),
+            (Method::GET, "/api/settings"),
+            (Method::PUT, "/api/settings"),
+            (Method::GET, "/api/about"),
+            (Method::POST, "/api/uploads?name=a"),
+            (Method::GET, "/api/files?session=x&path=a"),
+            (Method::HEAD, "/api/files?session=x&path=a"),
+            (Method::PUT, "/api/files"),
+            (Method::GET, "/api/files/raw?path=/a"),
+            (Method::GET, "/ws?id=x"),
+        ];
+
+        // Test 1: Origin https://tabsh.cc, no token → 401 for all guarded routes
+        for (method, path) in guarded_routes {
+            let req = axum::http::Request::builder()
+                .method(method.clone())
+                .uri(*path)
+                .header("Host", "127.0.0.1:7681")
+                .header("Origin", "https://tabsh.cc")
+                .body(axum::body::Body::empty())
+                .unwrap();
+            let app = router(state.clone());
+            let res = app.oneshot(req).await.unwrap();
+            assert_eq!(
+                res.status(),
+                StatusCode::UNAUTHORIZED,
+                "expected 401 for {} {}",
+                method,
+                path
+            );
+        }
+
+        // Test 2: Public asset with Origin but no token → 200
+        let req = axum::http::Request::builder()
+            .method(Method::GET)
+            .uri(format!("/_astro/{}", first_asset))
+            .header("Host", "127.0.0.1:7681")
+            .header("Origin", "https://tabsh.cc")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let app = router(state.clone());
+        let res = app.oneshot(req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        // Test 3: No Origin, no token on /api/files* → 401
+        for path in &["/api/files?session=x&path=a", "/api/files/raw?path=/a"] {
+            let req = axum::http::Request::builder()
+                .method(Method::GET)
+                .uri(*path)
+                .header("Host", "127.0.0.1:7681")
+                .body(axum::body::Body::empty())
+                .unwrap();
+            let app = router(state.clone());
+            let res = app.oneshot(req).await.unwrap();
+            assert_eq!(
+                res.status(),
+                StatusCode::UNAUTHORIZED,
+                "expected 401 for GET {}",
+                path
+            );
+        }
+
+        // Test 4: Foreign Origin → 403
+        let req = axum::http::Request::builder()
+            .method(Method::GET)
+            .uri("/api/sessions")
+            .header("Host", "127.0.0.1:7681")
+            .header("Origin", "https://evil.example")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let app = router(state.clone());
+        let res = app.oneshot(req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+        // Test 5: Non-address Host → 403
+        let req = axum::http::Request::builder()
+            .method(Method::GET)
+            .uri("/api/sessions")
+            .header("Host", "evil.example")
+            .header("Origin", "https://tabsh.cc")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let app = router(state.clone());
+        let res = app.oneshot(req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+        // Test 6: Unrouted path with proper auth → 404
+        let req = axum::http::Request::builder()
+            .method(Method::GET)
+            .uri("/nope")
+            .header("Host", "127.0.0.1:7681")
+            .header("Origin", "https://tabsh.cc")
+            .header("Authorization", "Bearer t0k3n")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let app = router(state);
+        let res = app.oneshot(req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
     }
 }
