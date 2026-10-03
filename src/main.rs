@@ -151,6 +151,13 @@ struct AppState {
     origins: Arc<[String]>,
     /// The hosted UI, pointed at this daemon, without the token.
     app_url: Option<Arc<str>>,
+    /// Files opened from a terminal, by the secret in their /files/ URL.
+    opened: Arc<Mutex<HashMap<String, Opened>>>,
+}
+
+struct Opened {
+    path: std::path::PathBuf,
+    expires: std::time::Instant,
 }
 
 #[derive(Serialize)]
@@ -169,13 +176,50 @@ struct UploadQuery {
     name: String,
 }
 
+#[derive(Deserialize)]
+struct OpenFile {
+    /// The tab the path was printed in; a relative path is resolved
+    /// against its shell's working directory.
+    session: String,
+    path: String,
+}
+
 /// Where the UI (web/) is served from. It may drive this daemon once paired
 /// with the token. TABSH_ORIGINS (comma-separated) replaces this list, e.g.
 /// `http://localhost:4321` to work on the site with `astro dev`.
 const HOSTED_ORIGINS: &[&str] = &["https://tabsh.cc"];
 
+/// The app page, built from web/ (`npm run build` there copies it here). The
+/// daemon serves its own copy at /app/ for browsers that won't let the hosted
+/// one reach it: WebKit blocks https pages from calling http://127.0.0.1.
+const APP_HTML: &str = include_str!("app.html");
+/// The page's daemon address as built for the hosted site, emptied when this
+/// daemon serves it so the page talks to its own origin.
+const HOSTED_DAEMON_META: &str = r#"<meta name="tabsh-daemon" content="http://127.0.0.1:7681">"#;
+static APP_PAGE: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    APP_HTML.replacen(
+        HOSTED_DAEMON_META,
+        r#"<meta name="tabsh-daemon" content="">"#,
+        1,
+    )
+});
+/// The hosted site's policy for /app/ (web/public/_headers), for our copy.
+const APP_CSP: &str = "default-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; \
+style-src 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; \
+img-src data:; connect-src 'self' ws://tabsh.localhost:* ws://localhost:* ws://127.0.0.1:*; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+/// The name our own copy of the app is opened at, rather than a bare
+/// `localhost`.
+const LOCAL_NAME: &str = "tabsh.localhost";
+
+// The page's typing sound samples, from web/public/sounds (see build.rs).
+include!(concat!(env!("OUT_DIR"), "/sounds.rs"));
+
 /// Largest file accepted from a drag-and-drop into a terminal.
 const UPLOAD_LIMIT_BYTES: usize = 100 * 1024 * 1024;
+/// Largest file served when a path in a terminal is opened.
+const OPEN_LIMIT_BYTES: u64 = 100 * 1024 * 1024;
+/// How long the link to an opened file keeps working (so reloading it does).
+const OPEN_TTL: Duration = Duration::from_secs(60 * 60);
 
 #[tokio::main]
 async fn main() {
@@ -227,6 +271,7 @@ async fn main() {
         token: token.into(),
         origins: origins.into(),
         app_url,
+        opened: Default::default(),
     };
 
     let flusher = state.clone();
@@ -239,6 +284,10 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(open_app))
+        .route("/open", get(open_local_app))
+        .route("/app", get(|| async { Redirect::permanent("/app/") }))
+        .route("/app/", get(local_app))
+        .route("/sounds/{*path}", get(sound))
         .route("/api/sessions", get(list_sessions).post(create_session))
         .route(
             "/api/sessions/{id}",
@@ -250,6 +299,8 @@ async fn main() {
             "/api/uploads",
             post(upload).layer(DefaultBodyLimit::max(UPLOAD_LIMIT_BYTES)),
         )
+        .route("/api/files", post(open_file))
+        .route("/files/{secret}/{*name}", get(opened_file))
         .route("/ws", get(ws_handler))
         .layer(middleware::from_fn_with_state(state.clone(), guard))
         .with_state(state.clone());
@@ -258,9 +309,24 @@ async fn main() {
         .await
         .unwrap_or_else(|e| panic!("failed to bind {addr}: {e}"));
     println!("tabsh listening on http://{addr} (state: {db_path})");
-    if let Some(app_url) = &state.app_url {
-        println!("open the app: {app_url}#token={}", state.token);
-    }
+    let local_host = match host.parse::<std::net::IpAddr>() {
+        Ok(ip) if ip.is_loopback() || ip.is_unspecified() => LOCAL_NAME.into(),
+        _ => host.clone(),
+    };
+    let local_url = format!("http://{local_host}:{port}/app/#token={}", state.token);
+    let open_url = match &state.app_url {
+        Some(app_url) => {
+            let url = format!("{app_url}#token={}", state.token);
+            println!("open the app: {url}");
+            println!("  or, in Safari: {local_url}");
+            url
+        }
+        None => {
+            println!("open the app: {local_url}");
+            local_url
+        }
+    };
+    open_browser(&open_url);
 
     tokio::select! {
         res = axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()) => res.unwrap(),
@@ -271,6 +337,38 @@ async fn main() {
             std::process::exit(0);
         }
     }
+}
+
+/// Opens the app in the default browser, unless there's no one at this
+/// machine's screen to see it (an SSH session, a Linux box without a
+/// display) or TABSH_NO_BROWSER is set, e.g. when run as a service. Safari
+/// can't use the hosted page, which sends it on to our copy.
+fn open_browser(url: &str) {
+    let env = |name| std::env::var_os(name).is_some_and(|v| !v.is_empty());
+    let headless = if cfg!(target_os = "macos") {
+        false
+    } else {
+        !env("DISPLAY") && !env("WAYLAND_DISPLAY")
+    };
+    if env("TABSH_NO_BROWSER") || env("SSH_CONNECTION") || headless {
+        return;
+    }
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    let mut cmd = std::process::Command::new(opener);
+    cmd.arg(url)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    // Reap it in the background; the link above is the fallback if it fails.
+    std::thread::spawn(move || {
+        if let Err(e) = cmd.status() {
+            eprintln!("tabsh: could not open a browser ({opener}): {e}");
+        }
+    });
 }
 
 async fn shutdown_signal() {
@@ -384,9 +482,7 @@ fn load_or_create_token(path: &std::path::Path) -> std::io::Result<String> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(e),
     }
-    let mut bytes = [0u8; 32];
-    std::fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
-    let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    let token = random_hex(32)?;
     std::fs::OpenOptions::new()
         .write(true)
         .create(true)
@@ -397,15 +493,23 @@ fn load_or_create_token(path: &std::path::Path) -> std::io::Result<String> {
     Ok(token)
 }
 
+fn random_hex(len: usize) -> std::io::Result<String> {
+    let mut bytes = vec![0u8; len];
+    std::fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
+    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+}
+
 /// Browsers let any site send requests to localhost, so every request passes
 /// through here:
-/// - The Host must be `localhost` or an IP address. A DNS name means DNS
-///   rebinding: a page whose own domain resolves to us, which would
-///   otherwise look same-origin.
+/// - The Host must be `localhost`, `tabsh.localhost` or an IP address. Any
+///   other DNS name means DNS rebinding: a page whose own domain resolves to
+///   us, which would otherwise look same-origin. (`.localhost` names never
+///   reach public DNS; browsers and the OS resolve them to loopback.)
 /// - No Origin: not a cross-site browser request (browsers always send it on
 ///   cross-site writes and WebSockets; see `ws_handler`).
-/// - A hosted UI origin: allowed with CORS, but only with the token.
-/// - Anything else, our own origin included (we serve no page), is refused.
+/// - A hosted UI origin, or our own (the page at /app/): allowed, but only
+///   with the token.
+/// - Anything else is refused.
 async fn guard(State(st): State<AppState>, req: Request, next: Next) -> Response {
     let headers = req.headers();
     if !host_is_address(headers) {
@@ -414,7 +518,13 @@ async fn guard(State(st): State<AppState>, req: Request, next: Next) -> Response
     let Some(origin) = headers.get(header::ORIGIN).cloned() else {
         return next.run(req).await;
     };
-    if !st.origins.iter().any(|o| origin == o.as_str()) {
+    // The Host was checked above, so this is a page we served, not a
+    // rebound domain or another port on this machine.
+    let own = headers
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .is_some_and(|host| origin.as_bytes() == format!("http://{host}").as_bytes());
+    if !own && !st.origins.iter().any(|o| origin == o.as_str()) {
         return StatusCode::FORBIDDEN.into_response();
     }
 
@@ -458,7 +568,9 @@ fn host_is_address(headers: &HeaderMap) -> bool {
         Some(v6) => v6.split(']').next().unwrap_or(""),
         None => host.rsplit_once(':').map_or(host, |(name, _)| name),
     };
-    name.eq_ignore_ascii_case("localhost") || name.parse::<std::net::IpAddr>().is_ok()
+    name.eq_ignore_ascii_case("localhost")
+        || name.eq_ignore_ascii_case(LOCAL_NAME)
+        || name.parse::<std::net::IpAddr>().is_ok()
 }
 
 /// The UI lives on the hosted site, so visiting the daemon sends you there,
@@ -477,6 +589,57 @@ async fn open_app(
     } else {
         Redirect::temporary(app_url).into_response()
     }
+}
+
+/// Like `open_app`, but to our own copy of the page. The hosted page links
+/// here when the browser won't let it reach us.
+async fn open_local_app(
+    State(st): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+) -> Redirect {
+    if peer.ip().is_loopback() {
+        Redirect::temporary(&format!("/app/#token={}", st.token))
+    } else {
+        Redirect::temporary("/app/")
+    }
+}
+
+async fn local_app() -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+            (header::CONTENT_SECURITY_POLICY, APP_CSP),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            (header::REFERRER_POLICY, "no-referrer"),
+            (header::CACHE_CONTROL, "no-cache"),
+            (
+                header::HeaderName::from_static("cross-origin-opener-policy"),
+                "same-origin",
+            ),
+        ],
+        APP_PAGE.as_str(),
+    )
+        .into_response()
+}
+
+async fn sound(Path(path): Path<String>) -> Response {
+    let Some((_, bytes)) = SOUNDS.iter().find(|(name, _)| *name == path) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let kind = if path.ends_with(".mp3") {
+        "audio/mpeg"
+    } else {
+        "text/plain; charset=utf-8"
+    };
+    (
+        [
+            (header::CONTENT_TYPE, kind),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            (header::CACHE_CONTROL, "max-age=86400"),
+        ],
+        *bytes,
+    )
+        .into_response()
 }
 
 /// `Authorization: Bearer <token>`, or `?token=` for WebSockets, which can't
@@ -645,6 +808,157 @@ async fn upload(
     .map_err(internal_error)?
     .map_err(internal_error)?;
     Ok(Json(serde_json::json!({ "path": path.to_string_lossy() })))
+}
+
+/// Opens a path clicked in a terminal: resolves it where that tab's shell is
+/// and returns an unguessable URL that serves the file. The URL is the only
+/// credential, because a browser tab navigating to it can't send the token.
+async fn open_file(
+    State(st): State<AppState>,
+    Json(req): Json<OpenFile>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let pid = st
+        .live
+        .lock()
+        .unwrap()
+        .get(&req.session)
+        .and_then(|s| s.pid);
+    let cwd = match pid.and_then(process_cwd) {
+        Some(cwd) => Some(cwd),
+        None => st
+            .db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT cwd FROM sessions WHERE id = ?1",
+                params![req.session],
+                |r| r.get::<_, Option<String>>(0),
+            )
+            .optional()
+            .map_err(internal_error)?
+            .flatten(),
+    };
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
+    let path = match req.path.strip_prefix('~') {
+        Some(rest) if rest.is_empty() || rest.starts_with('/') => format!("{home}{rest}").into(),
+        _ => std::path::Path::new(&cwd.unwrap_or(home)).join(&req.path),
+    };
+    let path = tokio::task::spawn_blocking(move || {
+        let path = std::fs::canonicalize(path).ok()?;
+        path.is_file().then_some(path)
+    })
+    .await
+    .map_err(internal_error)?
+    .ok_or(StatusCode::NOT_FOUND)?;
+
+    let secret = random_hex(16).map_err(internal_error)?;
+    let name: String = path
+        .file_name()
+        .map(|n| n.to_string_lossy())
+        .unwrap_or_default()
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'.' | b'_' | b'-' => (b as char).to_string(),
+            _ => format!("%{b:02X}"),
+        })
+        .collect();
+    let now = std::time::Instant::now();
+    let mut opened = st.opened.lock().unwrap();
+    opened.retain(|_, o| o.expires > now);
+    opened.insert(
+        secret.clone(),
+        Opened {
+            path,
+            expires: now + OPEN_TTL,
+        },
+    );
+    Ok(Json(
+        serde_json::json!({ "url": format!("/files/{secret}/{name}") }),
+    ))
+}
+
+/// Serves a file opened with `open_file`. Pages and images that can run
+/// script get a sandbox: they load in an origin of their own, so they can't
+/// reach the token or this daemon's API the way the app page does.
+async fn opened_file(
+    State(st): State<AppState>,
+    Path((secret, _name)): Path<(String, String)>,
+) -> Response {
+    let path = {
+        let opened = st.opened.lock().unwrap();
+        match opened.get(&secret) {
+            Some(o) if o.expires > std::time::Instant::now() => o.path.clone(),
+            _ => return StatusCode::NOT_FOUND.into_response(),
+        }
+    };
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let read = tokio::task::spawn_blocking(move || {
+        let file = std::fs::File::open(&path)?;
+        if file.metadata()?.len() > OPEN_LIMIT_BYTES {
+            return Ok(None);
+        }
+        let mut bytes = Vec::new();
+        file.take(OPEN_LIMIT_BYTES).read_to_end(&mut bytes)?;
+        Ok::<_, std::io::Error>(Some(bytes))
+    })
+    .await;
+    let bytes = match read {
+        Ok(Ok(Some(bytes))) => bytes,
+        Ok(Ok(None)) => return StatusCode::PAYLOAD_TOO_LARGE.into_response(),
+        Ok(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+            return StatusCode::NOT_FOUND.into_response();
+        }
+        Ok(Err(e)) => return internal_error(e).into_response(),
+        Err(e) => return internal_error(e).into_response(),
+    };
+    let kind = match ext.as_str() {
+        "html" | "htm" => "text/html; charset=utf-8",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "avif" => "image/avif",
+        "ico" => "image/x-icon",
+        "pdf" => "application/pdf",
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "json" => "application/json",
+        // Source, logs, Markdown…: shown as text rather than run or downloaded.
+        _ if std::str::from_utf8(&bytes).is_ok() => "text/plain; charset=utf-8",
+        _ => "application/octet-stream",
+    };
+    let mut res = (
+        [
+            (header::CONTENT_TYPE, kind),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            (header::REFERRER_POLICY, "no-referrer"),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
+        bytes,
+    )
+        .into_response();
+    if matches!(ext.as_str(), "html" | "htm" | "svg") {
+        res.headers_mut().insert(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static(
+                "sandbox allow-scripts allow-popups allow-modals allow-downloads",
+            ),
+        );
+    }
+    if kind == "application/octet-stream" {
+        res.headers_mut().insert(
+            header::CONTENT_DISPOSITION,
+            HeaderValue::from_static("attachment"),
+        );
+    }
+    res
 }
 
 async fn about(State(st): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
@@ -903,5 +1217,42 @@ mod tests {
             t.replay_prefix(),
             b"\x1b[?25l\x1b[?1000l\x1b[?1006h\x1b[?1049h"
         );
+    }
+
+    /// Our copy of the page must talk to us, not to the default address.
+    #[test]
+    fn local_app_points_at_its_own_origin() {
+        assert_eq!(APP_HTML.matches(HOSTED_DAEMON_META).count(), 1);
+        assert!(!APP_PAGE.contains(HOSTED_DAEMON_META));
+    }
+
+    #[test]
+    fn host_must_be_local_or_an_address() {
+        let host = |h: &str| {
+            let mut headers = HeaderMap::new();
+            headers.insert(header::HOST, HeaderValue::from_str(h).unwrap());
+            host_is_address(&headers)
+        };
+        for ok in [
+            "localhost:7681",
+            "tabsh.localhost:7681",
+            "TABSH.localhost",
+            "127.0.0.1:7681",
+            "[::1]:7681",
+        ] {
+            assert!(host(ok), "{ok}");
+        }
+        for bad in [
+            "evil.example:7681",
+            "evil.localhost:7681",
+            "tabsh.localhost.evil.example",
+        ] {
+            assert!(!host(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn typing_sounds_are_embedded() {
+        assert!(SOUNDS.iter().any(|(name, _)| name.ends_with(".mp3")));
     }
 }
