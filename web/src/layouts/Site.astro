@@ -26,9 +26,9 @@ const { title, description } = Astro.props;
           <p>2026</p>
         </div>
         <nav aria-label="Primary">
-          <a href="/app/">[ START APP ]</a>
-          <a href="/changelog/">[ CHANGELOG ]</a>
-          <a href={REPO_URL}>[ GITHUB ]</a>
+          <a href="/app/">[<span>START APP</span>]</a>
+          <a href="/changelog/">[<span>CHANGELOG</span>]</a>
+          <a href={REPO_URL}>[<span>GITHUB</span>]</a>
         </nav>
       </header>
 
@@ -81,6 +81,8 @@ const { title, description } = Astro.props;
   .masthead { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
   .masthead nav { display: flex; flex-direction: column; align-items: flex-end; white-space: nowrap; }
   .masthead nav a { color: var(--fg); border: 0; }
+  /* Half a character between the brackets and the label, not a full space. */
+  .masthead nav a span { margin: 0 .25ch; }
   .masthead nav a:hover { color: var(--link); }
   .cursor {
     display: inline-block; width: .6em; height: 1.1em; vertical-align: -.2em;
