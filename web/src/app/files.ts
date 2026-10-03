@@ -59,11 +59,6 @@ export function toDisk(text: string, eol: 'crlf' | 'lf'): string {
   return eol === 'crlf' ? text.replace(/\n/g, '\r\n') : text;
 }
 
-export function editorUrl(scheme: 'vscode' | 'cursor' | 'zed', absPath: string, line?: number, col?: number): string {
-  const p = absPath.split('/').map(encodeURIComponent).join('/');
-  return `${scheme}://file${p}:${line ?? 1}:${col ?? 1}`;
-}
-
 export function displayPath(absPath: string, base: string | undefined): string {
   if (!base) return absPath;
   const b = base.endsWith('/') ? base : base + '/';

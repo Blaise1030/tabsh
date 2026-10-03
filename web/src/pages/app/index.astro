@@ -122,8 +122,10 @@ import { DAEMON_URL } from '../../site';
     @keyframes bell-pulse { 0% { box-shadow: 0 0 0 0 #f97316aa; } 100% { box-shadow: 0 0 0 6px #f9731600; } }
     @media (prefers-reduced-motion: reduce) { .tab.bell::before { animation: none; } }
 
-    /* The terminals, with a tab's file pane (web/src/app/file-pane.ts) beside them. */
+    /* The tab bar and terminals, with a tab's file pane (web/src/app/file-pane.ts)
+       beside them at full height. */
     #workspace { flex: 1; min-height: 0; display: flex; position: relative; }
+    #main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
     #terms { flex: 1; min-width: 0; min-height: 0; position: relative; }
     #pane-divider { flex: 0 0 1px; background: var(--border); position: relative; touch-action: none; }
     /* A wider grab area than the 1px line. */
@@ -143,7 +145,7 @@ import { DAEMON_URL } from '../../site';
     .pane-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
     .pane-view[hidden] { display: none; }
     .pane-head {
-      display: flex; align-items: center; gap: .25rem; padding: .125rem .25rem .125rem .75rem;
+      display: flex; align-items: center; gap: .25rem; padding: .125rem .25rem;
       border-bottom: 1px solid var(--border); font-size: .8125rem;
     }
     .pane-path {
@@ -208,16 +210,6 @@ import { DAEMON_URL } from '../../site';
   </style>
 </head>
 <body>
-  <div class="tabbar">
-    <div id="tabs" role="tablist" aria-label="Terminals"></div>
-    <button type="button" class="btn" data-variant="ghost" data-size="icon-sm" aria-label="New terminal" title="New terminal" data-new-session>
-      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
-    </button>
-    <button type="button" class="btn settings-btn" data-variant="ghost" data-size="icon-sm" aria-label="Settings" id="settings-btn">
-      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg>
-    </button>
-  </div>
-
   <dialog id="palette" class="command-dialog" aria-label="Command menu" onclick="if (event.target === this) this.close()">
     <div class="command" id="palette-command">
       <header>
@@ -247,6 +239,16 @@ import { DAEMON_URL } from '../../site';
   </dialog>
 
   <div id="workspace">
+    <div id="main">
+    <div class="tabbar">
+      <div id="tabs" role="tablist" aria-label="Terminals"></div>
+      <button type="button" class="btn" data-variant="ghost" data-size="icon-sm" aria-label="New terminal" title="New terminal" data-new-session>
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+      </button>
+      <button type="button" class="btn settings-btn" data-variant="ghost" data-size="icon-sm" aria-label="Settings" id="settings-btn">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg>
+      </button>
+    </div>
     <div id="terms">
       <div class="empty" id="empty" hidden>
         <p>No terminals open.</p>
@@ -275,6 +277,7 @@ import { DAEMON_URL } from '../../site';
           <button type="submit" class="btn">Pair</button>
         </form>
       </div>
+    </div>
     </div>
     <div id="pane-divider" hidden></div>
     <aside id="pane" hidden tabindex="-1" aria-label="File"></aside>
@@ -584,7 +587,6 @@ import { DAEMON_URL } from '../../site';
         return { background: c.background, foreground: c.foreground, cursor: c.cursor,
           selectionBackground: c.selectionBackground, light: !!t.light };
       },
-      editor: () => saved.editor,
       layout: () => active && sendSize(active),
       newTabAt: (cwd) => api('POST', '', { cwd }).then((info) => activate(openSession(info))).catch(console.error),
       focusTerminal: () => active?.term.focus(),
@@ -848,10 +850,9 @@ import { DAEMON_URL } from '../../site';
     }
 
     const DEFAULTS = { theme: 'tabsh', font: 'menlo', fontSize: 13, typingSound: 'mx-black-pbt',
-      paneWidth: 0.5, editor: 'vscode',
+      paneWidth: 0.5,
       ...Object.fromEntries(Object.entries(KEYBINDINGS).map(([id, k]) => [id, k.presets[0]])) };
 
-    const EDITORS = { vscode: 'VS Code', cursor: 'Cursor', zed: 'Zed' };
     let saved = { ...DEFAULTS };   // what's stored on the server
     let applied = { ...DEFAULTS }; // what's on screen (differs while previewing)
 
@@ -910,7 +911,6 @@ import { DAEMON_URL } from '../../site';
         typingSound: TYPING_SOUNDS[stored.typingSound] ? stored.typingSound : DEFAULTS.typingSound,
         paneWidth: typeof stored.paneWidth === 'number' && stored.paneWidth >= 0.2 && stored.paneWidth <= 0.8
           ? stored.paneWidth : DEFAULTS.paneWidth,
-        editor: Object.hasOwn(EDITORS, stored.editor) ? stored.editor : DEFAULTS.editor,
         // A combo saved from another OS's browser isn't offered here; use the default.
         ...Object.fromEntries(Object.entries(KEYBINDINGS).map(([id, k]) =>
           [id, k.presets.includes(stored[id]) ? stored[id] : DEFAULTS[id]])),
@@ -1012,14 +1012,18 @@ import { DAEMON_URL } from '../../site';
 
     const MODIFIERS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'CapsLock']);
     const held = new Map(); // e.code → release sample
-    const terms = document.getElementById('terms');
-    terms.addEventListener('keydown', (e) => {
+    // Typing in a terminal sounds, and so does typing in the file pane's editor
+    // (not a read-only view of the file).
+    // App shortcuts (palette, tab switching) stay silent.
+    const typing = (e) => !!e.target.closest?.('#terms, #pane .cm-content[contenteditable="true"]') &&
+      !Object.keys(KEYBINDINGS).some((id) => matchesKey(e, saved[id]));
+    window.addEventListener('keydown', (e) => {
       // Held keys auto-repeat; only the first press sounds.
-      if (saved.typingSound === 'off' || e.repeat || MODIFIERS.has(e.key)) return;
+      if (saved.typingSound === 'off' || e.repeat || MODIFIERS.has(e.key) || !typing(e)) return;
       const release = keySound(saved.typingSound, e.key);
       if (release) held.set(e.code, release);
     }, { capture: true });
-    terms.addEventListener('keyup', (e) => {
+    window.addEventListener('keyup', (e) => {
       const release = held.get(e.code);
       held.delete(e.code);
       if (release) playSample(release);
@@ -1057,10 +1061,9 @@ import { DAEMON_URL } from '../../site';
           { heading: 'Sound', items: [
             { label: 'Typing sound…', icon: ICONS.sound, hint: TYPING_SOUNDS[saved.typingSound], keywords: 'keyboard click clack audio mute', go: 'typingSound' },
           ] },
-          { heading: 'Files', items: [
-            { label: 'Open files in…', icon: ICONS.info, hint: EDITORS[saved.editor], keywords: 'editor vscode cursor zed external', go: 'editor' },
-            ...(active && pane?.hasFile(active.id) ? [{ label: 'Close file', icon: ICONS.info, keywords: 'pane editor hide', run: () => pane?.close(active.id) }] : []),
-          ] },
+          ...(active && pane?.hasFile(active.id) ? [{ heading: 'Files', items: [
+            { label: 'Close file', icon: ICONS.info, keywords: 'pane editor hide', run: () => pane?.close(active.id) },
+          ] }] : []),
           { heading: 'Keybindings', items: Object.entries(KEYBINDINGS).map(([id, k]) => ({
             label: `${k.name}…`, icon: ICONS.keybinding, hint: keyLabel(saved[id]),
             keywords: `shortcut hotkey keybinding keyboard ${k.keywords} ${keyLabel(saved[id], true)}`, go: id,
@@ -1084,9 +1087,6 @@ import { DAEMON_URL } from '../../site';
       ] }),
       typingSound: () => ({ placeholder: 'Search…', groups: [
         { heading: 'Typing sound', items: Object.entries(TYPING_SOUNDS).map(([id, name]) => ({ label: name, key: 'typingSound', value: id })) },
-      ] }),
-      editor: () => ({ placeholder: 'Search editors…', groups: [
-        { heading: 'Open files in', items: Object.entries(EDITORS).map(([id, name]) => ({ label: name, key: 'editor', value: id })) },
       ] }),
       fontSize: () => ({ placeholder: 'Search sizes…', groups: [
         { heading: 'Font size', items: FONT_SIZES.map((n) => ({ label: `${n}px`, key: 'fontSize', value: n })) },
