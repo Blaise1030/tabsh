@@ -100,7 +100,51 @@
     @keyframes bell-pulse { 0% { box-shadow: 0 0 0 0 #f97316aa; } 100% { box-shadow: 0 0 0 6px #f9731600; } }
     @media (prefers-reduced-motion: reduce) { .tab.bell::before { animation: none; } }
 
-    #terms { flex: 1; min-height: 0; position: relative; }
+    /* The tab bar and terminals, with a tab's file pane (web/src/app/file-pane.ts)
+       beside them at full height. */
+    #workspace { flex: 1; min-height: 0; display: flex; position: relative; }
+    #main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    #terms { flex: 1; min-width: 0; min-height: 0; position: relative; }
+    #pane-divider { flex: 0 0 1px; background: var(--border); position: relative; touch-action: none; }
+    /* A wider grab area than the 1px line. */
+    #pane-divider::before { content: ''; position: absolute; inset: 0 -3px; cursor: col-resize; z-index: 6; }
+    #workspace.dragging { user-select: none; cursor: col-resize; }
+    #workspace.dragging iframe { pointer-events: none; }
+    #pane {
+      flex: 0 0 calc(var(--pane-width, .5) * 100%); min-width: 0;
+      display: flex; flex-direction: column; background: var(--background);
+    }
+    #pane:focus { outline: none; }
+    #pane[hidden], #pane-divider[hidden] { display: none; }
+    @media (max-width: 799px) {
+      #pane { position: absolute; inset: 0; z-index: 5; }
+      #pane-divider { display: none; }
+    }
+    .pane-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .pane-view[hidden] { display: none; }
+    .pane-head {
+      display: flex; align-items: center; gap: .25rem; padding: .125rem .25rem;
+      border-bottom: 1px solid var(--border); font-size: .8125rem;
+    }
+    .pane-path {
+      flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font-family: ui-monospace, Menlo, monospace; color: var(--muted-foreground);
+    }
+    .pane-dot { color: var(--primary); }
+    .pane-dot[hidden] { display: none; }
+    .pane-status { font-size: .75rem; color: var(--muted-foreground); white-space: nowrap; }
+    .pane-bar {
+      display: flex; align-items: center; gap: .25rem; padding: .25rem .5rem .25rem .75rem;
+      border-bottom: 1px solid var(--border); font-size: .8125rem; color: var(--destructive, #e5484d);
+    }
+    .pane-bar[hidden] { display: none; }
+    .pane-bar span { flex: 1; }
+    .pane-body { flex: 1; min-height: 0; position: relative; overflow: auto; }
+    .pane-body .cm-editor { height: 100%; }
+    .pane-frame { display: block; width: 100%; height: 100%; border: 0; background: #fff; }
+    .pane-img { display: block; max-width: 100%; margin: 1rem auto; }
+    .pane-msg { display: grid; place-content: center; gap: .75rem; height: 100%; padding: 1rem; text-align: center; color: var(--muted-foreground); }
+    .pane-msg p { margin: 0; }
     .term { position: absolute; inset: 0; display: none; }
     /* Padding goes on xterm's own element: FitAddon subtracts that, but sizes
        rows from the parent's full height, so parent padding overflows the page. */
@@ -141,7 +185,7 @@
     #gate .mark { color: var(--muted-foreground); }
     #gate .cmd { padding: .75rem 1rem; border-radius: 4px; background: var(--muted); font: inherit; }
     #gate form { display: flex; gap: .5rem; }
-  </style></head><body><div class="tabbar"><div id="tabs" role="tablist" aria-label="Terminals"></div><button type="button" class="btn" data-variant="ghost" data-size="icon-sm" aria-label="New terminal" title="New terminal" data-new-session><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg></button><button type="button" class="btn settings-btn" data-variant="ghost" data-size="icon-sm" aria-label="Settings" id="settings-btn"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"></path><circle cx="12" cy="12" r="3"></circle></svg></button></div><dialog id="palette" class="command-dialog" aria-label="Command menu" onclick="if (event.target === this) this.close()"><div class="command" id="palette-command"><header><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg><input type="text" id="palette-input" autocomplete="off" autocorrect="off" spellcheck="false" aria-autocomplete="list" role="combobox" aria-expanded="true" aria-controls="palette-menu"></header><div role="menu" id="palette-menu" aria-orientation="vertical" data-empty="No results found."></div></div></dialog><dialog id="about" class="dialog" aria-labelledby="about-title" aria-describedby="about-desc" onclick="if (event.target === this) this.close()"><div><header><h2 id="about-title">tabsh</h2><p id="about-desc">Terminals in your browser, served by a small Rust daemon.</p></header><section><table class="table about-table"><tbody id="about-list"></tbody></table></section><footer><button type="button" class="btn" onclick="this.closest('dialog').close()">Close</button></footer></div></dialog><div id="terms"><div class="empty" id="empty" hidden><p>No terminals open.</p><button type="button" class="btn" data-new-session>New terminal</button></div><div class="empty" id="gate" hidden><div data-gate="offline"><h2><span class="mark">#</span> CAN'T REACH TABSH ON THIS COMPUTER</h2><p>Start it in a terminal. This page connects as soon as it's up.</p><pre class="cmd"><span class="mark">$</span> tabsh</pre><p class="mark">&gt; If your browser asks to let this site reach apps on your device, allow it.</p></div><div data-gate="safari"><h2><span class="mark">#</span> OPEN TABSH FROM YOUR COMPUTER</h2><p>Safari doesn't let websites reach apps on your computer, so tabsh serves this page itself. Start it if it isn't running:</p><pre class="cmd"><span class="mark">$</span> tabsh</pre><p><a class="btn" id="open-local" href="#">Open tabsh</a></p><p class="mark">&gt; Add it to your Dock (File → Add to Dock) to open it like an app.</p></div><div data-gate="pair"><h2><span class="mark">#</span> PAIR THIS BROWSER WITH TABSH</h2><p>Open the link tabsh printed when it started, or paste it here.</p></div><form data-gate="pair" id="pair-form"><input class="input" id="pair-input" placeholder="https://…/app/#token=…" autocomplete="off" spellcheck="false" aria-label="Pairing link or token"><button type="submit" class="btn">Pair</button></form></div></div><div id="drop-glow" aria-hidden="true"></div><template id="tab-template"><div class="tab" role="tab" aria-selected="false"><span></span><button type="button" class="btn" data-variant="ghost" data-size="icon-xs" aria-label="Close terminal"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button></div></template><script>
+  </style></head><body><dialog id="palette" class="command-dialog" aria-label="Command menu" onclick="if (event.target === this) this.close()"><div class="command" id="palette-command"><header><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg><input type="text" id="palette-input" autocomplete="off" autocorrect="off" spellcheck="false" aria-autocomplete="list" role="combobox" aria-expanded="true" aria-controls="palette-menu"></header><div role="menu" id="palette-menu" aria-orientation="vertical" data-empty="No results found."></div></div></dialog><dialog id="about" class="dialog" aria-labelledby="about-title" aria-describedby="about-desc" onclick="if (event.target === this) this.close()"><div><header><h2 id="about-title">tabsh</h2><p id="about-desc">Terminals in your browser, served by a small Rust daemon.</p></header><section><table class="table about-table"><tbody id="about-list"></tbody></table></section><footer><button type="button" class="btn" onclick="this.closest('dialog').close()">Close</button></footer></div></dialog><div id="workspace"><div id="main"><div class="tabbar"><div id="tabs" role="tablist" aria-label="Terminals"></div><button type="button" class="btn" data-variant="ghost" data-size="icon-sm" aria-label="New terminal" title="New terminal" data-new-session><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg></button><button type="button" class="btn settings-btn" data-variant="ghost" data-size="icon-sm" aria-label="Settings" id="settings-btn"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"></path><circle cx="12" cy="12" r="3"></circle></svg></button></div><div id="terms"><div class="empty" id="empty" hidden><p>No terminals open.</p><button type="button" class="btn" data-new-session>New terminal</button></div><div class="empty" id="gate" hidden><div data-gate="offline"><h2><span class="mark">#</span> CAN'T REACH TABSH ON THIS COMPUTER</h2><p>Start it in a terminal. This page connects as soon as it's up.</p><pre class="cmd"><span class="mark">$</span> tabsh</pre><p class="mark">&gt; If your browser asks to let this site reach apps on your device, allow it.</p></div><div data-gate="safari"><h2><span class="mark">#</span> OPEN TABSH FROM YOUR COMPUTER</h2><p>Safari doesn't let websites reach apps on your computer, so tabsh serves this page itself. Start it if it isn't running:</p><pre class="cmd"><span class="mark">$</span> tabsh</pre><p><a class="btn" id="open-local" href="#">Open tabsh</a></p><p class="mark">&gt; Add it to your Dock (File → Add to Dock) to open it like an app.</p></div><div data-gate="pair"><h2><span class="mark">#</span> PAIR THIS BROWSER WITH TABSH</h2><p>Open the link tabsh printed when it started, or paste it here.</p></div><form data-gate="pair" id="pair-form"><input class="input" id="pair-input" placeholder="https://…/app/#token=…" autocomplete="off" spellcheck="false" aria-label="Pairing link or token"><button type="submit" class="btn">Pair</button></form></div></div></div><div id="pane-divider" hidden></div><aside id="pane" hidden tabindex="-1" aria-label="File"></aside></div><div id="drop-glow" aria-hidden="true"></div><template id="tab-template"><div class="tab" role="tab" aria-selected="false"><span></span><button type="button" class="btn" data-variant="ghost" data-size="icon-xs" aria-label="Close terminal"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button></div></template><script>
     // The server (SQLite) owns the list of sessions; only which tab this
     // browser has selected is kept locally.
     const ACTIVE_KEY = 'tabsh.active';
@@ -254,6 +298,7 @@
       const fit = new FitAddon.FitAddon();
       term.loadAddon(fit);
       term.open(el);
+      term.registerLinkProvider(linkProvider(() => s, term, el));
 
       // Right-click belongs to the terminal, not the browser's menu. Programs
       // that track the mouse (vim, tmux, htop) receive it from xterm.js; at a
@@ -348,6 +393,7 @@
         active.tab.setAttribute('aria-selected', 'false');
       }
       active = s;
+      pane?.show(s?.id ?? null);
       document.getElementById('empty').hidden = !!s;
       updateBadge();
       if (s) {
@@ -360,6 +406,130 @@
         s.term.focus();
       }
       rememberActive();
+    }
+
+    // ---- Links and the file pane ---------------------------------------------
+    // URLs and paths in the output are Cmd/Ctrl-clickable. Detection
+    // (links.ts) and the pane (file-pane.ts, with CodeMirror) are bundled
+    // modules, reached through the window.tabsh* hooks the module script at
+    // the end of the page defines.
+    const existsCache = new Map(); // `${session}\0${path}` → { at, ok: Promise<boolean> }
+
+    // A path is underlined only once the daemon says it resolves.
+    function pathExists(s, path) {
+      const key = `${s.id}\0${path}`, now = Date.now();
+      const hit = existsCache.get(key);
+      if (hit && now - hit.at < 5000) return hit.ok;
+      if (existsCache.size > 500) existsCache.forEach((v, k) => now - v.at >= 5000 && existsCache.delete(k));
+      const ok = Promise.resolve().then(() => window.tabshFiles())
+        .then((files) => files.exists(daemonFetch, s.id, path)).catch(() => false);
+      existsCache.set(key, { at: now, ok });
+      return ok;
+    }
+
+    // `session()` because the session object is created after the terminal.
+    function linkProvider(session, term, el) {
+      return {
+        provideLinks(y, cb) {
+          // Join the wrapped rows of this logical line, cell by cell, keeping
+          // each UTF-16 unit's cell so offsets map back to 1-based {x, y}.
+          const buf = term.buffer.active;
+          let top = y - 1;
+          while (top > 0 && buf.getLine(top)?.isWrapped) top--;
+          let text = '';
+          const cells = [];
+          for (let row = top; ; row++) {
+            const line = buf.getLine(row);
+            if (!line || (row > top && !line.isWrapped)) break;
+            for (let x = 0; x < line.length; x++) {
+              const cell = line.getCell(x);
+              if (!cell || cell.getWidth() === 0) continue; // trailing half of a wide character
+              const chars = cell.getChars() || ' ';
+              for (let i = 0; i < chars.length; i++) cells.push({ x: x + 1, y: row + 1, w: cell.getWidth() });
+              text += chars;
+            }
+          }
+          const s = session();
+          Promise.resolve().then(() => window.tabshLinks()).then(({ findLinks }) => Promise.all(findLinks(text).map(async (f) => {
+            const a = cells[f.start], b = cells[f.end - 1];
+            if (!a || !b || y < a.y || y > b.y) return null; // not on the hovered row
+            if (f.kind === 'path' && !(await pathExists(s, f.text))) return null;
+            return {
+              range: { start: { x: a.x, y: a.y }, end: { x: b.x + b.w - 1, y: b.y } },
+              text: f.text,
+              decorations: { underline: true, pointerCursor: true },
+              hover: () => { el.title = isMac ? '⌘-click to open' : 'Ctrl-click to open'; },
+              leave: () => { el.title = ''; },
+              activate(e) {
+                if (!(isMac ? e.metaKey : e.ctrlKey)) return;
+                if (f.kind === 'url') window.open(f.text, '_blank', 'noopener,noreferrer');
+                else openInPane(s, f);
+              },
+            };
+          }))).then((links) => cb(links.filter(Boolean)), () => cb(undefined));
+        },
+      };
+    }
+
+    const host = {
+      fetch: daemonFetch,
+      theme() {
+        const t = THEMES[applied.theme], c = t.colors;
+        return { background: c.background, foreground: c.foreground, cursor: c.cursor,
+          selectionBackground: c.selectionBackground, light: !!t.light };
+      },
+      layout: () => active && sendSize(active),
+      newTabAt: (cwd) => api('POST', '', { cwd }).then((info) => activate(openSession(info))).catch(console.error),
+      focusTerminal: () => active?.term.focus(),
+    };
+
+    let pane = null; // the file-pane module, once loaded
+    let paneLoad = null; // shared by clicks made while it loads, so init runs once
+    function filePane() {
+      paneLoad ??= Promise.resolve().then(() => window.tabshFilePane()).then((m) => {
+        m.init(host);
+        pane = m;
+        pane.show(active?.id ?? null);
+        return m;
+      }, (err) => { paneLoad = null; throw err; });
+      return paneLoad;
+    }
+
+    async function openInPane(s, f, retried = false) {
+      let p;
+      try {
+        p = await filePane();
+      } catch (err) {
+        console.error(err);
+        return paneLoadFailed(() => openInPane(s, f, true), retried);
+      }
+      if (!s.closed) await p.openPath(s.id, f.text, f.line, f.col);
+    }
+
+    // The bundle couldn't be fetched (offline, or a daemon that doesn't serve it yet).
+    // Chrome remembers a failed import(), so a second failure reloads the page
+    // instead; the shells survive that.
+    function paneLoadFailed(retry, retried) {
+      const box = document.getElementById('pane'), divider = document.getElementById('pane-divider');
+      const msg = document.createElement('div');
+      msg.className = 'pane-msg';
+      const p = document.createElement('p');
+      p.textContent = "Couldn't load the editor";
+      const again = document.createElement('button');
+      again.type = 'button';
+      again.className = 'btn';
+      again.textContent = 'Retry';
+      again.onclick = () => {
+        if (retried) return location.reload();
+        pane = paneLoad = null;
+        box.hidden = divider.hidden = true;
+        box.replaceChildren();
+        retry();
+      };
+      msg.append(p, again);
+      box.replaceChildren(msg);
+      box.hidden = divider.hidden = false;
+      if (active) sendSize(active);
     }
 
     // ---- Bell: badge on the tab and favicon -------------------------------
@@ -429,15 +599,23 @@
     document.getElementById('favicon').href = FAVICON;
 
     async function closeSession(s) {
+      if (!(pane?.confirmDiscard(s.id) ?? true)) return;
       // A running shell is killed and the server answers on the socket with
       // {"exit":true}; one that never started is just gone.
       await api('DELETE', `/${s.id}`).catch(() => {});
       if (s.ws?.readyState !== WebSocket.OPEN) removeSession(s);
     }
 
+    addEventListener('beforeunload', (e) => {
+      if (!pane?.hasUnsaved()) return;
+      e.preventDefault();
+      e.returnValue = ''; // older browsers
+    });
+
     function removeSession(s) {
       if (s.closed) return;
       s.closed = true;
+      pane?.forget(s.id);
       s.ws?.close();
       s.term.dispose();
       s.el.remove();
@@ -563,6 +741,7 @@
     }
 
     const DEFAULTS = { theme: 'tabsh', font: 'menlo', fontSize: 13, typingSound: 'mx-black-pbt',
+      paneWidth: 0.5,
       ...Object.fromEntries(Object.entries(KEYBINDINGS).map(([id, k]) => [id, k.presets[0]])) };
 
     let saved = { ...DEFAULTS };   // what's stored on the server
@@ -606,6 +785,8 @@
       root.classList.toggle('dark', !theme.light);
       const opts = terminalOptions(s);
       for (const { term } of sessions) Object.assign(term.options, opts);
+      document.getElementById('workspace').style.setProperty('--pane-width', String(s.paneWidth));
+      pane?.applyTheme();
       if (active) sendSize(active);
     }
 
@@ -619,6 +800,8 @@
         font: FONTS[stored.font] ? stored.font : DEFAULTS.font,
         fontSize: FONT_SIZES.includes(stored.fontSize) ? stored.fontSize : DEFAULTS.fontSize,
         typingSound: TYPING_SOUNDS[stored.typingSound] ? stored.typingSound : DEFAULTS.typingSound,
+        paneWidth: typeof stored.paneWidth === 'number' && stored.paneWidth >= 0.2 && stored.paneWidth <= 0.8
+          ? stored.paneWidth : DEFAULTS.paneWidth,
         // A combo saved from another OS's browser isn't offered here; use the default.
         ...Object.fromEntries(Object.entries(KEYBINDINGS).map(([id, k]) =>
           [id, k.presets.includes(stored[id]) ? stored[id] : DEFAULTS[id]])),
@@ -720,14 +903,18 @@
 
     const MODIFIERS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'CapsLock']);
     const held = new Map(); // e.code → release sample
-    const terms = document.getElementById('terms');
-    terms.addEventListener('keydown', (e) => {
+    // Typing in a terminal sounds, and so does typing in the file pane's editor
+    // (not a read-only view of the file).
+    // App shortcuts (palette, tab switching) stay silent.
+    const typing = (e) => !!e.target.closest?.('#terms, #pane .cm-content[contenteditable="true"]') &&
+      !Object.keys(KEYBINDINGS).some((id) => matchesKey(e, saved[id]));
+    window.addEventListener('keydown', (e) => {
       // Held keys auto-repeat; only the first press sounds.
-      if (saved.typingSound === 'off' || e.repeat || MODIFIERS.has(e.key)) return;
+      if (saved.typingSound === 'off' || e.repeat || MODIFIERS.has(e.key) || !typing(e)) return;
       const release = keySound(saved.typingSound, e.key);
       if (release) held.set(e.code, release);
     }, { capture: true });
-    terms.addEventListener('keyup', (e) => {
+    window.addEventListener('keyup', (e) => {
       const release = held.get(e.code);
       held.delete(e.code);
       if (release) playSample(release);
@@ -765,6 +952,9 @@
           { heading: 'Sound', items: [
             { label: 'Typing sound…', icon: ICONS.sound, hint: TYPING_SOUNDS[saved.typingSound], keywords: 'keyboard click clack audio mute', go: 'typingSound' },
           ] },
+          ...(active && pane?.hasFile(active.id) ? [{ heading: 'Files', items: [
+            { label: 'Close file', icon: ICONS.info, keywords: 'pane editor hide', run: () => pane?.close(active.id) },
+          ] }] : []),
           { heading: 'Keybindings', items: Object.entries(KEYBINDINGS).map(([id, k]) => ({
             label: `${k.name}…`, icon: ICONS.keybinding, hint: keyLabel(saved[id]),
             keywords: `shortcut hotkey keybinding keyboard ${k.keywords} ${keyLabel(saved[id], true)}`, go: id,
@@ -880,6 +1070,40 @@
         showPage('root');
       }
     });
+
+    // Drag the divider to resize the pane. The width is live while dragging and
+    // saved once on release.
+    {
+      const ws = document.getElementById('workspace'), divider = document.getElementById('pane-divider');
+      let frac = null, frame = 0;
+      const widthAt = (x) => {
+        const r = ws.getBoundingClientRect();
+        return Math.min(0.8, Math.max(0.2, (r.right - x) / r.width));
+      };
+      divider.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        divider.setPointerCapture(e.pointerId);
+        ws.classList.add('dragging');
+        frac = widthAt(e.clientX);
+      });
+      divider.addEventListener('pointermove', (e) => {
+        if (frac === null) return;
+        frac = widthAt(e.clientX);
+        ws.style.setProperty('--pane-width', String(frac));
+        frame ||= requestAnimationFrame(() => { frame = 0; if (active) sendSize(active); });
+      });
+      const end = (e) => {
+        if (frac === null) return;
+        const v = frac;
+        frac = null;
+        ws.classList.remove('dragging');
+        if (e.type === 'pointerup') saveSetting('paneWidth', v);
+        else applySettings(saved); // cancelled: back to the stored width
+      };
+      divider.addEventListener('pointerup', end);
+      divider.addEventListener('pointercancel', end);
+    }
 
     // Closing without picking reverts any preview.
     palette.addEventListener('close', () => { applySettings(saved); active?.term.focus(); });
@@ -1040,4 +1264,4 @@
       if (!sessions.length) return newSession();
       activate(sessions.find((s) => s.id === activeId) ?? sessions[0]);
     })();
-  </script></body></html>
+  </script><script type="module" src="/_astro/index.astro_astro_type_script_index_0_lang.D98auGuJ.js"></script></body></html>
