@@ -128,7 +128,11 @@ export function confirmDiscard(sessionId: string): boolean {
   return confirm(`Discard unsaved changes to ${name}?`);
 }
 
-function close(sessionId: string): void {
+export function hasFile(sessionId: string): boolean {
+  return states.has(sessionId);
+}
+
+export function close(sessionId: string): void {
   if (!confirmDiscard(sessionId)) return;
   forget(sessionId);
   host.focusTerminal();
