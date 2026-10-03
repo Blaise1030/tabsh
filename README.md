@@ -39,3 +39,7 @@ Releases are automatic:
 Before 1.0, `feat` and `fix` bump the patch version and breaking changes bump the
 minor version. To release a specific version, run the **Release PR** workflow by
 hand with a `version`.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
