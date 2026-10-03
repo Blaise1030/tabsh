@@ -528,7 +528,42 @@
       'gateron-black-ink': 'Gateron Black Ink',
       off: 'Off',
     };
-    const DEFAULTS = { theme: 'tabsh', font: 'menlo', fontSize: 13, typingSound: 'mx-black-pbt' };
+    // Each action offers a few preset combos rather than recording any key, so
+    // nothing can be bound to a key the browser keeps (⌘T, Ctrl+Tab…) or one the
+    // shell relies on. No combo is offered for two actions, so they never clash.
+    // A combo is `modifier+…+code`; matching on `code` means Shift doesn't turn
+    // `]` into `}` first.
+    const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+    const KEYBINDINGS = {
+      keyPalette: { name: 'Open settings', keywords: 'command palette menu',
+        presets: isMac ? ['meta+KeyK', 'meta+shift+KeyK', 'ctrl+shift+Space']
+                       : ['ctrl+shift+KeyK', 'ctrl+shift+Space', 'ctrl+shift+Semicolon'] },
+      keyNextTab: { name: 'Next tab', keywords: 'switch cycle right forward',
+        presets: ['ctrl+shift+BracketRight', 'ctrl+shift+ArrowRight', 'ctrl+shift+Period', ...(isMac ? ['meta+shift+ArrowRight'] : [])] },
+      keyPrevTab: { name: 'Previous tab', keywords: 'switch cycle left back',
+        presets: ['ctrl+shift+BracketLeft', 'ctrl+shift+ArrowLeft', 'ctrl+shift+Comma', ...(isMac ? ['meta+shift+ArrowLeft'] : [])] },
+    };
+    const KEY_NAMES = { KeyK: 'K', Space: 'Space', Semicolon: ';', BracketLeft: '[', BracketRight: ']',
+                        ArrowLeft: '←', ArrowRight: '→', Comma: ',', Period: '.' };
+    const MAC_MODS = { ctrl: '⌃', alt: '⌥', shift: '⇧', meta: '⌘' };
+    const WORD_MODS = { ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift', meta: isMac ? 'Cmd' : 'Meta' };
+
+    // `words` spells the modifiers out, for search and for non-Mac labels.
+    function keyLabel(combo, words = !isMac) {
+      const parts = combo.split('+');
+      const key = KEY_NAMES[parts.pop()];
+      const mods = ['ctrl', 'alt', 'shift', 'meta'].filter((m) => parts.includes(m));
+      return words ? [...mods.map((m) => WORD_MODS[m]), key].join('+') : mods.map((m) => MAC_MODS[m]).join('') + key;
+    }
+
+    function matchesKey(e, combo) {
+      const parts = combo.split('+');
+      return e.code === parts.at(-1) && e.ctrlKey === parts.includes('ctrl') && e.shiftKey === parts.includes('shift') &&
+        e.altKey === parts.includes('alt') && e.metaKey === parts.includes('meta');
+    }
+
+    const DEFAULTS = { theme: 'tabsh', font: 'menlo', fontSize: 13, typingSound: 'mx-black-pbt',
+      ...Object.fromEntries(Object.entries(KEYBINDINGS).map(([id, k]) => [id, k.presets[0]])) };
 
     let saved = { ...DEFAULTS };   // what's stored on the server
     let applied = { ...DEFAULTS }; // what's on screen (differs while previewing)
@@ -584,6 +619,9 @@
         font: FONTS[stored.font] ? stored.font : DEFAULTS.font,
         fontSize: FONT_SIZES.includes(stored.fontSize) ? stored.fontSize : DEFAULTS.fontSize,
         typingSound: TYPING_SOUNDS[stored.typingSound] ? stored.typingSound : DEFAULTS.typingSound,
+        // A combo saved from another OS's browser isn't offered here; use the default.
+        ...Object.fromEntries(Object.entries(KEYBINDINGS).map(([id, k]) =>
+          [id, k.presets.includes(stored[id]) ? stored[id] : DEFAULTS[id]])),
       };
       // Fetch the chosen pack now so the first keystroke isn't silent.
       if (SOUND_PACKS[saved.typingSound]) loadPack(saved.typingSound).catch(() => {});
@@ -697,8 +735,6 @@
 
     // ---- Command palette (Basecoat command-dialog) --------------------------
 
-    const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
-    const SHORTCUT = isMac ? '⌘K' : 'Ctrl+Shift+K';
     const palette = document.getElementById('palette');
     const paletteCmd = document.getElementById('palette-command');
     const paletteInput = document.getElementById('palette-input');
@@ -711,6 +747,7 @@
       font: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16"/><path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"/><path d="M9 20h6"/></svg>',
       size: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 16 2.536-7.328a1.02 1.02 1 0 1 1.928 0L22 16"/><path d="M15.697 14h5.606"/><path d="m2 16 4.039-9.69a.5.5 0 0 1 .923 0L11 16"/><path d="M3.304 13h6.392"/></svg>',
       sound: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 8h.01"/><path d="M12 12h.01"/><path d="M14 8h.01"/><path d="M16 12h.01"/><path d="M18 8h.01"/><path d="M6 8h.01"/><path d="M7 16h10"/><path d="M8 12h.01"/><rect width="20" height="16" x="2" y="4" rx="2"/></svg>',
+      keybinding: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/></svg>',
       info: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>',
     };
 
@@ -728,6 +765,10 @@
           { heading: 'Sound', items: [
             { label: 'Typing sound…', icon: ICONS.sound, hint: TYPING_SOUNDS[saved.typingSound], keywords: 'keyboard click clack audio mute', go: 'typingSound' },
           ] },
+          { heading: 'Keybindings', items: Object.entries(KEYBINDINGS).map(([id, k]) => ({
+            label: `${k.name}…`, icon: ICONS.keybinding, hint: keyLabel(saved[id]),
+            keywords: `shortcut hotkey keybinding keyboard ${k.keywords} ${keyLabel(saved[id], true)}`, go: id,
+          })) },
           { heading: 'Help', items: [
             { label: 'About tabsh', icon: ICONS.info, keywords: 'version info', run: openAbout },
           ] },
@@ -751,6 +792,9 @@
       fontSize: () => ({ placeholder: 'Search sizes…', groups: [
         { heading: 'Font size', items: FONT_SIZES.map((n) => ({ label: `${n}px`, key: 'fontSize', value: n })) },
       ] }),
+      ...Object.fromEntries(Object.entries(KEYBINDINGS).map(([id, k]) => [id, () => ({ placeholder: 'Search shortcuts…', groups: [
+        { heading: k.name, items: k.presets.map((combo) => ({ label: keyLabel(combo), key: id, value: combo, keywords: keyLabel(combo, true) })) },
+      ] })])),
     };
 
     const itemsById = new Map();
@@ -841,26 +885,22 @@
     palette.addEventListener('close', () => { applySettings(saved); active?.term.focus(); });
 
     window.addEventListener('keydown', (e) => {
-      const hit = e.key.toLowerCase() === 'k' && !e.altKey &&
-        (isMac ? e.metaKey && !e.ctrlKey && !e.shiftKey : e.ctrlKey && e.shiftKey && !e.metaKey);
-      if (!hit) return;
+      if (!matchesKey(e, saved.keyPalette)) return;
       e.preventDefault();
       e.stopPropagation(); // capture phase: keep it away from the terminal
       openPalette();
     }, true);
 
-    // Ctrl+Shift+] / Ctrl+Shift+[ cycle through tabs, wrapping at the ends.
+    // The next/previous tab keybindings cycle through tabs, wrapping at the ends.
     // (Ctrl+Tab and ⌘⇧[ ] belong to the browser and never reach the page.)
-    // Matched on `code` so it works whatever Shift turns the bracket into.
-    const TAB_NEXT = 'Ctrl+Shift+]', TAB_PREV = 'Ctrl+Shift+[';
     function cycleTab(step) {
       if (!sessions.length) return;
       const i = sessions.indexOf(active);
       activate(sessions[(i + step + sessions.length) % sessions.length]);
     }
     window.addEventListener('keydown', (e) => {
-      if (!e.ctrlKey || !e.shiftKey || e.altKey || e.metaKey || palette.open) return;
-      const step = e.code === 'BracketRight' ? 1 : e.code === 'BracketLeft' ? -1 : 0;
+      if (palette.open) return;
+      const step = matchesKey(e, saved.keyNextTab) ? 1 : matchesKey(e, saved.keyPrevTab) ? -1 : 0;
       if (!step) return;
       e.preventDefault();
       e.stopPropagation(); // capture phase: keep it away from the terminal
@@ -868,7 +908,8 @@
     }, true);
 
     const settingsBtn = document.getElementById('settings-btn');
-    settingsBtn.title = `Settings (${SHORTCUT})`;
+    // Set on hover so it always shows the current keybinding.
+    settingsBtn.addEventListener('pointerenter', () => { settingsBtn.title = `Settings (${keyLabel(saved.keyPalette)})`; });
     settingsBtn.onclick = openPalette;
 
     // ---- About ---------------------------------------------------------------
@@ -887,8 +928,8 @@
         ['State', info.state_path],
         ['Uptime', uptime],
         ['Sessions', `${info.sessions_running} running, ${info.sessions_total} total`],
-        ['Settings', SHORTCUT],
-        ['Switch tabs', `${TAB_PREV} / ${TAB_NEXT}`],
+        ['Settings', keyLabel(saved.keyPalette)],
+        ['Switch tabs', `${keyLabel(saved.keyPrevTab)} / ${keyLabel(saved.keyNextTab)}`],
         ['Built with', 'Rust · axum · xterm.js · Basecoat'],
       ] : [['Status', 'Could not reach the tabsh daemon.']];
       const list = document.getElementById('about-list');
