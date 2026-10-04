@@ -1,7 +1,9 @@
 /target
 node_modules/
+.worktrees/
 web/dist/
 web/.astro/
 web/.wrangler/
+web/test-results/
 .playwright-mcp/
 .claude/
