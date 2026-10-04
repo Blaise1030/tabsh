@@ -24,8 +24,8 @@ static APP_PAGE: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     )
 });
 /// The hosted site's policy for /app/ (web/public/_headers), for our copy.
-const APP_CSP: &str = "default-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; \
-style-src 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; \
+const APP_CSP: &str = "default-src 'none'; script-src 'self' https://cdn.jsdelivr.net; \
+style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; \
 img-src data: blob:; frame-src blob:; connect-src 'self' ws://tabsh.localhost:* ws://localhost:* ws://127.0.0.1:*; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 
 /// Opens the app in the default browser, unless there's no one at this
@@ -126,6 +126,61 @@ pub(crate) async fn about(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The CSP allows no inline script, so the page must have none.
+    #[test]
+    fn app_page_has_no_inline_code() {
+        for tag in APP_HTML.split("<script").skip(1) {
+            let open = tag.split('>').next().unwrap();
+            assert!(open.contains("src="), "inline script: <script{open}>");
+        }
+        for attr in [
+            " onclick=",
+            " onload=",
+            " onerror=",
+            " onsubmit=",
+            " oninput=",
+            " onkeydown=",
+        ] {
+            assert!(!APP_HTML.contains(attr), "inline handler {attr}");
+        }
+    }
+
+    /// Our copy of the page gets the same policy as the hosted one, apart
+    /// from where it may connect.
+    #[test]
+    fn csp_has_no_inline_scripts_and_matches_the_hosted_policy() {
+        let hosted = include_str!("../../web/public/_headers");
+        let directive = |csp: &str, name: &str| {
+            csp.split(';')
+                .map(str::trim)
+                .find(|d| d.starts_with(name))
+                .map(str::to_owned)
+        };
+        let hosted_csp = hosted
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("Content-Security-Policy: "))
+            .unwrap();
+        for name in [
+            "script-src",
+            "style-src",
+            "img-src",
+            "frame-src",
+            "default-src",
+        ] {
+            assert_eq!(
+                directive(APP_CSP, name),
+                directive(hosted_csp, name),
+                "{name}"
+            );
+        }
+        assert!(
+            !directive(APP_CSP, "script-src")
+                .unwrap()
+                .contains("'unsafe-inline'")
+        );
+        assert!(directive(APP_CSP, "style-src").unwrap().contains("'self'"));
+    }
 
     #[test]
     fn local_app_points_at_its_own_origin() {
