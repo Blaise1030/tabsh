@@ -16,7 +16,8 @@ use axum::{
 };
 use kind::raw_content_type;
 use read::{
-    RAW_LIMIT_BYTES, TEXT_LIMIT_BYTES, file_error, not_a_regular_file, open_regular, read_file_info,
+    RAW_LIMIT_BYTES, TEXT_LIMIT_BYTES, file_error, not_a_regular_file, open_regular,
+    read_file_info, version_of,
 };
 use resolve::{resolve_path, session_base_dir};
 use save::{SaveError, save_file};
@@ -84,7 +85,7 @@ async fn save(Json(body): Json<SaveFile>) -> Response {
 }
 
 /// Describes a path printed in a terminal (`HEAD` only says whether it
-/// resolves). Relative paths are taken from the tab's working directory.
+/// resolves, and its version). Relative paths are taken from the tab's working directory.
 async fn file_info(
     State(st): State<AppState>,
     method: Method,
@@ -96,7 +97,21 @@ async fn file_info(
         return StatusCode::NOT_FOUND.into_response();
     };
     if method == Method::HEAD {
-        return StatusCode::OK.into_response();
+        // The open pane polls this to notice the file changing on disk.
+        let Ok(meta) = std::fs::metadata(&path) else {
+            return StatusCode::NOT_FOUND.into_response();
+        };
+        return (
+            [
+                ("x-tabsh-version", version_of(&meta)),
+                (
+                    "access-control-expose-headers",
+                    "x-tabsh-version".to_string(),
+                ),
+            ],
+            StatusCode::OK,
+        )
+            .into_response();
     }
     match tokio::task::spawn_blocking(move || read_file_info(&path)).await {
         Ok(Ok(info)) => Json(info).into_response(),
@@ -156,4 +171,54 @@ async fn file_raw(Query(q): Query<FileQuery>) -> Response {
         );
     }
     res
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        state::router,
+        test_support::{scratch, test_state},
+    };
+    use axum::http::{Method, Request, StatusCode};
+    use tower::ServiceExt;
+
+    fn head(path: &std::path::Path) -> Request<axum::body::Body> {
+        Request::builder()
+            .method(Method::HEAD)
+            .uri(format!("/api/files?session=x&path={}", path.display()))
+            .header("Host", "127.0.0.1:7681")
+            .header("Origin", "https://tabsh.cc")
+            .header("Authorization", "Bearer t0k3n")
+            .body(axum::body::Body::empty())
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn head_reports_the_version_and_its_change() {
+        let f = scratch().join("a.txt");
+        std::fs::write(&f, "one").unwrap();
+        let version = |res: &axum::response::Response| {
+            res.headers()["x-tabsh-version"]
+                .to_str()
+                .unwrap()
+                .to_string()
+        };
+        let res = router(test_state()).oneshot(head(&f)).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let before = version(&res);
+        assert!(
+            res.headers()["access-control-expose-headers"]
+                .to_str()
+                .unwrap()
+                .contains("x-tabsh-version")
+        );
+
+        std::fs::write(&f, "three").unwrap();
+        let res = router(test_state()).oneshot(head(&f)).await.unwrap();
+        assert_ne!(version(&res), before);
+
+        std::fs::remove_file(&f).unwrap();
+        let res = router(test_state()).oneshot(head(&f)).await.unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    }
 }
