@@ -5,7 +5,15 @@ import {
   type StreamParser,
   syntaxHighlighting,
 } from '@codemirror/language';
-import { Compartment, EditorSelection, EditorState, type Extension, StateEffect, StateField } from '@codemirror/state';
+import {
+  Annotation,
+  Compartment,
+  EditorSelection,
+  EditorState,
+  type Extension,
+  StateEffect,
+  StateField,
+} from '@codemirror/state';
 import { Decoration, type DecorationSet, EditorView, keymap } from '@codemirror/view';
 import { tags as t } from '@lezer/highlight';
 import { basicSetup } from 'codemirror';
@@ -17,6 +25,7 @@ export interface Editor {
   setTheme(t: PaneTheme): void;
   goTo(line: number, col?: number): void;
   text(): string;
+  setText(text: string): void; // the file changed on disk; not an edit
   destroy(): void;
 }
 
@@ -114,6 +123,9 @@ const gotoLine = StateField.define<DecorationSet>({
   provide: (f) => EditorView.decorations.from(f),
 });
 
+// Marks a change that came from disk, so it doesn't count as an edit.
+const fromDisk = Annotation.define<boolean>();
+
 export function createEditor(
   parent: HTMLElement,
   opts: {
@@ -150,7 +162,7 @@ export function createEditor(
         language.of([]),
         gotoLine,
         EditorView.updateListener.of((u) => {
-          if (u.docChanged) opts.onChange();
+          if (u.docChanged && !u.transactions.some((tr) => tr.annotation(fromDisk))) opts.onChange();
         }),
       ],
     }),
@@ -178,6 +190,24 @@ export function createEditor(
       });
     },
     text: () => view.state.doc.toString(),
+    setText(text) {
+      // Replace only what differs, so the cursor and scroll stay put around it.
+      const old = view.state.doc.toString();
+      let from = 0;
+      while (from < old.length && from < text.length && old[from] === text[from]) from++;
+      let end = 0;
+      while (
+        end < old.length - from &&
+        end < text.length - from &&
+        old[old.length - 1 - end] === text[text.length - 1 - end]
+      )
+        end++;
+      if (from === old.length && from === text.length) return;
+      view.dispatch({
+        changes: { from, to: old.length - end, insert: text.slice(from, text.length - end) },
+        annotations: fromDisk.of(true),
+      });
+    },
     destroy() {
       destroyed = true;
       view.destroy();

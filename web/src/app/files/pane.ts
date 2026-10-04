@@ -4,6 +4,7 @@ import {
   type Fetcher,
   FileError,
   type FileInfo,
+  fileVersion,
   formatSize,
   fromDisk,
   rawBlobUrl,
@@ -62,6 +63,9 @@ const states = new Map<string, PaneState>();
 const seqs = new Map<string, number>();
 let current: string | null = null;
 const EDITABLE = new Set(['text', 'html', 'markdown', 'svg']);
+// How often the shown file is checked for changes on disk (a stat, no content).
+const POLL_MS = 2000;
+let polling = false;
 
 export function init(h: Host): void {
   host = h;
@@ -83,6 +87,10 @@ export function init(h: Host): void {
       }
     } else if (e.key === 'Escape' && !e.defaultPrevented) host.focusTerminal();
   });
+  // Only while the page is visible; coming back checks at once.
+  window.setInterval(() => void poll(), POLL_MS);
+  document.addEventListener('visibilitychange', () => void poll());
+  window.addEventListener('focus', () => void poll());
 }
 
 function button(label: string, onclick: () => void, title = label): HTMLButtonElement {
@@ -142,6 +150,7 @@ function refresh(): void {
 export function show(sessionId: string | null): void {
   current = sessionId;
   refresh();
+  void poll();
 }
 
 export function forget(sessionId: string): void {
@@ -194,7 +203,7 @@ function header(sessionId: string, st: PaneState, info: FileInfo | null): HTMLEl
   const bar = el(
     'div',
     { className: 'pane-bar', hidden: true, role: 'alert' },
-    el('span', { textContent: 'Changed on disk since you opened it' }),
+    el('span', { textContent: 'Changed on disk. Your edits are unsaved.' }),
     button('Reload', () => void reload(st)),
     button('Overwrite', () => void save(st, true)),
   );
@@ -277,8 +286,57 @@ async function save(st: PaneState, overwrite = false): Promise<void> {
 }
 
 // Re-reads the file, dropping the edits.
-function reload(st: PaneState): Promise<void> {
-  return load(st.id, st.info?.path ?? st.requested, undefined, undefined);
+function reload(st: PaneState, focus = true): Promise<void> {
+  return load(st.id, st.info?.path ?? st.requested, undefined, undefined, focus);
+}
+
+// Checks whether the shown file changed on disk. Without edits it's reloaded
+// in place; with them the bar asks whether to reload or overwrite.
+async function poll(): Promise<void> {
+  const st = current === null ? undefined : states.get(current);
+  if (polling || document.hidden || !st?.info || st.info.kind === 'dir' || st.saving) return;
+  const { epoch, version } = st;
+  polling = true;
+  let disk: string | null;
+  try {
+    disk = await fileVersion(host.fetch, st.id, st.info.path);
+  } catch {
+    return; // the daemon is away; try again next time
+  } finally {
+    polling = false;
+  }
+  // A save, reload or close since then has its own idea of the version.
+  if (st.epoch !== epoch || st.version !== version || st.saving || states.get(st.id) !== st) return;
+  if (disk === null || disk === version || disk === st.conflict) return;
+  if (st.dirty) {
+    st.conflict = disk;
+    st.ui!.bar.hidden = false;
+  } else await pull(st);
+}
+
+// Shows the disk's copy of a file with no edits, keeping the mode and, in the
+// editor, the cursor and scroll. Other kinds are simply reloaded.
+async function pull(st: PaneState): Promise<void> {
+  const epoch = st.epoch;
+  let info: FileInfo;
+  try {
+    info = await readFile(host.fetch, st.id, st.info!.path);
+  } catch {
+    return;
+  }
+  if (st.epoch !== epoch || states.get(st.id) !== st || st.dirty || st.saving) return;
+  const editable = info.content !== undefined && EDITABLE.has(info.kind);
+  if (!editable || !st.editable || info.kind !== st.info!.kind) return reload(st, false);
+  Object.assign(st, {
+    info,
+    version: info.version,
+    eol: info.eol ?? 'lf',
+    doc: fromDisk(info.content!),
+    conflict: null,
+  });
+  st.ui!.bar.hidden = true;
+  if (st.editor) st.editor.setText(st.doc);
+  else mountRich(st);
 }
 
 function message(text: string): HTMLElement {
@@ -410,7 +468,8 @@ export function openPath(sessionId: string, path: string, line?: number, col?: n
   return load(sessionId, path, line, col);
 }
 
-async function load(sessionId: string, path: string, line?: number, col?: number): Promise<void> {
+// `focus` is false for a reload nobody asked for, which mustn't take the keyboard.
+async function load(sessionId: string, path: string, line?: number, col?: number, focus = true): Promise<void> {
   const seq = (seqs.get(sessionId) ?? 0) + 1;
   seqs.set(sessionId, seq);
   let info: FileInfo | null = null;
@@ -475,7 +534,7 @@ async function load(sessionId: string, path: string, line?: number, col?: number
   });
   const body = el('div', { className: 'pane-body' });
   st.body = body;
-  st.view.replaceChildren(header(sessionId, st, info), st.ui!.bar, body);
+  st.view.replaceChildren(header(sessionId, st, info), body, st.ui!.bar);
   refresh();
 
   const state = st;
@@ -487,7 +546,7 @@ async function load(sessionId: string, path: string, line?: number, col?: number
   try {
     await renderBody(state, info, body, isCurrent);
     // So the keyboard (Cmd/Ctrl-E, -S) works at once; Esc goes back to the terminal.
-    if (isCurrent() && current === sessionId) {
+    if (focus && isCurrent() && current === sessionId) {
       if (state.editor) state.editor.view.focus();
       else paneEl.focus();
     }
