@@ -348,7 +348,13 @@ function markdownDoc(html: string, th: PaneTheme): string {
     `body{margin:0;padding:1rem 1.5rem;font:14px/1.6 system-ui,sans-serif;background:${th.background};color:${th.foreground}}` +
     `a{color:${th.cursor}}pre,code{font-family:ui-monospace,Menlo,monospace;font-size:.9em}` +
     `pre{padding:.75rem;overflow:auto;background:color-mix(in srgb,${th.foreground} 8%,${th.background})}` +
-    `img{max-width:100%}table{border-collapse:collapse}td,th{border:1px solid color-mix(in srgb,${th.foreground} 20%,${th.background});padding:.25rem .5rem}`;
+    `img{max-width:100%}table{border-collapse:collapse}td,th{border:1px solid color-mix(in srgb,${th.foreground} 20%,${th.background});padding:.25rem .5rem}` +
+    // The preview scrolls inside its own frame, where the pane can't see it, so
+    // it fades out under the header itself once scrolled (no script needed).
+    `body::before{content:"";position:fixed;top:0;left:0;right:0;height:1rem;z-index:1;pointer-events:none;` +
+    `background:linear-gradient(${th.background},transparent);opacity:0;` +
+    `animation:fade linear both;animation-timeline:scroll(root);animation-range:0 1px}` +
+    `@keyframes fade{to{opacity:1}}`;
   return `<!doctype html><meta charset="utf-8"><style>${style}</style>${html}`;
 }
 
