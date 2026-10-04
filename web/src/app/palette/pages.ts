@@ -20,7 +20,8 @@ export const ICONS = {
 };
 
 // An item either opens another page (`go`), picks a setting (`key` +
-// `value`, previewed while highlighted) or runs code.
+// `value`, previewed while highlighted), records a keybinding (`record`)
+// or runs code.
 export interface PaletteItem {
   label: string;
   icon?: string;
@@ -30,6 +31,7 @@ export interface PaletteItem {
   key?: keyof Settings;
   value?: string | number;
   swatch?: ThemeColors;
+  record?: KeyId;
   run?: () => void;
 }
 export interface PalettePage {
@@ -162,20 +164,36 @@ export function pages(ctx: {
     ...Object.fromEntries(
       keyIds.map((id) => [
         id,
-        (): PalettePage => ({
-          placeholder: 'Search shortcuts…',
-          groups: [
-            {
-              heading: KEYBINDINGS[id].name,
-              items: KEYBINDINGS[id].presets.map((combo) => ({
-                label: keyLabel(combo, isMac),
-                key: id,
-                value: combo,
-                keywords: keyLabel(combo, isMac, true),
-              })),
-            },
-          ],
-        }),
+        (): PalettePage => {
+          const { presets } = KEYBINDINGS[id];
+          // A recorded combo is listed too, so it shows as the current one.
+          const combos = presets.includes(saved[id]) ? presets : [...presets, saved[id]];
+          return {
+            placeholder: 'Search shortcuts…',
+            groups: [
+              {
+                heading: KEYBINDINGS[id].name,
+                items: combos.map((combo) => ({
+                  label: keyLabel(combo, isMac),
+                  key: id,
+                  value: combo,
+                  keywords: keyLabel(combo, isMac, true),
+                })),
+              },
+              {
+                heading: 'Custom',
+                items: [
+                  {
+                    label: 'Record shortcut…',
+                    icon: ICONS.keybinding,
+                    keywords: 'custom record press new other',
+                    record: id,
+                  },
+                ],
+              },
+            ],
+          };
+        },
       ]),
     ),
   };
