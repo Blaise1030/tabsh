@@ -74,6 +74,32 @@ jobs:
           path: web/dist
           retention-days: 7
 
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # The spec drives the real daemon, so build it first — at the repo root,
+      # not the job's web/ default.
+      - name: Build the daemon
+        working-directory: .
+        run: cargo build --locked
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+        env:
+          TABSH_BIN: ../target/debug/tabsh
+
   deploy:
     name: Deploy site
     needs: [daemon, site]
