@@ -12,11 +12,12 @@ tab switch. A BEL also can't tell "the agent is working" from "it's done"
 from "it's waiting for a permission".
 
 **Success looks like:**
-- A tab running Claude Code shows whether the agent is working, waiting for
-  you, or done.
+- A tab running Claude Code or Codex shows whether the agent is working,
+  waiting for you, or done. Other agents can do the same, best effort.
 - Only a tab that is waiting for you badges the favicon and title.
 - A stray BEL can't override what an agent reports.
-- Setting it up is one command, `tabsh hooks install claude`.
+- Setting it up is one copied prompt: the app offers it on first run, and
+  the settings palette keeps it.
 
 **Constraints:**
 - The security model changes in one deliberate place only, documented in
@@ -31,8 +32,10 @@ than by parsing terminal output, for the same reasons. Paseo's three states
 
 **Out of scope:**
 - browser notifications (desktop pop-ups), which can be added on top later;
-- Codex and other agents' hook presets (they can call `tabsh hook <state>`
-  directly);
+- presets for agents other than Claude Code and Codex (the prompt has them
+  call `tabsh hook <state>` directly);
+- a command that edits agents' config files itself (the agent does it,
+  from the prompt);
 - changing the "unread" dot for background output;
 - fixing the zsh focus-code beeps themselves (a separate change).
 
@@ -84,8 +87,8 @@ The "Without an Origin" bullet of **Security invariants** in
 ### CLI: `tabsh hook`
 
 - `tabsh hook <state>` posts `<state>` for `$TABSH_SESSION`.
-- `tabsh hook claude` reads Claude Code's hook JSON from stdin and maps it
-  to a state (section 3).
+- `tabsh hook <agent>` (`claude` or `codex`) reads the agent's hook JSON
+  from stdin and maps it to a state (section 3).
 
 Behaviour:
 - Without `TABSH_SESSION`, it exits 0 at once and does nothing.
@@ -98,8 +101,8 @@ Behaviour:
   never block or alter the agent.
 
 Argument parsing moves out of `main.rs`'s startup: `tabsh` with no
-subcommand, or with a port, starts the daemon as today; `hook` and `hooks`
-run the CLI. The CLI lives in `src/cli/` (`hook.rs`, `install.rs`).
+subcommand, or with a port, starts the daemon as today; `hook` runs the
+CLI. The CLI lives in `src/cli/hook.rs`.
 
 ## 2. From the daemon to the page
 
@@ -144,41 +147,81 @@ from a state plus whether you've seen the tab to what to show, sits in
 
 ## 3. The agent side
 
-### Claude Code mapping
+### Mapping events to states
 
-`tabsh hook claude` reads `hook_event_name` (and, for `Notification`,
-`notification_type`) from stdin:
+Claude Code and Codex both pass command hooks a JSON object on stdin with
+`hook_event_name`, and share most event names. `tabsh hook claude` and
+`tabsh hook codex` read it (and, for Claude's `Notification`,
+`notification_type`) and map it with one shared table plus a few rows per
+agent:
 
-| Event | State |
-|---|---|
-| `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure` | `running` |
-| `PermissionRequest`, `Elicitation` | `needs-input` |
-| `Notification` with `permission_prompt` or `elicitation_dialog` | `needs-input` |
-| `Stop`, `StopFailure`, `SessionEnd` | `idle` |
-| anything else | no request |
+| Event | State | Agents |
+|---|---|---|
+| `UserPromptSubmit`, `PreToolUse`, `PostToolUse` | `running` | both |
+| `PostToolUseFailure` | `running` | Claude |
+| `PermissionRequest` | `needs-input` | both |
+| `Elicitation`, and `Notification` with `permission_prompt` or `elicitation_dialog` | `needs-input` | Claude |
+| `Stop`, `SessionEnd` | `idle` | both |
+| `StopFailure` | `idle` | Claude |
+| `Interrupt` | `idle` | Codex |
+| anything else | no request | |
 
 - `PostToolUse` moves the tab back from `needs-input` once you grant a
   permission.
-- `Notification` with `idle_prompt` is ignored: it's the reminder after a
-  turn ends, and would turn "done" back into "needs you".
+- Claude's `Notification` with `idle_prompt` is ignored: it's the reminder
+  after a turn ends, and would turn "done" back into "needs you".
 - Subagent events are ignored; the main agent stays `running` meanwhile.
 - The hook prints nothing, so it never answers a `PermissionRequest`.
-- The mapping is a pure function in `cli/hook.rs`, with a unit test per row.
+- The mapping is a pure function in `cli/hook.rs`, with a unit test per row
+  and agent.
 
-### Installing
+### Setting it up: a prompt for the agent
 
-`tabsh hooks install claude`:
-- adds one entry per event above to `~/.claude/settings.json`, each running
-  `<absolute path of this binary> hook claude`;
-- writes `settings.json.tabsh-backup` before changing anything;
-- keeps every other key and hook, and doesn't add an entry that's already
-  there, so running it twice changes nothing;
-- creates the file if it doesn't exist.
+tabsh doesn't edit agents' config files. It gives you a prompt to paste into
+your agent, and the agent sets up its own hooks. The agent knows its config
+format; tabsh keeps the part that needs to be right, the mapping.
 
-`tabsh hooks uninstall claude` removes exactly the entries whose command
-ends in ` hook claude` and points at a `tabsh` binary, and leaves the rest.
+The prompt tells the agent to:
+1. Find the `tabsh` binary's absolute path (`command -v tabsh`) and use it
+   in the hooks, so they don't depend on the hooks' `PATH`.
+2. **If it is Claude Code or Codex:** add hooks in its user-level config
+   (`~/.claude/settings.json`, `~/.codex/hooks.json`) that send every event
+   in the table above to `<tabsh> hook claude` (or `codex`), keeping every
+   existing hook and adding nothing twice.
+3. **Otherwise:** call `<tabsh> hook running`, `needs-input` or `idle` from
+   its own events. The prompt defines the three states and gives the rules
+   above as examples: a permission prompt is `needs-input`, granting it
+   returns to `running`, a reminder after a turn ends changes nothing.
+4. Say what it changed, and that the hooks do nothing outside tabsh.
+5. Check its work: run `<tabsh> hook needs-input` in its own tab, then
+   `<tabsh> hook idle`, so you see the dot appear and clear.
 
-The README shows the JSON for adding the hooks by hand.
+The prompt's text lives in one place, `web/src/app/agents/prompt.ts`, as a
+pure module with a test that pins the table's events into it, so the prompt
+and the Rust mapping can't drift apart unnoticed. The README points to the
+dialog rather than copying the text.
+
+### The dialog
+
+A new app feature, `web/src/app/agents/`, with `initAgents()` called from
+`main.ts`:
+- `prompt.ts`: the prompt text (above);
+- `dialog.ts`: a `<dialog>` like About's. It explains in two lines what the
+  hooks do, shows the prompt read-only, and has **Copy prompt** and **Not
+  now**. Copy puts the prompt on the clipboard and shows "Copied — paste it
+  into your agent".
+
+**On first run,** the dialog opens once the page is paired and its tabs are
+restored. It doesn't open again after either button or Escape: a new
+setting, `agentPromptSeen: boolean` (default `false`), is saved on the
+daemon, so it's once per machine rather than per browser. It also doesn't
+open if a tab has already reported activity, which means hooks are set up.
+
+**From the palette,** a "Set up agent hooks" item in the settings palette
+(`palette/pages.ts`) opens the same dialog at any time.
+
+`agents` sits between `sessions` and `palette` in the app's dependency
+order, which `docs/architecture.md` is updated to show.
 
 ## Testing
 
@@ -189,14 +232,17 @@ The README shows the JSON for adding the hooks by hand.
 - setting the same state twice broadcasts once;
 - attach sends the current state after the history;
 - the foreground check resets to `idle` once the shell is in front again;
-- the Claude mapping, every row;
-- install: into a missing file, beside existing hooks, twice (no change),
-  then uninstall (back to the original);
+- the mapping, every row, for both agents;
 - the hook CLI exits 0 silently without `TABSH_SESSION` and with an
   unreachable daemon.
 
-**App (`npm test`):** `activity-view.ts`, for every state, seen and unseen.
+**App (`npm test`):**
+- `activity-view.ts`, for every state, seen and unseen;
+- `prompt.ts` names every event in the mapping table, for both agents;
+- `cleanSettings` keeps `agentPromptSeen` and defaults it to `false`.
 
-**By hand:** in a tabsh tab with the hooks installed, run Claude Code, ask
+**By hand:** on a fresh daemon, the dialog opens once and not after a
+reload. Paste the prompt into Claude Code and into Codex, and check what
+each wrote to its config. Then, in a tabsh tab, run each agent, ask
 for something that needs a permission, switch tabs, and check spinner →
 orange dot and badge → spinner → ✓.
