@@ -12,8 +12,13 @@ tab switch. A BEL also can't tell "the agent is working" from "it's done"
 from "it's waiting for a permission".
 
 **Success looks like:**
-- A tab running Claude Code or Codex shows whether the agent is working,
-  waiting for you, or done. Other agents can do the same, best effort.
+- A tab running any terminal coding agent with hooks shows whether the
+  agent is working, waiting for you, or done. The agents covered are Claude
+  Code, Codex, Gemini CLI, Copilot CLI, Qwen Code, Factory Droid, Continue
+  `cn`, Kimi, Goose, Augment Auggie and Crush, plus OpenCode and Amp
+  through plugins and Aider through its notification command.
+- Agents whose hooks can't report "waiting for you" still get it when they
+  ring the terminal bell.
 - Only a tab that is waiting for you badges the favicon and title.
 - A stray BEL can't override what an agent reports.
 - Setting it up is one copied prompt: the app offers it on first run, and
@@ -32,8 +37,10 @@ than by parsing terminal output, for the same reasons. Paseo's three states
 
 **Out of scope:**
 - browser notifications (desktop pop-ups), which can be added on top later;
-- presets for agents other than Claude Code and Codex (the prompt has them
-  call `tabsh hook <state>` directly);
+- agents that run outside a terminal (Cursor's desktop app, Windsurf,
+  Kiro's IDE, Cline in VS Code): they never run in a tabsh tab;
+- guessing "waiting for you" from screen contents, as Herdr does, for agents
+  with neither such an event nor a bell;
 - a command that edits agents' config files itself (the agent does it,
   from the prompt);
 - changing the "unread" dot for background output;
@@ -86,9 +93,10 @@ The "Without an Origin" bullet of **Security invariants** in
 
 ### CLI: `tabsh hook`
 
-- `tabsh hook <state>` posts `<state>` for `$TABSH_SESSION`.
-- `tabsh hook <agent>` (`claude` or `codex`) reads the agent's hook JSON
-  from stdin and maps it to a state (section 3).
+- `tabsh hook` reads an agent's hook JSON from stdin, works out the event
+  and maps it to a state (section 3). It needs no agent name.
+- `tabsh hook <state>` posts `<state>` directly, for plugins and
+  notification commands.
 
 Behaviour:
 - Without `TABSH_SESSION`, it exits 0 at once and does nothing.
@@ -139,41 +147,65 @@ from a state plus whether you've seen the tab to what to show, sits in
 | `idle`, after `running` | ✓ "done" | – | when you visit the tab |
 | `idle` | nothing | – | – |
 
-- While a tab has had hook activity in this page, BEL from that tab is
-  ignored. Tabs without hooks keep the BEL behaviour.
+- Once a tab has had hook activity in this page, BEL from it depends on its
+  state:
+  - **while `running`**, a BEL shows as `needs-input`, because a working
+    agent that rings is asking for you. This covers agents whose hooks have
+    no "waiting for you" event. The display lasts until the next state
+    arrives from the daemon; it isn't sent back to the daemon.
+  - **while `idle`**, a BEL is ignored, so shell beeps at the prompt (such
+    as zsh's focus-code beeps) don't mark the tab.
+
+  Tabs without hook activity keep the BEL behaviour.
 - `bell.ts`'s favicon and title badge counts `needs-input` tabs as well as
   ringing ones.
 - The spinner respects `prefers-reduced-motion` (a static marker instead).
 
 ## 3. The agent side
 
+### Which agents, and how
+
+Only agents that run in a terminal can be in a tabsh tab. Their hook
+systems, as documented in October 2026:
+
+| Kind | Agents | Event field on stdin |
+|---|---|---|
+| Claude's event names | Claude Code, Codex, Qwen Code, Factory Droid, Continue `cn`, Copilot CLI (PascalCase mode), Kimi, Augment Auggie, Crush | `hook_event_name` (Crush: `event`) |
+| Claude's names, other field | Goose | `event` |
+| Claude's names, field unconfirmed | Kiro CLI | unconfirmed; any of the fields below |
+| Own event names | Gemini CLI, Copilot CLI (camelCase mode) | `hook_event_name` |
+| JS/TS plugins | OpenCode, Amp | – (the plugin runs `tabsh hook <state>`) |
+| Notification command | Aider | – (`tabsh hook idle`) |
+
+Goose, Augment Auggie, Crush, Amp and Kiro's CLI have no event for
+"waiting for you"; for them, the BEL rule in section 2 fills the gap. Crush
+only has `PreToolUse`, so it reports `running` and relies on the foreground
+check to return to `idle`.
+
 ### Mapping events to states
 
-Claude Code and Codex both pass command hooks a JSON object on stdin with
-`hook_event_name`, and share most event names. `tabsh hook claude` and
-`tabsh hook codex` read it (and, for Claude's `Notification`,
-`notification_type`) and map it with one shared table plus a few rows per
-agent:
+`tabsh hook` takes the event name from the first of these fields present:
+`hook_event_name`, `event`, `hookName`, `agent_action_name`. It normalises
+the name by ignoring case and `_`, so `PreToolUse`, `preToolUse` and
+`pre_tool_use` are the same. For `Notification`, it reads the type from
+`notification_type` (or `type`), normalised the same way.
 
-| Event | State | Agents |
-|---|---|---|
-| `UserPromptSubmit`, `PreToolUse`, `PostToolUse` | `running` | both |
-| `PostToolUseFailure` | `running` | Claude |
-| `PermissionRequest` | `needs-input` | both |
-| `Elicitation`, and `Notification` with `permission_prompt` or `elicitation_dialog` | `needs-input` | Claude |
-| `Stop`, `SessionEnd` | `idle` | both |
-| `StopFailure` | `idle` | Claude |
-| `Interrupt` | `idle` | Codex |
-| anything else | no request | |
+| Events (normalised) | State |
+|---|---|
+| `UserPromptSubmit`, `UserPromptSubmitted`, `BeforeSubmitPrompt`, `BeforeAgent`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `BeforeTool`, `AfterTool` | `running` |
+| `PermissionRequest`, `Elicitation` | `needs-input` |
+| `Notification` of type `permission_prompt`, `elicitation_dialog`, `agent_needs_input` or `ToolPermission` | `needs-input` |
+| `Stop`, `StopFailure`, `AgentStop`, `AfterAgent`, `SessionEnd`, `Interrupt` | `idle` |
+| anything else, including JSON it can't parse | no request |
 
-- `PostToolUse` moves the tab back from `needs-input` once you grant a
-  permission.
-- Claude's `Notification` with `idle_prompt` is ignored: it's the reminder
-  after a turn ends, and would turn "done" back into "needs you".
+- `PostToolUse` and `AfterTool` move the tab back from `needs-input` once
+  you grant a permission.
+- `Notification` of type `idle_prompt` is ignored for every agent (Claude,
+  Qwen and Droid send it): it's the reminder after a turn ends, and would
+  turn "done" back into "needs you".
 - Subagent events are ignored; the main agent stays `running` meanwhile.
 - The hook prints nothing, so it never answers a `PermissionRequest`.
-- The mapping is a pure function in `cli/hook.rs`, with a unit test per row
-  and agent.
+- The mapping is a pure function in `cli/hook.rs`.
 
 ### Setting it up: a prompt for the agent
 
@@ -184,21 +216,27 @@ format; tabsh keeps the part that needs to be right, the mapping.
 The prompt tells the agent to:
 1. Find the `tabsh` binary's absolute path (`command -v tabsh`) and use it
    in the hooks, so they don't depend on the hooks' `PATH`.
-2. **If it is Claude Code or Codex:** add hooks in its user-level config
-   (`~/.claude/settings.json`, `~/.codex/hooks.json`) that send every event
-   in the table above to `<tabsh> hook claude` (or `codex`), keeping every
-   existing hook and adding nothing twice.
-3. **Otherwise:** call `<tabsh> hook running`, `needs-input` or `idle` from
-   its own events. The prompt defines the three states and gives the rules
-   above as examples: a permission prompt is `needs-input`, granting it
-   returns to `running`, a reminder after a turn ends changes nothing.
-4. Say what it changed, and that the hooks do nothing outside tabsh.
-5. Check its work: run `<tabsh> hook needs-input` in its own tab, then
+2. Set up hooks in its **user-level** config, keeping every existing hook
+   and adding nothing twice, in whichever of these ways it supports:
+   - **Command hooks that receive JSON on stdin:** run `<tabsh> hook` on
+     each event in the mapping table that it has (by its own spelling).
+   - **Plugins (OpenCode, Amp):** a small plugin that runs
+     `<tabsh> hook running`, `needs-input` or `idle` on the matching
+     events.
+   - **A notification command only (Aider):** `<tabsh> hook idle`.
+3. Use the prompt's definitions of the three states, with the rules above
+   as examples: a permission prompt is `needs-input`, granting it returns to
+   `running`, and a reminder after a turn ends changes nothing.
+4. Follow its own rules for new hooks, and tell you about them. For
+   example, Codex runs a hook you add only after you approve it in
+   `/hooks`.
+5. Say what it changed, and that the hooks do nothing outside tabsh.
+6. Check its work: run `<tabsh> hook needs-input` in its own tab, then
    `<tabsh> hook idle`, so you see the dot appear and clear.
 
 The prompt's text lives in one place, `web/src/app/agents/prompt.ts`, as a
-pure module with a test that pins the table's events into it, so the prompt
-and the Rust mapping can't drift apart unnoticed. The README points to the
+pure module. A test pins every event name in the mapping table into it, so
+the prompt and the Rust mapping can't drift apart unnoticed. The README points to the
 dialog rather than copying the text.
 
 ### The dialog
@@ -232,17 +270,27 @@ order, which `docs/architecture.md` is updated to show.
 - setting the same state twice broadcasts once;
 - attach sends the current state after the history;
 - the foreground check resets to `idle` once the shell is in front again;
-- the mapping, every row, for both agents;
+- the mapping, through fixtures of real hook JSON: at least one event per
+  state for each agent with command hooks, every spelling (PascalCase,
+  camelCase, snake_case) and every event field, `idle_prompt` ignored, and
+  unknown or malformed input sending nothing;
 - the hook CLI exits 0 silently without `TABSH_SESSION` and with an
   unreachable daemon.
 
 **App (`npm test`):**
 - `activity-view.ts`, for every state, seen and unseen;
-- `prompt.ts` names every event in the mapping table, for both agents;
+- `prompt.ts` names every event in the mapping table;
+- the BEL rule: a BEL while `running` shows `needs-input`, while `idle` it
+  shows nothing;
 - `cleanSettings` keeps `agentPromptSeen` and defaults it to `false`.
 
 **By hand:** on a fresh daemon, the dialog opens once and not after a
-reload. Paste the prompt into Claude Code and into Codex, and check what
-each wrote to its config. Then, in a tabsh tab, run each agent, ask
+reload. Paste the prompt into Claude Code, Codex, Gemini CLI and OpenCode,
+and check what each wrote to its config. Then, in a tabsh tab, run each,
+ask
 for something that needs a permission, switch tabs, and check spinner →
 orange dot and badge → spinner → ✓.
+
+**Unconfirmed in the docs, to check by hand:** the event field Copilot CLI
+uses in camelCase mode, Kimi's notification types, whether Droid needs hooks
+enabled, the field Kiro CLI uses, and the shape of Codex's `hooks.json`.
