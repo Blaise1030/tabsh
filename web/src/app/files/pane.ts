@@ -1,4 +1,3 @@
-import { createEditor, type Editor } from './editor.ts';
 import {
   displayPath,
   type Fetcher,
@@ -10,7 +9,8 @@ import {
   readFile,
   saveFile,
   toDisk,
-} from './files.ts';
+} from './api.ts';
+import { createEditor, type Editor } from './editor.ts';
 
 export interface PaneTheme {
   background: string;
