@@ -13,6 +13,7 @@ import {
   toDisk,
 } from './api.ts';
 import { createEditor, type Editor } from './editor.ts';
+import { rememberFile } from './remember.ts';
 
 export interface PaneTheme {
   background: string;
@@ -20,6 +21,8 @@ export interface PaneTheme {
   cursor: string;
   selectionBackground: string;
   light: boolean;
+  fontFamily: string; // the terminal's font, already loaded
+  fontSize: number;
 }
 export interface Host {
   fetch: Fetcher;
@@ -155,6 +158,7 @@ export function show(sessionId: string | null): void {
 
 export function forget(sessionId: string): void {
   seqs.set(sessionId, (seqs.get(sessionId) ?? 0) + 1);
+  rememberFile(sessionId, null);
   const st = states.get(sessionId);
   if (!st) return;
   clear(st);
@@ -474,6 +478,14 @@ export function openPath(sessionId: string, path: string, line?: number, col?: n
   return load(sessionId, path, line, col);
 }
 
+// Reopens a file shown before the page reloaded, without taking the keyboard.
+// One that can't be read any more is dropped instead of showing an error.
+export async function restore(sessionId: string, path: string): Promise<void> {
+  await load(sessionId, path, undefined, undefined, false);
+  const st = states.get(sessionId);
+  if (st && !st.info && st.requested === path) forget(sessionId);
+}
+
 // `focus` is false for a reload nobody asked for, which mustn't take the keyboard.
 async function load(sessionId: string, path: string, line?: number, col?: number, focus = true): Promise<void> {
   const seq = (seqs.get(sessionId) ?? 0) + 1;
@@ -490,6 +502,7 @@ async function load(sessionId: string, path: string, line?: number, col?: number
     host.newTabAt(info.path);
     return;
   }
+  rememberFile(sessionId, info?.path ?? null);
 
   let st = states.get(sessionId);
   if (!st) {

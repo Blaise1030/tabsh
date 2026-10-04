@@ -1,6 +1,7 @@
 // Opening a clicked path in the file pane. The pane (with CodeMirror) is
 // fetched on first use.
 import type { Host } from './pane.ts';
+import { rememberedFiles, rememberFile } from './remember.ts';
 
 type Pane = typeof import('./pane.ts');
 
@@ -16,6 +17,18 @@ export function initFilePane(h: Host, active: () => string | null): void {
 
 export function loadedPane(): Pane | null {
   return pane;
+}
+
+// Reopens the files the tabs showed before a reload, and forgets those of
+// tabs that are gone. The pane is only fetched if there's something to show.
+export function restoreFiles(sessionIds: string[]): void {
+  const saved = rememberedFiles();
+  for (const id of Object.keys(saved)) if (!sessionIds.includes(id)) rememberFile(id, null);
+  const ids = sessionIds.filter((id) => saved[id]);
+  if (!ids.length) return;
+  filePane().then((p) => {
+    for (const id of ids) void p.restore(id, saved[id]);
+  }, console.error);
 }
 
 function filePane(): Promise<Pane> {

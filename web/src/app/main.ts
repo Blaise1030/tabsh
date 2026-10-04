@@ -3,12 +3,12 @@
 import { daemonFetch, initGate, waitForDaemon } from './daemon/client.ts';
 import { LOCAL_APP, MIXED_BLOCKED } from './daemon/config.ts';
 import { adoptToken } from './daemon/token.ts';
-import { initFilePane, loadedPane } from './files/open.ts';
+import { initFilePane, loadedPane, restoreFiles } from './files/open.ts';
 import { initPalette } from './palette/palette.ts';
 import { initBell } from './sessions/bell.ts';
 import { activate, newSession, newTabAt, savedActive, sendSize, store, sync } from './sessions/store.ts';
 import { initTabStrip } from './sessions/tabs.ts';
-import { prefersLight, THEMES } from './settings/catalog.ts';
+import { FONTS, fontStack, prefersLight, THEMES } from './settings/catalog.ts';
 import { applySettings, current, loadSettings, onApply, terminalOptions } from './settings/settings.ts';
 import { initTypingSound } from './sound/typing.ts';
 import { initAbout } from './ui/about.ts';
@@ -38,6 +38,8 @@ initFilePane(
         cursor: c.cursor,
         selectionBackground: c.selectionBackground,
         light: !!t.light,
+        fontFamily: fontStack(FONTS[current.applied.font]),
+        fontSize: current.applied.fontSize,
       };
     },
     layout: () => store.active && sendSize(store.active),
@@ -60,7 +62,7 @@ initDivider();
 initAbout();
 initDrop();
 
-// Applied settings restyle every terminal and the file pane.
+// Applied settings restyle every terminal and the file pane (theme and font).
 onApply((s) => {
   const opts = terminalOptions(s);
   for (const { term } of store.sessions) Object.assign(term.options, opts);
@@ -88,6 +90,7 @@ window.addEventListener('focus', () => {
   await waitForDaemon();
   await loadSettings().catch(() => applySettings(current.saved));
   await sync();
+  restoreFiles(store.sessions.map((s) => s.id));
   if (!store.sessions.length) return newSession();
   activate(store.sessions.find((s) => s.id === activeId) ?? store.sessions[0]);
 })();
