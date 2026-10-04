@@ -512,6 +512,16 @@ async function load(sessionId: string, path: string, line?: number, col?: number
     };
     states.set(sessionId, st);
     paneEl.append(st.view);
+    // Scroll doesn't bubble, so catch the editor's or body's on the way down.
+    const view = st.view;
+    view.addEventListener(
+      'scroll',
+      (e) => {
+        const target = e.target as HTMLElement;
+        view.querySelector('.pane-head')?.classList.toggle('scrolled', target.scrollTop > 0);
+      },
+      true,
+    );
   }
   clear(st);
   clearTimeout(st.timer);

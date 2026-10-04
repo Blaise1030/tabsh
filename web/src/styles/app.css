@@ -119,12 +119,18 @@ html.themed {
   #pane { position: absolute; inset: 0; z-index: 5; }
   #pane-divider { display: none; }
 }
-.pane-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.pane-view { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
 .pane-view[hidden] { display: none; }
 .pane-head {
-  display: flex; align-items: center; gap: .25rem; padding: .125rem .25rem;
-  font-size: .8125rem;
+  position: relative; z-index: 2; display: flex; align-items: center; gap: .25rem; padding: .125rem .25rem;
+  background: var(--background); font-size: .8125rem;
 }
+/* Once the file is scrolled, it fades out under the header instead of meeting a hard edge. */
+.pane-head::after {
+  content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 1rem; pointer-events: none;
+  background: linear-gradient(var(--background), transparent); opacity: 0; transition: opacity .15s;
+}
+.pane-head.scrolled::after { opacity: 1; }
 .pane-path {
   flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-family: ui-monospace, Menlo, monospace; color: var(--muted-foreground);
