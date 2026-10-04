@@ -112,13 +112,7 @@ pub(crate) async fn local_app() -> Response {
 pub(crate) async fn about(
     State(st): State<AppState>,
 ) -> Result<axum::Json<serde_json::Value>, axum::http::StatusCode> {
-    let running = st.live.lock().unwrap().len();
-    let total: i64 = st
-        .db
-        .lock()
-        .unwrap()
-        .query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))
-        .map_err(crate::error::internal_error)?;
+    let (running, total) = crate::sessions::counts(&st).map_err(crate::error::internal_error)?;
     Ok(axum::Json(serde_json::json!({
         "version": env!("CARGO_PKG_VERSION"),
         "shell": std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into()),
