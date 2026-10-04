@@ -1,7 +1,7 @@
 # Agent activity — Slice Plan
 
 - Spec: `docs/superpowers/specs/2026-10-04-agent-activity-design.md` (approved 2026-10-04)
-- Base SHA: `f9f0622` (tip of `refactor/modules`, merged to `main` before Slice 0 starts — see Prerequisite)
+- Base SHA: `e65b55d` (the prerequisite merge on `main`; see Prerequisite)
 - Tracker: GitHub Issues, repo `Blaise1030/tabsh` — parent: [#10](https://github.com/Blaise1030/tabsh/issues/10)
 - CI checks on PR: `.github/workflows/ci.yml` → `daemon` (fmt, clippy, `cargo test --locked` on ubuntu + macos), `site` (`astro check`, biome, `npm test`, `npm run build` + committed app copy), and (added by Slice 0) `e2e` (Playwright chromium)
 - E2E: Playwright (`@playwright/test`), specs in `web/e2e/`, run with `cd web && TABSH_BIN=../target/debug/tabsh npm run test:e2e`, conventions doc at `web/e2e/README.md` (written by Slice 0)
