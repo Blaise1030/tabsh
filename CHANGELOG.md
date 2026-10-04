@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.1.3
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.2...v0.1.3)
+
+### Features
+
+- **app:** Fade the file out under the pane header once scrolled ([73d5cfa](https://github.com/Blaise1030/tabsh/commit/73d5cfa))
+- **daemon:** HEAD /api/files reports the file's version ([9a2bccb](https://github.com/Blaise1030/tabsh/commit/9a2bccb))
+- **app:** Record custom keybindings from the palette ([2bf5015](https://github.com/Blaise1030/tabsh/commit/2bf5015))
+- **app:** Click the pane divider to split equally ([a908b86](https://github.com/Blaise1030/tabsh/commit/a908b86))
+- **app:** Reopen each tab's file after a reload, in the terminal's font ([c480420](https://github.com/Blaise1030/tabsh/commit/c480420))
+
+### Fixes
+
+- **app:** Drop 'unsafe-inline' from the app's script policy ([547298c](https://github.com/Blaise1030/tabsh/commit/547298c))
+- **app:** Fade Markdown previews out under the pane header ([a8702c9](https://github.com/Blaise1030/tabsh/commit/a8702c9))
+
 ## v0.1.2
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.1...v0.1.2)
