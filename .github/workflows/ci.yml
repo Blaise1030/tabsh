@@ -55,6 +55,8 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
+      - run: npm run check
+      - run: npm run lint
       - run: npm test
       - run: npm run build
       # The build also writes the daemon's copy of the app page and its
