@@ -1,0 +1,191 @@
+/* The app page (pages/app/index.astro). */
+html, body { height: 100%; margin: 0; overflow: hidden; background: var(--background); color: var(--foreground); }
+body { display: flex; flex-direction: column; }
+:root { --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif; }
+body { font-family: var(--font-sans); }
+
+/* The UI chrome follows the terminal theme: Basecoat's tokens are derived
+   from the theme's background/foreground, which JS sets on <html>. */
+html.themed {
+  --background: var(--term-bg);
+  --foreground: var(--term-fg);
+  --muted-foreground: color-mix(in srgb, var(--term-fg) 60%, var(--term-bg));
+  --muted: color-mix(in srgb, var(--term-fg) 8%, var(--term-bg));
+  --accent: color-mix(in srgb, var(--term-fg) 8%, var(--term-bg));
+  --accent-foreground: var(--term-fg);
+  --secondary: color-mix(in srgb, var(--term-fg) 13%, var(--term-bg));
+  --secondary-foreground: var(--term-fg);
+  --border: color-mix(in srgb, var(--term-fg) 14%, var(--term-bg));
+  --input: color-mix(in srgb, var(--term-fg) 16%, var(--term-bg));
+  --popover: color-mix(in srgb, var(--term-fg) 4%, var(--term-bg));
+  --popover-foreground: var(--term-fg);
+  --card: var(--popover);
+  --card-foreground: var(--term-fg);
+}
+
+.settings-btn { margin-left: auto; }
+/* Near the top of the screen at Tailwind's max-w-xl width; tall enough to show
+   long lists. The menu fills what's left instead of Basecoat's fixed 18rem. */
+.command-dialog > .command { top: 10%; max-width: min(36rem, 100% - 2rem); max-height: min(75%, 44rem); }
+.command-dialog [role="menu"] { max-height: none; flex: 1; min-height: 0; }
+/* Gradient edge fades on the palette list, shown only where items are
+   scrolled out of view (same approach as the tab strip). */
+@property --fade-t { syntax: '<length>'; inherits: false; initial-value: 0px; }
+@property --fade-b { syntax: '<length>'; inherits: false; initial-value: 0px; }
+#palette-menu {
+  --fade-t: 0px; --fade-b: 0px;
+  mask-image: linear-gradient(to bottom,
+    transparent, rgb(0 0 0 / .35) calc(var(--fade-t) * .45), #000 var(--fade-t),
+    #000 calc(100% - var(--fade-b)), rgb(0 0 0 / .35) calc(100% - var(--fade-b) * .45), transparent);
+  transition: --fade-t .2s ease, --fade-b .2s ease;
+}
+#palette-menu.fade-top { --fade-t: 3rem; }
+#palette-menu.fade-bottom { --fade-b: 3rem; }
+.command-dialog [role="menuitem"] .swatch { display: flex; gap: 2px; padding: 3px; border-radius: 4px; border: 1px solid var(--border); }
+.command-dialog [role="menuitem"] .swatch i { width: 6px; height: 10px; border-radius: 1px; }
+.about-table th { width: 1%; white-space: nowrap; font-weight: 400; color: var(--muted-foreground); }
+.about-table td { white-space: normal; overflow-wrap: anywhere; font-family: ui-monospace, Menlo, monospace; font-size: .8125rem; }
+
+.tabbar { display: flex; align-items: center; gap: .375rem; padding: .125rem .5rem; }
+/* Edge fades show only where tabs are scrolled out of view; registered so
+   they ease in and out instead of popping. */
+@property --fade-l { syntax: '<length>'; inherits: false; initial-value: 0px; }
+@property --fade-r { syntax: '<length>'; inherits: false; initial-value: 0px; }
+#tabs {
+  display: flex; gap: .375rem; min-width: 0; overflow-x: auto; scrollbar-width: none;
+  /* Room for focus rings, which the scroll container would otherwise
+     clip, including after scrollIntoView. */
+  padding: 3px; scroll-padding-inline: 3px;
+  --fade-l: 0px; --fade-r: 0px;
+  mask-image: linear-gradient(to right, transparent, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent);
+  transition: --fade-l .2s ease, --fade-r .2s ease;
+}
+#tabs::-webkit-scrollbar { display: none; }
+#tabs.fade-left { --fade-l: 2.5rem; }
+#tabs.fade-right { --fade-r: 2.5rem; }
+/* Browser-style sizing: every tab gets the same width, shrinking evenly as
+   tabs are added until they hit the minimum, after which the strip scrolls. */
+.tab {
+  --tab-max: 13rem;
+  --tab-min: 6.5rem;
+  position: relative; display: flex; align-items: center; gap: .5rem;
+  /* `width` (not just flex-basis) so the strip's own size counts full-width tabs. */
+  flex: 0 1 auto; width: var(--tab-max); max-width: var(--tab-max); min-width: var(--tab-min);
+  height: 1.75rem; padding: 0 .25rem 0 .625rem; overflow: hidden;
+  border-radius: .375rem; font-size: .875rem; color: var(--muted-foreground);
+  /* Flat: unselected tabs sit straight on the strip. */
+  background: transparent;
+  cursor: pointer; user-select: none; white-space: nowrap;
+  transition: max-width .2s ease, min-width .2s ease, padding .2s ease, opacity .15s ease,
+              background-color .15s ease, color .15s ease;
+}
+/* New tabs grow in from nothing; closed tabs shrink away before removal. */
+.tab.entering, .tab.leaving { max-width: 0; min-width: 0; padding-inline: 0; opacity: 0; }
+.tab.leaving { pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .tab { transition: none; } }
+.tab:hover { background: color-mix(in srgb, transparent 50%, var(--muted)); color: var(--foreground); }
+/* The selected tab is a flat muted fill, no border or shadow. */
+.tab[aria-selected="true"] { background: var(--muted); color: var(--foreground); font-weight: 500; }
+.tab span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tab .btn { flex-shrink: 0; opacity: 0; }
+.tab:hover .btn, .tab[aria-selected="true"] .btn, .tab .btn:focus-visible { opacity: 1; }
+/* Unread output shows a dot before the tab's label, like the favicon badge. */
+.tab.unread::before, .tab.bell::before {
+  content: ""; flex-shrink: 0; width: 7px; height: 7px; margin-right: -.125rem;
+  border-radius: 50%; background: var(--primary);
+}
+/* A bell (BEL, e.g. a finished build or an agent waiting for input) wins over unread. */
+.tab.bell::before { background: #f97316; animation: bell-pulse 1s ease-out 3; }
+@keyframes bell-pulse { 0% { box-shadow: 0 0 0 0 #f97316aa; } 100% { box-shadow: 0 0 0 6px #f9731600; } }
+@media (prefers-reduced-motion: reduce) { .tab.bell::before { animation: none; } }
+
+/* The tab bar and terminals, with a tab's file pane (web/src/app/file-pane.ts)
+   beside them at full height. */
+#workspace { flex: 1; min-height: 0; display: flex; position: relative; }
+#main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+#terms { flex: 1; min-width: 0; min-height: 0; position: relative; }
+#pane-divider { flex: 0 0 1px; background: var(--border); position: relative; touch-action: none; }
+/* A wider grab area than the 1px line. */
+#pane-divider::before { content: ''; position: absolute; inset: 0 -3px; cursor: col-resize; z-index: 6; }
+#workspace.dragging { user-select: none; cursor: col-resize; }
+#workspace.dragging iframe { pointer-events: none; }
+#pane {
+  flex: 0 0 calc(var(--pane-width, .5) * 100%); min-width: 0;
+  display: flex; flex-direction: column; background: var(--background);
+}
+#pane:focus { outline: none; }
+#pane[hidden], #pane-divider[hidden] { display: none; }
+@media (max-width: 799px) {
+  #pane { position: absolute; inset: 0; z-index: 5; }
+  #pane-divider { display: none; }
+}
+.pane-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.pane-view[hidden] { display: none; }
+.pane-head {
+  display: flex; align-items: center; gap: .25rem; padding: .125rem .25rem;
+  font-size: .8125rem;
+}
+.pane-path {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: ui-monospace, Menlo, monospace; color: var(--muted-foreground);
+}
+.pane-dot { color: var(--primary); }
+.pane-dot[hidden] { display: none; }
+.pane-status { font-size: .75rem; color: var(--muted-foreground); white-space: nowrap; }
+/* A snackbar floating over the bottom of the file. */
+.pane-bar {
+  position: absolute; z-index: 1; left: 0; right: 0; bottom: .75rem; width: fit-content;
+  max-width: calc(100% - 1.5rem); margin-inline: auto;
+  display: flex; align-items: center; gap: .25rem; padding: .25rem .25rem .25rem .75rem;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--background);
+  box-shadow: 0 4px 16px rgb(0 0 0 / .18); font-size: .8125rem; color: var(--foreground);
+}
+.pane-bar span::before { content: "● "; color: var(--destructive, #e5484d); }
+.pane-bar[hidden] { display: none; }
+.pane-bar span { flex: 1; margin-right: .5rem; }
+.pane-body { flex: 1; min-height: 0; position: relative; overflow: auto; }
+.pane-body .cm-editor { height: 100%; }
+.pane-frame { display: block; width: 100%; height: 100%; border: 0; background: #fff; }
+.pane-img { display: block; max-width: 100%; margin: 1rem auto; }
+.pane-msg { display: grid; place-content: center; gap: .75rem; height: 100%; padding: 1rem; text-align: center; color: var(--muted-foreground); }
+.pane-msg p { margin: 0; }
+.term { position: absolute; inset: 0; display: none; }
+/* Padding goes on xterm's own element: FitAddon subtracts that, but sizes
+   rows from the parent's full height, so parent padding overflows the page. */
+.term .xterm { padding: 6px 0 0 8px; }
+.term.active { display: block; }
+/* Glowing frame around the window while a file is dragged over it: drop it
+   on the terminal to type its path at the prompt. */
+#drop-glow {
+  position: fixed; inset: 4px; z-index: 100; pointer-events: none;
+  border-radius: 16px;
+  opacity: 0; transition: opacity .2s ease-out;
+  --glow: #7dd3fc; /* light blue (sky-300) */
+}
+#drop-glow.active { opacity: 1; animation: drop-glow 1.6s ease-in-out infinite; }
+@keyframes drop-glow {
+  0%, 100% { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--glow) 50%, transparent),
+                         inset 0 0 24px 2px color-mix(in srgb, var(--glow) 15%, transparent); }
+  50% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--glow) 85%, transparent),
+                    inset 0 0 64px 12px color-mix(in srgb, var(--glow) 28%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #drop-glow.active { animation: none;
+    box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--glow) 70%, transparent),
+                inset 0 0 40px 6px color-mix(in srgb, var(--glow) 20%, transparent); }
+}
+.empty { position: absolute; inset: 0; display: grid; place-content: center; gap: .75rem; text-align: center; color: var(--muted-foreground); }
+/* Covers the terminals while the hosted UI can't talk to the daemon. */
+/* Same look as the landing page: a centred monospace column, left-aligned. */
+#gate {
+  z-index: 1; background: var(--background); padding: 1rem;
+  text-align: left; color: var(--foreground);
+  font: 14px/1.6 'Geist Mono', ui-monospace, Menlo, monospace;
+}
+#gate > * { width: min(34rem, calc(100vw - 2rem)); }
+body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
+#gate h2 { margin: 0 0 1rem; font-size: 1em; font-weight: 600; letter-spacing: .02em; }
+#gate p, #gate pre { margin: 0 0 1rem; text-wrap: wrap; }
+#gate .mark { color: var(--muted-foreground); }
+#gate .cmd { padding: .75rem 1rem; border-radius: 4px; background: var(--muted); font: inherit; }
+#gate form { display: flex; gap: .5rem; }
