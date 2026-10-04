@@ -2,7 +2,35 @@
 // biome-ignore-all lint: moved verbatim from the page's inline script; typed and split up in Tasks 9 to 11
 // The app page's script: tabs and terminals, links and the file pane, settings,
 // the command palette, sounds and drag-and-drop.
+
+import { api, daemonFetch, initGate, socketUrl, waitForDaemon } from './daemon/client.ts';
+import { LOCAL_APP, MIXED_BLOCKED } from './daemon/config.ts';
+import { adoptToken } from './daemon/token.ts';
 import { findLinks } from './links/links.ts';
+import { FONT_SIZES, FONTS, prefersLight, THEMES, TYPING_SOUNDS } from './settings/catalog.ts';
+import { keyLabel, matchesKey } from './settings/keys.ts';
+import {
+  applySettings,
+  current,
+  KEYBINDINGS,
+  loadSettings,
+  onApply,
+  onSaved,
+  saveSetting,
+  setPreviewing,
+  terminalOptions,
+} from './settings/settings.ts';
+import { isMac } from './ui/dom.ts';
+
+// The pairing link puts the token in the fragment; take it and clear it
+// before anything talks to the daemon.
+const launched = adoptToken(location.hash);
+if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+// A link with the token comes from a running daemon (it opens one at
+// startup), so it's safe to go straight to its copy. Without one the
+// daemon may be down, and the gate explains how to start it.
+if (MIXED_BLOCKED && launched) location.replace(LOCAL_APP);
+initGate();
 
 // The server (SQLite) owns the list of sessions; only which tab this
 // browser has selected is kept locally.
@@ -23,93 +51,6 @@ const savedActive = () => {
     return null;
   }
 };
-
-// ---- Daemon connection ---------------------------------------------------
-// The tabsh-daemon meta tag names the daemon to reach (`?daemon=`
-// overrides it); it's empty when the daemon serves this page. Requests
-// authenticate with the token the daemon prints, which arrives in the URL
-// fragment so it never reaches the web server.
-const DAEMON = (
-  new URLSearchParams(location.search).get('daemon') ??
-  (document.querySelector('meta[name="tabsh-daemon"]').content || location.origin)
-).replace(/\/+$/, '');
-// WebKit (Safari, and every iOS browser) blocks an https page from
-// calling a daemon over plain http, even on loopback. Those browsers use
-// the copy of this page the daemon serves; `/open` pairs it.
-const MIXED_BLOCKED =
-  location.protocol === 'https:' && DAEMON.startsWith('http:') && navigator.vendor === 'Apple Computer, Inc.';
-const LOCAL_APP = `${DAEMON.replace(/:\/\/(127\.0\.0\.1|localhost):/, '://tabsh.localhost:')}/open`;
-document.getElementById('open-local').href = LOCAL_APP;
-const TOKEN_KEY = `tabsh.token:${DAEMON}`;
-let token = null;
-// Fall back to the key from when the project was called webterm.
-try {
-  token = localStorage.getItem(TOKEN_KEY) ?? localStorage.getItem(`webterm.token:${DAEMON}`);
-} catch {}
-const launched = adoptToken(location.hash);
-if (location.hash) history.replaceState(null, '', location.pathname + location.search);
-// A link with the token comes from a running daemon (it opens one at
-// startup), so it's safe to go straight to its copy. Without one the
-// daemon may be down, and the gate explains how to start it.
-if (MIXED_BLOCKED && launched) location.replace(LOCAL_APP);
-
-// Accepts a pairing link, its `#token=…` fragment, or the bare token.
-function adoptToken(text) {
-  text = text.trim();
-  const t = /token=([0-9a-f]+)/i.exec(text)?.[1] ?? (/^[0-9a-f]{32,}$/i.test(text) ? text : null);
-  if (!t) return false;
-  token = t;
-  try {
-    localStorage.setItem(TOKEN_KEY, t);
-  } catch {}
-  return true;
-}
-
-function daemonFetch(path, init = {}) {
-  const headers = { ...init.headers, ...(token && { Authorization: `Bearer ${token}` }) };
-  return fetch(DAEMON + path, { ...init, headers });
-}
-
-// Holds startup until the daemon answers, showing why it can't be reached.
-const gate = document.getElementById('gate');
-let wake = () => {};
-async function waitForDaemon() {
-  for (;;) {
-    let status = 0;
-    try {
-      status = (await daemonFetch('/api/about')).status;
-    } catch {}
-    if (status === 200) {
-      gate.hidden = true;
-      return;
-    }
-    const mode = status === 401 ? 'pair' : MIXED_BLOCKED ? 'safari' : 'offline';
-    gate.querySelectorAll('[data-gate]').forEach((el) => (el.hidden = el.dataset.gate !== mode));
-    gate.hidden = false;
-    await new Promise((resolve) => {
-      wake = resolve;
-      setTimeout(resolve, 2000);
-    });
-  }
-}
-document.getElementById('pair-form').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const input = document.getElementById('pair-input');
-  if (adoptToken(input.value)) {
-    input.value = '';
-    wake();
-  } else input.setAttribute('aria-invalid', 'true');
-});
-
-async function api(method, path, body) {
-  const res = await daemonFetch(`/api/sessions${path}`, {
-    method,
-    headers: body ? { 'Content-Type': 'application/json' } : {},
-    body: body && JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`${method} ${path}: ${res.status}`);
-  return res.status === 204 ? null : res.json();
-}
 
 async function newSession() {
   activate(openSession(await api('POST', '')));
@@ -137,7 +78,7 @@ function openSession({ id, name }) {
   const term = new Terminal({
     cursorBlink: true,
     rightClickSelectsWord: false, // right-click is copy/paste (see below)
-    ...terminalOptions(applied),
+    ...terminalOptions(current.applied),
   });
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
@@ -191,8 +132,7 @@ function openSession({ id, name }) {
 }
 
 function connect(s) {
-  const auth = token ? `&token=${token}` : '';
-  const ws = new WebSocket(`${DAEMON.replace(/^http/, 'ws')}/ws?id=${s.id}${auth}`);
+  const ws = new WebSocket(socketUrl(s.id));
   ws.binaryType = 'arraybuffer';
   s.ws = ws;
 
@@ -350,7 +290,7 @@ function linkProvider(session, term, el) {
 const host = {
   fetch: daemonFetch,
   theme() {
-    const t = THEMES[applied.theme],
+    const t = THEMES[current.applied.theme],
       c = t.colors;
     return {
       background: c.background,
@@ -537,546 +477,6 @@ function removeSession(s) {
   } else updateBadge();
 }
 
-// ---- Settings (stored server-side in SQLite) ---------------------------
-
-const ansi = (
-  black,
-  red,
-  green,
-  yellow,
-  blue,
-  magenta,
-  cyan,
-  white,
-  brightBlack,
-  brightRed,
-  brightGreen,
-  brightYellow,
-  brightBlue,
-  brightMagenta,
-  brightCyan,
-  brightWhite,
-) => ({
-  black,
-  red,
-  green,
-  yellow,
-  blue,
-  magenta,
-  cyan,
-  white,
-  brightBlack,
-  brightRed,
-  brightGreen,
-  brightYellow,
-  brightBlue,
-  brightMagenta,
-  brightCyan,
-  brightWhite,
-});
-const solarizedAnsi = ansi(
-  '#073642',
-  '#dc322f',
-  '#859900',
-  '#b58900',
-  '#268bd2',
-  '#d33682',
-  '#2aa198',
-  '#eee8d5',
-  '#002b36',
-  '#cb4b16',
-  '#586e75',
-  '#657b83',
-  '#839496',
-  '#6c71c4',
-  '#93a1a1',
-  '#fdf6e3',
-);
-
-// The site's own palette, shared with the landing page (web/src/pages/index.astro).
-// `tabsh` follows the system's light/dark setting, like the landing page does.
-const TABSH_COLORS = {
-  dark: {
-    background: '#141414',
-    foreground: '#e6e6e6',
-    cursor: '#e6e6e6',
-    selectionBackground: '#3a3a3a',
-    ...ansi(
-      '#2e3436',
-      '#cc0000',
-      '#4e9a06',
-      '#c4a000',
-      '#3465a4',
-      '#75507b',
-      '#06989a',
-      '#d3d7cf',
-      '#555753',
-      '#ef2929',
-      '#8ae234',
-      '#fce94f',
-      '#729fcf',
-      '#ad7fa8',
-      '#34e2e2',
-      '#eeeeec',
-    ),
-  },
-  light: {
-    background: '#f7f7f7',
-    foreground: '#1a1a1a',
-    cursor: '#1a1a1a',
-    selectionBackground: '#d6d6d6',
-    ...ansi(
-      '#24292f',
-      '#cf222e',
-      '#116329',
-      '#4d2d00',
-      '#0969da',
-      '#8250df',
-      '#1b7c83',
-      '#6e7781',
-      '#57606a',
-      '#a40e26',
-      '#1a7f37',
-      '#633c01',
-      '#218bff',
-      '#a475f9',
-      '#3192aa',
-      '#8c959f',
-    ),
-  },
-};
-const prefersLight = matchMedia('(prefers-color-scheme: light)');
-
-const THEMES = {
-  tabsh: {
-    name: 'tabsh (match system)',
-    system: true,
-    get light() {
-      return prefersLight.matches;
-    },
-    get colors() {
-      return TABSH_COLORS[prefersLight.matches ? 'light' : 'dark'];
-    },
-  },
-  'default-dark': {
-    name: 'Default Dark',
-    colors: {
-      background: '#0a0a0a',
-      foreground: '#e5e5e5',
-      cursor: '#e5e5e5',
-      selectionBackground: '#3a3a3a',
-      ...ansi(
-        '#2e3436',
-        '#cc0000',
-        '#4e9a06',
-        '#c4a000',
-        '#3465a4',
-        '#75507b',
-        '#06989a',
-        '#d3d7cf',
-        '#555753',
-        '#ef2929',
-        '#8ae234',
-        '#fce94f',
-        '#729fcf',
-        '#ad7fa8',
-        '#34e2e2',
-        '#eeeeec',
-      ),
-    },
-  },
-  'one-dark': {
-    name: 'One Dark',
-    colors: {
-      background: '#282c34',
-      foreground: '#abb2bf',
-      cursor: '#528bff',
-      selectionBackground: '#3e4451',
-      ...ansi(
-        '#282c34',
-        '#e06c75',
-        '#98c379',
-        '#e5c07b',
-        '#61afef',
-        '#c678dd',
-        '#56b6c2',
-        '#abb2bf',
-        '#5c6370',
-        '#e06c75',
-        '#98c379',
-        '#e5c07b',
-        '#61afef',
-        '#c678dd',
-        '#56b6c2',
-        '#ffffff',
-      ),
-    },
-  },
-  dracula: {
-    name: 'Dracula',
-    colors: {
-      background: '#282a36',
-      foreground: '#f8f8f2',
-      cursor: '#f8f8f2',
-      selectionBackground: '#44475a',
-      ...ansi(
-        '#21222c',
-        '#ff5555',
-        '#50fa7b',
-        '#f1fa8c',
-        '#bd93f9',
-        '#ff79c6',
-        '#8be9fd',
-        '#f8f8f2',
-        '#6272a4',
-        '#ff6e6e',
-        '#69ff94',
-        '#ffffa5',
-        '#d6acff',
-        '#ff92df',
-        '#a4ffff',
-        '#ffffff',
-      ),
-    },
-  },
-  nord: {
-    name: 'Nord',
-    colors: {
-      background: '#2e3440',
-      foreground: '#d8dee9',
-      cursor: '#d8dee9',
-      selectionBackground: '#434c5e',
-      ...ansi(
-        '#3b4252',
-        '#bf616a',
-        '#a3be8c',
-        '#ebcb8b',
-        '#81a1c1',
-        '#b48ead',
-        '#88c0d0',
-        '#e5e9f0',
-        '#4c566a',
-        '#bf616a',
-        '#a3be8c',
-        '#ebcb8b',
-        '#81a1c1',
-        '#b48ead',
-        '#8fbcbb',
-        '#eceff4',
-      ),
-    },
-  },
-  'tokyo-night': {
-    name: 'Tokyo Night',
-    colors: {
-      background: '#1a1b26',
-      foreground: '#c0caf5',
-      cursor: '#c0caf5',
-      selectionBackground: '#33467c',
-      ...ansi(
-        '#15161e',
-        '#f7768e',
-        '#9ece6a',
-        '#e0af68',
-        '#7aa2f7',
-        '#bb9af7',
-        '#7dcfff',
-        '#a9b1d6',
-        '#414868',
-        '#f7768e',
-        '#9ece6a',
-        '#e0af68',
-        '#7aa2f7',
-        '#bb9af7',
-        '#7dcfff',
-        '#c0caf5',
-      ),
-    },
-  },
-  'catppuccin-mocha': {
-    name: 'Catppuccin Mocha',
-    colors: {
-      background: '#1e1e2e',
-      foreground: '#cdd6f4',
-      cursor: '#f5e0dc',
-      selectionBackground: '#585b70',
-      ...ansi(
-        '#45475a',
-        '#f38ba8',
-        '#a6e3a1',
-        '#f9e2af',
-        '#89b4fa',
-        '#f5c2e7',
-        '#94e2d5',
-        '#bac2de',
-        '#585b70',
-        '#f38ba8',
-        '#a6e3a1',
-        '#f9e2af',
-        '#89b4fa',
-        '#f5c2e7',
-        '#94e2d5',
-        '#a6adc8',
-      ),
-    },
-  },
-  'gruvbox-dark': {
-    name: 'Gruvbox Dark',
-    colors: {
-      background: '#282828',
-      foreground: '#ebdbb2',
-      cursor: '#ebdbb2',
-      selectionBackground: '#504945',
-      ...ansi(
-        '#282828',
-        '#cc241d',
-        '#98971a',
-        '#d79921',
-        '#458588',
-        '#b16286',
-        '#689d6a',
-        '#a89984',
-        '#928374',
-        '#fb4934',
-        '#b8bb26',
-        '#fabd2f',
-        '#83a598',
-        '#d3869b',
-        '#8ec07c',
-        '#ebdbb2',
-      ),
-    },
-  },
-  'solarized-dark': {
-    name: 'Solarized Dark',
-    colors: {
-      background: '#002b36',
-      foreground: '#839496',
-      cursor: '#93a1a1',
-      selectionBackground: '#073642',
-      ...solarizedAnsi,
-    },
-  },
-  'solarized-light': {
-    name: 'Solarized Light',
-    light: true,
-    colors: {
-      background: '#fdf6e3',
-      foreground: '#657b83',
-      cursor: '#586e75',
-      selectionBackground: '#eee8d5',
-      ...solarizedAnsi,
-    },
-  },
-  'github-light': {
-    name: 'GitHub Light',
-    light: true,
-    colors: {
-      background: '#ffffff',
-      foreground: '#1f2328',
-      cursor: '#0969da',
-      selectionBackground: '#b6e3ff',
-      ...ansi(
-        '#24292f',
-        '#cf222e',
-        '#116329',
-        '#4d2d00',
-        '#0969da',
-        '#8250df',
-        '#1b7c83',
-        '#6e7781',
-        '#57606a',
-        '#a40e26',
-        '#1a7f37',
-        '#633c01',
-        '#218bff',
-        '#a475f9',
-        '#3192aa',
-        '#8c959f',
-      ),
-    },
-  },
-};
-
-// `google` fonts are fetched from Google Fonts the first time they're used.
-const FONTS = {
-  menlo: { name: 'Menlo', stack: 'Menlo, Monaco, "Courier New", monospace' },
-  monaco: { name: 'Monaco', stack: 'Monaco, Menlo, "Courier New", monospace' },
-  'geist-mono': { name: 'Geist Mono', google: 'Geist+Mono' },
-  'jetbrains-mono': { name: 'JetBrains Mono', google: 'JetBrains+Mono' },
-  'fira-code': { name: 'Fira Code', google: 'Fira+Code' },
-  'source-code-pro': { name: 'Source Code Pro', google: 'Source+Code+Pro' },
-  'ibm-plex-mono': { name: 'IBM Plex Mono', google: 'IBM+Plex+Mono' },
-  'roboto-mono': { name: 'Roboto Mono', google: 'Roboto+Mono' },
-  'courier-new': { name: 'Courier New', stack: '"Courier New", Courier, monospace' },
-};
-const FONT_SIZES = [10, 11, 12, 13, 14, 15, 16, 18, 20, 24];
-const TYPING_SOUNDS = {
-  'mx-black-pbt': 'Cherry MX Black (PBT)',
-  'mx-blue': 'Cherry MX Blue',
-  'holy-panda': 'Holy Panda',
-  'gateron-black-ink': 'Gateron Black Ink',
-  off: 'Off',
-};
-// Each action offers a few preset combos rather than recording any key, so
-// nothing can be bound to a key the browser keeps (⌘T, Ctrl+Tab…) or one the
-// shell relies on. No combo is offered for two actions, so they never clash.
-// A combo is `modifier+…+code`; matching on `code` means Shift doesn't turn
-// `]` into `}` first.
-const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
-const KEYBINDINGS = {
-  keyPalette: {
-    name: 'Open settings',
-    keywords: 'command palette menu',
-    presets: isMac
-      ? ['meta+KeyK', 'meta+shift+KeyK', 'ctrl+shift+Space']
-      : ['ctrl+shift+KeyK', 'ctrl+shift+Space', 'ctrl+shift+Semicolon'],
-  },
-  keyNextTab: {
-    name: 'Next tab',
-    keywords: 'switch cycle right forward',
-    presets: [
-      'ctrl+shift+BracketRight',
-      'ctrl+shift+ArrowRight',
-      'ctrl+shift+Period',
-      ...(isMac ? ['meta+shift+ArrowRight'] : []),
-    ],
-  },
-  keyPrevTab: {
-    name: 'Previous tab',
-    keywords: 'switch cycle left back',
-    presets: [
-      'ctrl+shift+BracketLeft',
-      'ctrl+shift+ArrowLeft',
-      'ctrl+shift+Comma',
-      ...(isMac ? ['meta+shift+ArrowLeft'] : []),
-    ],
-  },
-};
-const KEY_NAMES = {
-  KeyK: 'K',
-  Space: 'Space',
-  Semicolon: ';',
-  BracketLeft: '[',
-  BracketRight: ']',
-  ArrowLeft: '←',
-  ArrowRight: '→',
-  Comma: ',',
-  Period: '.',
-};
-const MAC_MODS = { ctrl: '⌃', alt: '⌥', shift: '⇧', meta: '⌘' };
-const WORD_MODS = { ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift', meta: isMac ? 'Cmd' : 'Meta' };
-
-// `words` spells the modifiers out, for search and for non-Mac labels.
-function keyLabel(combo, words = !isMac) {
-  const parts = combo.split('+');
-  const key = KEY_NAMES[parts.pop()];
-  const mods = ['ctrl', 'alt', 'shift', 'meta'].filter((m) => parts.includes(m));
-  return words ? [...mods.map((m) => WORD_MODS[m]), key].join('+') : mods.map((m) => MAC_MODS[m]).join('') + key;
-}
-
-function matchesKey(e, combo) {
-  const parts = combo.split('+');
-  return (
-    e.code === parts.at(-1) &&
-    e.ctrlKey === parts.includes('ctrl') &&
-    e.shiftKey === parts.includes('shift') &&
-    e.altKey === parts.includes('alt') &&
-    e.metaKey === parts.includes('meta')
-  );
-}
-
-const DEFAULTS = {
-  theme: 'tabsh',
-  font: 'menlo',
-  fontSize: 13,
-  typingSound: 'mx-black-pbt',
-  paneWidth: 0.5,
-  ...Object.fromEntries(Object.entries(KEYBINDINGS).map(([id, k]) => [id, k.presets[0]])),
-};
-
-let saved = { ...DEFAULTS }; // what's stored on the server
-let applied = { ...DEFAULTS }; // what's on screen (differs while previewing)
-
-const fontStack = (f) => f.stack ?? `"${f.name}", Menlo, monospace`;
-const terminalOptions = (s) => ({
-  theme: THEMES[s.theme].colors,
-  fontFamily: fontStack(FONTS[s.font]),
-  fontSize: s.fontSize,
-});
-
-// Web fonts must be fully loaded before xterm measures character cells.
-const fontLoads = {};
-function loadFont(f) {
-  if (!f.google) return Promise.resolve();
-  return (fontLoads[f.name] ??= new Promise((resolve) => {
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = `https://fonts.googleapis.com/css2?family=${f.google}:wght@400;700&display=block`;
-    link.onload = () =>
-      Promise.all([document.fonts.load(`400 16px "${f.name}"`), document.fonts.load(`700 16px "${f.name}"`)]).then(
-        resolve,
-        resolve,
-      );
-    link.onerror = resolve; // offline: fall back to the stack's next font
-    document.head.append(link);
-  }));
-}
-
-let applySeq = 0;
-async function applySettings(s) {
-  // Ignore stale applies when previews change faster than fonts load.
-  const seq = ++applySeq;
-  await loadFont(FONTS[s.font]);
-  if (seq !== applySeq) return;
-  applied = { ...s };
-  const theme = THEMES[s.theme];
-  const root = document.documentElement;
-  root.style.setProperty('--term-bg', theme.colors.background);
-  root.style.setProperty('--term-fg', theme.colors.foreground);
-  root.classList.add('themed');
-  root.classList.toggle('dark', !theme.light);
-  const opts = terminalOptions(s);
-  for (const { term } of sessions) Object.assign(term.options, opts);
-  document.getElementById('workspace').style.setProperty('--pane-width', String(s.paneWidth));
-  pane?.applyTheme();
-  if (active) sendSize(active);
-}
-
-async function loadSettings() {
-  const res = await daemonFetch('/api/settings');
-  if (!res.ok) return;
-  const stored = await res.json();
-  // Drop unknown values (e.g. a theme removed in a later version).
-  saved = {
-    theme: THEMES[stored.theme] ? stored.theme : stored.theme === 'webterm' ? 'tabsh' : DEFAULTS.theme,
-    font: FONTS[stored.font] ? stored.font : DEFAULTS.font,
-    fontSize: FONT_SIZES.includes(stored.fontSize) ? stored.fontSize : DEFAULTS.fontSize,
-    typingSound: TYPING_SOUNDS[stored.typingSound] ? stored.typingSound : DEFAULTS.typingSound,
-    paneWidth:
-      typeof stored.paneWidth === 'number' && stored.paneWidth >= 0.2 && stored.paneWidth <= 0.8
-        ? stored.paneWidth
-        : DEFAULTS.paneWidth,
-    // A combo saved from another OS's browser isn't offered here; use the default.
-    ...Object.fromEntries(
-      Object.entries(KEYBINDINGS).map(([id, k]) => [id, k.presets.includes(stored[id]) ? stored[id] : DEFAULTS[id]]),
-    ),
-  };
-  // Fetch the chosen pack now so the first keystroke isn't silent.
-  if (SOUND_PACKS[saved.typingSound]) loadPack(saved.typingSound).catch(() => {});
-  if (!palette.open) await applySettings(saved);
-}
-
-function saveSetting(key, value) {
-  saved = { ...saved, [key]: value };
-  applySettings(saved);
-  daemonFetch('/api/settings', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(saved),
-  }).catch(() => {});
-}
-
 // ---- Typing sound --------------------------------------------------------
 let audio = null;
 // Sampled switch packs from kbsim and Mechvibes (MIT, see
@@ -1175,13 +575,13 @@ const held = new Map(); // e.code → release sample
 // App shortcuts (palette, tab switching) stay silent.
 const typing = (e) =>
   !!e.target.closest?.('#terms, #pane .cm-content[contenteditable="true"]') &&
-  !Object.keys(KEYBINDINGS).some((id) => matchesKey(e, saved[id]));
+  !Object.keys(KEYBINDINGS).some((id) => matchesKey(e, current.saved[id]));
 window.addEventListener(
   'keydown',
   (e) => {
     // Held keys auto-repeat; only the first press sounds.
-    if (saved.typingSound === 'off' || e.repeat || MODIFIERS.has(e.key) || !typing(e)) return;
-    const release = keySound(saved.typingSound, e.key);
+    if (current.saved.typingSound === 'off' || e.repeat || MODIFIERS.has(e.key) || !typing(e)) return;
+    const release = keySound(current.saved.typingSound, e.key);
     if (release) held.set(e.code, release);
   },
   { capture: true },
@@ -1230,15 +630,21 @@ const PAGES = {
           {
             label: 'Theme…',
             icon: ICONS.theme,
-            hint: THEMES[saved.theme].name,
+            hint: THEMES[current.saved.theme].name,
             keywords: 'color colour scheme dark light',
             go: 'theme',
           },
-          { label: 'Font…', icon: ICONS.font, hint: FONTS[saved.font].name, keywords: 'typeface family', go: 'font' },
+          {
+            label: 'Font…',
+            icon: ICONS.font,
+            hint: FONTS[current.saved.font].name,
+            keywords: 'typeface family',
+            go: 'font',
+          },
           {
             label: 'Font size…',
             icon: ICONS.size,
-            hint: `${saved.fontSize}px`,
+            hint: `${current.saved.fontSize}px`,
             keywords: 'zoom text bigger smaller',
             go: 'fontSize',
           },
@@ -1250,7 +656,7 @@ const PAGES = {
           {
             label: 'Typing sound…',
             icon: ICONS.sound,
-            hint: TYPING_SOUNDS[saved.typingSound],
+            hint: TYPING_SOUNDS[current.saved.typingSound],
             keywords: 'keyboard click clack audio mute',
             go: 'typingSound',
           },
@@ -1276,8 +682,8 @@ const PAGES = {
         items: Object.entries(KEYBINDINGS).map(([id, k]) => ({
           label: `${k.name}…`,
           icon: ICONS.keybinding,
-          hint: keyLabel(saved[id]),
-          keywords: `shortcut hotkey keybinding keyboard ${k.keywords} ${keyLabel(saved[id], true)}`,
+          hint: keyLabel(current.saved[id], isMac),
+          keywords: `shortcut hotkey keybinding keyboard ${k.keywords} ${keyLabel(current.saved[id], isMac, true)}`,
           go: id,
         })),
       },
@@ -1335,10 +741,10 @@ const PAGES = {
           {
             heading: k.name,
             items: k.presets.map((combo) => ({
-              label: keyLabel(combo),
+              label: keyLabel(combo, isMac),
               key: id,
               value: combo,
-              keywords: keyLabel(combo, true),
+              keywords: keyLabel(combo, isMac, true),
             })),
           },
         ],
@@ -1364,7 +770,7 @@ function showPage(name) {
         .map((item) => {
           const id = `pi-${n++}`;
           itemsById.set(id, item);
-          const checked = item.key && saved[item.key] === item.value;
+          const checked = item.key && current.saved[item.key] === item.value;
           const swatch = item.swatch
             ? `<span class="swatch" style="background:${item.swatch.background}">${[
                 'red',
@@ -1394,7 +800,7 @@ function showPage(name) {
     current.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
     current.scrollIntoView({ block: 'nearest' });
   }
-  if (name === 'root') applySettings(saved);
+  if (name === 'root') applySettings(current.saved);
   paletteInput.focus();
   updatePaletteFades();
 }
@@ -1414,6 +820,7 @@ function openPalette() {
   if (palette.open) return palette.close();
   document.getElementById('about').close();
   palette.showModal();
+  setPreviewing(true);
   showPage('root');
 }
 
@@ -1479,7 +886,7 @@ paletteInput.addEventListener('keydown', (e) => {
     frac = null;
     ws.classList.remove('dragging');
     if (e.type === 'pointerup') saveSetting('paneWidth', v);
-    else applySettings(saved); // cancelled: back to the stored width
+    else applySettings(current.saved); // cancelled: back to the stored width
   };
   divider.addEventListener('pointerup', end);
   divider.addEventListener('pointercancel', end);
@@ -1487,14 +894,15 @@ paletteInput.addEventListener('keydown', (e) => {
 
 // Closing without picking reverts any preview.
 palette.addEventListener('close', () => {
-  applySettings(saved);
+  setPreviewing(false);
+  applySettings(current.saved);
   active?.term.focus();
 });
 
 window.addEventListener(
   'keydown',
   (e) => {
-    if (!matchesKey(e, saved.keyPalette)) return;
+    if (!matchesKey(e, current.saved.keyPalette)) return;
     e.preventDefault();
     e.stopPropagation(); // capture phase: keep it away from the terminal
     openPalette();
@@ -1513,7 +921,7 @@ window.addEventListener(
   'keydown',
   (e) => {
     if (palette.open) return;
-    const step = matchesKey(e, saved.keyNextTab) ? 1 : matchesKey(e, saved.keyPrevTab) ? -1 : 0;
+    const step = matchesKey(e, current.saved.keyNextTab) ? 1 : matchesKey(e, current.saved.keyPrevTab) ? -1 : 0;
     if (!step) return;
     e.preventDefault();
     e.stopPropagation(); // capture phase: keep it away from the terminal
@@ -1525,7 +933,7 @@ window.addEventListener(
 const settingsBtn = document.getElementById('settings-btn');
 // Set on hover so it always shows the current keybinding.
 settingsBtn.addEventListener('pointerenter', () => {
-  settingsBtn.title = `Settings (${keyLabel(saved.keyPalette)})`;
+  settingsBtn.title = `Settings (${keyLabel(current.saved.keyPalette, isMac)})`;
 });
 settingsBtn.onclick = openPalette;
 
@@ -1552,8 +960,8 @@ async function openAbout() {
         ['State', info.state_path],
         ['Uptime', uptime],
         ['Sessions', `${info.sessions_running} running, ${info.sessions_total} total`],
-        ['Settings', keyLabel(saved.keyPalette)],
-        ['Switch tabs', `${keyLabel(saved.keyPrevTab)} / ${keyLabel(saved.keyNextTab)}`],
+        ['Settings', keyLabel(current.saved.keyPalette, isMac)],
+        ['Switch tabs', `${keyLabel(current.saved.keyPrevTab, isMac)} / ${keyLabel(current.saved.keyNextTab, isMac)}`],
         ['Built with', 'Rust · axum · xterm.js · Basecoat'],
       ]
     : [['Status', 'Could not reach the tabsh daemon.']];
@@ -1681,13 +1089,26 @@ new ResizeObserver(updateFades).observe(strip);
 // Reattach to the server's sessions (shells survive reloads; after a
 // daemon restart they come back in their old directory with old output).
 // Follow the system's light/dark switch live while the tabsh theme is on.
-prefersLight.addEventListener('change', () => applied.theme === 'tabsh' && applySettings(applied));
+prefersLight?.addEventListener('change', () => current.applied.theme === 'tabsh' && applySettings(current.applied));
+
+// Applied settings restyle every terminal and the file pane.
+onApply((s) => {
+  const opts = terminalOptions(s);
+  for (const { term } of sessions) Object.assign(term.options, opts);
+  document.getElementById('workspace').style.setProperty('--pane-width', String(s.paneWidth));
+  pane?.applyTheme();
+  if (active) sendSize(active);
+});
+// Fetch the chosen pack now so the first keystroke isn't silent.
+onSaved((s) => {
+  if (SOUND_PACKS[s.typingSound]) loadPack(s.typingSound).catch(() => {});
+});
 
 (async () => {
   const activeId = savedActive();
-  applySettings(saved); // theme the connection screen before the daemon answers
+  applySettings(current.saved); // theme the connection screen before the daemon answers
   await waitForDaemon();
-  await loadSettings().catch(() => applySettings(saved));
+  await loadSettings().catch(() => applySettings(current.saved));
   await sync();
   if (!sessions.length) return newSession();
   activate(sessions.find((s) => s.id === activeId) ?? sessions[0]);
