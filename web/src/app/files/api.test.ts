@@ -6,6 +6,7 @@ import {
   type Fetcher,
   FileError,
   filesUrl,
+  fileVersion,
   formatSize,
   fromDisk,
   rawBlobUrl,
@@ -31,6 +32,16 @@ test('exists uses HEAD', async () => {
   assert.equal(await exists(f, 's1', 'a'), false);
   assert.equal(calls[0].init?.method, 'HEAD');
   assert.equal(await exists(stub(new Response(null, { status: 200 })).f, 's1', 'a'), true);
+});
+test('fileVersion reads the header from a HEAD', async () => {
+  const { f, calls } = stub(new Response(null, { status: 200, headers: { 'x-tabsh-version': '12-3' } }));
+  assert.equal(await fileVersion(f, 's1', '/a'), '12-3');
+  assert.equal(calls[0].init?.method, 'HEAD');
+  assert.equal(await fileVersion(stub(new Response(null, { status: 404 })).f, 's1', '/a'), null);
+  await assert.rejects(
+    fileVersion(stub(new Response(null, { status: 403 })).f, 's1', '/a'),
+    (e: unknown) => e instanceof FileError && e.status === 403,
+  );
 });
 test('readFile', async () => {
   const info = { path: '/a', kind: 'text', size: 1, version: 'v', content: 'x', eol: 'lf' };

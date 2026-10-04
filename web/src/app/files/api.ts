@@ -39,6 +39,14 @@ export async function exists(f: Fetcher, session: string, path: string): Promise
   return res.status === 200;
 }
 
+// The file's version on disk, without its content; null once it's gone.
+export async function fileVersion(f: Fetcher, session: string, path: string): Promise<string | null> {
+  const res = await f(filesUrl(session, path), { method: 'HEAD' });
+  if (res.status === 404) return null;
+  if (!res.ok) throw fail(res);
+  return res.headers.get('x-tabsh-version');
+}
+
 export async function readFile(f: Fetcher, session: string, path: string): Promise<FileInfo> {
   const res = await f(filesUrl(session, path));
   if (!res.ok) throw fail(res);

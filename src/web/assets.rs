@@ -23,6 +23,12 @@ pub(crate) fn has_js_asset() -> bool {
     APP_ASSETS.iter().any(|(n, _)| n.ends_with(".js"))
 }
 
+/// Every bundled file, for tests that inspect the page's scripts.
+#[cfg(test)]
+pub(crate) fn app_assets() -> &'static [(&'static str, &'static [u8])] {
+    APP_ASSETS
+}
+
 /// Get the first asset name for testing.
 #[cfg(test)]
 pub(crate) fn first_asset_name() -> Option<&'static str> {

@@ -6,7 +6,20 @@
 import { api, daemonFetch, initGate, socketUrl, waitForDaemon } from './daemon/client.ts';
 import { LOCAL_APP, MIXED_BLOCKED } from './daemon/config.ts';
 import { adoptToken } from './daemon/token.ts';
-import { findLinks } from './links/links.ts';
+import { initFilePane, loadedPane } from './files/open.ts';
+import { initBell } from './sessions/bell.ts';
+import {
+  activate,
+  closeSession,
+  cycleTab,
+  newSession,
+  newTabAt,
+  savedActive,
+  sendSize,
+  store,
+  sync,
+} from './sessions/store.ts';
+import { initTabStrip } from './sessions/tabs.ts';
 import { FONT_SIZES, FONTS, prefersLight, THEMES, TYPING_SOUNDS } from './settings/catalog.ts';
 import { keyLabel, matchesKey } from './settings/keys.ts';
 import {
@@ -32,450 +45,34 @@ if (location.hash) history.replaceState(null, '', location.pathname + location.s
 if (MIXED_BLOCKED && launched) location.replace(LOCAL_APP);
 initGate();
 
-// The server (SQLite) owns the list of sessions; only which tab this
-// browser has selected is kept locally.
-const ACTIVE_KEY = 'tabsh.active';
-const enc = new TextEncoder();
-const sessions = []; // { id, name, term, fit, ws, el, tab, closed }
-let active = null;
-
-const rememberActive = () => {
-  try {
-    localStorage.setItem(ACTIVE_KEY, active?.id ?? '');
-  } catch {}
-};
-const savedActive = () => {
-  try {
-    return localStorage.getItem(ACTIVE_KEY);
-  } catch {
-    return null;
-  }
-};
-
-async function newSession() {
-  activate(openSession(await api('POST', '')));
-}
-
-// Bring the tab list in line with the server: picks up tabs opened or
-// closed from another browser, and drops ones whose shell is gone.
-async function sync() {
-  const list = await api('GET', '');
-  const ids = new Set(list.map((s) => s.id));
-  sessions.filter((s) => !ids.has(s.id)).forEach(removeSession);
-  for (const info of list) {
-    const s = sessions.find((s) => s.id === info.id);
-    if (s) setName(s, info.name, false);
-    else openSession(info);
-  }
-  if (!active && sessions.length) activate(sessions[0]);
-}
-
-function openSession({ id, name }) {
-  const el = document.createElement('div');
-  el.className = 'term';
-  document.getElementById('terms').append(el);
-
-  const term = new Terminal({
-    cursorBlink: true,
-    rightClickSelectsWord: false, // right-click is copy/paste (see below)
-    ...terminalOptions(current.applied),
-  });
-  const fit = new FitAddon.FitAddon();
-  term.loadAddon(fit);
-  term.open(el);
-  term.registerLinkProvider(linkProvider(() => s, term, el));
-
-  // Right-click belongs to the terminal, not the browser's menu. Programs
-  // that track the mouse (vim, tmux, htop) receive it from xterm.js; at a
-  // plain prompt it copies the selection, or pastes when there is none.
-  el.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-    if (term.modes.mouseTrackingMode !== 'none') return;
-    if (term.hasSelection()) {
-      navigator.clipboard?.writeText(term.getSelection()).catch(() => {});
-      term.clearSelection();
-    } else {
-      navigator.clipboard
-        ?.readText()
-        .then((text) => text && term.paste(text))
-        .catch(() => {});
-    }
-    term.focus();
-  });
-
-  const tab = document.getElementById('tab-template').content.firstElementChild.cloneNode(true);
-  tab.classList.add('entering');
-  document.getElementById('tabs').append(tab);
-  tab.offsetWidth; // commit the collapsed state so removing the class animates
-  tab.classList.remove('entering');
-  // It was zero-width when activated; bring it fully into view once grown.
-  tab.addEventListener('transitionend', function grown(e) {
-    if (e.propertyName !== 'max-width') return;
-    tab.removeEventListener('transitionend', grown);
-    if (s === active) tab.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  });
-
-  const s = { id, name, term, fit, el, tab, ws: null, closed: false };
-  sessions.push(s);
-  setName(s, name, false);
-  tab.onclick = () => activate(s);
-  tab.onauxclick = (e) => e.button === 1 && closeSession(s); // middle-click closes
-  tab.querySelector('button').onclick = (e) => {
-    e.stopPropagation();
-    closeSession(s);
-  };
-
-  term.onData((d) => s.ws?.readyState === WebSocket.OPEN && s.ws.send(enc.encode(d)));
-  term.onTitleChange((t) => t && setName(s, t));
-  connect(s);
-  return s;
-}
-
-function connect(s) {
-  const ws = new WebSocket(socketUrl(s.id));
-  ws.binaryType = 'arraybuffer';
-  s.ws = ws;
-
-  // The server replays scrollback on every attach, so start from a clean screen.
-  // The first binary message is that replay (always sent, maybe empty);
-  // bells inside it already rang.
-  ws.onopen = () => {
-    s.term.reset();
-    s.replaying = true;
-    s.esc = 0;
-    sendSize(s);
-  };
-  ws.onmessage = (e) => {
-    if (typeof e.data === 'string') {
-      if (JSON.parse(e.data).exit) removeSession(s);
-      return;
-    }
-    const bytes = new Uint8Array(e.data);
-    const bell = scanBell(s, bytes);
-    s.term.write(bytes);
-    if (s.replaying) {
-      s.replaying = false;
-      return;
-    }
-    if (bell) ring(s);
-    if (s !== active) s.tab.classList.add('unread');
-  };
-  // Dropped without an exit message (network blip, client lagged, daemon
-  // restarting): reattach if the session still exists on the server.
-  ws.onclose = () => {
-    if (s.closed || s.ws !== ws) return;
-    setTimeout(
-      () =>
-        sync()
-          .catch(() => {})
-          .finally(() => !s.closed && connect(s)),
-      1000,
-    );
-  };
-}
-
-function sendSize(s) {
-  if (s !== active) return;
-  s.fit.fit();
-  if (s.ws?.readyState === WebSocket.OPEN) {
-    s.ws.send(JSON.stringify({ cols: s.term.cols, rows: s.term.rows }));
-  }
-}
-
-function setName(s, name, save = true) {
-  const label = s.tab.querySelector('span');
-  if (s.name === name && label.textContent) return;
-  s.name = name;
-  label.textContent = s.tab.title = name;
-  if (s === active) updateBadge();
-  if (save) api('PATCH', `/${s.id}`, { name }).catch(() => {});
-}
-
-function activate(s) {
-  if (active) {
-    active.el.classList.remove('active');
-    active.tab.setAttribute('aria-selected', 'false');
-  }
-  active = s;
-  pane?.show(s?.id ?? null);
-  document.getElementById('empty').hidden = !!s;
-  updateBadge();
-  if (s) {
-    s.el.classList.add('active');
-    s.tab.setAttribute('aria-selected', 'true');
-    s.tab.classList.remove('unread');
-    if (!document.hidden) clearBell(s);
-    s.tab.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    sendSize(s);
-    s.term.focus();
-  }
-  rememberActive();
-}
-
-// ---- Links and the file pane ---------------------------------------------
-// URLs and paths in the output are Cmd/Ctrl-clickable. The pane
-// (files/pane.ts, with CodeMirror) is fetched on first use.
-const existsCache = new Map(); // `${session}\0${path}` → { at, ok: Promise<boolean> }
-
-// A path is underlined only once the daemon says it resolves.
-function pathExists(s, path) {
-  const key = `${s.id}\0${path}`,
-    now = Date.now();
-  const hit = existsCache.get(key);
-  if (hit && now - hit.at < 5000) return hit.ok;
-  if (existsCache.size > 500) existsCache.forEach((v, k) => now - v.at >= 5000 && existsCache.delete(k));
-  const ok = import('./files/api.ts').then((files) => files.exists(daemonFetch, s.id, path)).catch(() => false);
-  existsCache.set(key, { at: now, ok });
-  return ok;
-}
-
-// `session()` because the session object is created after the terminal.
-function linkProvider(session, term, el) {
-  return {
-    provideLinks(y, cb) {
-      // Join the wrapped rows of this logical line, cell by cell, keeping
-      // each UTF-16 unit's cell so offsets map back to 1-based {x, y}.
-      const buf = term.buffer.active;
-      let top = y - 1;
-      while (top > 0 && buf.getLine(top)?.isWrapped) top--;
-      let text = '';
-      const cells = [];
-      for (let row = top; ; row++) {
-        const line = buf.getLine(row);
-        if (!line || (row > top && !line.isWrapped)) break;
-        for (let x = 0; x < line.length; x++) {
-          const cell = line.getCell(x);
-          if (!cell || cell.getWidth() === 0) continue; // trailing half of a wide character
-          const chars = cell.getChars() || ' ';
-          for (let i = 0; i < chars.length; i++) cells.push({ x: x + 1, y: row + 1, w: cell.getWidth() });
-          text += chars;
-        }
-      }
-      const s = session();
-      Promise.resolve({ findLinks })
-        .then(({ findLinks }) =>
-          Promise.all(
-            findLinks(text).map(async (f) => {
-              const a = cells[f.start],
-                b = cells[f.end - 1];
-              if (!a || !b || y < a.y || y > b.y) return null; // not on the hovered row
-              if (f.kind === 'path' && !(await pathExists(s, f.text))) return null;
-              return {
-                range: { start: { x: a.x, y: a.y }, end: { x: b.x + b.w - 1, y: b.y } },
-                text: f.text,
-                decorations: { underline: true, pointerCursor: true },
-                hover: () => {
-                  el.title = isMac ? '⌘-click to open' : 'Ctrl-click to open';
-                },
-                leave: () => {
-                  el.title = '';
-                },
-                activate(e) {
-                  if (!(isMac ? e.metaKey : e.ctrlKey)) return;
-                  if (f.kind === 'url') window.open(f.text, '_blank', 'noopener,noreferrer');
-                  else openInPane(s, f);
-                },
-              };
-            }),
-          ),
-        )
-        .then(
-          (links) => cb(links.filter(Boolean)),
-          () => cb(undefined),
-        );
+// What the file pane needs from the rest of the page.
+initFilePane(
+  {
+    fetch: daemonFetch,
+    theme() {
+      const t = THEMES[current.applied.theme];
+      const c = t.colors;
+      return {
+        background: c.background,
+        foreground: c.foreground,
+        cursor: c.cursor,
+        selectionBackground: c.selectionBackground,
+        light: !!t.light,
+      };
     },
-  };
-}
-
-const host = {
-  fetch: daemonFetch,
-  theme() {
-    const t = THEMES[current.applied.theme],
-      c = t.colors;
-    return {
-      background: c.background,
-      foreground: c.foreground,
-      cursor: c.cursor,
-      selectionBackground: c.selectionBackground,
-      light: !!t.light,
-    };
+    layout: () => store.active && sendSize(store.active),
+    newTabAt,
+    focusTerminal: () => store.active?.term.focus(),
   },
-  layout: () => active && sendSize(active),
-  newTabAt: (cwd) =>
-    api('POST', '', { cwd })
-      .then((info) => activate(openSession(info)))
-      .catch(console.error),
-  focusTerminal: () => active?.term.focus(),
-};
-
-let pane = null; // the file-pane module, once loaded
-let paneLoad = null; // shared by clicks made while it loads, so init runs once
-function filePane() {
-  paneLoad ??= import('./files/pane.ts').then(
-    (m) => {
-      m.init(host);
-      pane = m;
-      pane.show(active?.id ?? null);
-      return m;
-    },
-    (err) => {
-      paneLoad = null;
-      throw err;
-    },
-  );
-  return paneLoad;
-}
-
-async function openInPane(s, f, retried = false) {
-  let p;
-  try {
-    p = await filePane();
-  } catch (err) {
-    console.error(err);
-    return paneLoadFailed(() => openInPane(s, f, true), retried);
-  }
-  if (!s.closed) await p.openPath(s.id, f.text, f.line, f.col);
-}
-
-// The bundle couldn't be fetched (offline, or a daemon that doesn't serve it yet).
-// Chrome remembers a failed import(), so a second failure reloads the page
-// instead; the shells survive that.
-function paneLoadFailed(retry, retried) {
-  const box = document.getElementById('pane'),
-    divider = document.getElementById('pane-divider');
-  const msg = document.createElement('div');
-  msg.className = 'pane-msg';
-  const p = document.createElement('p');
-  p.textContent = "Couldn't load the editor";
-  const again = document.createElement('button');
-  again.type = 'button';
-  again.className = 'btn';
-  again.textContent = 'Retry';
-  again.onclick = () => {
-    if (retried) return location.reload();
-    pane = paneLoad = null;
-    box.hidden = divider.hidden = true;
-    box.replaceChildren();
-    retry();
-  };
-  msg.append(p, again);
-  box.replaceChildren(msg);
-  box.hidden = divider.hidden = false;
-  if (active) sendSize(active);
-}
-
-// ---- Bell: badge on the tab and favicon -------------------------------
-// A BEL from a shell, unless you're looking at that terminal, marks its tab
-// and badges the favicon and title until you visit it.
-const faviconSvg = (badge) =>
-  'data:image/svg+xml,' +
-  encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">' +
-      '<rect width="32" height="32" rx="7" fill="#18181b"/>' +
-      '<path d="M8 11l5 5-5 5M15 22h9" fill="none" stroke="#e4e4e7" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>' +
-      (badge ? '<circle cx="25" cy="7" r="6.5" fill="#f97316" stroke="#18181b" stroke-width="2"/>' : '') +
-      '</svg>',
-  );
-const FAVICON = faviconSvg(false),
-  FAVICON_BELL = faviconSvg(true);
-
-// Bells are found in the raw bytes as they arrive rather than via xterm's
-// onBell: xterm parses on a timer, which a hidden tab throttles (Chrome
-// eventually to once a minute), so onBell fires late exactly when you're
-// elsewhere. BEL also terminates OSC strings (shells set the title on every
-// prompt), so track just enough escape state to skip those. The state
-// carries across chunks; 8-bit C1 controls are ignored since the stream is UTF-8.
-const TEXT = 0,
-  ESC = 1,
-  STR = 2,
-  STR_ESC = 3;
-function scanBell(s, bytes) {
-  let st = s.esc ?? TEXT,
-    bell = false;
-  for (const b of bytes) {
-    if (st === STR_ESC) st = b === 0x5c ? TEXT : ESC; // ESC \ ends the string; any other ESC aborts it
-    if (st === STR) {
-      if (b === 0x07 || b === 0x18 || b === 0x1a)
-        st = TEXT; // BEL terminates; CAN/SUB abort
-      else if (b === 0x1b) st = STR_ESC;
-    } else if (st === ESC) {
-      // OSC, DCS, APC, PM and SOS take a string argument.
-      st = b === 0x5d || b === 0x50 || b === 0x5f || b === 0x5e || b === 0x58 ? STR : b === 0x1b ? ESC : TEXT;
-    } else if (st === TEXT) {
-      if (b === 0x07) bell = true;
-      else if (b === 0x1b) st = ESC;
-    }
-  }
-  s.esc = st;
-  return bell;
-}
-
-function ring(s) {
-  if (s === active && !document.hidden && document.hasFocus()) return;
-  s.bell = true;
-  s.tab.classList.remove('bell');
-  s.tab.offsetWidth; // restart the pulse on repeated bells
-  s.tab.classList.add('bell');
-  updateBadge();
-}
-
-function clearBell(s) {
-  if (!s?.bell) return;
-  s.bell = false;
-  s.tab.classList.remove('bell');
-  updateBadge();
-}
-
-function updateBadge() {
-  const ringing = sessions.filter((x) => x.bell).length;
-  document.getElementById('favicon').href = ringing ? FAVICON_BELL : FAVICON;
-  const name = active?.name ?? 'tabsh';
-  document.title = ringing ? `🔔 ${name}` : name;
-}
-
-// Coming back to the browser tab counts as seeing the active terminal.
-const seen = () => !document.hidden && clearBell(active);
-document.addEventListener('visibilitychange', seen);
-addEventListener('focus', seen);
-document.getElementById('favicon').href = FAVICON;
-
-async function closeSession(s) {
-  if (!(pane?.confirmDiscard(s.id) ?? true)) return;
-  // A running shell is killed and the server answers on the socket with
-  // {"exit":true}; one that never started is just gone.
-  await api('DELETE', `/${s.id}`).catch(() => {});
-  if (s.ws?.readyState !== WebSocket.OPEN) removeSession(s);
-}
-
+  () => store.active?.id ?? null,
+);
 addEventListener('beforeunload', (e) => {
-  if (!pane?.hasUnsaved()) return;
+  if (!loadedPane()?.hasUnsaved()) return;
   e.preventDefault();
   e.returnValue = ''; // older browsers
 });
-
-function removeSession(s) {
-  if (s.closed) return;
-  s.closed = true;
-  pane?.forget(s.id);
-  s.ws?.close();
-  s.term.dispose();
-  s.el.remove();
-  // Collapse the tab, then drop it (the timeout covers reduced motion,
-  // where no transition runs).
-  s.tab.classList.add('leaving');
-  const drop = () => {
-    s.tab.remove();
-    updateFades();
-  };
-  s.tab.addEventListener('transitionend', (e) => e.propertyName === 'max-width' && drop());
-  setTimeout(drop, 300);
-  const i = sessions.indexOf(s);
-  sessions.splice(i, 1);
-  if (active === s) {
-    active = null;
-    activate(sessions[Math.min(i, sessions.length - 1)] ?? null);
-  } else updateBadge();
-}
+initBell();
+initTabStrip();
 
 // ---- Typing sound --------------------------------------------------------
 let audio = null;
@@ -662,7 +259,7 @@ const PAGES = {
           },
         ],
       },
-      ...(active && pane?.hasFile(active.id)
+      ...(store.active && loadedPane()?.hasFile(store.active.id)
         ? [
             {
               heading: 'Files',
@@ -671,7 +268,7 @@ const PAGES = {
                   label: 'Close file',
                   icon: ICONS.info,
                   keywords: 'pane editor hide',
-                  run: () => pane?.close(active.id),
+                  run: () => loadedPane()?.close(store.active.id),
                 },
               ],
             },
@@ -877,7 +474,7 @@ paletteInput.addEventListener('keydown', (e) => {
     ws.style.setProperty('--pane-width', String(frac));
     frame ||= requestAnimationFrame(() => {
       frame = 0;
-      if (active) sendSize(active);
+      if (store.active) sendSize(store.active);
     });
   });
   const end = (e) => {
@@ -896,7 +493,7 @@ paletteInput.addEventListener('keydown', (e) => {
 palette.addEventListener('close', () => {
   setPreviewing(false);
   applySettings(current.saved);
-  active?.term.focus();
+  store.active?.term.focus();
 });
 
 window.addEventListener(
@@ -912,11 +509,6 @@ window.addEventListener(
 
 // The next/previous tab keybindings cycle through tabs, wrapping at the ends.
 // (Ctrl+Tab and ⌘⇧[ ] belong to the browser and never reach the page.)
-function cycleTab(step) {
-  if (!sessions.length) return;
-  const i = sessions.indexOf(active);
-  activate(sessions[(i + step + sessions.length) % sessions.length]);
-}
 window.addEventListener(
   'keydown',
   (e) => {
@@ -940,7 +532,7 @@ settingsBtn.onclick = openPalette;
 // ---- About ---------------------------------------------------------------
 
 const about = document.getElementById('about');
-about.addEventListener('close', () => active?.term.focus());
+about.addEventListener('close', () => store.active?.term.focus());
 
 async function openAbout() {
   const info = await daemonFetch('/api/about')
@@ -1042,7 +634,7 @@ window.addEventListener('drop', async (e) => {
   dropGlow.classList.remove('active');
   if (!isDroppable(e.dataTransfer)) return;
   e.preventDefault();
-  const target = active;
+  const target = store.active;
   if (!target) return;
   try {
     const text = await textForDrop(e.dataTransfer);
@@ -1056,35 +648,13 @@ window.addEventListener('drop', async (e) => {
 });
 
 document.querySelectorAll('[data-new-session]').forEach((b) => (b.onclick = newSession));
-new ResizeObserver(() => active && requestAnimationFrame(() => sendSize(active))).observe(
+new ResizeObserver(() => store.active && requestAnimationFrame(() => sendSize(store.active))).observe(
   document.getElementById('terms'),
 );
 window.addEventListener('focus', () => {
   sync().catch(() => {});
   loadSettings().catch(() => {});
 });
-// Let a vertical mouse wheel scroll the tab strip sideways when it overflows.
-const strip = document.getElementById('tabs');
-strip.addEventListener(
-  'wheel',
-  (e) => {
-    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
-      strip.scrollLeft += e.deltaY;
-      e.preventDefault();
-    }
-  },
-  { passive: false },
-);
-
-// Fade whichever edge has tabs hidden beyond it.
-const updateFades = () => {
-  const end = strip.scrollWidth - strip.clientWidth;
-  strip.classList.toggle('fade-left', strip.scrollLeft > 1);
-  strip.classList.toggle('fade-right', strip.scrollLeft < end - 1);
-};
-strip.addEventListener('scroll', updateFades, { passive: true });
-strip.addEventListener('transitionend', updateFades); // tabs finished growing/shrinking
-new ResizeObserver(updateFades).observe(strip);
 
 // Reattach to the server's sessions (shells survive reloads; after a
 // daemon restart they come back in their old directory with old output).
@@ -1094,10 +664,10 @@ prefersLight?.addEventListener('change', () => current.applied.theme === 'tabsh'
 // Applied settings restyle every terminal and the file pane.
 onApply((s) => {
   const opts = terminalOptions(s);
-  for (const { term } of sessions) Object.assign(term.options, opts);
+  for (const { term } of store.sessions) Object.assign(term.options, opts);
   document.getElementById('workspace').style.setProperty('--pane-width', String(s.paneWidth));
-  pane?.applyTheme();
-  if (active) sendSize(active);
+  loadedPane()?.applyTheme();
+  if (store.active) sendSize(store.active);
 });
 // Fetch the chosen pack now so the first keystroke isn't silent.
 onSaved((s) => {
@@ -1110,8 +680,8 @@ onSaved((s) => {
   await waitForDaemon();
   await loadSettings().catch(() => applySettings(current.saved));
   await sync();
-  if (!sessions.length) return newSession();
-  activate(sessions.find((s) => s.id === activeId) ?? sessions[0]);
+  if (!store.sessions.length) return newSession();
+  activate(store.sessions.find((s) => s.id === activeId) ?? store.sessions[0]);
 })();
 
 // Clicking a dialog's backdrop closes it, and so does the About dialog's button.

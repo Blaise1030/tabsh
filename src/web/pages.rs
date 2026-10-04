@@ -127,6 +127,56 @@ pub(crate) async fn about(
 mod tests {
     use super::*;
 
+    /// The editor (CodeMirror, marked) loads on the first Cmd-click, not
+    /// with the page: nothing the entry script imports statically may
+    /// contain it.
+    #[test]
+    fn entry_script_does_not_bundle_the_editor() {
+        let assets = crate::web::assets::app_assets();
+        let asset = |name: &str| {
+            assets
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned())
+                .unwrap_or_else(|| panic!("missing asset {name}"))
+        };
+        let entry = APP_HTML
+            .split(r#"<script type="module" src="/_astro/"#)
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .expect("the page loads one module script");
+        let mut seen = vec![entry.to_owned()];
+        let mut i = 0;
+        while i < seen.len() {
+            let js = asset(&seen[i]);
+            for marker in ["from\"./", "from \"./", "import\"./", "import \"./"] {
+                for rest in js.split(marker).skip(1) {
+                    let name = rest.split('"').next().unwrap().to_owned();
+                    if !seen.contains(&name) {
+                        seen.push(name);
+                    }
+                }
+            }
+            i += 1;
+        }
+        for name in &seen {
+            assert!(
+                !name.starts_with("marked"),
+                "{name} is loaded with the page"
+            );
+            assert!(
+                !asset(name).contains("cm-gutter"),
+                "{name} bundles CodeMirror"
+            );
+        }
+        // The marker is real: the editor's own chunks do contain it.
+        assert!(
+            assets
+                .iter()
+                .any(|(_, b)| String::from_utf8_lossy(b).contains("cm-gutter"))
+        );
+    }
+
     /// The CSP allows no inline script, so the page must have none.
     #[test]
     fn app_page_has_no_inline_code() {
