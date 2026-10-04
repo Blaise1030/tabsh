@@ -1,9 +1,9 @@
 // The command palette (Basecoat command-dialog): settings with live
-// preview, the keybindings that open it and switch tabs, and the settings
-// button.
+// preview, recording a keybinding, the keybindings that open it and switch
+// tabs, and the settings button.
 import { loadedPane } from '../files/open.ts';
 import { cycleTab, store } from '../sessions/store.ts';
-import { keyLabel, matchesKey } from '../settings/keys.ts';
+import { comboFromEvent, comboProblem, type KeyId, keyLabel, matchesKey } from '../settings/keys.ts';
 import type { Settings } from '../settings/schema.ts';
 import { applySettings, current, saveSetting, setPreviewing } from '../settings/settings.ts';
 import { previewSound } from '../sound/packs.ts';
@@ -16,10 +16,12 @@ const paletteCmd = document.getElementById('palette-command') as HTMLElement & {
 const paletteInput = document.getElementById('palette-input') as HTMLInputElement;
 const paletteMenu = document.getElementById('palette-menu') as HTMLElement;
 let page = 'root';
+let recording: KeyId | null = null; // the keybinding the next key press sets
 const itemsById = new Map<string, PaletteItem>();
 
 function showPage(name: string): void {
   page = name;
+  recording = null;
   const active = store.active;
   const { placeholder, groups } = pages({
     hasFile: !!active && !!loadedPane()?.hasFile(active.id),
@@ -49,7 +51,7 @@ function showPage(name: string): void {
                 .join('')}</span>`
             : '';
           return `<div role="menuitem" id="${id}" data-filter="${item.label}" data-keywords="${item.keywords ?? ''}"
-                     ${item.go ? 'data-keep-command-open' : ''} ${checked ? 'data-checked="true"' : ''}>
+                     ${item.go || item.record ? 'data-keep-command-open' : ''} ${checked ? 'data-checked="true"' : ''}>
           ${item.icon ?? swatch}<span>${item.label}</span>
           ${item.hint ? `<span data-shortcut>${item.hint}</span>` : ''}
           ${item.key ? `<span data-indicator>${CHECK}</span>` : ''}
@@ -69,6 +71,35 @@ function showPage(name: string): void {
   if (name === 'root') applySettings(current.saved);
   paletteInput.focus();
   updatePaletteFades();
+}
+
+function startRecording(id: KeyId): void {
+  recording = id;
+  paletteInput.value = '';
+  paletteInput.placeholder = 'Press the new shortcut…  (Esc to cancel)';
+  paletteInput.focus();
+}
+
+// While recording, every key press is the palette's: Esc cancels, a lone
+// modifier waits for the rest, and anything else is saved or explained.
+function recordKey(e: KeyboardEvent): void {
+  if (!recording || !palette.open) return;
+  e.preventDefault(); // also stops Escape from closing the dialog
+  e.stopImmediatePropagation(); // capture phase: keep it from the palette's own keys and the terminal
+  if (e.key === 'Escape' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+    showPage(recording);
+    return;
+  }
+  const combo = comboFromEvent(e);
+  if (!combo) return;
+  const problem = comboProblem(combo, recording, current.saved, isMac);
+  if (problem) {
+    paletteInput.placeholder = `${problem}. Try another  (Esc to cancel)`;
+    return;
+  }
+  const id = recording;
+  saveSetting(id, combo);
+  showPage(id);
 }
 
 // Fade whichever end of the list has items scrolled out of view.
@@ -112,6 +143,7 @@ export function initPalette(): void {
     const item = el && el.getAttribute('aria-hidden') !== 'true' ? itemsById.get(el.id) : undefined;
     if (!item) return;
     if (item.go) showPage(item.go);
+    else if (item.record) startRecording(item.record);
     else if (item.key) saveSetting(item.key, item.value as never);
     else item.run?.();
   });
@@ -126,6 +158,7 @@ export function initPalette(): void {
 
   // Closing without picking reverts any preview.
   palette.addEventListener('close', () => {
+    recording = null;
     setPreviewing(false);
     applySettings(current.saved);
     store.active?.term.focus();
@@ -135,6 +168,8 @@ export function initPalette(): void {
     if (e.target === palette) palette.close();
   });
 
+  // Added first, so a key being recorded never reaches the listeners below.
+  window.addEventListener('keydown', recordKey, true);
   window.addEventListener(
     'keydown',
     (e) => {

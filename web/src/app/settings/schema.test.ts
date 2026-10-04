@@ -17,3 +17,12 @@ test('a keybinding saved on another OS falls back to this OS default', () => {
   assert.equal(cleanSettings({ keyPalette: 'meta+KeyK' }, false).keyPalette, 'ctrl+shift+KeyK');
   assert.equal(cleanSettings({ keyPalette: 'meta+shift+KeyK' }, true).keyPalette, 'meta+shift+KeyK');
 });
+test('a recorded keybinding is kept if it is still allowed and free', () => {
+  assert.equal(cleanSettings({ keyPalette: 'meta+KeyY' }, true).keyPalette, 'meta+KeyY');
+  assert.equal(cleanSettings({ keyNextTab: 'ctrl+shift+KeyY' }, false).keyNextTab, 'ctrl+shift+KeyY');
+  assert.equal(cleanSettings({ keyPalette: 'ctrl+KeyC' }, true).keyPalette, 'meta+KeyK');
+  // Two actions on one combo: the later one gives way.
+  const s = cleanSettings({ keyPalette: 'ctrl+shift+BracketRight' }, true);
+  assert.equal(s.keyPalette, 'ctrl+shift+BracketRight');
+  assert.equal(s.keyNextTab, 'ctrl+shift+ArrowRight');
+});

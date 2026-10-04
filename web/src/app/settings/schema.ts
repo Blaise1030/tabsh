@@ -1,6 +1,6 @@
 // The settings stored on the daemon, and how a stored object is cleaned up.
 import { FONT_SIZES, FONTS, THEMES, TYPING_SOUNDS } from './catalog.ts';
-import { type KeyId, keybindings } from './keys.ts';
+import { comboProblem, type KeyId, keybindings } from './keys.ts';
 
 export interface Settings {
   theme: string;
@@ -32,9 +32,16 @@ export function cleanSettings(stored: Record<string, unknown>, isMac: boolean): 
   const d = defaults(isMac);
   const str = (v: unknown) => (typeof v === 'string' ? v : '');
   const theme = str(stored.theme);
+  // A combo this OS can't use (e.g. one saved from another OS's browser),
+  // or one an earlier action already has, gives way to a free preset.
   const keys = keybindings(isMac);
-  // A combo saved from another OS's browser isn't offered here; use the default.
-  const key = (id: KeyId) => (keys[id].presets.includes(str(stored[id])) ? str(stored[id]) : d[id]);
+  const chosen: Record<KeyId, string> = { keyPalette: '', keyNextTab: '', keyPrevTab: '' };
+  const key = (id: KeyId) => {
+    const want = str(stored[id]);
+    const free = (c: string) => comboProblem(c, id, chosen, isMac) === null;
+    chosen[id] = free(want) ? want : free(d[id]) ? d[id] : (keys[id].presets.find(free) ?? d[id]);
+    return chosen[id];
+  };
   return {
     theme: THEMES[theme] ? theme : theme === 'webterm' ? 'tabsh' : d.theme,
     font: FONTS[str(stored.font)] ? str(stored.font) : d.font,
