@@ -54,8 +54,7 @@ export async function startDaemon(): Promise<Daemon> {
   // The daemon prints "tabsh listening on …" only once the port is bound, so
   // wait for that line rather than polling the port ourselves.
   await new Promise<void>((resolve, reject) => {
-    const fail = (why: string) =>
-      reject(new Error(`${why}\nstdout:\n${stdout}\nstderr:\n${stderr}`));
+    const fail = (why: string) => reject(new Error(`${why}\nstdout:\n${stdout}\nstderr:\n${stderr}`));
     const timer = setTimeout(() => fail(`daemon did not start on port ${port} within 30s`), 30_000);
     const check = () => {
       if (/tabsh listening on http:\/\/127\.0\.0\.1:\d+/.test(stdout)) {

@@ -24,6 +24,18 @@
     }
   },
   "files": {
-    "includes": ["src/**/*.ts", "*.mjs", "*.json"]
-  }
+    "includes": ["src/**/*.ts", "e2e/**/*.ts", "playwright.config.ts", "*.mjs", "*.json"]
+  },
+  "overrides": [
+    {
+      "includes": ["e2e/**/*.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noEmptyPattern": "off"
+          }
+        }
+      }
+    }
+  ]
 }

@@ -1,12 +1,13 @@
 // The e2e fixtures: a daemon per worker, plus the helpers every spec uses.
 // The conventions (selectors, typing, auth) live in web/e2e/README.md.
 import { test as base, expect, type Page } from '@playwright/test';
-import { startDaemon, type Daemon } from './daemon.ts';
+import { type Daemon, startDaemon } from './daemon.ts';
 
 // One daemon — its own port and its own empty state dir — per worker, so
 // specs never see each other's tabs. Tests within a worker run one at a time.
-// (The second generic types worker-scoped fixtures; tests still get `daemon`.)
-const test = base.extend<{}, { daemon: Daemon }>({
+// (Playwright requires the empty destructuring in the fixture argument —
+// biome's noEmptyPattern is off for e2e/ for this reason.)
+const test = base.extend<Record<never, never>, { daemon: Daemon }>({
   daemon: [
     async ({}, use) => {
       const daemon = await startDaemon();
@@ -17,7 +18,7 @@ const test = base.extend<{}, { daemon: Daemon }>({
   ],
 });
 
-export { test, expect };
+export { expect, test };
 
 // Pair the page with the daemon and wait for the app: the token rides in the
 // URL fragment, exactly as in the link the daemon prints, and the page clears
