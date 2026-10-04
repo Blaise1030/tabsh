@@ -1,3 +1,4 @@
+import { el, isMac } from '../ui/dom.ts';
 import {
   displayPath,
   type Fetcher,
@@ -60,7 +61,6 @@ const states = new Map<string, PaneState>();
 // Bumped by every open and forget, so a slow response to a superseded one is dropped.
 const seqs = new Map<string, number>();
 let current: string | null = null;
-const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
 const EDITABLE = new Set(['text', 'html', 'markdown', 'svg']);
 
 export function init(h: Host): void {
@@ -83,16 +83,6 @@ export function init(h: Host): void {
       }
     } else if (e.key === 'Escape' && !e.defaultPrevented) host.focusTerminal();
   });
-}
-
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  props: Partial<HTMLElementTagNameMap[K]> = {},
-  ...kids: (Node | string)[]
-) {
-  const node = Object.assign(document.createElement(tag), props);
-  node.append(...kids);
-  return node;
 }
 
 function button(label: string, onclick: () => void, title = label): HTMLButtonElement {
