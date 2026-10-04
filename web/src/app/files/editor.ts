@@ -86,8 +86,8 @@ function themeExtension(th: PaneTheme): Extension {
   return [
     EditorView.theme(
       {
-        '&': { color: th.foreground, backgroundColor: th.background, height: '100%', fontSize: '13px' },
-        '.cm-scroller': { fontFamily: 'ui-monospace, Menlo, Monaco, monospace' },
+        '&': { color: th.foreground, backgroundColor: th.background, height: '100%', fontSize: `${th.fontSize}px` },
+        '.cm-scroller': { fontFamily: th.fontFamily },
         '.cm-content': { caretColor: th.cursor },
         '.cm-cursor, .cm-dropCursor': { borderLeftColor: th.cursor },
         '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, ::selection':

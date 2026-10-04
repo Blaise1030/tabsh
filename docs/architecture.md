@@ -49,7 +49,7 @@ it in `state::router()`, and add its routes to `every_route_is_guarded`.
 | `settings/` | `catalog.ts` (themes, fonts, sounds), `keys.ts` (keybindings), `schema.ts` (`Settings`, cleanup), `settings.ts` (current values, apply, save, `onApply` and `onSaved`) |
 | `sessions/` | `store.ts` (tabs, active tab, sync), `terminal.ts` (xterm, socket), `tabs.ts` (tab strip), `bell.ts` and `bell-scan.ts` |
 | `links/` | `links.ts` (finding URLs and paths), `provider.ts` (xterm link provider) |
-| `files/` | `api.ts` (file API client), `open.ts` (loads the pane on first use), `pane.ts` and `editor.ts` (pane and CodeMirror) |
+| `files/` | `api.ts` (file API client), `open.ts` (loads the pane on first use, reopens files after a reload), `remember.ts` (each tab's file, in `localStorage`), `pane.ts` and `editor.ts` (pane and CodeMirror) |
 | `sound/` | `packs.ts` (samples), `typing.ts` (key listeners) |
 | `palette/` | `pages.ts` (what the palette offers), `palette.ts` (dialog, preview, shortcuts) |
 | `ui/` | `dom.ts` (`el`, `isMac`), `divider.ts`, `about.ts`, `drop.ts` and `drop-paths.ts` |
