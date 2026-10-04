@@ -9,7 +9,7 @@ import { Compartment, EditorSelection, EditorState, type Extension, StateEffect,
 import { Decoration, type DecorationSet, EditorView, keymap } from '@codemirror/view';
 import { tags as t } from '@lezer/highlight';
 import { basicSetup } from 'codemirror';
-import type { PaneTheme } from './file-pane.ts';
+import type { PaneTheme } from './pane.ts';
 
 export interface Editor {
   view: EditorView;

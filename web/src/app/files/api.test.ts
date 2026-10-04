@@ -12,7 +12,7 @@ import {
   readFile,
   saveFile,
   toDisk,
-} from './files.ts';
+} from './api.ts';
 
 function stub(res: Response) {
   const calls: { path: string; init?: RequestInit }[] = [];

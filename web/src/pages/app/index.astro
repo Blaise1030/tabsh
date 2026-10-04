@@ -146,7 +146,7 @@ import { DAEMON_URL } from '../../site';
     .pane-view[hidden] { display: none; }
     .pane-head {
       display: flex; align-items: center; gap: .25rem; padding: .125rem .25rem;
-      border-bottom: 1px solid var(--border); font-size: .8125rem;
+      font-size: .8125rem;
     }
     .pane-path {
       flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -1378,9 +1378,9 @@ import { DAEMON_URL } from '../../site';
     // Bundled by Astro: the inline script above reaches these modules through
     // these hooks. The pane, with CodeMirror, is fetched on first use.
     const w = window as unknown as Record<string, () => Promise<unknown>>;
-    w.tabshFilePane = () => import('../../app/file-pane.ts');
-    w.tabshFiles = () => import('../../app/files.ts');
-    w.tabshLinks = () => import('../../app/links.ts');
+    w.tabshFilePane = () => import('../../app/files/pane.ts');
+    w.tabshFiles = () => import('../../app/files/api.ts');
+    w.tabshLinks = () => import('../../app/links/links.ts');
   </script>
 </body>
 </html>
