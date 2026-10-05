@@ -1,7 +1,7 @@
 //! Starting shells in PTYs and reading their output into the scrollback.
 
 use super::{
-    Event, Output, SCROLLBACK_BYTES, Session,
+    Activity, Event, Output, SCROLLBACK_BYTES, Session,
     modes::{ModeTracker, RESTORE_MARKER},
 };
 use crate::{AppState, error::BoxError};
@@ -98,6 +98,13 @@ fn spawn_session(
     let mut cmd = CommandBuilder::new(shell);
     cmd.arg("-l");
     cmd.env("TERM", "xterm-256color");
+    // How a shell's `tabsh hook` finds its way home: which tab this is,
+    // where the daemon listens, and where the pairing token lives. The
+    // token itself never goes into the environment, which every child of
+    // this shell would inherit.
+    cmd.env("TABSH_SESSION", &id);
+    cmd.env("TABSH_URL", &*st.url);
+    cmd.env("TABSH_TOKEN_FILE", crate::auth::token_path(&st.db_path));
     let dir = cwd
         .filter(|d| std::path::Path::new(d).is_dir())
         .map(Into::into)
@@ -136,6 +143,7 @@ fn spawn_session(
             trimmed_modes: ModeTracker::default(),
             tx,
             exited: false,
+            activity: Activity::Idle,
             dirty: false,
         }),
     });

@@ -25,8 +25,8 @@ pub(crate) const LOCAL_NAME: &str = "tabsh.localhost";
 ///   us, which would otherwise look same-origin. (`.localhost` names never
 ///   reach public DNS; browsers and the OS resolve them to loopback.)
 /// - No Origin: not a cross-site browser request (browsers always send it on
-///   cross-site writes and WebSockets; see `ws_handler`). The file API still
-///   needs the token (`admits_without_origin`).
+///   cross-site writes and WebSockets; see `ws_handler`). The file API and
+///   the activity route still need the token (`admits_without_origin`).
 /// - A hosted UI origin, or our own (the page at /app/): allowed, but only
 ///   with the token.
 /// - Anything else is refused.
@@ -92,9 +92,14 @@ pub(crate) async fn guard(
 }
 
 /// Whether a request with no Origin may pass. The file API reads and writes
-/// any file the user can, so it always needs the token, whoever is asking.
+/// any file the user can, and the activity route lets a local program speak
+/// for a tab's agent, so both always need the token, whoever is asking.
 fn admits_without_origin(path: &str, token: Option<&str>, expected: &str) -> bool {
-    !path.starts_with("/api/files") || token.is_some_and(|t| token_eq(t, expected))
+    let needs_token = path.starts_with("/api/files")
+        || path
+            .strip_prefix("/api/sessions/")
+            .is_some_and(|rest| rest.ends_with("/activity"));
+    !needs_token || token.is_some_and(|t| token_eq(t, expected))
 }
 
 /// The page's bundled scripts and styles: read-only, same for everyone.
@@ -167,9 +172,9 @@ mod tests {
     }
 
     #[test]
-    fn file_api_needs_the_token_without_origin() {
+    fn file_and_activity_apis_need_the_token_without_origin() {
         let token = "s3cret";
-        for path in ["/api/files", "/api/files/raw"] {
+        for path in ["/api/files", "/api/files/raw", "/api/sessions/x/activity"] {
             assert!(!admits_without_origin(path, None, token), "{path}");
             assert!(
                 !admits_without_origin(path, Some("wrong!"), token),
@@ -179,6 +184,7 @@ mod tests {
         }
         // Everything else is left to its own hardening for now.
         assert!(admits_without_origin("/api/sessions", None, token));
+        assert!(admits_without_origin("/api/sessions/x", None, token));
         assert!(admits_without_origin("/ws", None, token));
     }
 }

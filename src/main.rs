@@ -1,4 +1,5 @@
 mod auth;
+mod cli;
 mod error;
 mod files;
 mod sessions;
@@ -19,8 +20,15 @@ use state::{AppState, router};
 
 #[tokio::main]
 async fn main() {
-    let port = std::env::args()
-        .nth(1)
+    // `tabsh hook …` is the CLI an agent's hooks run (src/cli); anything
+    // else — a port, or nothing at all — starts the daemon as before.
+    let mut args = std::env::args().skip(1);
+    let first = args.next();
+    if first.as_deref() == Some("hook") {
+        cli::hook::run(args.next().as_deref());
+        return;
+    }
+    let port = first
         .or_else(|| std::env::var("PORT").ok())
         .unwrap_or_else(|| "7681".into());
     let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".into());
@@ -40,7 +48,7 @@ async fn main() {
         format!("{new}/state.db")
     });
     let db = open_db(&db_path).unwrap_or_else(|e| panic!("failed to open {db_path}: {e}"));
-    let token_path = std::path::Path::new(&db_path).with_file_name("token");
+    let token_path = auth::token_path(&db_path);
     let token = auth::load_or_create_token(&token_path)
         .unwrap_or_else(|e| panic!("failed to read {}: {e}", token_path.display()));
     let origins: Vec<String> = match std::env::var("TABSH_ORIGINS") {
@@ -62,6 +70,18 @@ async fn main() {
         };
         format!("{origin}/app/{daemon}").into()
     });
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
+        .unwrap_or_else(|e| panic!("failed to bind {addr}: {e}"));
+    // What shells get as TABSH_URL: the address as actually bound (a port-0
+    // daemon reports its real port), connectable even when every interface
+    // was bound.
+    let bound = listener.local_addr().unwrap();
+    let url_ip = if bound.ip().is_unspecified() {
+        std::net::IpAddr::from([127, 0, 0, 1])
+    } else {
+        bound.ip()
+    };
     let state = AppState {
         db: Arc::new(Mutex::new(db)),
         live: Default::default(),
@@ -70,6 +90,7 @@ async fn main() {
         token: token.into(),
         origins: origins.into(),
         app_url,
+        url: format!("http://{url_ip}:{}/", bound.port()).into(),
     };
 
     let flusher = state.clone();
@@ -82,9 +103,6 @@ async fn main() {
 
     let app = router(state.clone());
 
-    let listener = tokio::net::TcpListener::bind(&addr)
-        .await
-        .unwrap_or_else(|e| panic!("failed to bind {addr}: {e}"));
     println!("tabsh listening on http://{addr} (state: {db_path})");
     let local_host = match host.parse::<std::net::IpAddr>() {
         Ok(ip) if ip.is_loopback() || ip.is_unspecified() => web::guard::LOCAL_NAME.into(),

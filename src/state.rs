@@ -22,6 +22,8 @@ pub(crate) struct AppState {
     pub(crate) origins: Arc<[String]>,
     /// The hosted UI, pointed at this daemon, without the token.
     pub(crate) app_url: Option<Arc<str>>,
+    /// This daemon's own address, given to shells as `TABSH_URL`.
+    pub(crate) url: Arc<str>,
 }
 
 /// Builds the app router with all routes and the guard middleware applied.
@@ -65,6 +67,7 @@ mod tests {
             (Method::POST, "/api/sessions"),
             (Method::PATCH, "/api/sessions/x"),
             (Method::DELETE, "/api/sessions/x"),
+            (Method::POST, "/api/sessions/x/activity"),
             (Method::GET, "/api/settings"),
             (Method::PUT, "/api/settings"),
             (Method::GET, "/api/about"),
@@ -131,6 +134,22 @@ mod tests {
                 path
             );
         }
+
+        // So does the activity route: without an Origin it's a local program
+        // speaking for a tab's agent.
+        let req = axum::http::Request::builder()
+            .method(Method::POST)
+            .uri("/api/sessions/x/activity")
+            .header("Host", "127.0.0.1:7681")
+            .body(axum::body::Body::from(r#"{"state":"idle"}"#))
+            .unwrap();
+        let app = router(state.clone());
+        let res = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            res.status(),
+            StatusCode::UNAUTHORIZED,
+            "POST /api/sessions/x/activity without Origin should be 401"
+        );
 
         // Foreign origins are rejected
         let req = axum::http::Request::builder()

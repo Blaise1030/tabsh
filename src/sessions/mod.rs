@@ -11,7 +11,7 @@ use axum::{
     body::Bytes,
     extract::{Path, State},
     http::StatusCode,
-    routing::{get, patch},
+    routing::{get, patch, post},
 };
 use modes::ModeTracker;
 use portable_pty::{ChildKiller, MasterPty};
@@ -32,6 +32,7 @@ pub(crate) fn routes() -> Router<AppState> {
             "/api/sessions/{id}",
             patch(rename_session).delete(delete_session),
         )
+        .route("/api/sessions/{id}/activity", post(set_activity))
         .route("/ws", get(ws::ws_handler))
 }
 
@@ -75,6 +76,36 @@ pub(crate) const FLUSH_INTERVAL: Duration = Duration::from_secs(2);
 enum Event {
     Output(Bytes),
     Exit,
+    Activity(Activity),
+}
+
+/// A tab's agent activity, as `tabsh hook <state>` reports it. Held in
+/// memory on the running session only: after a daemon restart every tab
+/// starts idle.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Activity {
+    Idle,
+    Running,
+    NeedsInput,
+}
+
+impl Activity {
+    fn parse(state: &str) -> Option<Self> {
+        match state {
+            "idle" => Some(Self::Idle),
+            "running" => Some(Self::Running),
+            "needs-input" => Some(Self::NeedsInput),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::Running => "running",
+            Self::NeedsInput => "needs-input",
+        }
+    }
 }
 
 /// A shell running in a PTY. It outlives any single WebSocket so a browser
@@ -89,6 +120,19 @@ pub(crate) struct Session {
     output: Mutex<Output>,
 }
 
+impl Session {
+    /// Sets the tab's agent activity, telling attached clients when it
+    /// actually changed.
+    fn set_activity(&self, activity: Activity) {
+        let mut out = self.output.lock().unwrap();
+        if out.activity == activity {
+            return;
+        }
+        out.activity = activity;
+        let _ = out.tx.send(Event::Activity(activity));
+    }
+}
+
 struct Output {
     scrollback: VecDeque<u8>,
     /// Terminal modes in effect where the scrollback starts, i.e. set by
@@ -96,6 +140,8 @@ struct Output {
     trimmed_modes: ModeTracker,
     tx: broadcast::Sender<Event>,
     exited: bool,
+    /// The tab's agent activity (`tabsh hook`, cli/hook.rs).
+    activity: Activity,
     /// Scrollback changed since the last flush to the database.
     dirty: bool,
 }
@@ -187,10 +233,38 @@ async fn delete_session(State(st): State<AppState>, Path(id): Path<String>) -> S
     }
 }
 
+/// `tabsh hook <state>` (cli/hook.rs): set a tab's agent activity. The
+/// state lives on the running session, so a tab whose shell isn't running
+/// is unknown here; an unparseable or unknown state is the caller's
+/// mistake to see.
+async fn set_activity(
+    State(st): State<AppState>,
+    Path(id): Path<String>,
+    body: Bytes,
+) -> StatusCode {
+    let state = serde_json::from_slice::<serde_json::Value>(&body)
+        .ok()
+        .and_then(|v| {
+            v.get("state")
+                .and_then(|s| s.as_str())
+                .and_then(Activity::parse)
+        });
+    let Some(state) = state else {
+        return StatusCode::BAD_REQUEST;
+    };
+    let Some(session) = st.live.lock().unwrap().get(&id).cloned() else {
+        return StatusCode::NOT_FOUND;
+    };
+    session.set_activity(state);
+    StatusCode::NO_CONTENT
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_support::test_state;
+    use axum::http::{Method, Request, StatusCode};
+    use tower::ServiceExt;
 
     #[test]
     fn cwd_falls_back_to_the_saved_column() {
@@ -198,5 +272,129 @@ mod tests {
         let info = insert_session(&st.db.lock().unwrap(), Some("/tmp")).unwrap();
         assert_eq!(cwd(&st, &info.id), Some(PathBuf::from("/tmp")));
         assert_eq!(cwd(&st, "missing"), None);
+    }
+
+    /// POSTs `body` to the activity route through the full router.
+    async fn post_activity(
+        st: &AppState,
+        id: &str,
+        body: &str,
+        headers: &[(&str, &str)],
+    ) -> StatusCode {
+        let mut builder = Request::builder()
+            .method(Method::POST)
+            .uri(format!("/api/sessions/{id}/activity"))
+            .header("Host", "127.0.0.1:7681");
+        for &(name, value) in headers {
+            builder = builder.header(name, value);
+        }
+        let req = builder
+            .body(axum::body::Body::from(body.to_owned()))
+            .unwrap();
+        crate::state::router(st.clone())
+            .oneshot(req)
+            .await
+            .unwrap()
+            .status()
+    }
+
+    #[tokio::test]
+    async fn activity_route_sets_the_state_and_validates() {
+        let st = test_state();
+        let info = insert_session(&st.db.lock().unwrap(), None).unwrap();
+        let s = pty::get_or_spawn(&st, &info.id).unwrap().unwrap();
+        let auth = ("Authorization", "Bearer t0k3n");
+
+        // A known state on a running session: 204, and the session now has it.
+        assert_eq!(
+            post_activity(&st, &info.id, r#"{"state":"running"}"#, &[auth]).await,
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(s.output.lock().unwrap().activity, Activity::Running);
+
+        // Unknown or malformed bodies: 400.
+        for body in [r#"{"state":"stopped"}"#, r#"{"state":"running"#, r#"{}"#] {
+            assert_eq!(
+                post_activity(&st, &info.id, body, &[auth]).await,
+                StatusCode::BAD_REQUEST,
+                "{body}"
+            );
+        }
+
+        // Unknown session, or one whose shell isn't running: 404.
+        assert_eq!(
+            post_activity(&st, "missing", r#"{"state":"idle"}"#, &[auth]).await,
+            StatusCode::NOT_FOUND
+        );
+        let row = insert_session(&st.db.lock().unwrap(), None).unwrap();
+        assert_eq!(
+            post_activity(&st, &row.id, r#"{"state":"idle"}"#, &[auth]).await,
+            StatusCode::NOT_FOUND
+        );
+
+        let _ = s.killer.lock().unwrap().kill();
+    }
+
+    #[tokio::test]
+    async fn activity_route_is_refused_without_credentials() {
+        let st = test_state();
+        let info = insert_session(&st.db.lock().unwrap(), None).unwrap();
+        let s = pty::get_or_spawn(&st, &info.id).unwrap().unwrap();
+
+        // Without an Origin a local program must present the token.
+        assert_eq!(
+            post_activity(&st, &info.id, r#"{"state":"idle"}"#, &[]).await,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            post_activity(
+                &st,
+                &info.id,
+                r#"{"state":"idle"}"#,
+                &[("Authorization", "Bearer wrong")]
+            )
+            .await,
+            StatusCode::UNAUTHORIZED
+        );
+        // A browser page with a foreign Origin is refused outright.
+        assert_eq!(
+            post_activity(
+                &st,
+                &info.id,
+                r#"{"state":"idle"}"#,
+                &[("Origin", "https://evil.example")]
+            )
+            .await,
+            StatusCode::FORBIDDEN
+        );
+
+        let _ = s.killer.lock().unwrap().kill();
+    }
+
+    #[test]
+    fn setting_the_same_activity_broadcasts_once() {
+        let st = test_state();
+        let info = insert_session(&st.db.lock().unwrap(), None).unwrap();
+        let s = pty::get_or_spawn(&st, &info.id).unwrap().unwrap();
+        let mut rx = s.output.lock().unwrap().tx.subscribe();
+
+        s.set_activity(Activity::NeedsInput);
+        s.set_activity(Activity::NeedsInput); // unchanged: not sent again
+        s.set_activity(Activity::Running);
+
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(Event::Activity(Activity::NeedsInput))
+        ));
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(Event::Activity(Activity::Running))
+        ));
+        assert!(matches!(
+            rx.try_recv(),
+            Err(broadcast::error::TryRecvError::Empty)
+        ));
+
+        let _ = s.killer.lock().unwrap().kill();
     }
 }

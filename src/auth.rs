@@ -4,7 +4,13 @@ use axum::extract::Request;
 use axum::http::header;
 use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// The token's path: beside the database. `main.rs` loads it from there, and
+/// shells point their hooks at it through `TABSH_TOKEN_FILE`.
+pub(crate) fn token_path(db_path: &str) -> PathBuf {
+    std::path::Path::new(db_path).with_file_name("token")
+}
 
 /// Reads the pairing token from `path`, creating it on first run. It is kept
 /// across restarts so a paired browser stays paired.

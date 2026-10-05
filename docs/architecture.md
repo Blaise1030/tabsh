@@ -22,6 +22,7 @@ should touch one folder.
 | `web/pages.rs` | The pages (`/`, `/open`, `/app/`), the CSP, `/api/about` |
 | `web/assets.rs` | Embedded typing sounds and app bundle (`/sounds/…`, `/_astro/…`) |
 | `sessions/` | Shells in PTYs that outlive browser tabs: `store.rs` (SQLite), `pty.rs` (spawn, cwd), `ws.rs` (attach), `modes.rs` (terminal modes for replay) |
+| `cli/` | `tabsh hook`, the CLI an agent's hooks run to report its tab's state: `hook.rs` |
 | `files/` | The file pane's API: `resolve.rs`, `kind.rs`, `read.rs`, `save.rs` |
 | `settings.rs` | `/api/settings`: the page's preferences as one JSON object |
 | `upload.rs` | `/api/uploads`: files dropped onto a terminal |
@@ -47,7 +48,7 @@ it in `state::router()`, and add its routes to `every_route_is_guarded`.
 | `main.ts` | Startup only: adopt the token, wire the features, restore tabs |
 | `daemon/` | `config.ts` (which daemon), `token.ts` and `parse.ts` (pairing), `client.ts` (`daemonFetch`, `api`, the connection gate) |
 | `settings/` | `catalog.ts` (themes, fonts, sounds), `keys.ts` (keybindings), `schema.ts` (`Settings`, cleanup), `settings.ts` (current values, apply, save, `onApply` and `onSaved`) |
-| `sessions/` | `store.ts` (tabs, active tab, sync), `terminal.ts` (xterm, socket), `tabs.ts` (tab strip), `bell.ts` and `bell-scan.ts` |
+| `sessions/` | `store.ts` (tabs, active tab, sync), `terminal.ts` (xterm, socket), `tabs.ts` (tab strip), `activity.ts` and `activity-view.ts` (agent state on a tab), `bell.ts` and `bell-scan.ts` |
 | `links/` | `links.ts` (finding URLs and paths), `provider.ts` (xterm link provider) |
 | `files/` | `api.ts` (file API client), `open.ts` (loads the pane on first use, reopens files after a reload), `remember.ts` (each tab's file, in `localStorage`), `pane.ts` and `editor.ts` (pane and CodeMirror) |
 | `sound/` | `packs.ts` (samples), `typing.ts` (key listeners) |
@@ -71,6 +72,7 @@ The page's CSS is in `web/src/styles/app.css`. The markup is in
 - **Pure logic stays testable:** files that `node --test` loads don't touch
   the DOM when imported: `links.ts`, `files/api.ts`, `daemon/parse.ts`,
   `settings/catalog.ts`, `keys.ts`, `schema.ts`, `sessions/bell-scan.ts`,
+  `sessions/activity-view.ts`,
   `ui/drop-paths.ts`. Their tests sit beside them as `*.test.ts`.
 - **The editor stays lazy:** `files/pane.ts` and `editor.ts` (CodeMirror,
   `marked`) are only reached through `import()`. The daemon test
@@ -92,7 +94,8 @@ A refactor must not change any of these.
   - From a browser page (with an Origin), every route needs a known Origin
     and the token. The only exception is GET or HEAD of a single-segment
     `/_astro/{name}`.
-  - Without an Origin, `/api/files*` still needs the token.
+  - Without an Origin, `/api/files*` and `/api/sessions/{id}/activity`
+    still need the token (local programs that can speak for a tab).
 - **Token:** it arrives in the URL fragment and is cleared from the address
   bar before any request. Nothing rendered from a file can read it.
 - **File previews:**

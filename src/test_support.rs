@@ -14,6 +14,7 @@ pub(crate) fn test_state() -> AppState {
         token: "t0k3n".into(),
         origins: vec!["https://tabsh.cc".to_string()].into(),
         app_url: None,
+        url: "http://127.0.0.1:7681/".into(),
     }
 }
 
