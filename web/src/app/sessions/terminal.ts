@@ -3,6 +3,8 @@
 import { socketUrl } from '../daemon/client.ts';
 import { linkProvider } from '../links/provider.ts';
 import { current, terminalOptions } from '../settings/settings.ts';
+import { onActivity } from './activity.ts';
+import { IDLE } from './activity-view.ts';
 import { ring } from './bell.ts';
 import { scanBell } from './bell-scan.ts';
 import {
@@ -65,7 +67,20 @@ export function openSession({ id, name }: SessionInfo): Session {
     if (s === store.active) tab.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   });
 
-  const s: Session = { id, name, term, fit, el, tab, ws: null, closed: false, replaying: false, esc: 0, bell: false };
+  const s: Session = {
+    id,
+    name,
+    term,
+    fit,
+    el,
+    tab,
+    ws: null,
+    closed: false,
+    replaying: false,
+    esc: 0,
+    bell: false,
+    activity: IDLE,
+  };
   store.sessions.push(s);
   setName(s, name, false);
   tab.onclick = () => activate(s);
@@ -97,7 +112,13 @@ function connect(s: Session): void {
   };
   ws.onmessage = (e) => {
     if (typeof e.data === 'string') {
-      if (JSON.parse(e.data).exit) removeSession(s);
+      // Text frames are control messages: {"exit":true} and {"activity":"…"}.
+      const msg = JSON.parse(e.data) as { exit?: boolean; activity?: string };
+      if (msg.exit) {
+        removeSession(s);
+        return;
+      }
+      if (msg.activity) onActivity(s, msg.activity);
       return;
     }
     const bytes = new Uint8Array(e.data);

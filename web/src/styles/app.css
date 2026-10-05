@@ -90,7 +90,7 @@ html.themed {
 .tab .btn { flex-shrink: 0; opacity: 0; }
 .tab:hover .btn, .tab[aria-selected="true"] .btn, .tab .btn:focus-visible { opacity: 1; }
 /* Unread output shows a dot before the tab's label, like the favicon badge. */
-.tab.unread::before, .tab.bell::before {
+.tab.unread::before, .tab.bell::before, .tab.needs::before {
   content: ""; flex-shrink: 0; width: 7px; height: 7px; margin-right: -.125rem;
   border-radius: 50%; background: var(--primary);
 }
@@ -98,6 +98,25 @@ html.themed {
 .tab.bell::before { background: #f97316; animation: bell-pulse 1s ease-out 3; }
 @keyframes bell-pulse { 0% { box-shadow: 0 0 0 0 #f97316aa; } 100% { box-shadow: 0 0 0 6px #f9731600; } }
 @media (prefers-reduced-motion: reduce) { .tab.bell::before { animation: none; } }
+
+/* Agent activity (tabsh hook): a spinner while the agent works, an orange
+   dot when it needs you, ✓ when it finished while you were away. */
+.tab.running::before {
+  content: ""; flex-shrink: 0; width: 7px; height: 7px; margin-right: -.125rem;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, transparent 35%, var(--muted-foreground));
+  border-top-color: transparent;
+  animation: activity-spin .8s linear infinite;
+}
+@keyframes activity-spin { to { transform: rotate(360deg); } }
+/* Reduced motion: a static ring rather than a spinning one. */
+@media (prefers-reduced-motion: reduce) { .tab.running::before { animation: none; border-top-color: var(--muted-foreground); } }
+.tab.needs::before { background: #f97316; animation: bell-pulse 1s ease-out 3; }
+@media (prefers-reduced-motion: reduce) { .tab.needs::before { animation: none; } }
+.tab.done::before {
+  content: "✓"; flex-shrink: 0; width: auto; margin-right: -.125rem;
+  font-size: .6875rem; font-weight: 600; line-height: 1; color: var(--primary); background: none;
+}
 
 /* The tab bar and terminals, with a tab's file pane (web/src/app/file-pane.ts)
    beside them at full height. */

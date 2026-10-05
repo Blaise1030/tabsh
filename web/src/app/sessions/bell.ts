@@ -1,5 +1,7 @@
 // A BEL from a shell, unless you're looking at that terminal, marks its tab
-// and badges the favicon and title until you visit it.
+// and badges the favicon and title until you visit it. A tab whose agent
+// needs you (activity.ts) shares the badge.
+import { activityView } from './activity-view.ts';
 import { type Session, store } from './store.ts';
 
 const faviconSvg = (badge: boolean) =>
@@ -32,15 +34,22 @@ export function clearBell(s: Session | null): void {
 }
 
 export function updateBadge(): void {
-  const ringing = store.sessions.filter((x) => x.bell).length;
-  favicon().href = ringing ? FAVICON_BELL : FAVICON;
+  // A bell rang, or an agent needs you in a tab you're not watching.
+  const attention = store.sessions.some(
+    (x) => x.bell || activityView(x.activity, x === store.active, document.hasFocus()).badge,
+  );
+  favicon().href = attention ? FAVICON_BELL : FAVICON;
   const name = store.active?.name ?? 'tabsh';
-  document.title = ringing ? `🔔 ${name}` : name;
+  document.title = attention ? `🔔 ${name}` : name;
 }
 
 export function initBell(): void {
   // Coming back to the browser tab counts as seeing the active terminal.
-  const seen = () => !document.hidden && clearBell(store.active);
+  const seen = () => {
+    if (document.hidden) return;
+    clearBell(store.active);
+    updateBadge();
+  };
   document.addEventListener('visibilitychange', seen);
   addEventListener('focus', seen);
   favicon().href = FAVICON;

@@ -5,6 +5,7 @@ import { LOCAL_APP, MIXED_BLOCKED } from './daemon/config.ts';
 import { adoptToken } from './daemon/token.ts';
 import { initFilePane, loadedPane, restoreFiles } from './files/open.ts';
 import { initPalette } from './palette/palette.ts';
+import { initActivity } from './sessions/activity.ts';
 import { initBell } from './sessions/bell.ts';
 import { activate, newSession, newTabAt, savedActive, sendSize, store, sync } from './sessions/store.ts';
 import { initTabStrip } from './sessions/tabs.ts';
@@ -55,6 +56,7 @@ addEventListener('beforeunload', (e) => {
 });
 
 initBell();
+initActivity();
 initTabStrip();
 initTypingSound();
 initPalette();

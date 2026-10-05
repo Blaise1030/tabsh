@@ -4,6 +4,8 @@ import type { FitAddon as Fit } from '@xterm/addon-fit';
 import type { Terminal as XTerm } from '@xterm/xterm';
 import { api } from '../daemon/client.ts';
 import { loadedPane } from '../files/open.ts';
+import { visitActivity } from './activity.ts';
+import type { Activity } from './activity-view.ts';
 import { clearBell, updateBadge } from './bell.ts';
 import { setName, updateFades } from './tabs.ts';
 import { openSession } from './terminal.ts';
@@ -20,6 +22,8 @@ export interface Session {
   replaying: boolean;
   esc: number;
   bell: boolean;
+  // The agent activity the daemon last reported for this tab.
+  activity: Activity;
 }
 export interface SessionInfo {
   id: string;
@@ -89,7 +93,10 @@ export function activate(s: Session | null): void {
     s.el.classList.add('active');
     s.tab.setAttribute('aria-selected', 'true');
     s.tab.classList.remove('unread');
-    if (!document.hidden) clearBell(s);
+    if (!document.hidden) {
+      clearBell(s);
+      visitActivity(s); // visiting sees the ✓ done marker away
+    }
     s.tab.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     sendSize(s);
     s.term.focus();
