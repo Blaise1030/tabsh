@@ -13,6 +13,8 @@ export interface Daemon {
   baseUrl: string;
   // The pairing token, read from the state dir's `token` file.
   token: string;
+  // The daemon binary itself, for specs that run the `tabsh` CLI in a tab.
+  bin: string;
   // Stops the daemon and deletes its state dir.
   cleanup: () => Promise<void>;
 }
@@ -34,7 +36,9 @@ function freePort(): Promise<number> {
 }
 
 export async function startDaemon(): Promise<Daemon> {
-  const bin = process.env.TABSH_BIN ?? defaultBin;
+  // Resolved absolute: specs type this path into a shell whose working
+  // directory is not this process's.
+  const bin = path.resolve(process.env.TABSH_BIN ?? defaultBin);
   const dir = await mkdtemp(path.join(tmpdir(), 'tabsh-e2e-'));
   const port = await freePort();
   const child = spawn(bin, [String(port)], {
@@ -42,6 +46,9 @@ export async function startDaemon(): Promise<Daemon> {
       ...process.env,
       TABSH_DB: path.join(dir, 'state.db'),
       TABSH_NO_BROWSER: '1', // the browser is playwright's to open, not the daemon's
+      // Shells the daemon spawns must be able to run the `tabsh` CLI
+      // (`tabsh hook …`), so the daemon's own binary dir leads PATH.
+      PATH: `${path.dirname(bin)}${path.delimiter}${process.env.PATH ?? ''}`,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -89,5 +96,5 @@ export async function startDaemon(): Promise<Daemon> {
     await rm(dir, { recursive: true, force: true });
   };
 
-  return { baseUrl: `http://127.0.0.1:${port}`, token, cleanup };
+  return { baseUrl: `http://127.0.0.1:${port}`, token, bin, cleanup };
 }

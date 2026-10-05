@@ -33,6 +33,12 @@ npm run test:e2e                     # or: TABSH_BIN=/path/to/tabsh npm run test
 5. it reads the **pairing token from `<state dir>/token`** (beside the
    database, exactly where the daemon puts it).
 
+The daemon's `PATH` starts with its own binary's directory, so shells it
+spawns can run the `tabsh` CLI (`tabsh hook …`) without installing anything.
+A login shell on some systems (CI's bash reads `/etc/profile`) rebuilds PATH
+from scratch and drops it — specs that need the CLI spell out `daemon.bin`
+instead.
+
 `cleanup()` SIGTERMs the daemon (its own flush-and-exit path) and deletes the
 temp dir; the worker-scoped fixture in `fixture.ts` calls it after the last
 test in the worker.
@@ -57,6 +63,9 @@ terminal, so tests start from a settled page.
   tab (the empty state has a second new-terminal button; scope to the tabbar);
 - `typeInTerminal(page, text)` — clicks `.term.active` and `keyboard.type`s.
 
+`daemon.bin` (from the fixture) is the daemon binary's absolute path, for
+specs that run the `tabsh` CLI inside a tab.
+
 ## Selector rules
 
 - Use **element IDs and classes that exist in
@@ -68,7 +77,8 @@ terminal, so tests start from a settled page.
   - a tab's name — `setName` writes the label: the OSC 0 title escape
     (`printf '\033]0;name\007'`) renames the tab, so assert
     `#tabs .tab[aria-selected="true"] span` text;
-  - tab classes — `unread`/`entering`/`leaving` on `.tab`;
+  - tab classes — `unread`/`entering`/`leaving` on `.tab`, and the agent
+    activity markers `running`/`needs`/`done` (see `hook-state.spec.ts`);
   - `document.title` and the favicon `href` (`#favicon`);
   - the bell — `bell.ts` updates the badge and `title`.
 - Typing: click the terminal first (the click focuses xterm's hidden
