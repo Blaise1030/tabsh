@@ -65,9 +65,38 @@ export function loadPack(id: string): Promise<Pack> {
   return packLoads[id];
 }
 
+// After the machine sleeps, a context can wake up running but late, so every
+// sample sounds a beat after its key. A fresh context doesn't, so the first
+// sound after a sleep swaps one in (decoded buffers play in any context). A
+// sleep shows up as a long gap between ticks of this timer; a hidden tab's
+// throttled timer can look the same, which costs one harmless swap.
+const SLEEP_GAP_MS = 30_000;
+let lastTick = Date.now();
+let slept = false;
+let watching = false;
+
+function watchForSleep(): void {
+  if (watching) return;
+  watching = true;
+  setInterval(() => {
+    const now = Date.now();
+    if (now - lastTick > SLEEP_GAP_MS) slept = true;
+    lastTick = now;
+  }, 5_000);
+}
+
 export function playSample(buf: AudioBuffer): void {
   if (!audio) return;
-  if (audio.state === 'suspended') audio.resume().catch(() => {});
+  watchForSleep();
+  if (slept) {
+    slept = false;
+    audio.close().catch(() => {});
+    // Made inside the key's event, so it starts running.
+    audio = new AudioContext();
+    sampleGain = null;
+  }
+  // Safari parks a context as 'interrupted' across a sleep.
+  if (audio.state !== 'running') audio.resume().catch(() => {});
   if (!sampleGain) {
     sampleGain = audio.createGain();
     sampleGain.gain.value = 0.6;
