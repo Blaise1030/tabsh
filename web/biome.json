@@ -31,7 +31,7 @@
       "includes": ["e2e/**/*.ts"],
       "linter": {
         "rules": {
-          "style": {
+          "correctness": {
             "noEmptyPattern": "off"
           }
         }
