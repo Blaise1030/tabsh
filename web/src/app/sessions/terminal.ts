@@ -3,7 +3,7 @@
 import { socketUrl } from '../daemon/client.ts';
 import { linkProvider } from '../links/provider.ts';
 import { current, terminalOptions } from '../settings/settings.ts';
-import { onActivity } from './activity.ts';
+import { onActivity, resetActivity } from './activity.ts';
 import { IDLE } from './activity-view.ts';
 import { ring } from './bell.ts';
 import { scanBell } from './bell-scan.ts';
@@ -108,6 +108,7 @@ function connect(s: Session): void {
     s.term.reset();
     s.replaying = true;
     s.esc = 0;
+    resetActivity(s); // a restarted daemon's sessions start idle
     sendSize(s);
   };
   ws.onmessage = (e) => {

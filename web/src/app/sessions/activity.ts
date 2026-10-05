@@ -2,7 +2,7 @@
 // become the running spinner, the needs-you dot and the done ✓, and feed
 // the favicon/title badge. The rules live in activity-view.ts.
 
-import { type ActivityFrame, activityView, onFrame, onVisit } from './activity-view.ts';
+import { type ActivityFrame, activityView, onFrame, onReattach, onVisit } from './activity-view.ts';
 import { updateBadge } from './bell.ts';
 import { type Session, store } from './store.ts';
 
@@ -21,6 +21,15 @@ export function visitActivity(s: Session): void {
   if (next === s.activity) return;
   s.activity = next;
   render(s);
+}
+
+// The socket (re)opened: whatever the page showed is stale — a restarted
+// daemon's sessions all start idle — so begin from idle. Real activity is
+// re-stated by the attach intro or a live frame, right after the history.
+export function resetActivity(s: Session): void {
+  s.activity = onReattach();
+  render(s);
+  updateBadge();
 }
 
 // The marker classes on a tab element (app.css); only these three are ours.

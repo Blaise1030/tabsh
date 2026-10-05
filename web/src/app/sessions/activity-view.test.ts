@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { type Activity, type ActivityFrame, activityView, IDLE, onFrame, onVisit } from './activity-view.ts';
+import { type Activity, type ActivityFrame, activityView, IDLE, onFrame, onReattach, onVisit } from './activity-view.ts';
 
 const a = (state: ActivityFrame, doneUnseen = false): Activity => ({ state, doneUnseen });
 
@@ -48,4 +48,25 @@ test('visiting clears the done marker; the dot is the agent state, not unread ou
 test('every session starts idle with nothing to show', () => {
   assert.deepEqual(IDLE, { state: 'idle', doneUnseen: false });
   assert.deepEqual(activityView(IDLE, false, false), { marker: null, badge: false });
+});
+
+// The badge follows watching, not the frame's arrival: the same state that
+// showed nothing while you watched lights the badge the moment you look
+// away (bell.ts recomputes it on blur and on going hidden).
+test('a needs-input tab you were watching badges when you look away', () => {
+  const needing = a('needs-input');
+  assert.equal(activityView(needing, true, true).badge, false); // watched
+  assert.equal(activityView(needing, true, false).badge, true); // same state, looked away
+  assert.equal(activityView(needing, false, false).badge, true); // another tab, page hidden
+});
+
+// A socket that reattached starts over: a restarted daemon's sessions are
+// all idle (idle is unspoken), so whatever the page showed is stale. Real
+// activity is re-stated by the attach intro or a live frame right after.
+test('a reconnect resets to idle, and the intro restores what is still true', () => {
+  assert.deepEqual(onReattach(), IDLE);
+  // A live daemon that still needs you re-states it after the history.
+  assert.deepEqual(onFrame(onReattach(), 'needs-input'), { state: 'needs-input', doneUnseen: false });
+  // A restarted one says nothing (idle) and the tab stays clear.
+  assert.deepEqual(activityView(onReattach(), false, false).marker, null);
 });

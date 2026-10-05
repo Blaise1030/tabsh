@@ -67,4 +67,22 @@ test('hook state shows on the tab it ran in', async ({ page, daemon }) => {
   await expect(tab(page, 1)).toHaveClass(/needs/);
   await expect(page).not.toHaveTitle(/^🔔/);
   await expect(page.locator('#favicon')).not.toHaveAttribute('href', /%3Ccircle/);
+
+  // The badge follows watching, not the frame's arrival: looking away from
+  // that same needs-input tab lights it, coming back turns it off. Headless
+  // chromium keeps every page focused and visible (bringToFront changes
+  // neither), so the focus API is stubbed to "looked away" around a real
+  // blur event — the listeners, the rules and the favicon/title updates
+  // exercised here are the app's own.
+  const watch = (focused: boolean) =>
+    page.evaluate((f) => {
+      Object.defineProperty(document, 'hasFocus', { value: () => f, configurable: true });
+      window.dispatchEvent(new Event(f ? 'focus' : 'blur'));
+    }, focused);
+  await watch(false);
+  await expect(page).toHaveTitle(/^🔔/);
+  await expect(page.locator('#favicon')).toHaveAttribute('href', /%3Ccircle/);
+  await watch(true);
+  await expect(page).not.toHaveTitle(/^🔔/);
+  await expect(tab(page, 1)).toHaveClass(/needs/); // the dot survives all of it
 });

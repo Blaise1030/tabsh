@@ -28,6 +28,14 @@ export function onVisit(a: Activity): Activity {
   return a.doneUnseen ? { ...a, doneUnseen: false } : a;
 }
 
+// The socket reattached: the page's copy is stale (a restarted daemon's
+// sessions all start idle, and idle is unspoken), so start over from idle.
+// The attach intro or a live frame re-states real activity right after the
+// replayed history.
+export function onReattach(): Activity {
+  return IDLE;
+}
+
 export function activityView(
   a: Activity,
   active: boolean,

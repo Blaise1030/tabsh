@@ -50,7 +50,15 @@ export function initBell(): void {
     clearBell(store.active);
     updateBadge();
   };
-  document.addEventListener('visibilitychange', seen);
+  // The badge answers "does any tab need you right now", which changes when
+  // you stop watching as well: looking away (blur, or the page going
+  // hidden) badges an already-needs-input tab without waiting for a frame.
+  // Recomputed only — a badge the rules still justify is never cleared here.
+  const recompute = () => updateBadge();
+  document.addEventListener('visibilitychange', () =>
+    document.hidden ? recompute() : seen(),
+  );
   addEventListener('focus', seen);
+  addEventListener('blur', recompute);
   favicon().href = FAVICON;
 }
