@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.4
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.3...v0.1.4)
+
+### Fixes
+
+- **app:** Typing sound comes back on time after the Mac sleeps ([8174c59](https://github.com/Blaise1030/tabsh/commit/8174c59))
+
 ## v0.1.3
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.2...v0.1.3)
