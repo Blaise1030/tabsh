@@ -1,6 +1,6 @@
 {
   "name": "tabsh",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "license": "MIT",
   "description": "Release metadata only: changelogen reads and bumps this version, and the release workflows copy it into Cargo.toml."
