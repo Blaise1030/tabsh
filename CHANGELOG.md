@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.1.6
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.5...v0.1.6)
+
+### Features
+
+- **daemon:** Tab order, a tab's project root, and folders-only listings ([4af6fe9](https://github.com/Blaise1030/tabsh/commit/4af6fe9))
+- **app:** Tab labels, filtering and reordering; full-width tab bar ([bae0ca9](https://github.com/Blaise1030/tabsh/commit/bae0ca9))
+
 ## v0.1.5
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.4...v0.1.5)
