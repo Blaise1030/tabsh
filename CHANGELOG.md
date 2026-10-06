@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.1.5
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.4...v0.1.5)
+
+### Features
+
+- **daemon:** GET /api/files/tree lists the tab's project for the explorer ([e913cb2](https://github.com/Blaise1030/tabsh/commit/e913cb2))
+- **app:** A file explorer sidebar for the active tab's project ([357ec95](https://github.com/Blaise1030/tabsh/commit/357ec95))
+- **daemon:** GET /api/files/watch tells the explorer what changed on disk ([3cdfe76](https://github.com/Blaise1030/tabsh/commit/3cdfe76))
+- **app:** A row menu in the explorer: insert path, cd here, open in new tab ([247c51a](https://github.com/Blaise1030/tabsh/commit/247c51a))
+- **app:** Reach a row menu's items from the keyboard ([1e9b4a7](https://github.com/Blaise1030/tabsh/commit/1e9b4a7))
+- **app:** Live updates as tree operations ([d426ce2](https://github.com/Blaise1030/tabsh/commit/d426ce2))
+- **app:** The explorer follows the disk while the sidebar is open ([423cabe](https://github.com/Blaise1030/tabsh/commit/423cabe))
+- **daemon:** The watch socket follows its tab's project root ([b657567](https://github.com/Blaise1030/tabsh/commit/b657567))
+- **app:** The explorer re-roots when the shell moves to another project ([583761b](https://github.com/Blaise1030/tabsh/commit/583761b))
+- **app:** Search the file explorer by name ([77f7ad2](https://github.com/Blaise1030/tabsh/commit/77f7ad2))
+- **app:** A keybinding that focuses the explorer's search field ([4ee9917](https://github.com/Blaise1030/tabsh/commit/4ee9917))
+
+### Fixes
+
+- **app:** Keep a key's focus move from being undone by the menu's first focus ([59ffb43](https://github.com/Blaise1030/tabsh/commit/59ffb43))
+- **app:** The explorer's search field matches dark themes ([88914ef](https://github.com/Blaise1030/tabsh/commit/88914ef))
+
 ## v0.1.4
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.3...v0.1.4)
