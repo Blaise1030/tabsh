@@ -1,6 +1,7 @@
 // The app page's startup: pair with the daemon, wire the features
 // together, then restore the tabs.
 import { initBoardEvents } from './board/events.ts';
+import { initBoard } from './board/view.ts';
 import { daemonFetch, initGate, waitForDaemon } from './daemon/client.ts';
 import { LOCAL_APP, MIXED_BLOCKED } from './daemon/config.ts';
 import { adoptToken } from './daemon/token.ts';
@@ -61,6 +62,7 @@ initBell();
 initTabStrip();
 initTabLabels();
 initExplorer();
+initBoard();
 initTypingSound();
 initPalette();
 initDivider();

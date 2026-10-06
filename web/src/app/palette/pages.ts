@@ -55,6 +55,7 @@ export function pages(ctx: {
   closeFile(): void;
   openAbout(): void;
   toggleExplorer(): void;
+  toggleBoard(): void;
   searchFiles(): void;
   filters: {
     choices(): { key: string; value: string; kind: 'repo' | 'tag'; count: number }[];
@@ -110,6 +111,13 @@ export function pages(ctx: {
         {
           heading: 'Tabs',
           items: [
+            {
+              label: 'Toggle board',
+              icon: ICONS.filter,
+              hint: keyLabel(saved.keyToggleBoard, isMac),
+              keywords: 'kanban cards tasks status overview',
+              run: ctx.toggleBoard,
+            },
             {
               label: 'Filter tabs…',
               icon: ICONS.filter,

@@ -1,6 +1,7 @@
 // The command palette (Basecoat command-dialog): settings with live
 // preview, recording a keybinding, the keybindings that open it and switch
 // tabs, and the settings button.
+import { toggleBoard } from '../board/view.ts';
 import { searchFiles, toggleExplorer } from '../explorer/explorer.ts';
 import { loadedPane } from '../files/open.ts';
 import { cycleTab, store } from '../sessions/store.ts';
@@ -37,6 +38,7 @@ function showPage(name: string): void {
     closeFile: () => active && loadedPane()?.close(active.id),
     openAbout,
     toggleExplorer,
+    toggleBoard: () => toggleBoard(),
     searchFiles,
     filters: {
       choices: filterChoices,

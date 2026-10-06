@@ -54,6 +54,9 @@ import '../../styles/app.css';
 
   <!-- The tab bar spans the page: a tab owns the sidebar, terminal and file pane under it. -->
   <div class="tabbar">
+    <button type="button" class="btn" data-variant="ghost" data-size="icon-sm" aria-label="Board" title="Board" id="board-btn" aria-pressed="false">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v12"/><path d="M15 3v7"/></svg>
+    </button>
     <button type="button" class="btn" data-variant="ghost" data-size="icon-sm" aria-label="Toggle file explorer" title="Toggle file explorer" id="explorer-btn" aria-pressed="false">
       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>
     </button>
@@ -78,6 +81,7 @@ import '../../styles/app.css';
     </aside>
     <div id="explorer-divider" hidden></div>
     <div id="main">
+    <section id="board" hidden aria-label="Board"></section>
     <div id="terms">
       <div class="empty" id="empty" hidden>
         <p>No terminals open.</p>

@@ -3,7 +3,7 @@
 import type { FitAddon as Fit } from '@xterm/addon-fit';
 import type { Terminal as XTerm } from '@xterm/xterm';
 import type { Card } from '../board/model.ts';
-import { applyCard, cardOf } from '../board/status.ts';
+import { applyCard, cardOf, cardsChanged } from '../board/status.ts';
 import { api } from '../daemon/client.ts';
 import { loadedPane } from '../files/open.ts';
 import { clearBell, updateBadge } from './bell.ts';
@@ -177,4 +177,5 @@ export function removeSession(s: Session): void {
     const next = rest.find((t) => sessions.indexOf(t) >= i) ?? rest.at(-1);
     activate(next ?? sessions[Math.min(i, sessions.length - 1)] ?? null);
   } else updateBadge();
+  cardsChanged();
 }
