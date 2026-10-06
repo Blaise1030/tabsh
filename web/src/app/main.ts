@@ -3,6 +3,7 @@
 import { daemonFetch, initGate, waitForDaemon } from './daemon/client.ts';
 import { LOCAL_APP, MIXED_BLOCKED } from './daemon/config.ts';
 import { adoptToken } from './daemon/token.ts';
+import { initExplorer } from './explorer/explorer.ts';
 import { initFilePane, loadedPane, restoreFiles } from './files/open.ts';
 import { initPalette } from './palette/palette.ts';
 import { initBell } from './sessions/bell.ts';
@@ -56,6 +57,7 @@ addEventListener('beforeunload', (e) => {
 
 initBell();
 initTabStrip();
+initExplorer();
 initTypingSound();
 initPalette();
 initDivider();

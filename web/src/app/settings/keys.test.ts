@@ -50,6 +50,7 @@ test('comboProblem allows only combos the shell and browser leave free', () => {
     keyPalette: 'meta+KeyK',
     keyNextTab: 'ctrl+shift+BracketRight',
     keyPrevTab: 'ctrl+shift+BracketLeft',
+    keyToggleExplorer: 'meta+shift+KeyE',
   };
   const ok = (combo: string, isMac = true) => comboProblem(combo, 'keyPalette', saved, isMac) === null;
   assert.ok(ok('meta+KeyY'));
@@ -75,9 +76,19 @@ test('comboProblem allows only combos the shell and browser leave free', () => {
 test('every preset passes comboProblem', () => {
   for (const mac of [true, false]) {
     const k = keybindings(mac);
-    const saved = { keyPalette: '', keyNextTab: '', keyPrevTab: '' };
+    const saved = { keyPalette: '', keyNextTab: '', keyPrevTab: '', keyToggleExplorer: '' };
     for (const id of Object.keys(k) as (keyof typeof k)[]) {
       for (const combo of k[id].presets) assert.equal(comboProblem(combo, id, saved, mac), null, combo);
+    }
+  }
+});
+test('toggling the explorer has a default combo that no other action shares', () => {
+  for (const mac of [true, false]) {
+    const k = keybindings(mac);
+    const [first] = k.keyToggleExplorer.presets;
+    assert.equal(first, mac ? 'meta+shift+KeyE' : 'ctrl+shift+KeyE');
+    for (const [id, other] of Object.entries(k)) {
+      if (id !== 'keyToggleExplorer') assert.ok(!other.presets.includes(first), id);
     }
   }
 });
