@@ -3,8 +3,12 @@
 // the library stays out of the page's first load. Names come from the disk
 // and are untrusted: the library renders them as text, and nothing here puts
 // one in markup.
-import { FileTree } from '@pierre/trees';
+import { type ContextMenuItem, type ContextMenuOpenContext, FileTree } from '@pierre/trees';
+import { el } from '../ui/dom.ts';
 import type { Op } from './changes.ts';
+import { menuStep, type RowAction, rowActions } from './listing.ts';
+
+const LABELS: Record<RowAction, string> = { insert: 'Insert path', cd: 'cd here', tab: 'Open in new tab' };
 
 let tree: FileTree | null = null;
 let shown: string[] = []; // the paths the last `showTree` was given
@@ -18,7 +22,14 @@ export function applyOps(ops: Op[]): void {
 // Shows `paths` in `mount`: the first call builds the tree, later ones
 // replace its paths (open folders and the selection are carried over where
 // they still exist: `resetPaths` alone would close every folder). `onFile` hears a click on a file row, with its relative path.
-export function showTree(mount: HTMLElement, paths: string[], onFile: (path: string) => void): void {
+// `onAction` hears a pick from a row's menu (right-click, its button, or
+// Shift+F10), with the row's path as listed (a directory ends in `/`).
+export function showTree(
+  mount: HTMLElement,
+  paths: string[],
+  onFile: (path: string) => void,
+  onAction: (action: RowAction, path: string) => void,
+): void {
   if (tree) {
     const open = shown.filter((p) => {
       const item = p.endsWith('/') ? tree?.getItem(p) : null;
@@ -31,7 +42,18 @@ export function showTree(mount: HTMLElement, paths: string[], onFile: (path: str
     return;
   }
   shown = paths;
-  tree = new FileTree({ paths, initialExpansion: 'closed', flattenEmptyDirectories: false });
+  tree = new FileTree({
+    paths,
+    initialExpansion: 'closed',
+    flattenEmptyDirectories: false,
+    composition: {
+      contextMenu: {
+        triggerMode: 'both',
+        buttonVisibility: 'when-needed',
+        render: (item, ctx) => rowMenu(item, ctx, onAction),
+      },
+    },
+  });
   tree.render({ containerWrapper: mount });
   // A click is read from the row it lands on, not from the selection, so
   // clicking the open file again opens it again.
@@ -43,4 +65,40 @@ export function showTree(mount: HTMLElement, paths: string[], onFile: (path: str
       return;
     }
   });
+}
+
+// A row's menu. The names it shows are fixed labels; the row's name never
+// reaches the markup. A pick closes the menu without taking focus back to the
+// row: the caller sends it to the terminal.
+function rowMenu(
+  item: ContextMenuItem,
+  ctx: ContextMenuOpenContext,
+  onAction: (action: RowAction, path: string) => void,
+): HTMLElement {
+  const path = item.kind === 'directory' && !item.path.endsWith('/') ? `${item.path}/` : item.path;
+  const menu = el('div', { className: 'row-menu', role: 'menu', ariaLabel: 'File actions' });
+  for (const action of rowActions(path)) {
+    const button = el('button', { type: 'button', role: 'menuitem', textContent: LABELS[action] });
+    button.onclick = () => {
+      ctx.close({ restoreFocus: false });
+      onAction(action, path);
+    };
+    menu.append(button);
+  }
+  // Keys: arrows, Home and End move between items (buttons already take Enter
+  // and Space); Escape closes and the row gets focus back. The menu is in the
+  // DOM only after this returns, so focus waits a frame (and leaves it alone
+  // if a key already moved it by then).
+  const items = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+  menu.addEventListener('keydown', (e) => {
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    const to = menuStep(at, items.length, e.key);
+    if (e.key !== 'Escape' && to === null) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (to === null) ctx.close({ restoreFocus: true });
+    else items[to]?.focus();
+  });
+  queueMicrotask(() => requestAnimationFrame(() => menu.contains(document.activeElement) || items[0]?.focus()));
+  return menu;
 }

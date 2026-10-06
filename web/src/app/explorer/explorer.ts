@@ -4,13 +4,22 @@
 // open and how wide are settings. The tree's library loads on first use.
 import { daemonFetch } from '../daemon/client.ts';
 import { openInPane } from '../files/open.ts';
-import { onActivate, store } from '../sessions/store.ts';
+import { newTabAt, onActivate, store } from '../sessions/store.ts';
 import { matchesKey } from '../settings/keys.ts';
 import { EXPLORER_WIDTH } from '../settings/schema.ts';
 import { applySettings, current, onApply, saveSetting } from '../settings/settings.ts';
 import { fetchTree } from './api.ts';
 import { type Change, type Live, onMessage } from './changes.ts';
-import { absolutePath, type Listing, rootName, shown } from './listing.ts';
+import {
+  absolutePath,
+  cdCommand,
+  folderOf,
+  type Listing,
+  pastedPath,
+  type RowAction,
+  rootName,
+  shown,
+} from './listing.ts';
 import { watchFiles } from './socket.ts';
 
 type View = typeof import('./view.ts');
@@ -163,10 +172,28 @@ async function load(mine: number): Promise<void> {
   live.known = new Set(s.paths);
   message.hidden = true;
   mount.hidden = false;
-  v.showTree(mount, s.paths, (path) => {
-    const t = store.active;
-    if (t && listing) void openInPane(t, { text: absolutePath(listing.root, path) });
-  });
+  v.showTree(
+    mount,
+    s.paths,
+    (path) => {
+      const t = store.active;
+      if (t && listing) void openInPane(t, { text: absolutePath(listing.root, path) });
+    },
+    act,
+  );
+}
+
+// A pick from a row's menu. Paste never presses Enter (the front program may
+// not be a shell); it leaves focus in the terminal so typing carries on.
+function act(action: RowAction, path: string): void {
+  const t = store.active;
+  if (!t || t.closed || !listing) return;
+  if (action === 'tab') {
+    void newTabAt(folderOf(listing.root, path));
+    return;
+  }
+  t.term.paste(action === 'cd' ? cdCommand(listing.root, path) : pastedPath(listing.root, path));
+  t.term.focus();
 }
 
 // A message in place of the tree (the tree keeps its place, hidden).

@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { absolutePath, isDirectory, type Listing, pastedPath, rootName, shown } from './listing.ts';
+import {
+  absolutePath,
+  cdCommand,
+  folderOf,
+  isDirectory,
+  type Listing,
+  menuStep,
+  pastedPath,
+  rootName,
+  rowActions,
+  shown,
+} from './listing.ts';
 
 const listing = (over: Partial<Listing>): Listing => ({ root: '/p', paths: [], truncated: false, ...over });
 
@@ -36,4 +47,33 @@ test('the header names the root folder', () => {
   assert.equal(rootName('/work/beta'), 'beta');
   assert.equal(rootName('/work/beta/'), 'beta');
   assert.equal(rootName('/'), '/');
+});
+test('hostile names are quoted so the shell reads them as one word', () => {
+  assert.equal(pastedPath('/p', 'a`id`.txt'), "'/p/a`id`.txt'");
+  assert.equal(pastedPath('/p', 'a$HOME;b.txt'), "'/p/a$HOME;b.txt'");
+  assert.equal(pastedPath('/p', 'two\nlines.txt'), "'/p/two\nlines.txt'");
+  assert.equal(pastedPath('/p', '-rf'), '/p/-rf');
+});
+test('cd here uses -- so a folder named like an option is still a folder', () => {
+  assert.equal(cdCommand('/p', 'src/'), 'cd -- /p/src');
+  assert.equal(cdCommand('/my proj', "it's here/"), `cd -- '/my proj/it'\\''s here'`);
+});
+test("a folder's tab opens in it, and a file's in its parent folder", () => {
+  assert.equal(folderOf('/p', 'src/'), '/p/src');
+  assert.equal(folderOf('/p', 'src/main.rs'), '/p/src');
+  assert.equal(folderOf('/p', 'a/b/c.txt'), '/p/a/b');
+  assert.equal(folderOf('/p', 'README.md'), '/p');
+  assert.equal(folderOf('/', 'README.md'), '/');
+});
+test('cd here is offered on folders only', () => {
+  assert.deepEqual(rowActions('src/'), ['insert', 'cd', 'tab']);
+  assert.deepEqual(rowActions('src/main.rs'), ['insert', 'tab']);
+});
+test('arrow keys step through a menu and wrap; Home and End jump', () => {
+  assert.equal(menuStep(0, 3, 'ArrowDown'), 1);
+  assert.equal(menuStep(2, 3, 'ArrowDown'), 0);
+  assert.equal(menuStep(0, 3, 'ArrowUp'), 2);
+  assert.equal(menuStep(1, 3, 'Home'), 0);
+  assert.equal(menuStep(1, 3, 'End'), 2);
+  assert.equal(menuStep(1, 3, 'a'), null);
 });

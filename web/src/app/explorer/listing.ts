@@ -33,3 +33,31 @@ export const pastedPath = (root: string, path: string): string => shellQuote(abs
 
 // The folder's name, for the header above the tree.
 export const rootName = (root: string): string => root.replace(/\/+$/, '').split('/').pop() || '/';
+
+// What pasting `cd` for a folder row types. `--` keeps a folder named like an
+// option from being read as one. It is never submitted: Enter is the user's.
+export const cdCommand = (root: string, path: string): string => `cd -- ${pastedPath(root, path)}`;
+
+// Where a tab opened from a row starts: the folder itself, or a file's parent.
+export function folderOf(root: string, path: string): string {
+  const abs = absolutePath(root, path);
+  if (isDirectory(path)) return abs;
+  const cut = abs.lastIndexOf('/');
+  return cut > 0 ? abs.slice(0, cut) : '/';
+}
+
+export type RowAction = 'insert' | 'cd' | 'tab';
+
+// The menu's entries for a row: `cd here` makes sense for folders only.
+export const rowActions = (path: string): RowAction[] =>
+  isDirectory(path) ? ['insert', 'cd', 'tab'] : ['insert', 'tab'];
+
+// Which menu item a key moves to from `at` among `count` items, wrapping at
+// the ends; null for a key that doesn't move.
+export function menuStep(at: number, count: number, key: string): number | null {
+  if (key === 'ArrowDown') return (at + 1) % count;
+  if (key === 'ArrowUp') return (at - 1 + count) % count;
+  if (key === 'Home') return 0;
+  if (key === 'End') return count - 1;
+  return null;
+}
