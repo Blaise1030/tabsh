@@ -1,0 +1,1 @@
+{"session_id":"1f2a3b4c","transcript_path":"/home/me/.claude/projects/-home-me-p/1f2a3b4c.jsonl","cwd":"/home/me/p","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"cargo test","description":"run the test suite"}}
