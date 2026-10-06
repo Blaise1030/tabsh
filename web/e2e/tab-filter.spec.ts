@@ -17,6 +17,18 @@ const paletteOpen = (page: Page) => page.locator('#palette').evaluate((d) => (d 
 const paletteClosed = (page: Page) => expect.poll(() => paletteOpen(page)).toBe(false);
 const paletteOpened = (page: Page) => expect.poll(() => paletteOpen(page)).toBe(true);
 
+// Move the palette's highlight to an item. Earlier specs on this worker's
+// daemon may have left a repo of their own in between (explorer-actions leaves
+// `src`), so step until it is there rather than counting.
+async function highlight(page: Page, name: string, key: 'ArrowDown' | 'ArrowUp'): Promise<void> {
+  const target = item(page, name);
+  for (let step = 0; step < 10; step++) {
+    if (await expect(target).toHaveClass(/active/, { timeout: 300 }).then(() => true, () => false)) return;
+    await page.keyboard.press(key);
+  }
+  await expect(target).toHaveClass(/active/);
+}
+
 // Name the active tab through the shell, the one DOM effect of output.
 async function nameTab(page: Page, name: string): Promise<void> {
   await typeInTerminal(page, `printf '\\033]0;${name}\\007'`);
@@ -80,10 +92,10 @@ test('the palette switches the strip between repos and tags', async ({ page, dae
     await page.keyboard.press('ArrowDown'); // → beta
     await expect(tab(page, 'alpha-tab')).toBeHidden();
     await expect(tab(page, 'work-tab')).toBeVisible();
-    await page.keyboard.press('ArrowDown'); // → work
+    await highlight(page, 'work', 'ArrowDown');
     await expect(tab(page, 'alpha-tab')).toBeHidden();
     await expect(tab(page, 'work-tab')).toBeVisible();
-    await page.keyboard.press('ArrowUp'); // back to beta
+    await highlight(page, 'beta', 'ArrowUp'); // back to beta
   });
 
   await test.step('Enter keeps the highlighted filter', async () => {
@@ -114,8 +126,7 @@ test('the palette switches the strip between repos and tags', async ({ page, dae
   await test.step('closing without a pick restores the kept filter', async () => {
     await page.keyboard.press('ControlOrMeta+Shift+KeyY');
     await expect(item(page, 'work')).toHaveAttribute('data-checked', 'true');
-    await page.keyboard.press('ArrowUp'); // → beta
-    await page.keyboard.press('ArrowUp'); // → alpha, a preview that hides work-tab
+    await highlight(page, 'alpha', 'ArrowUp'); // a preview that hides work-tab
     await expect(tab(page, 'work-tab')).toBeHidden();
     await page.keyboard.press('Escape'); // back to the root page
     await page.keyboard.press('Escape'); // closed: the kept filter returns

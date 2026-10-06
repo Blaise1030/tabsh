@@ -14,15 +14,17 @@ should touch one folder.
 
 | File | Holds |
 |---|---|
-| `main.rs` | Startup only: environment, database path, `AppState`, flusher thread, bind, shutdown |
+| `main.rs` | Startup only: CLI dispatch (`cli::run`), then environment, database path, `AppState`, flusher thread, bind, shutdown |
 | `state.rs` | `AppState`, and `router()`, which merges every feature's routes under the guard |
 | `error.rs` | `BoxError`, `internal_error` |
 | `auth.rs` | The pairing token: load or create it, compare it, read it from a request |
 | `web/guard.rs` | The one access check: Host, Origin and token |
 | `web/pages.rs` | The pages (`/`, `/open`, `/app/`), the CSP, `/api/about` |
 | `web/assets.rs` | Embedded typing sounds and app bundle (`/sounds/…`, `/_astro/…`) |
-| `sessions/` | Shells in PTYs that outlive browser tabs: `store.rs` (SQLite, and the tab order set by `PUT /api/sessions/order`), `pty.rs` (spawn, cwd), `ws.rs` (attach), `modes.rs` (terminal modes for replay) |
+| `sessions/` | Shells in PTYs that outlive browser tabs: `store.rs` (SQLite, and the tab order set by `PUT /api/sessions/order`), `pty.rs` (spawn, cwd), `ws.rs` (attach), `modes.rs` (terminal modes for replay); shells get `TABSH_SESSION_ID` and `TABSH_URL` (`pty::shell_env`) and type a card's pending first prompt once started |
 | `files/` | The file pane's and the explorer's API: `resolve.rs`, `kind.rs`, `read.rs`, `save.rs`, `tree.rs` (a tab's project root, served alone at `/api/files/root` for the tab strip's labels, and its listing, capped at `TREE_LIMIT_PATHS`: past it, the sidebar gets its folders alone from the same walk, within the same cap and a scan budget of `FOLDER_SCAN_FACTOR` times it), `watch.rs` (`/api/files/watch`: one `notify` watcher per root shared by its sockets, events coalesced over 100 ms and checked on disk, sent as `{add, remove}` or `{reset}`; a socket also checks its tab's project root every second and sends `{root}` when it changes, moving to the new root's watcher) |
+| `board/` | The kanban board: card status columns and their migration (`mod.rs`), `PATCH /api/sessions/{id}/status` and `launch_line` (a new card's agent command and first prompt; it quotes the prompt per shell, POSIX and fish, and drops control characters), `rules.rs` (hooks never touch archived cards; `unless`), `events.rs` (`/api/board/events`: status changes pushed to pages) |
+| `cli/` | Subcommands on the same binary: `status.rs` (`tabsh status`, a one-shot loopback PATCH; `--hook` is silent and always exits 0), `setup.rs` and `setup.md` (`tabsh setup`: the guide an agent follows to wire its own hooks to `tabsh status`; tabsh never edits agent config) |
 | `settings.rs` | `/api/settings`: the page's preferences as one JSON object |
 | `upload.rs` | `/api/uploads`: files dropped onto a terminal |
 | `test_support.rs` | `test_state()` and `scratch()` for tests |
@@ -51,6 +53,7 @@ it in `state::router()`, and add its routes to `every_route_is_guarded`.
 | `links/` | `links.ts` (finding URLs and paths), `provider.ts` (xterm link provider) |
 | `files/` | `api.ts` (file API client), `open.ts` (loads the pane on first use, reopens files after a reload), `remember.ts` (each tab's file, in `localStorage`), `pane.ts` and `editor.ts` (pane and CodeMirror) |
 | `explorer/` | `explorer.ts` (the sidebar: toggle, divider, fetch on open and on tab switch, `/`, "Search files" and its keybinding opening the search), `view.ts` (the tree, its search and its row menu, drawn by `@pierre/trees`), `listing.ts` (the listing as what the sidebar shows, row paths, pasted paths and `cd` commands, a row menu's entries, whether a key opens the search), `api.ts` (the listing request), `socket.ts` (the live socket, open while the sidebar is, reconnecting), `changes.ts` (a live message as tree operations, or a re-fetch for a new root) |
+| `board/` | `model.ts` (statuses, columns, grouping, drop order, no DOM), `glyph.ts`, `status.ts` (a tab's card: glyph, archived tabs hidden, bell on needs input), `events.ts` (the board events socket), `view.ts` (the board, drag and drop, ⌘B), `new-card.ts` (the New card dialog, with recent agent commands) |
 | `sound/` | `packs.ts` (samples), `typing.ts` (key listeners) |
 | `palette/` | `pages.ts` (what the palette offers), `palette.ts` (dialog, preview, shortcuts, the filter page the filter button and its keybinding open) |
 | `ui/` | `dom.ts` (`el`, `isMac`), `divider.ts`, `about.ts`, `drop.ts` and `drop-paths.ts` |

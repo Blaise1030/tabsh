@@ -39,6 +39,27 @@ next to the thing it builds.
 | Themes and fonts         | 10 themes, 9 fonts and a ⌘K palette          |
 | Nothing leaves localhost | Keystrokes stay on 127.0.0.1                 |
 
+## The board
+
+Every terminal is a card on a kanban board (⌘B): Backlog, In progress,
+Needs input, Completed, and a collapsed Archive. Drag cards to change their
+status; click one to go to its terminal.
+
+Let your coding agent keep the board current. Tell Claude Code, Gemini CLI,
+Codex or any agent with hooks:
+
+> Run `tabsh setup` and follow it.
+
+It wires its own hooks to `tabsh status`: a prompt moves the card to In
+progress, the agent stopping or asking permission moves it to Needs input,
+and the agent marks it Completed when the task is done. Outside tabsh the
+hooks do nothing. The agent reports what it changed and how to undo it.
+
+New card (`+`) can start an agent on a first prompt: `claude {prompt}` by
+default, or any command, such as `gemini -i {prompt}`.
+
+`tabsh status <status> [--note <text>]` sets the card by hand.
+
 ## How it connects
 
 The app is a plain web page. It talks to the daemon on your own machine at

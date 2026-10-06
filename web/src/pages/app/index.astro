@@ -61,7 +61,7 @@ import '../../styles/app.css';
         <datalist id="new-card-folders"></datalist>
         <label class="label">First prompt <span class="mark">(optional, starts the agent)</span>
           <textarea class="textarea" name="prompt" rows="3"></textarea></label>
-        <label class="label">Agent <span class="mark">({prompt} is replaced by the prompt)</span>
+        <label class="label">Agent <span class="mark">({'{prompt}'} is replaced by the prompt)</span>
           <input class="input" name="command" list="new-card-commands" autocomplete="off" spellcheck="false"></label>
         <datalist id="new-card-commands"></datalist>
         <p class="new-card-error" hidden></p>
