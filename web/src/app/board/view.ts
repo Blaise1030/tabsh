@@ -63,12 +63,15 @@ function cardEl(s: Session, now: number): HTMLElement {
     toggleBoard(false);
     activate(s);
   };
-  card.onkeydown = (e) => e.key === 'Enter' && card.click();
+  card.onkeydown = (e) => e.target === card && e.key === 'Enter' && card.click();
   card.ondragstart = (e) => {
     e.dataTransfer?.setData('text/plain', s.id);
     card.classList.add('dragging');
   };
-  card.ondragend = () => card.classList.remove('dragging');
+  card.ondragend = () => {
+    card.classList.remove('dragging');
+    render();
+  };
   return card;
 }
 
@@ -167,7 +170,7 @@ function archive(cards: Session[], now: number): HTMLElement {
 }
 
 export function render(): void {
-  if (!boardOpen()) return;
+  if (!boardOpen() || board().querySelector('.dragging')) return;
   const now = Math.floor(Date.now() / 1000);
   const g = group(store.sessions);
   board().replaceChildren(

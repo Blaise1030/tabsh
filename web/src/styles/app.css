@@ -330,6 +330,6 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .status-glyph { display: inline-flex; flex-shrink: 0; color: var(--muted-foreground); }
 .status-glyph[data-status="needs_input"] { color: var(--needs-input); }
 .board-col.archive { flex: 0 0 auto; min-width: 8rem; }
-.board-col.archive.archive:has(.board-card) { flex-basis: 18rem; }
+.board-col.archive:has(.board-card) { flex-basis: 18rem; }
 .archive-toggle { align-self: flex-start; background: none; border: 0; color: var(--muted-foreground); font: inherit; font-size: .8125rem; padding: .25rem; cursor: pointer; }
 .archive .board-card { margin-top: .5rem; cursor: default; }
