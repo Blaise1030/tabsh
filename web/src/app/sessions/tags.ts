@@ -1,7 +1,8 @@
 // Tab labels: the repo a tab's shell is in, read from the daemon, and the tags
 // checked in the tab's right-click menu (kept in this browser). A tagged tab
 // shows its tags' colors; the filter button beside settings shows only the
-// tabs under the repos and tags checked there.
+// tabs under the repos and tags checked there. The checks are kept in this
+// browser too, and a tab opened under them joins them.
 import { daemonFetch } from '../daemon/client.ts';
 import { el } from '../ui/dom.ts';
 import {
@@ -10,6 +11,8 @@ import {
   filterOptions,
   type Labels,
   matches,
+  newTabLabels,
+  parseChecked,
   parseTags,
   repoName,
   tagBar,
@@ -20,7 +23,10 @@ import { onActivate, type Session, store } from './store.ts';
 import { updateFades } from './tabs.ts';
 
 const TAGS_KEY = 'tabsh.tags';
+const FILTER_KEY = 'tabsh.filter';
 const repos = new Map<string, string>(); // session id → repo label
+const roots = new Map<string, string>(); // session id → project root
+const looked = new Set<string>(); // session ids whose repo has been asked for
 const checked = new Set<string>(); // filter keys
 let menu: HTMLElement | null = null;
 
@@ -44,6 +50,18 @@ function setTags(s: Session, list: string[]): void {
   render(s);
 }
 
+function saveChecked(): void {
+  try {
+    localStorage.setItem(FILTER_KEY, JSON.stringify([...checked]));
+  } catch {}
+}
+
+function loadChecked(): void {
+  try {
+    for (const k of parseChecked(JSON.parse(localStorage.getItem(FILTER_KEY) ?? '[]'))) checked.add(k);
+  } catch {}
+}
+
 const labelsOf = (s: Session): Labels => ({ repo: repos.get(s.id) ?? null, tags: storedTags()[s.id] ?? [] });
 
 // A tagged tab shows a bar in its tags' colors.
@@ -58,18 +76,31 @@ async function refreshRepo(s: Session): Promise<void> {
   try {
     const res = await daemonFetch(`/api/files/root?session=${encodeURIComponent(s.id)}`);
     if (!res.ok) return;
-    const name = repoName(((await res.json()) as { root: string }).root);
+    const { root } = (await res.json()) as { root: string };
+    const name = repoName(root);
+    roots.set(s.id, root);
     if (repos.get(s.id) === name) return;
     repos.set(s.id, name);
     render(s);
-  } catch {}
+  } catch {
+  } finally {
+    if (!looked.has(s.id)) {
+      looked.add(s.id);
+      applyFilter();
+    }
+  }
 }
 
 // Hides the tabs outside the checked filters (the active one always stays),
-// forgetting checks no tab carries any more.
+// forgetting checks no tab carries any more. Until every tab's repo is known
+// (just after a reload) a check may only look unused, so none is forgotten.
 function applyFilter(): void {
-  const offered = new Set(filterOptions(store.sessions.map(labelsOf)).map((o) => filterKey(o.filter)));
-  for (const k of checked) if (!offered.has(k)) checked.delete(k);
+  if (store.sessions.every((s) => looked.has(s.id))) {
+    const offered = new Set(filterOptions(store.sessions.map(labelsOf)).map((o) => filterKey(o.filter)));
+    const before = checked.size;
+    for (const k of checked) if (!offered.has(k)) checked.delete(k);
+    if (checked.size !== before) saveChecked();
+  }
   for (const s of store.sessions) s.tab.hidden = s !== store.active && !matches(checked, labelsOf(s));
   const b = filterButton();
   b.setAttribute('aria-pressed', String(checked.size > 0));
@@ -170,6 +201,7 @@ function filterMenu(): HTMLElement {
         (on) => {
           if (on) checked.add(key);
           else checked.delete(key);
+          saveChecked();
           applyFilter();
           clear.hidden = !checked.size;
         },
@@ -180,6 +212,7 @@ function filterMenu(): HTMLElement {
   }
   const clear = footer('Show all tabs', FILTER_X, () => {
     checked.clear();
+    saveChecked();
     applyFilter();
   });
   clear.hidden = !checked.size;
@@ -223,6 +256,27 @@ function tagMenu(s: Session): HTMLElement {
   return m;
 }
 
+// Where a new tab starts and which tags it gets, so it shows under the
+// checked filters: in a checked repo's root, with every checked tag.
+export function newTabFilter(): { cwd: string | null; tags: string[] } {
+  const active = store.active ? (repos.get(store.active.id) ?? null) : null;
+  const { repo, tags } = newTabLabels(checked, active);
+  // The active tab's root first: another tab's may name a different repo of
+  // the same name.
+  const tab = [store.active, ...store.sessions].find((s) => s && repo && repos.get(s.id) === repo);
+  return { cwd: (tab && roots.get(tab.id)) ?? null, tags };
+}
+
+// Tags a tab before it opens, so it never shows outside the filter.
+export function adoptTags(id: string, tags: string[]): void {
+  if (!tags.length) return;
+  const all = storedTags();
+  all[id] = [...new Set([...(all[id] ?? []), ...tags])];
+  try {
+    localStorage.setItem(TAGS_KEY, JSON.stringify(all));
+  } catch {}
+}
+
 // Gives a new tab its labels and its menu.
 export function labelTab(s: Session): void {
   s.tab.addEventListener('contextmenu', (e) => {
@@ -234,6 +288,7 @@ export function labelTab(s: Session): void {
 }
 
 export function initTabLabels(): void {
+  loadChecked();
   const b = filterButton();
   b.onclick = () => {
     if (menu?.classList.contains('filter-menu')) return closeMenu();
