@@ -5,6 +5,8 @@ import {
   filterKey,
   filterOptions,
   matches,
+  newTabLabels,
+  parseChecked,
   parseTags,
   repoName,
   TAG_COLORS,
@@ -78,4 +80,23 @@ test('a tab shows when nothing is checked, or when any checked filter fits it', 
   assert.ok(matches(new Set(['repo:other', 'tag:debug']), labels));
   assert.ok(!matches(new Set(['repo:other']), labels));
   assert.ok(!matches(new Set(['tag:deploy']), { repo: 'tabsh', tags: [] }));
+});
+
+test('the stored filter keeps only repo and tag keys', () => {
+  assert.deepEqual([...parseChecked(['repo:tabsh', 'tag:deploy', 'tag:', 'other', 3])], ['repo:tabsh', 'tag:deploy']);
+  assert.deepEqual([...parseChecked(null)], []);
+  assert.deepEqual([...parseChecked({ a: 1 })], []);
+});
+
+test('a new tab takes every checked tag and a checked repo, preferring the active one', () => {
+  assert.deepEqual(newTabLabels(new Set(), 'tabsh'), { repo: null, tags: [] });
+  assert.deepEqual(newTabLabels(new Set(['tag:deploy', 'tag:debug']), 'tabsh'), {
+    repo: null,
+    tags: ['deploy', 'debug'],
+  });
+  assert.deepEqual(newTabLabels(new Set(['repo:web', 'repo:tabsh']), 'tabsh'), { repo: 'tabsh', tags: [] });
+  assert.deepEqual(newTabLabels(new Set(['repo:web', 'repo:tabsh', 'tag:x']), 'other'), {
+    repo: 'web',
+    tags: ['x'],
+  });
 });

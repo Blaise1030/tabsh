@@ -6,6 +6,7 @@ import { api } from '../daemon/client.ts';
 import { loadedPane } from '../files/open.ts';
 import { clearBell, updateBadge } from './bell.ts';
 import { orderTabs, setName, updateFades } from './tabs.ts';
+import { adoptTags, newTabFilter } from './tags.ts';
 import { openSession } from './terminal.ts';
 
 export interface Session {
@@ -48,16 +49,29 @@ export const savedActive = (): string | null => {
   }
 };
 
-export async function newSession(): Promise<void> {
-  activate(openSession((await api<SessionInfo>('POST', '')) as SessionInfo));
+// Opens a tab with `body`'s options, joining the tab filter: it gets the
+// checked tags, so it shows under them.
+async function openTab(body?: { cwd: string }): Promise<void> {
+  const { tags } = newTabFilter();
+  const info = (await api<SessionInfo>('POST', '', body)) as SessionInfo;
+  adoptTags(info.id, tags);
+  activate(openSession(info));
+}
+
+// Opens a new tab; under a repo filter its shell starts in that repo (or the
+// home directory, when that repo's folder is gone).
+export function newSession(): Promise<void> {
+  const { cwd } = newTabFilter();
+  return cwd ? openTab({ cwd }).catch(() => openTab()) : openTab();
 }
 
 // Opens a new tab whose shell starts in `cwd`.
 export function newTabAt(cwd: string): Promise<void> {
-  return api<SessionInfo>('POST', '', { cwd })
-    .then((info) => activate(openSession(info as SessionInfo)))
-    .catch(console.error);
+  return openTab({ cwd }).catch(console.error);
 }
+
+// The tabs the strip shows: those under the tab filter, and the active one.
+const shown = (): Session[] => store.sessions.filter((s) => s === store.active || !s.tab.hidden);
 
 // Bring the tab list in line with the server: picks up tabs opened or
 // closed from another browser, and drops ones whose shell is gone.
@@ -71,7 +85,7 @@ export async function sync(): Promise<void> {
     else openSession(info);
   }
   orderTabs(list.map((s) => s.id));
-  if (!store.active && store.sessions.length) activate(store.sessions[0]);
+  if (!store.active && store.sessions.length) activate(shown()[0] ?? store.sessions[0]);
 }
 
 export function sendSize(s: Session): void {
@@ -105,9 +119,10 @@ export function activate(s: Session | null): void {
   for (const fn of activateListeners) fn();
 }
 
-// The next/previous tab keybindings cycle through tabs, wrapping at the ends.
+// The next/previous tab keybindings cycle through the shown tabs, wrapping at
+// the ends.
 export function cycleTab(step: 1 | -1): void {
-  const { sessions } = store;
+  const sessions = shown();
   if (!sessions.length) return;
   const i = sessions.indexOf(store.active as Session);
   activate(sessions[(i + step + sessions.length) % sessions.length]);
@@ -142,6 +157,9 @@ export function removeSession(s: Session): void {
   sessions.splice(i, 1);
   if (store.active === s) {
     store.active = null;
-    activate(sessions[Math.min(i, sessions.length - 1)] ?? null);
+    // The next shown tab after it, else the last shown one before it.
+    const rest = shown();
+    const next = rest.find((t) => sessions.indexOf(t) >= i) ?? rest.at(-1);
+    activate(next ?? sessions[Math.min(i, sessions.length - 1)] ?? null);
   } else updateBadge();
 }
