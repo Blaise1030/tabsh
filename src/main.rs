@@ -1,5 +1,6 @@
 mod auth;
 mod board;
+mod cli;
 mod error;
 mod files;
 mod sessions;
@@ -18,8 +19,16 @@ use std::{
 use sessions::{FLUSH_INTERVAL, SHUTTING_DOWN, flush, open_db};
 use state::{AppState, router};
 
+fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(code) = cli::run(&args) {
+        std::process::exit(code);
+    }
+    daemon();
+}
+
 #[tokio::main]
-async fn main() {
+async fn daemon() {
     let port = std::env::args()
         .nth(1)
         .or_else(|| std::env::var("PORT").ok())
