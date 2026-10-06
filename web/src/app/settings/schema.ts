@@ -18,6 +18,7 @@ export interface Settings {
   keyPrevTab: string;
   keyToggleExplorer: string;
   keySearchFiles: string;
+  keyFilterTabs: string;
 }
 
 export function defaults(isMac: boolean): Settings {
@@ -35,6 +36,7 @@ export function defaults(isMac: boolean): Settings {
     keyPrevTab: keys.keyPrevTab.presets[0],
     keyToggleExplorer: keys.keyToggleExplorer.presets[0],
     keySearchFiles: keys.keySearchFiles.presets[0],
+    keyFilterTabs: keys.keyFilterTabs.presets[0],
   };
 }
 
@@ -52,6 +54,7 @@ export function cleanSettings(stored: Record<string, unknown>, isMac: boolean): 
     keyPrevTab: '',
     keyToggleExplorer: '',
     keySearchFiles: '',
+    keyFilterTabs: '',
   };
   const key = (id: KeyId) => {
     const want = str(stored[id]);
@@ -81,5 +84,6 @@ export function cleanSettings(stored: Record<string, unknown>, isMac: boolean): 
     keyPrevTab: key('keyPrevTab'),
     keyToggleExplorer: key('keyToggleExplorer'),
     keySearchFiles: key('keySearchFiles'),
+    keyFilterTabs: key('keyFilterTabs'),
   };
 }

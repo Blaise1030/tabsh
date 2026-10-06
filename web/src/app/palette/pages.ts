@@ -16,6 +16,8 @@ export const ICONS = {
     '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 8h.01"/><path d="M12 12h.01"/><path d="M14 8h.01"/><path d="M16 12h.01"/><path d="M18 8h.01"/><path d="M6 8h.01"/><path d="M7 16h10"/><path d="M8 12h.01"/><rect width="20" height="16" x="2" y="4" rx="2"/></svg>',
   keybinding:
     '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/></svg>',
+  filter:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>',
   explorer:
     '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>',
   info: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>',
@@ -23,7 +25,8 @@ export const ICONS = {
 
 // An item either opens another page (`go`), picks a setting (`key` +
 // `value`, previewed while highlighted), records a keybinding (`record`)
-// or runs code.
+// or runs code. `preview` rides along with `run` for a choice the palette
+// previews while highlighted, and `checked` marks the current such choice.
 export interface PaletteItem {
   label: string;
   icon?: string;
@@ -35,6 +38,8 @@ export interface PaletteItem {
   swatch?: ThemeColors;
   record?: KeyId;
   run?: () => void;
+  preview?: () => void;
+  checked?: boolean;
 }
 export interface PalettePage {
   placeholder: string;
@@ -51,6 +56,13 @@ export function pages(ctx: {
   openAbout(): void;
   toggleExplorer(): void;
   searchFiles(): void;
+  filters: {
+    choices(): { key: string; value: string; kind: 'repo' | 'tag'; count: number }[];
+    currentLabel(): string;
+    isCurrent(key: string | null): boolean;
+    preview(key: string | null): void;
+    set(key: string | null): void;
+  };
 }): Record<string, () => PalettePage> {
   const { saved } = current;
   return {
@@ -92,6 +104,18 @@ export function pages(ctx: {
               hint: TYPING_SOUNDS[saved.typingSound],
               keywords: 'keyboard click clack audio mute',
               go: 'typingSound',
+            },
+          ],
+        },
+        {
+          heading: 'Tabs',
+          items: [
+            {
+              label: 'Filter tabs…',
+              icon: ICONS.filter,
+              hint: ctx.filters.currentLabel(),
+              keywords: 'tags repos projects show hide switch',
+              go: 'filterTabs',
             },
           ],
         },
@@ -179,6 +203,37 @@ export function pages(ctx: {
         { heading: 'Font size', items: FONT_SIZES.map((n) => ({ label: `${n}px`, key: 'fontSize', value: n })) },
       ],
     }),
+    filterTabs: () => {
+      const f = ctx.filters;
+      const choice = (c: { key: string; value: string; kind: 'repo' | 'tag'; count: number }): PaletteItem => ({
+        label: c.value,
+        hint: String(c.count),
+        keywords: c.kind === 'repo' ? 'repo project' : 'tag',
+        checked: f.isCurrent(c.key),
+        run: () => f.set(c.key),
+        preview: () => f.preview(c.key),
+      });
+      const choices = f.choices();
+      return {
+        placeholder: 'Filter tabs…',
+        groups: [
+          {
+            heading: 'Show',
+            items: [
+              {
+                label: 'All tabs',
+                icon: ICONS.filter,
+                checked: f.isCurrent(null),
+                run: () => f.set(null),
+                preview: () => f.preview(null),
+              },
+            ],
+          },
+          { heading: 'Repos', items: choices.filter((c) => c.kind === 'repo').map(choice) },
+          { heading: 'Tags', items: choices.filter((c) => c.kind === 'tag').map(choice) },
+        ],
+      };
+    },
     ...Object.fromEntries(
       keyIds.map((id) => [
         id,
