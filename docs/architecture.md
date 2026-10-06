@@ -22,7 +22,7 @@ should touch one folder.
 | `web/pages.rs` | The pages (`/`, `/open`, `/app/`), the CSP, `/api/about` |
 | `web/assets.rs` | Embedded typing sounds and app bundle (`/sounds/…`, `/_astro/…`) |
 | `sessions/` | Shells in PTYs that outlive browser tabs: `store.rs` (SQLite), `pty.rs` (spawn, cwd), `ws.rs` (attach), `modes.rs` (terminal modes for replay) |
-| `files/` | The file pane's API: `resolve.rs`, `kind.rs`, `read.rs`, `save.rs` |
+| `files/` | The file pane's and the explorer's API: `resolve.rs`, `kind.rs`, `read.rs`, `save.rs`, `tree.rs` (a tab's project root, and its listing, capped at `TREE_LIMIT_PATHS`) |
 | `settings.rs` | `/api/settings`: the page's preferences as one JSON object |
 | `upload.rs` | `/api/uploads`: files dropped onto a terminal |
 | `test_support.rs` | `test_state()` and `scratch()` for tests |
@@ -50,6 +50,7 @@ it in `state::router()`, and add its routes to `every_route_is_guarded`.
 | `sessions/` | `store.ts` (tabs, active tab, sync), `terminal.ts` (xterm, socket), `tabs.ts` (tab strip), `bell.ts` and `bell-scan.ts` |
 | `links/` | `links.ts` (finding URLs and paths), `provider.ts` (xterm link provider) |
 | `files/` | `api.ts` (file API client), `open.ts` (loads the pane on first use, reopens files after a reload), `remember.ts` (each tab's file, in `localStorage`), `pane.ts` and `editor.ts` (pane and CodeMirror) |
+| `explorer/` | `explorer.ts` (the sidebar: toggle, divider, fetch on open and on tab switch), `view.ts` (the tree, drawn by `@pierre/trees`), `listing.ts` (the listing as what the sidebar shows, row paths, pasted paths), `api.ts` (the listing request) |
 | `sound/` | `packs.ts` (samples), `typing.ts` (key listeners) |
 | `palette/` | `pages.ts` (what the palette offers), `palette.ts` (dialog, preview, shortcuts) |
 | `ui/` | `dom.ts` (`el`, `isMac`), `divider.ts`, `about.ts`, `drop.ts` and `drop-paths.ts` |
@@ -60,7 +61,7 @@ The page's CSS is in `web/src/styles/app.css`. The markup is in
 **Rules**
 - **One-way dependencies between features:**
   - `daemon` → `settings` → `sound`
-  - `daemon` → `files` → `links` → `sessions` → `palette` and `ui` → `main`
+  - `daemon` → `files` → `links` → `sessions` → `explorer` → `palette` and `ui` → `main`
 
   A lower feature never imports a higher one:
   - `settings` tells others about changes through `onApply` and `onSaved`;
@@ -71,11 +72,15 @@ The page's CSS is in `web/src/styles/app.css`. The markup is in
 - **Pure logic stays testable:** files that `node --test` loads don't touch
   the DOM when imported: `links.ts`, `files/api.ts`, `daemon/parse.ts`,
   `settings/catalog.ts`, `keys.ts`, `schema.ts`, `sessions/bell-scan.ts`,
-  `ui/drop-paths.ts`. Their tests sit beside them as `*.test.ts`.
+  `explorer/listing.ts`, `ui/drop-paths.ts`. Their tests sit beside them as `*.test.ts`.
 - **The editor stays lazy:** `files/pane.ts` and `editor.ts` (CodeMirror,
   `marked`) are only reached through `import()`. The daemon test
   `entry_script_does_not_bundle_the_editor` fails if the page's first load
   includes them.
+- **The tree stays lazy:** `explorer/view.ts` is the only importer of
+  `@pierre/trees`, and `explorer.ts` reaches it through `import()` when the
+  sidebar first has a tree to show. The same daemon test fails if the page's
+  first load includes the library.
 - **CDN globals:** xterm and its fit addon come from the SRI-pinned CDN
   scripts. Their npm packages are used for types only (`import type`,
   `globals.d.ts`).
