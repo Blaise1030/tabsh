@@ -5,15 +5,23 @@
 // one in markup.
 import { type ContextMenuItem, type ContextMenuOpenContext, FileTree } from '@pierre/trees';
 import { el } from '../ui/dom.ts';
+import type { Op } from './changes.ts';
 import { menuStep, type RowAction, rowActions } from './listing.ts';
 
 const LABELS: Record<RowAction, string> = { insert: 'Insert path', cd: 'cd here', tab: 'Open in new tab' };
 
 let tree: FileTree | null = null;
+let shown: string[] = []; // the paths the last `showTree` was given
+
+// Applies a live update's operations, together: open folders and the
+// selection stay where they are.
+export function applyOps(ops: Op[]): void {
+  if (tree && ops.length) tree.batch(ops);
+}
 
 // Shows `paths` in `mount`: the first call builds the tree, later ones
-// replace its paths (open folders and the selection stay where they still
-// exist). `onFile` hears a click on a file row, with its relative path.
+// replace its paths (open folders and the selection are carried over where
+// they still exist: `resetPaths` alone would close every folder). `onFile` hears a click on a file row, with its relative path.
 // `onAction` hears a pick from a row's menu (right-click, its button, or
 // Shift+F10), with the row's path as listed (a directory ends in `/`).
 export function showTree(
@@ -23,9 +31,17 @@ export function showTree(
   onAction: (action: RowAction, path: string) => void,
 ): void {
   if (tree) {
-    tree.resetPaths(paths);
+    const open = shown.filter((p) => {
+      const item = p.endsWith('/') ? tree?.getItem(p) : null;
+      return !!item && 'isExpanded' in item && item.isExpanded();
+    });
+    const selected = tree.getSelectedPaths();
+    tree.resetPaths(paths, { initialExpandedPaths: open });
+    shown = paths;
+    for (const p of selected) tree.getItem(p)?.select();
     return;
   }
+  shown = paths;
   tree = new FileTree({
     paths,
     initialExpansion: 'closed',

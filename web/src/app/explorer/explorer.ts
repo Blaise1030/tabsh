@@ -9,15 +9,31 @@ import { matchesKey } from '../settings/keys.ts';
 import { EXPLORER_WIDTH } from '../settings/schema.ts';
 import { applySettings, current, onApply, saveSetting } from '../settings/settings.ts';
 import { fetchTree } from './api.ts';
-import { absolutePath, cdCommand, folderOf, type Listing, pastedPath, type RowAction, shown } from './listing.ts';
+import { type Change, type Live, onMessage } from './changes.ts';
+import {
+  absolutePath,
+  cdCommand,
+  folderOf,
+  type Listing,
+  pastedPath,
+  type RowAction,
+  rootName,
+  shown,
+} from './listing.ts';
+import { watchFiles } from './socket.ts';
 
 type View = typeof import('./view.ts');
 
 let aside: HTMLElement;
 let mount: HTMLElement;
 let message: HTMLElement;
+let heading: HTMLElement;
 let view: Promise<View> | null = null;
+let ready: View | null = null; // the loaded tree library, once there is a tree
 let listing: Listing | null = null; // what the tree shows
+const live: Live = { known: null, settling: false }; // the paths the tree has, and whether a new root's listing is awaited
+let unwatch: (() => void) | null = null;
+let watched: string | null = null; // the session the socket is open for
 let seq = 0; // bumped by every fetch, so a slow answer to a superseded one is dropped
 
 const isOpen = () => !aside.hidden;
@@ -30,6 +46,7 @@ export function initExplorer(): void {
   aside = document.getElementById('explorer') as HTMLElement;
   mount = document.getElementById('explorer-tree') as HTMLElement;
   message = document.getElementById('explorer-msg') as HTMLElement;
+  heading = document.getElementById('explorer-root') as HTMLElement;
   const divider = document.getElementById('explorer-divider') as HTMLElement;
   const button = document.getElementById('explorer-btn') as HTMLButtonElement;
 
@@ -51,9 +68,14 @@ export function initExplorer(): void {
     button.setAttribute('aria-pressed', String(s.explorerOpen));
     aside.style.setProperty('--explorer-width', `${s.explorerWidth}px`);
     if (s.explorerOpen && !wasOpen) void refresh();
+    watch();
   });
-  // A tab's project is fetched on opening and on switching tabs, not more.
-  onActivate(() => void refresh());
+  // A tab's project is fetched on opening and on switching tabs; after that
+  // the socket keeps the tree current.
+  onActivate(() => {
+    void refresh();
+    watch();
+  });
   initResize(divider);
 }
 
@@ -88,10 +110,34 @@ function initResize(divider: HTMLElement): void {
   divider.addEventListener('pointercancel', end);
 }
 
+// The live socket is open while the sidebar is, for the active tab only.
+function watch(): void {
+  const want = isOpen() ? (store.active?.id ?? null) : null;
+  if (want === watched) return;
+  unwatch?.();
+  unwatch = null;
+  watched = want;
+  if (want) unwatch = watchFiles(want, () => void refresh(), onChange);
+}
+
+// A live update: operations for the open tree, or a re-fetch (once, for a new
+// root, whatever arrives before its listing does).
+function onChange(change: Change): void {
+  if (!ready || mount.hidden) live.known = null;
+  const action = onMessage(live, change);
+  if (action.kind === 'reset') void refresh();
+  else if (action.kind === 'ops') ready?.applyOps(action.ops);
+}
+
 async function refresh(): Promise<void> {
+  const mine = ++seq;
+  await load(mine);
+  if (mine === seq) live.settling = false;
+}
+
+async function load(mine: number): Promise<void> {
   const tab = store.active;
   if (!isOpen() || !tab) return;
-  const mine = ++seq;
   let l: Listing;
   try {
     l = await fetchTree(daemonFetch, tab.id);
@@ -102,6 +148,10 @@ async function refresh(): Promise<void> {
   }
   if (mine !== seq) return;
   const s = shown(l);
+  live.known = null;
+  heading.textContent = rootName(l.root);
+  heading.title = l.root;
+  heading.hidden = false;
   if (s.kind === 'too-many') return say('Too many files to show here. cd into a project.');
   if (s.kind === 'empty') return say('This folder is empty');
   listing = l;
@@ -118,6 +168,8 @@ async function refresh(): Promise<void> {
     return;
   }
   if (mine !== seq) return;
+  ready = v;
+  live.known = new Set(s.paths);
   message.hidden = true;
   mount.hidden = false;
   v.showTree(

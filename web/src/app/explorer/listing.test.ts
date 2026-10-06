@@ -8,6 +8,7 @@ import {
   type Listing,
   menuStep,
   pastedPath,
+  rootName,
   rowActions,
   shown,
 } from './listing.ts';
@@ -40,6 +41,12 @@ test('a pasted path is shell-quoted when it needs it', () => {
   assert.equal(pastedPath('/p', 'ünï/日本.txt'), "'/p/ünï/日本.txt'");
   assert.equal(pastedPath('/p', '$(rm -rf).txt'), "'/p/$(rm -rf).txt'");
   assert.equal(pastedPath('/p', 'dir name/'), "'/p/dir name'");
+});
+
+test('the header names the root folder', () => {
+  assert.equal(rootName('/work/beta'), 'beta');
+  assert.equal(rootName('/work/beta/'), 'beta');
+  assert.equal(rootName('/'), '/');
 });
 test('hostile names are quoted so the shell reads them as one word', () => {
   assert.equal(pastedPath('/p', 'a`id`.txt'), "'/p/a`id`.txt'");

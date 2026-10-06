@@ -5,6 +5,7 @@ mod read;
 mod resolve;
 mod save;
 mod tree;
+mod watch;
 
 use crate::{AppState, error::internal_error};
 use axum::{
@@ -36,6 +37,7 @@ pub(crate) fn routes() -> Router<AppState> {
         )
         .route("/api/files/raw", get(file_raw))
         .route("/api/files/tree", get(file_tree))
+        .route("/api/files/watch", get(watch::watch_handler))
 }
 
 #[derive(Deserialize)]

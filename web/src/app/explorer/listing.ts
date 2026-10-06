@@ -31,6 +31,9 @@ export function absolutePath(root: string, path: string): string {
 // What pasting a row's path at the prompt types.
 export const pastedPath = (root: string, path: string): string => shellQuote(absolutePath(root, path));
 
+// The folder's name, for the header above the tree.
+export const rootName = (root: string): string => root.replace(/\/+$/, '').split('/').pop() || '/';
+
 // What pasting `cd` for a folder row types. `--` keeps a folder named like an
 // option from being read as one. It is never submitted: Enter is the user's.
 export const cdCommand = (root: string, path: string): string => `cd -- ${pastedPath(root, path)}`;

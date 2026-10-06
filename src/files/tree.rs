@@ -3,7 +3,11 @@
 
 use ignore::WalkBuilder;
 use serde::Serialize;
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashSet,
+    ffi::OsString,
+    path::{MAIN_SEPARATOR, Path, PathBuf},
+};
 
 /// More paths than this and the page is told to show a message, not a tree.
 pub(super) const TREE_LIMIT_PATHS: usize = 20_000;
@@ -25,16 +29,43 @@ pub(super) fn tree_root(cwd: &Path) -> PathBuf {
         .to_path_buf()
 }
 
+/// The walk behind every listing, and behind the watcher's checks, so both
+/// agree on what the tree shows.
+pub(super) fn walker(dir: &Path) -> WalkBuilder {
+    let mut walk = WalkBuilder::new(dir);
+    walk.hidden(false)
+        .require_git(false)
+        .filter_entry(|entry| entry.file_name() != ".git");
+    walk
+}
+
+/// The names directly inside `dir` that the listing shows.
+pub(super) fn visible_names(dir: &Path) -> HashSet<OsString> {
+    walker(dir)
+        .max_depth(Some(1))
+        .build()
+        .flatten()
+        .filter(|entry| entry.depth() == 1)
+        .map(|entry| entry.file_name().to_owned())
+        .collect()
+}
+
+/// The listing's form of a path relative to `root`: `/`-separated, with a
+/// `/` after directories.
+pub(super) fn tree_path(rel: &Path, is_dir: bool) -> String {
+    let mut path = rel.to_string_lossy().replace(MAIN_SEPARATOR, "/");
+    if is_dir {
+        path.push('/');
+    }
+    path
+}
+
 /// Lists everything under `root` that git wouldn't ignore (`.gitignore` is
 /// honoured even outside a repo), dotfiles included, `.git/` never. Past
 /// `limit` paths it stops and returns none, so the page never shows a partial
 /// tree.
 pub(super) fn list_tree(root: &Path, limit: usize) -> Tree {
-    let walk = WalkBuilder::new(root)
-        .hidden(false)
-        .require_git(false)
-        .filter_entry(|entry| entry.file_name() != ".git")
-        .build();
+    let walk = walker(root).build();
     let mut paths = Vec::new();
     for entry in walk.flatten() {
         let Ok(rel) = entry.path().strip_prefix(root) else {
@@ -51,13 +82,8 @@ pub(super) fn list_tree(root: &Path, limit: usize) -> Tree {
                 truncated: true,
             };
         }
-        let mut path = rel
-            .to_string_lossy()
-            .replace(std::path::MAIN_SEPARATOR, "/");
-        if entry.file_type().is_some_and(|t| t.is_dir()) {
-            path.push('/');
-        }
-        paths.push(path);
+        let is_dir = entry.file_type().is_some_and(|t| t.is_dir());
+        paths.push(tree_path(rel, is_dir));
     }
     Tree {
         root: root.to_string_lossy().into_owned(),

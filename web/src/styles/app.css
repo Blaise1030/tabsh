@@ -109,6 +109,10 @@ html.themed {
   display: flex; flex-direction: column; background: var(--background);
 }
 #explorer[hidden], #explorer-divider[hidden] { display: none; }
+#explorer-root {
+  margin: 0; padding: .5rem .75rem 0; font-size: .75rem; font-weight: 600; color: var(--muted-foreground);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 #explorer-tree { flex: 1; min-height: 0; padding-top: .25rem; box-sizing: border-box; }
 #explorer-msg { margin: 0; padding: .75rem; font-size: .8125rem; color: var(--muted-foreground); }
 /* The tree's colors come from the page's theme; the custom properties
