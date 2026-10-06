@@ -104,6 +104,32 @@ html.themed {
 #workspace { flex: 1; min-height: 0; display: flex; position: relative; }
 #main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 #terms { flex: 1; min-width: 0; min-height: 0; position: relative; }
+#explorer {
+  flex: 0 0 var(--explorer-width, 260px); min-width: 0;
+  display: flex; flex-direction: column; background: var(--background);
+}
+#explorer[hidden], #explorer-divider[hidden] { display: none; }
+#explorer-tree { flex: 1; min-height: 0; padding-top: .25rem; box-sizing: border-box; }
+#explorer-msg { margin: 0; padding: .75rem; font-size: .8125rem; color: var(--muted-foreground); }
+/* The tree's colors come from the page's theme; the custom properties
+   inherit into its shadow DOM. */
+file-tree-container {
+  display: block; height: 100%;
+  --trees-bg: var(--background);
+  --trees-fg: var(--foreground);
+  --trees-fg-muted: var(--muted-foreground);
+  --trees-bg-muted: var(--muted);
+  --trees-selected-bg: var(--accent);
+  --trees-selected-fg: var(--accent-foreground);
+  --trees-accent: var(--foreground);
+  --trees-font-family: var(--font-sans);
+}
+#explorer-divider { flex: 0 0 1px; background: var(--border); position: relative; touch-action: none; }
+#explorer-divider::before { content: ''; position: absolute; inset: 0 -3px; cursor: col-resize; z-index: 6; }
+@media (max-width: 799px) {
+  #explorer { position: absolute; inset: 0; z-index: 5; }
+  #explorer-divider { display: none; }
+}
 #pane-divider { flex: 0 0 1px; background: var(--border); position: relative; touch-action: none; }
 /* A wider grab area than the 1px line. */
 #pane-divider::before { content: ''; position: absolute; inset: 0 -3px; cursor: col-resize; z-index: 6; }

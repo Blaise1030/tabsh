@@ -16,6 +16,8 @@ export const ICONS = {
     '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 8h.01"/><path d="M12 12h.01"/><path d="M14 8h.01"/><path d="M16 12h.01"/><path d="M18 8h.01"/><path d="M6 8h.01"/><path d="M7 16h10"/><path d="M8 12h.01"/><rect width="20" height="16" x="2" y="4" rx="2"/></svg>',
   keybinding:
     '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/></svg>',
+  explorer:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>',
   info: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>',
 };
 
@@ -47,6 +49,7 @@ export function pages(ctx: {
   hasFile: boolean;
   closeFile(): void;
   openAbout(): void;
+  toggleExplorer(): void;
 }): Record<string, () => PalettePage> {
   const { saved } = current;
   return {
@@ -91,14 +94,21 @@ export function pages(ctx: {
             },
           ],
         },
-        ...(ctx.hasFile
-          ? [
-              {
-                heading: 'Files',
-                items: [{ label: 'Close file', icon: ICONS.info, keywords: 'pane editor hide', run: ctx.closeFile }],
-              },
-            ]
-          : []),
+        {
+          heading: 'Files',
+          items: [
+            {
+              label: 'Toggle file explorer',
+              icon: ICONS.explorer,
+              hint: keyLabel(saved.keyToggleExplorer, isMac),
+              keywords: 'files sidebar tree folders project',
+              run: ctx.toggleExplorer,
+            },
+            ...(ctx.hasFile
+              ? [{ label: 'Close file', icon: ICONS.info, keywords: 'pane editor hide', run: ctx.closeFile }]
+              : []),
+          ],
+        },
         {
           heading: 'Keybindings',
           items: keyIds.map((id) => ({

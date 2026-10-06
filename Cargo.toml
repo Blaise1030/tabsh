@@ -8,6 +8,7 @@ repository = "https://github.com/Blaise1030/tabsh"
 [dependencies]
 axum = { version = "0.8.9", features = ["ws"] }
 futures-util = "0.3.34"
+ignore = "0.4"
 libc = "0.2.190"
 portable-pty = "0.9.0"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
