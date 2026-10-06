@@ -86,6 +86,16 @@ impl Batch {
     }
 }
 
+/// What a create event proves. FSEvents (macOS) reports the flags a path has
+/// gathered, not what just happened: a file made earlier can show a create
+/// when it is renamed or removed. There a create says nothing, so a path that
+/// turns out gone is removed, not forgotten.
+const CREATE: Seen = if cfg!(target_os = "macos") {
+    Seen::Changed
+} else {
+    Seen::Created
+};
+
 /// Turns notify's answer into what the coalescer needs.
 fn raws(res: notify::Result<Event>) -> Vec<Raw> {
     let Ok(event) = res else {
@@ -96,7 +106,7 @@ fn raws(res: notify::Result<Event>) -> Vec<Raw> {
     }
     let seen = match event.kind {
         EventKind::Access(_) => return Vec::new(),
-        EventKind::Create(_) => Seen::Created,
+        EventKind::Create(_) => CREATE,
         EventKind::Remove(_) => Seen::Removed,
         EventKind::Modify(ModifyKind::Data(_) | ModifyKind::Metadata(_)) => Seen::Content,
         EventKind::Modify(_) | EventKind::Any | EventKind::Other => Seen::Changed,
@@ -588,7 +598,7 @@ mod tests {
         let kinds = |kind| raws(Ok(event(kind)));
         assert_eq!(
             kinds(EventKind::Create(CreateKind::File)),
-            [Raw::Path(path.clone(), Seen::Created)]
+            [Raw::Path(path.clone(), CREATE)]
         );
         assert_eq!(
             kinds(EventKind::Remove(RemoveKind::File)),

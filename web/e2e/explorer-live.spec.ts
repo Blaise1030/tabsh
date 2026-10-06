@@ -54,11 +54,27 @@ test('the tree stays current as files change on disk', async ({ page, daemon, pr
     await expect(row('docs')).toBeVisible();
     await run("echo 'docs/' >> .gitignore");
     await expect(row('docs')).toHaveCount(0, within);
+    await expect(row('main.rs')).toBeVisible(); // src is still open
   });
 
   await test.step('a huge change re-fetches the tree and keeps open folders', async () => {
-    await run('for i in $(seq 1 1500); do touch bulk$i; done');
-    await expect(row('bulk1500')).toBeVisible({ timeout: 10_000 });
+    // One process makes them all within a window: more than a batch carries.
+    await run('touch $(seq -f bulk%g 1 1500)');
+    await expect(row('bulk1')).toBeVisible({ timeout: 10_000 });
+    // The tree draws only the rows in view: scroll to the end of the list.
+    await expect(async () => {
+      await page.locator('file-tree-container').evaluate((host) => {
+        for (const el of host.shadowRoot?.querySelectorAll('div') ?? []) el.scrollTop = el.scrollHeight;
+      });
+      await expect(row('bulk1500')).toBeVisible({ timeout: 500 });
+    }).toPass({ timeout: 10_000 });
+    await page.locator('file-tree-container').evaluate((host) => {
+      for (const el of host.shadowRoot?.querySelectorAll('div') ?? []) el.scrollTop = 0;
+    });
     await expect(row('main.rs')).toBeVisible();
   });
+
+  // The sidebar's state is a saved setting, shared with the next spec.
+  await page.locator('#explorer-btn').click();
+  await expect(page.locator('#explorer')).toBeHidden();
 });
