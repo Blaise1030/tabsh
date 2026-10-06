@@ -17,7 +17,8 @@ use std::{
 const TIMEOUT: Duration = Duration::from_secs(1);
 
 /// The fields an agent's hook JSON may carry its event name in, in the
-/// order they're tried: whichever holds the event, it is found.
+/// order they're tried: a field counts only when it is present *and a
+/// string*, so whichever holds the event, it is found.
 const EVENT_FIELDS: [&str; 4] = ["hook_event_name", "event", "hookName", "agent_action_name"];
 
 /// Posts the session's activity to the daemon at `TABSH_URL`, reading the
@@ -131,6 +132,8 @@ fn send(
     let Some(authority) = authority(url) else {
         return Ok(());
     };
+    // Resolution sits outside the deadline: `TABSH_URL` is always a
+    // daemon-written IP literal, so it resolves locally and at once.
     let Some(addr) = authority.to_socket_addrs()?.next() else {
         return Ok(());
     };
@@ -159,6 +162,12 @@ fn send(
         body.len()
     );
     stream.write_all(request.as_bytes())?;
+    // The write spent some of the budget, so the drain gets only what's
+    // left: the 1s overall deadline can't overshoot by a slow write.
+    let Some(read) = remaining(deadline) else {
+        return Ok(());
+    };
+    stream.set_read_timeout(Some(read))?;
     // Drained so the daemon sees a complete request; the answer is ignored.
     let _ = stream.read(&mut [0u8; 512]);
     Ok(())
@@ -511,6 +520,17 @@ mod tests {
             r#"{"hook_event_name":"SubagentStart"}"#,
         ] {
             assert_eq!(map_hook_json(json), None, "for {json:?}");
+        }
+    }
+
+    /// No agent spells an event with a hyphen (`pre-tool-use`), so none is
+    /// normalised away: this pins that widening `normalise` to strip `-`
+    /// can't happen silently.
+    #[test]
+    fn hyphenated_event_names_send_nothing() {
+        for field in EVENT_FIELDS {
+            let json = format!(r#"{{"{field}":"pre-tool-use"}}"#);
+            assert_eq!(map_hook_json(&json), None, "in {field}");
         }
     }
 

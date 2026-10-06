@@ -71,13 +71,14 @@ test('hook json on stdin maps to the tab state', async ({ page, daemon }) => {
   await page.waitForTimeout(300);
   await expect(tab(page, 1)).toHaveClass(/done/);
 
-  // Not JSON: nothing sent — the ✓ stays, the hook prints nothing and
-  // exits 0. The tab is renamed "<exit>:<output length>": `0:0` proves
-  // both, and having the hook finished bounds the "nothing changed" assert.
+  // Not JSON: nothing sent — the ✓ stays, the hook prints nothing (stderr
+  // included, so a future panic can't hide) and exits 0. The tab is renamed
+  // "<exit>:<output length>": `0:0` proves both, and having the hook
+  // finished bounds the "nothing changed" assert.
   await expect(async () => {
     await typeInTerminal(
       page,
-      `\u0003out=$(echo 'not json' | ${daemon.bin} hook); printf '\\033]0;%s:%s\\007' "$?" "\${#out}"`,
+      `\u0003out=$(echo 'not json' | ${daemon.bin} hook 2>&1); printf '\\033]0;%s:%s\\007' "$?" "\${#out}"`,
     );
     await page.keyboard.press('Enter');
   }).toPass({ timeout: 10_000 });
