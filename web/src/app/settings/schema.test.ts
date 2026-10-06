@@ -58,3 +58,9 @@ test('filtering tabs defaults to its own combo', () => {
   assert.equal(defaults(false).keyFilterTabs, 'ctrl+shift+KeyY');
   assert.equal(cleanSettings({ keyFilterTabs: 'alt+shift+KeyY' }, false).keyFilterTabs, 'alt+shift+KeyY');
 });
+
+test('agent commands are kept as a short list of strings', () => {
+  assert.deepEqual(defaults(true).agentCommands, ['claude {prompt}']);
+  assert.deepEqual(cleanSettings({ agentCommands: ['codex', 3, '', 'codex'] }, true).agentCommands, ['codex']);
+  assert.deepEqual(cleanSettings({ agentCommands: 'nope' }, true).agentCommands, ['claude {prompt}']);
+});

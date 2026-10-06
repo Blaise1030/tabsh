@@ -333,3 +333,7 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .board-col.archive:has(.board-card) { flex-basis: 18rem; }
 .archive-toggle { align-self: flex-start; background: none; border: 0; color: var(--muted-foreground); font: inherit; font-size: .8125rem; padding: .25rem; cursor: pointer; }
 .archive .board-card { margin-top: .5rem; cursor: default; }
+
+.new-card-fields { display: flex; flex-direction: column; gap: .75rem; }
+.new-card-fields .label { display: flex; flex-direction: column; gap: .375rem; }
+.new-card-error { color: var(--destructive, #ef4444); font-size: .8125rem; margin: 0; }
