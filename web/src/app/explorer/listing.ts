@@ -61,3 +61,16 @@ export function menuStep(at: number, count: number, key: string): number | null 
   if (key === 'End') return count - 1;
   return null;
 }
+
+// Whether a key press in the tree opens the search: a bare `/`. (The library
+// opens it from letters and digits itself; `/` it leaves alone.) Inside the
+// open field `/` is just a character.
+export const opensSearch = (
+  e: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean },
+  searchOpen: boolean,
+): boolean => e.key === '/' && !searchOpen && !e.ctrlKey && !e.metaKey && !e.altKey;
+
+// What Enter does on the focused search match (`path` as the tree names it:
+// a directory ends in `/`): a file opens in the pane, a folder toggles.
+export const enterAction = (path: string | null): 'open' | 'toggle' | null =>
+  path === null ? null : isDirectory(path) ? 'toggle' : 'open';

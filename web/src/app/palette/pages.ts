@@ -50,6 +50,7 @@ export function pages(ctx: {
   closeFile(): void;
   openAbout(): void;
   toggleExplorer(): void;
+  searchFiles(): void;
 }): Record<string, () => PalettePage> {
   const { saved } = current;
   return {
@@ -103,6 +104,12 @@ export function pages(ctx: {
               hint: keyLabel(saved.keyToggleExplorer, isMac),
               keywords: 'files sidebar tree folders project',
               run: ctx.toggleExplorer,
+            },
+            {
+              label: 'Search files',
+              icon: ICONS.explorer,
+              keywords: 'find filter name tree explorer',
+              run: ctx.searchFiles,
             },
             ...(ctx.hasFile
               ? [{ label: 'Close file', icon: ICONS.info, keywords: 'pane editor hide', run: ctx.closeFile }]
