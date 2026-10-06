@@ -1,5 +1,9 @@
 // The app page's startup: pair with the daemon, wire the features
 // together, then restore the tabs.
+
+import { initBoardEvents } from './board/events.ts';
+import { initNewCard } from './board/new-card.ts';
+import { initBoard } from './board/view.ts';
 import { daemonFetch, initGate, waitForDaemon } from './daemon/client.ts';
 import { LOCAL_APP, MIXED_BLOCKED } from './daemon/config.ts';
 import { adoptToken } from './daemon/token.ts';
@@ -60,6 +64,8 @@ initBell();
 initTabStrip();
 initTabLabels();
 initExplorer();
+initBoard();
+initNewCard();
 initTypingSound();
 initPalette();
 initDivider();
@@ -94,6 +100,7 @@ window.addEventListener('focus', () => {
   await waitForDaemon();
   await loadSettings().catch(() => applySettings(current.saved));
   await sync();
+  initBoardEvents();
   restoreFiles(store.sessions.map((s) => s.id));
   if (!store.sessions.length) return newSession();
   activate(store.sessions.find((s) => s.id === activeId) ?? store.sessions[0]);

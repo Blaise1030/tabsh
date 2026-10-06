@@ -19,6 +19,8 @@ export interface Settings {
   keyToggleExplorer: string;
   keySearchFiles: string;
   keyFilterTabs: string;
+  keyToggleBoard: string;
+  agentCommands: string[]; // most recent first, at most 8
 }
 
 export function defaults(isMac: boolean): Settings {
@@ -37,6 +39,8 @@ export function defaults(isMac: boolean): Settings {
     keyToggleExplorer: keys.keyToggleExplorer.presets[0],
     keySearchFiles: keys.keySearchFiles.presets[0],
     keyFilterTabs: keys.keyFilterTabs.presets[0],
+    keyToggleBoard: keys.keyToggleBoard.presets[0],
+    agentCommands: ['claude {prompt}'],
   };
 }
 
@@ -55,6 +59,7 @@ export function cleanSettings(stored: Record<string, unknown>, isMac: boolean): 
     keyToggleExplorer: '',
     keySearchFiles: '',
     keyFilterTabs: '',
+    keyToggleBoard: '',
   };
   const key = (id: KeyId) => {
     const want = str(stored[id]);
@@ -85,5 +90,12 @@ export function cleanSettings(stored: Record<string, unknown>, isMac: boolean): 
     keyToggleExplorer: key('keyToggleExplorer'),
     keySearchFiles: key('keySearchFiles'),
     keyFilterTabs: key('keyFilterTabs'),
+    keyToggleBoard: key('keyToggleBoard'),
+    agentCommands: (() => {
+      const list = Array.isArray(stored.agentCommands)
+        ? [...new Set(stored.agentCommands.filter((c): c is string => typeof c === 'string' && !!c.trim()))].slice(0, 8)
+        : [];
+      return list.length ? list : d.agentCommands;
+    })(),
   };
 }

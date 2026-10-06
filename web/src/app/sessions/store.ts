@@ -2,6 +2,8 @@
 // tab this browser has selected is kept locally.
 import type { FitAddon as Fit } from '@xterm/addon-fit';
 import type { Terminal as XTerm } from '@xterm/xterm';
+import type { Card } from '../board/model.ts';
+import { applyCard, cardOf, cardsChanged } from '../board/status.ts';
 import { api } from '../daemon/client.ts';
 import { loadedPane } from '../files/open.ts';
 import { clearBell, updateBadge } from './bell.ts';
@@ -21,10 +23,15 @@ export interface Session {
   replaying: boolean;
   esc: number;
   bell: boolean;
+  card: Card;
 }
 export interface SessionInfo {
   id: string;
   name: string;
+  status: string;
+  status_at: number;
+  note: string | null;
+  cwd: string | null;
 }
 
 const activateListeners: (() => void)[] = [];
@@ -51,7 +58,12 @@ export const savedActive = (): string | null => {
 
 // Opens a tab with `body`'s options, joining the tab filter: it gets the
 // checked tags, so it shows under them.
-async function openTab(body?: { cwd: string }): Promise<void> {
+export async function openTab(body?: {
+  cwd?: string;
+  name?: string;
+  prompt?: string;
+  command?: string;
+}): Promise<void> {
   const { tags } = newTabFilter();
   const info = (await api<SessionInfo>('POST', '', body)) as SessionInfo;
   adoptTags(info.id, tags);
@@ -71,7 +83,8 @@ export function newTabAt(cwd: string): Promise<void> {
 }
 
 // The tabs the strip shows: those under the tab filter, and the active one.
-const shown = (): Session[] => store.sessions.filter((s) => s === store.active || !s.tab.hidden);
+const shown = (): Session[] =>
+  store.sessions.filter((s) => s === store.active || (!s.tab.hidden && s.card.status !== 'archived'));
 
 // Bring the tab list in line with the server: picks up tabs opened or
 // closed from another browser, and drops ones whose shell is gone.
@@ -81,8 +94,10 @@ export async function sync(): Promise<void> {
   for (const s of store.sessions.filter((s) => !ids.has(s.id))) removeSession(s);
   for (const info of list) {
     const s = store.sessions.find((s) => s.id === info.id);
-    if (s) setName(s, info.name, false);
-    else openSession(info);
+    if (s) {
+      setName(s, info.name, false);
+      applyCard(s, cardOf(info));
+    } else openSession(info);
   }
   orderTabs(list.map((s) => s.id));
   if (!store.active && store.sessions.length) activate(shown()[0] ?? store.sessions[0]);
@@ -162,4 +177,5 @@ export function removeSession(s: Session): void {
     const next = rest.find((t) => sessions.indexOf(t) >= i) ?? rest.at(-1);
     activate(next ?? sessions[Math.min(i, sessions.length - 1)] ?? null);
   } else updateBadge();
+  cardsChanged();
 }
