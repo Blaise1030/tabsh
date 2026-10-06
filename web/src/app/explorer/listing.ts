@@ -30,3 +30,21 @@ export function absolutePath(root: string, path: string): string {
 
 // What pasting a row's path at the prompt types.
 export const pastedPath = (root: string, path: string): string => shellQuote(absolutePath(root, path));
+
+// What pasting `cd` for a folder row types. `--` keeps a folder named like an
+// option from being read as one. It is never submitted: Enter is the user's.
+export const cdCommand = (root: string, path: string): string => `cd -- ${pastedPath(root, path)}`;
+
+// Where a tab opened from a row starts: the folder itself, or a file's parent.
+export function folderOf(root: string, path: string): string {
+  const abs = absolutePath(root, path);
+  if (isDirectory(path)) return abs;
+  const cut = abs.lastIndexOf('/');
+  return cut > 0 ? abs.slice(0, cut) : '/';
+}
+
+export type RowAction = 'insert' | 'cd' | 'tab';
+
+// The menu's entries for a row: `cd here` makes sense for folders only.
+export const rowActions = (path: string): RowAction[] =>
+  isDirectory(path) ? ['insert', 'cd', 'tab'] : ['insert', 'tab'];

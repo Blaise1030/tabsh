@@ -124,6 +124,21 @@ file-tree-container {
   --trees-accent: var(--foreground);
   --trees-font-family: var(--font-sans);
 }
+/* A row's menu, in the palette's look: the popover surface, a border, rounded,
+   and accent-highlighted items. It sits in the tree's slot, so it is page CSS. */
+.row-menu {
+  min-width: 10rem; padding: .25rem; display: flex; flex-direction: column;
+  background: var(--popover); color: var(--popover-foreground);
+  border: 1px solid var(--border); border-radius: var(--radius, .5rem);
+  box-shadow: 0 4px 16px rgb(0 0 0 / .25); font-size: .8125rem;
+}
+.row-menu [role="menuitem"] {
+  all: unset; box-sizing: border-box; cursor: default; padding: .375rem .5rem;
+  border-radius: calc(var(--radius, .5rem) - 2px);
+}
+.row-menu [role="menuitem"]:hover, .row-menu [role="menuitem"]:focus-visible {
+  background: var(--accent); color: var(--accent-foreground);
+}
 #explorer-divider { flex: 0 0 1px; background: var(--border); position: relative; touch-action: none; }
 #explorer-divider::before { content: ''; position: absolute; inset: 0 -3px; cursor: col-resize; z-index: 6; }
 @media (max-width: 799px) {
