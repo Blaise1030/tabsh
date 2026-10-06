@@ -298,3 +298,12 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 #gate .mark { color: var(--muted-foreground); }
 #gate .cmd { padding: .75rem 1rem; border-radius: 4px; background: var(--muted); font: inherit; }
 #gate form { display: flex; gap: .5rem; }
+
+/* The kanban board's one colour: a card that needs you. */
+:root { --needs-input: #f59e0b; }
+.tab-status { display: inline-flex; flex-shrink: 0; margin-right: .375rem; color: var(--muted-foreground); }
+.tab-status[data-status="needs_input"] { color: var(--needs-input); }
+.tab-status[data-status="in_progress"] svg { animation: status-pulse 1.6s ease-in-out infinite; }
+@keyframes status-pulse { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .tab-status svg { animation: none !important; } }
+.tab.archived { display: none; }

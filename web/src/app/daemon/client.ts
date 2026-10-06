@@ -69,3 +69,10 @@ export function initGate(): void {
     } else input.setAttribute('aria-invalid', 'true');
   });
 }
+
+// The socket telling the page when a card's status changes.
+export function boardEventsUrl(): string {
+  const token = getToken();
+  const auth = token ? `?token=${token}` : '';
+  return `${DAEMON.replace(/^http/, 'ws')}/api/board/events${auth}`;
+}
