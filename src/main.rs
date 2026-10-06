@@ -1,4 +1,5 @@
 mod auth;
+mod board;
 mod error;
 mod files;
 mod sessions;

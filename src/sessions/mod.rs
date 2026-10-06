@@ -115,10 +115,14 @@ struct Output {
     dirty: bool,
 }
 
-#[derive(Serialize)]
-struct SessionInfo {
-    id: String,
-    name: String,
+#[derive(Serialize, Clone, Debug)]
+pub(crate) struct SessionInfo {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) status: String,
+    pub(crate) status_at: i64,
+    pub(crate) note: Option<String>,
+    pub(crate) cwd: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -139,15 +143,13 @@ struct NewSession {
 async fn list_sessions(State(st): State<AppState>) -> Result<Json<Vec<SessionInfo>>, StatusCode> {
     let db = st.db.lock().unwrap();
     let mut stmt = db
-        .prepare("SELECT id, name FROM sessions ORDER BY position")
+        .prepare(&format!(
+            "SELECT {} FROM sessions ORDER BY position",
+            store::INFO_COLUMNS
+        ))
         .map_err(internal_error)?;
     let rows = stmt
-        .query_map([], |r| {
-            Ok(SessionInfo {
-                id: r.get(0)?,
-                name: r.get(1)?,
-            })
-        })
+        .query_map([], store::info_row)
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
         .map_err(internal_error)?;
     Ok(Json(rows))

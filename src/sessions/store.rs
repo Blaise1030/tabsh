@@ -29,6 +29,7 @@ pub(crate) fn open_db(path: &str) -> Result<Connection, BoxError> {
              value TEXT NOT NULL
          );",
     )?;
+    crate::board::migrate(&conn)?;
     Ok(conn)
 }
 
@@ -62,7 +63,63 @@ pub(crate) fn flush(state: &AppState) {
     }
 }
 
-pub(super) fn insert_session(db: &Connection, cwd: Option<&str>) -> rusqlite::Result<SessionInfo> {
+/// The columns `SessionInfo` is read from, in `info_row`'s order.
+pub(crate) const INFO_COLUMNS: &str = "id, name, status, status_at, note, cwd";
+
+pub(super) fn info_row(r: &rusqlite::Row) -> rusqlite::Result<SessionInfo> {
+    Ok(SessionInfo {
+        id: r.get(0)?,
+        name: r.get(1)?,
+        status: r.get(2)?,
+        status_at: r.get(3)?,
+        note: r.get(4)?,
+        cwd: r.get(5)?,
+    })
+}
+
+/// One session as the tab strip and the board see it.
+pub(crate) fn info(db: &Connection, id: &str) -> rusqlite::Result<Option<SessionInfo>> {
+    use rusqlite::OptionalExtension;
+    db.query_row(
+        &format!("SELECT {INFO_COLUMNS} FROM sessions WHERE id = ?1"),
+        params![id],
+        info_row,
+    )
+    .optional()
+}
+
+/// What a new session starts as.
+pub(crate) struct NewCard<'a> {
+    pub(crate) cwd: Option<&'a str>,
+    /// `None`: the next free "Terminal N".
+    pub(crate) name: Option<&'a str>,
+    pub(crate) status: &'a str,
+    /// Typed into the shell once it starts.
+    pub(crate) pending: Option<&'a str>,
+}
+
+impl Default for NewCard<'_> {
+    fn default() -> Self {
+        NewCard {
+            cwd: None,
+            name: None,
+            status: "backlog",
+            pending: None,
+        }
+    }
+}
+
+pub(crate) fn insert_session(db: &Connection, cwd: Option<&str>) -> rusqlite::Result<SessionInfo> {
+    insert_card(
+        db,
+        &NewCard {
+            cwd,
+            ..Default::default()
+        },
+    )
+}
+
+pub(crate) fn insert_card(db: &Connection, card: &NewCard) -> rusqlite::Result<SessionInfo> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -70,23 +127,28 @@ pub(super) fn insert_session(db: &Connection, cwd: Option<&str>) -> rusqlite::Re
         .as_nanos();
     let id = format!("{nanos:x}-{:x}", COUNTER.fetch_add(1, Ordering::Relaxed));
 
-    let names: Vec<String> = db
-        .prepare("SELECT name FROM sessions")?
-        .query_map([], |r| r.get(0))?
-        .collect::<Result<Vec<_>, _>>()?;
-    let n = names
-        .iter()
-        .filter_map(|n| n.strip_prefix("Terminal ")?.parse::<u32>().ok())
-        .max()
-        .unwrap_or(0)
-        + 1;
-    let name = format!("Terminal {n}");
+    let name = match card.name {
+        Some(n) => n.to_owned(),
+        None => {
+            let names: Vec<String> = db
+                .prepare("SELECT name FROM sessions")?
+                .query_map([], |r| r.get(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            let n = names
+                .iter()
+                .filter_map(|n| n.strip_prefix("Terminal ")?.parse::<u32>().ok())
+                .max()
+                .unwrap_or(0)
+                + 1;
+            format!("Terminal {n}")
+        }
+    };
     db.execute(
-        "INSERT INTO sessions (id, name, position, cwd)
-         VALUES (?1, ?2, (SELECT COALESCE(MAX(position), 0) + 1 FROM sessions), ?3)",
-        params![id, name, cwd],
+        "INSERT INTO sessions (id, name, position, cwd, status, status_at, pending_input)
+         VALUES (?1, ?2, (SELECT COALESCE(MAX(position), 0) + 1 FROM sessions), ?3, ?4, unixepoch(), ?5)",
+        params![id, name, card.cwd, card.status, card.pending],
     )?;
-    Ok(SessionInfo { id, name })
+    Ok(info(db, &id)?.expect("just inserted"))
 }
 
 /// Sets the tab order: `ids` first, in that order, then any other sessions in
@@ -142,5 +204,67 @@ mod tests {
             .collect::<Result<_, _>>()
             .unwrap();
         assert_eq!(order, [c, a, b, d]);
+    }
+
+    #[test]
+    fn new_sessions_are_backlog_cards() {
+        let db = open_db(":memory:").unwrap();
+        let a = insert_session(&db, Some("/tmp")).unwrap();
+        assert_eq!(a.status, "backlog");
+        assert!(a.status_at > 1_700_000_000, "status_at is now, not 0");
+        assert_eq!(a.note, None);
+        assert_eq!(a.cwd.as_deref(), Some("/tmp"));
+    }
+
+    #[test]
+    fn a_card_can_start_named_with_a_status_and_pending_input() {
+        let db = open_db(":memory:").unwrap();
+        let c = insert_card(
+            &db,
+            &NewCard {
+                cwd: None,
+                name: Some("Fix login"),
+                status: "in_progress",
+                pending: Some("claude 'x'\r"),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            (c.name.as_str(), c.status.as_str()),
+            ("Fix login", "in_progress")
+        );
+        let pending: Option<String> = db
+            .query_row(
+                "SELECT pending_input FROM sessions WHERE id = ?1",
+                params![c.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(pending.as_deref(), Some("claude 'x'\r"));
+        assert_eq!(info(&db, &c.id).unwrap().unwrap().name, "Fix login");
+        assert!(info(&db, "missing").unwrap().is_none());
+    }
+
+    #[test]
+    fn an_old_database_gains_the_card_columns() {
+        let dir = crate::test_support::scratch();
+        let path = dir.join("state.db");
+        let path = path.to_str().unwrap();
+        {
+            let old = Connection::open(path).unwrap();
+            old.execute_batch(
+                "CREATE TABLE sessions (id TEXT PRIMARY KEY, name TEXT NOT NULL, position INTEGER NOT NULL,
+                 cwd TEXT, scrollback BLOB NOT NULL DEFAULT x'', updated_at INTEGER NOT NULL DEFAULT (unixepoch()));
+                 INSERT INTO sessions (id, name, position) VALUES ('old', 'Terminal 1', 1);",
+            )
+            .unwrap();
+        }
+        let db = open_db(path).unwrap();
+        let s = info(&db, "old").unwrap().unwrap();
+        assert_eq!(s.status, "backlog");
+        assert!(s.status_at > 1_700_000_000);
+        // Opening twice is fine (migration is idempotent).
+        drop(db);
+        open_db(path).unwrap();
     }
 }
