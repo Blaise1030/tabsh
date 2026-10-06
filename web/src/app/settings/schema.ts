@@ -2,15 +2,22 @@
 import { FONT_SIZES, FONTS, THEMES, TYPING_SOUNDS } from './catalog.ts';
 import { comboProblem, type KeyId, keybindings } from './keys.ts';
 
+// The explorer sidebar's width, in px.
+export const EXPLORER_WIDTH = { min: 160, max: 640, default: 260 };
+
 export interface Settings {
   theme: string;
   font: string;
   fontSize: number;
   typingSound: string;
   paneWidth: number;
+  explorerOpen: boolean;
+  explorerWidth: number; // px
   keyPalette: string;
   keyNextTab: string;
   keyPrevTab: string;
+  keyToggleExplorer: string;
+  keySearchFiles: string;
 }
 
 export function defaults(isMac: boolean): Settings {
@@ -21,9 +28,13 @@ export function defaults(isMac: boolean): Settings {
     fontSize: 13,
     typingSound: 'mx-black-pbt',
     paneWidth: 0.5,
+    explorerOpen: false,
+    explorerWidth: EXPLORER_WIDTH.default,
     keyPalette: keys.keyPalette.presets[0],
     keyNextTab: keys.keyNextTab.presets[0],
     keyPrevTab: keys.keyPrevTab.presets[0],
+    keyToggleExplorer: keys.keyToggleExplorer.presets[0],
+    keySearchFiles: keys.keySearchFiles.presets[0],
   };
 }
 
@@ -35,7 +46,13 @@ export function cleanSettings(stored: Record<string, unknown>, isMac: boolean): 
   // A combo this OS can't use (e.g. one saved from another OS's browser),
   // or one an earlier action already has, gives way to a free preset.
   const keys = keybindings(isMac);
-  const chosen: Record<KeyId, string> = { keyPalette: '', keyNextTab: '', keyPrevTab: '' };
+  const chosen: Record<KeyId, string> = {
+    keyPalette: '',
+    keyNextTab: '',
+    keyPrevTab: '',
+    keyToggleExplorer: '',
+    keySearchFiles: '',
+  };
   const key = (id: KeyId) => {
     const want = str(stored[id]);
     const free = (c: string) => comboProblem(c, id, chosen, isMac) === null;
@@ -52,8 +69,17 @@ export function cleanSettings(stored: Record<string, unknown>, isMac: boolean): 
       typeof stored.paneWidth === 'number' && stored.paneWidth >= 0.2 && stored.paneWidth <= 0.8
         ? stored.paneWidth
         : d.paneWidth,
+    explorerOpen: typeof stored.explorerOpen === 'boolean' ? stored.explorerOpen : d.explorerOpen,
+    explorerWidth:
+      typeof stored.explorerWidth === 'number' &&
+      stored.explorerWidth >= EXPLORER_WIDTH.min &&
+      stored.explorerWidth <= EXPLORER_WIDTH.max
+        ? stored.explorerWidth
+        : d.explorerWidth,
     keyPalette: key('keyPalette'),
     keyNextTab: key('keyNextTab'),
     keyPrevTab: key('keyPrevTab'),
+    keyToggleExplorer: key('keyToggleExplorer'),
+    keySearchFiles: key('keySearchFiles'),
   };
 }

@@ -26,6 +26,12 @@ export interface SessionInfo {
   name: string;
 }
 
+const activateListeners: (() => void)[] = [];
+// Runs after the active tab changes (or loses its last tab).
+export function onActivate(fn: () => void): void {
+  activateListeners.push(fn);
+}
+
 export const store: { sessions: Session[]; active: Session | null } = { sessions: [], active: null };
 
 const ACTIVE_KEY = 'tabsh.active';
@@ -95,6 +101,7 @@ export function activate(s: Session | null): void {
     s.term.focus();
   }
   rememberActive();
+  for (const fn of activateListeners) fn();
 }
 
 // The next/previous tab keybindings cycle through tabs, wrapping at the ends.

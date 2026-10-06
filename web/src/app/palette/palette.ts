@@ -1,6 +1,7 @@
 // The command palette (Basecoat command-dialog): settings with live
 // preview, recording a keybinding, the keybindings that open it and switch
 // tabs, and the settings button.
+import { searchFiles, toggleExplorer } from '../explorer/explorer.ts';
 import { loadedPane } from '../files/open.ts';
 import { cycleTab, store } from '../sessions/store.ts';
 import { comboFromEvent, comboProblem, type KeyId, keyLabel, matchesKey } from '../settings/keys.ts';
@@ -27,6 +28,8 @@ function showPage(name: string): void {
     hasFile: !!active && !!loadedPane()?.hasFile(active.id),
     closeFile: () => active && loadedPane()?.close(active.id),
     openAbout,
+    toggleExplorer,
+    searchFiles,
   })[name]();
   paletteInput.value = '';
   paletteInput.placeholder = name === 'root' ? placeholder : `${placeholder}  (Esc to go back)`;

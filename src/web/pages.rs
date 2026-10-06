@@ -127,9 +127,9 @@ pub(crate) async fn about(
 mod tests {
     use super::*;
 
-    /// The editor (CodeMirror, marked) loads on the first Cmd-click, not
-    /// with the page: nothing the entry script imports statically may
-    /// contain it.
+    /// The editor (CodeMirror, marked) loads on the first Cmd-click, and the
+    /// explorer's tree library when the sidebar first opens, not with the
+    /// page: nothing the entry script imports statically may contain them.
     #[test]
     fn entry_script_does_not_bundle_the_editor() {
         let assets = crate::web::assets::app_assets();
@@ -168,6 +168,10 @@ mod tests {
                 !asset(name).contains("cm-gutter"),
                 "{name} bundles CodeMirror"
             );
+            assert!(
+                !asset(name).contains("file-tree-container"),
+                "{name} bundles the file tree"
+            );
         }
         // The marker is real: the editor's own chunks do contain it.
         assert!(
@@ -175,6 +179,8 @@ mod tests {
                 .iter()
                 .any(|(_, b)| String::from_utf8_lossy(b).contains("cm-gutter"))
         );
+        assert!(assets.iter().any(|(n, b)| n.ends_with(".js")
+            && String::from_utf8_lossy(b).contains("file-tree-container")));
     }
 
     /// The CSP allows no inline script, so the page must have none.

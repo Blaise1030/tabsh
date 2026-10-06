@@ -55,7 +55,18 @@ terminal, so tests start from a settled page.
 
 - `newTab(page)` — clicks `.tabbar [data-new-session]` and waits for one more
   tab (the empty state has a second new-terminal button; scope to the tabbar);
-- `typeInTerminal(page, text)` — clicks `.term.active` and `keyboard.type`s.
+- `typeInTerminal(page, text)` — clicks `.term.active` and `keyboard.type`s;
+- `cdInTerminal(page, dir, mark)` — `cd`s the active tab's shell and waits
+  until it has, by having the command rename the tab to `mark` (so `mark` must
+  differ from the tab's current name).
+
+Two more fixtures give a spec a directory on disk, deleted afterwards:
+
+- `project` — a git repo for the file explorer: `README.md`, `src/main.rs`,
+  an ignored `target/`, an empty `docs/`, `.env.example`, and a file named
+  `<img src=x onerror=alert(1)>.txt`;
+- `crowd` — a directory outside any repo holding 20,001 files, one more than
+  the explorer lists.
 
 ## Selector rules
 
@@ -71,6 +82,11 @@ terminal, so tests start from a settled page.
   - tab classes — `unread`/`entering`/`leaving` on `.tab`;
   - `document.title` and the favicon `href` (`#favicon`);
   - the bell — `bell.ts` updates the badge and `title`.
+- **The file explorer's tree lives in a shadow root** (`file-tree-container`).
+  Playwright's locators pierce open shadow roots, so select rows by role and
+  accessible name, scoped to the sidebar:
+  `page.locator('#explorer').getByRole('treeitem', { name: 'README.md', exact: true })`.
+  Use `exact: true`, or `src` also matches `src2`.
 - Typing: click the terminal first (the click focuses xterm's hidden
   textarea), then `page.keyboard.type(...)` — real key events through the
   page, the socket and the PTY. Prefer `expect(...).toPass()` around

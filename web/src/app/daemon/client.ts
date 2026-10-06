@@ -26,6 +26,13 @@ export function socketUrl(id: string): string {
   return `${DAEMON.replace(/^http/, 'ws')}/ws?id=${id}${auth}`;
 }
 
+// The socket telling the explorer what changed on disk in a session's project.
+export function watchUrl(session: string): string {
+  const token = getToken();
+  const auth = token ? `&token=${token}` : '';
+  return `${DAEMON.replace(/^http/, 'ws')}/api/files/watch?session=${encodeURIComponent(session)}${auth}`;
+}
+
 const gate = document.getElementById('gate') as HTMLElement;
 let wake = () => {};
 
