@@ -68,9 +68,61 @@ test('search filters the tree by name, opens a match and restores the tree', asy
     await page.keyboard.press('ControlOrMeta+Shift+KeyE');
     await expect(page.locator('#explorer')).toBeHidden();
     await page.getByRole('button', { name: 'Settings' }).click();
-    await page.getByRole('menuitem', { name: 'Search files' }).click();
+    await page.getByRole('menuitem', { name: /^Search files(?!…)/ }).click();
     await expect(page.locator('#explorer')).toBeVisible();
     await expect(field).toBeFocused();
+  });
+
+  // The daemon is shared by the worker's specs, and the sidebar's state is a
+  // saved setting: leave it closed, as it starts.
+  const saved = page.waitForResponse((r) => r.url().includes('/api/settings') && r.request().method() === 'PUT');
+  await page.locator('#explorer-btn').click();
+  await saved;
+});
+
+test('the search shortcut focuses the field, opening the sidebar first if needed', async ({ page, daemon, project }) => {
+  const row = (name: string) => page.locator('#explorer').getByRole('treeitem', { name, exact: true });
+  const field = page.locator('#explorer').getByPlaceholder('Search…');
+  const open = page.locator('#explorer [data-file-tree-search-container]');
+  const tab = page.locator('#tabs .tab[aria-selected="true"] span');
+
+  await openApp(page, daemon);
+  await cdInTerminal(page, project, 'in-project');
+  await page.locator('#explorer-btn').click();
+  await expect(row('README.md')).toBeVisible();
+
+  await test.step('from the terminal, with the sidebar open', async () => {
+    await page.locator('.term.active').click();
+    await page.keyboard.press('ControlOrMeta+Shift+KeyF');
+    await expect(field).toBeFocused();
+    await page.keyboard.type('main');
+    await expect(row('main.rs')).toBeVisible();
+    await expect(row('README.md')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(open).toHaveAttribute('data-open', 'false');
+  });
+
+  await test.step('with the sidebar closed, it opens first', async () => {
+    await page.keyboard.press('ControlOrMeta+Shift+KeyE');
+    await expect(page.locator('#explorer')).toBeHidden();
+    await page.locator('.term.active').click();
+    await page.keyboard.press('ControlOrMeta+Shift+KeyF');
+    await expect(page.locator('#explorer')).toBeVisible();
+    await expect(field).toBeFocused();
+    await page.keyboard.press('Escape');
+  });
+
+  await test.step('the terminal never receives the keystroke', async () => {
+    // A key that reached the shell would be typed into the line (Ctrl-F shows
+    // as ^F), so the command, split around the shortcut, would no longer
+    // rename the tab to "kept".
+    await typeInTerminal(page, "printf '\\033]0;ke");
+    await page.keyboard.press('ControlOrMeta+Shift+KeyF');
+    await expect(field).toBeFocused();
+    await page.keyboard.press('Escape');
+    await typeInTerminal(page, "pt\\007'");
+    await page.keyboard.press('Enter');
+    await expect(tab).toHaveText('kept');
   });
 
   // The daemon is shared by the worker's specs, and the sidebar's state is a
