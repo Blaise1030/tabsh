@@ -88,6 +88,16 @@ export function initExplorer(): void {
     },
     true,
   );
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if (!matchesKey(e, current.saved.keySearchFiles) || document.querySelector('dialog[open]')) return;
+      e.preventDefault();
+      e.stopPropagation(); // capture phase: keep it away from the terminal
+      searchFiles();
+    },
+    true,
+  );
 
   onApply((s) => {
     const wasOpen = isOpen();
