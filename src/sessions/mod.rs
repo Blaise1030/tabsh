@@ -173,6 +173,7 @@ async fn create_session(
         .name
         .map(|n| n.trim().chars().take(100).collect::<String>())
         .filter(|n| !n.is_empty());
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
     let pending = body
         .prompt
         .as_deref()
@@ -184,6 +185,7 @@ async fn create_session(
                     .as_deref()
                     .unwrap_or(crate::board::DEFAULT_COMMAND),
                 p,
+                &shell,
             )
         });
     let card = store::NewCard {

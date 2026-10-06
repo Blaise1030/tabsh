@@ -96,11 +96,13 @@ pub(super) fn get_or_spawn(st: &AppState, id: &str) -> Result<Option<Arc<Session
     // The PTY buffers it until the shell reads its first line, so this is
     // safe to send before the prompt is drawn.
     if let Some(line) = pending {
-        let _ = session.input.send(Bytes::from(line));
-        st.db.lock().unwrap().execute(
+        if let Err(e) = st.db.lock().unwrap().execute(
             "UPDATE sessions SET pending_input = NULL WHERE id = ?1",
             params![id],
-        )?;
+        ) {
+            eprintln!("failed to clear pending input of {id}: {e}");
+        }
+        let _ = session.input.send(Bytes::from(line));
     }
     live.insert(id.to_owned(), session.clone());
     Ok(Some(session))

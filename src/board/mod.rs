@@ -25,15 +25,32 @@ pub(crate) const DEFAULT_COMMAND: &str = "claude {prompt}";
 /// The line typed into a new card's shell to start its agent on its first
 /// prompt. `command` is the agent's launch template; `{prompt}` becomes the
 /// prompt as one single-quoted argument (so nothing in it runs), or the
-/// prompt is appended when the template has no `{prompt}`. All on one line
-/// (a newline would submit early), then Enter.
-pub(crate) fn launch_line(command: &str, prompt: &str) -> String {
-    let one_line = |t: &str| t.split_whitespace().collect::<Vec<_>>().join(" ");
+/// prompt is appended when the template has no `{prompt}`. Quoting fits
+/// POSIX shells and fish (where a backslash escapes inside single quotes).
+/// All on one line (a newline would submit early) and free of control
+/// characters (which the PTY would take as keystrokes), then Enter.
+pub(crate) fn launch_line(command: &str, prompt: &str, shell: &str) -> String {
+    let one_line = |t: &str| {
+        let spaced: String = t
+            .chars()
+            .map(|c| if c.is_whitespace() { ' ' } else { c })
+            .filter(|c| !c.is_control())
+            .collect();
+        spaced.split_whitespace().collect::<Vec<_>>().join(" ")
+    };
     let command = match one_line(command) {
         c if c.is_empty() => DEFAULT_COMMAND.to_owned(),
         c => c,
     };
-    let quoted = format!("'{}'", one_line(prompt).replace('\'', r"'\''"));
+    let fish = std::path::Path::new(shell)
+        .file_name()
+        .is_some_and(|n| n == "fish");
+    let prompt = one_line(prompt);
+    let quoted = if fish {
+        format!("'{}'", prompt.replace('\\', r"\\").replace('\'', r"\'"))
+    } else {
+        format!("'{}'", prompt.replace('\'', r"'\''"))
+    };
     let line = if command.contains("{prompt}") {
         command.replace("{prompt}", &quoted)
     } else {
@@ -298,35 +315,65 @@ mod tests {
     #[test]
     fn launch_line_passes_the_prompt_as_one_literal_argument() {
         let c = DEFAULT_COMMAND;
-        assert_eq!(launch_line(c, "fix the login"), "claude 'fix the login'\r");
         assert_eq!(
-            launch_line(c, "it's $(rm -rf ~) `x`"),
+            launch_line(c, "fix the login", "/bin/zsh"),
+            "claude 'fix the login'\r"
+        );
+        assert_eq!(
+            launch_line(c, "it's $(rm -rf ~) `x`", "/bin/zsh"),
             "claude 'it'\\''s $(rm -rf ~) `x`'\r"
         );
         assert_eq!(
-            launch_line(c, "one\ntwo\r\n  three\t"),
+            launch_line(c, "one\ntwo\r\n  three\t", "/bin/zsh"),
             "claude 'one two three'\r"
         );
     }
 
     #[test]
     fn launch_line_fits_any_agent() {
-        assert_eq!(launch_line("gemini -i {prompt}", "hi"), "gemini -i 'hi'\r");
         assert_eq!(
-            launch_line("codex", "hi"),
+            launch_line("gemini -i {prompt}", "hi", "/bin/zsh"),
+            "gemini -i 'hi'\r"
+        );
+        assert_eq!(
+            launch_line("codex", "hi", "/bin/zsh"),
             "codex 'hi'\r",
             "appended when there's no {{prompt}}"
         );
         assert_eq!(
-            launch_line("  ", "hi"),
+            launch_line("  ", "hi", "/bin/zsh"),
             "claude 'hi'\r",
             "blank means the default"
         );
-        assert_eq!(launch_line("a {prompt} b {prompt}", "x"), "a 'x' b 'x'\r");
         assert_eq!(
-            launch_line("claude\n--x {prompt}", "x"),
+            launch_line("a {prompt} b {prompt}", "x", "/bin/zsh"),
+            "a 'x' b 'x'\r"
+        );
+        assert_eq!(
+            launch_line("claude\n--x {prompt}", "x", "/bin/zsh"),
             "claude --x 'x'\r",
             "one line only"
+        );
+    }
+
+    #[test]
+    fn launch_line_quotes_for_fish() {
+        let fish = "/usr/local/bin/fish";
+        assert_eq!(
+            launch_line(DEFAULT_COMMAND, r"it's \ x", fish),
+            r"claude 'it\'s \\ x'".to_owned() + "\r"
+        );
+        assert_eq!(
+            launch_line(DEFAULT_COMMAND, r"\' ; rm -rf ~ ; '", fish),
+            r"claude '\\\' ; rm -rf ~ ; \''".to_owned() + "\r"
+        );
+    }
+
+    #[test]
+    fn launch_line_drops_control_characters() {
+        assert_eq!(
+            launch_line(DEFAULT_COMMAND, "\u{1b}[A\u{3}hi\u{7f}", "/bin/zsh"),
+            "claude '[Ahi'\r"
         );
     }
 }
