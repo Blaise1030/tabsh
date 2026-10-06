@@ -1,0 +1,1 @@
+{"hook_event_name":"BeforeTool","tool_name":"write_file","tool_args":{"path":"src/main.rs"}}
