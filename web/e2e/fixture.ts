@@ -12,7 +12,8 @@ import { startDaemon, type Daemon } from './daemon.ts';
 // (The second generic types worker-scoped fixtures; tests still get `daemon`.)
 const test = base.extend<{ project: string; crowd: string }, { daemon: Daemon }>({
   // A git project for the file explorer: a README, `src/main.rs`, an ignored
-  // `target/`, an empty `docs/`, a dotfile, and a file whose name is markup.
+  // `target/`, an empty `docs/`, a dotfile, a file whose name is markup, and one whose name has a space
+  // and a quote.
   // The path is the real one (the tmp dir is a symlink on macOS).
   project: async ({}, use) => {
     const dir = realpathSync(mkdtempSync(path.join(tmpdir(), 'tabsh-project-')));
@@ -25,6 +26,7 @@ const test = base.extend<{ project: string; crowd: string }, { daemon: Daemon }>
     writeFileSync(path.join(dir, '.gitignore'), 'target/\n');
     writeFileSync(path.join(dir, 'target/junk.txt'), 'junk\n');
     writeFileSync(path.join(dir, '.env.example'), 'A=1\n');
+    writeFileSync(path.join(dir, "my file's notes.md"), 'notes\n');
     writeFileSync(path.join(dir, '<img src=x onerror=alert(1)>.txt'), 'x\n');
     await use(dir);
     rmSync(dir, { recursive: true, force: true });
