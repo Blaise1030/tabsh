@@ -5,7 +5,7 @@
 // one in markup.
 import { type ContextMenuItem, type ContextMenuOpenContext, FileTree } from '@pierre/trees';
 import { el } from '../ui/dom.ts';
-import { type RowAction, rowActions } from './listing.ts';
+import { menuStep, type RowAction, rowActions } from './listing.ts';
 
 const LABELS: Record<RowAction, string> = { insert: 'Insert path', cd: 'cd here', tab: 'Open in new tab' };
 
@@ -69,5 +69,19 @@ function rowMenu(
     };
     menu.append(button);
   }
+  // Keys: arrows, Home and End move between items (buttons already take Enter
+  // and Space); Escape closes and the row gets focus back. The menu is in the
+  // DOM only after this returns, so focus waits a tick.
+  const items = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+  menu.addEventListener('keydown', (e) => {
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    const to = menuStep(at, items.length, e.key);
+    if (e.key !== 'Escape' && to === null) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (to === null) ctx.close({ restoreFocus: true });
+    else items[to]?.focus();
+  });
+  queueMicrotask(() => requestAnimationFrame(() => items[0]?.focus()));
   return menu;
 }

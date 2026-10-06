@@ -51,13 +51,34 @@ test("a row's menu inserts its path, cds there and opens a tab there", async ({ 
   });
 
   await test.step('the menu opens from the keyboard and Escape returns to the row', async () => {
-    await row('docs').click();
-    await expect(row('docs')).toBeFocused();
+    await row('src').click();
+    await expect(row('src')).toBeFocused();
     await page.keyboard.press('Shift+F10');
     await expect(menu).toBeVisible();
+    await expect(item('Insert path')).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+    await expect(item('Open in new tab')).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(item('Insert path')).toBeFocused(); // wraps
+    await page.keyboard.press('End');
+    await expect(item('Open in new tab')).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(menu).toBeHidden();
-    await expect(row('docs')).toBeFocused();
+    await expect(row('src')).toBeFocused();
+  });
+
+  await test.step('an action runs from the keyboard alone', async () => {
+    await page.keyboard.press('Shift+F10');
+    await expect(item('Insert path')).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(item('cd here')).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(menu).toBeHidden();
+    await page.keyboard.press('Enter');
+    await page.keyboard.type(titleWithDir);
+    await page.keyboard.press('Enter');
+    await expect(label).toHaveText('src');
   });
 
   // The daemon is shared by the worker's specs, and the sidebar's state is a

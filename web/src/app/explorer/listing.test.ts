@@ -6,6 +6,7 @@ import {
   folderOf,
   isDirectory,
   type Listing,
+  menuStep,
   pastedPath,
   rowActions,
   shown,
@@ -60,4 +61,12 @@ test("a folder's tab opens in it, and a file's in its parent folder", () => {
 test('cd here is offered on folders only', () => {
   assert.deepEqual(rowActions('src/'), ['insert', 'cd', 'tab']);
   assert.deepEqual(rowActions('src/main.rs'), ['insert', 'tab']);
+});
+test('arrow keys step through a menu and wrap; Home and End jump', () => {
+  assert.equal(menuStep(0, 3, 'ArrowDown'), 1);
+  assert.equal(menuStep(2, 3, 'ArrowDown'), 0);
+  assert.equal(menuStep(0, 3, 'ArrowUp'), 2);
+  assert.equal(menuStep(1, 3, 'Home'), 0);
+  assert.equal(menuStep(1, 3, 'End'), 2);
+  assert.equal(menuStep(1, 3, 'a'), null);
 });

@@ -48,3 +48,13 @@ export type RowAction = 'insert' | 'cd' | 'tab';
 // The menu's entries for a row: `cd here` makes sense for folders only.
 export const rowActions = (path: string): RowAction[] =>
   isDirectory(path) ? ['insert', 'cd', 'tab'] : ['insert', 'tab'];
+
+// Which menu item a key moves to from `at` among `count` items, wrapping at
+// the ends; null for a key that doesn't move.
+export function menuStep(at: number, count: number, key: string): number | null {
+  if (key === 'ArrowDown') return (at + 1) % count;
+  if (key === 'ArrowUp') return (at - 1 + count) % count;
+  if (key === 'Home') return 0;
+  if (key === 'End') return count - 1;
+  return null;
+}
