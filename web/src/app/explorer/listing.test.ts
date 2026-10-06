@@ -23,9 +23,14 @@ test('a listing becomes the tree it lists, directories keeping their trailing sl
   assert.ok(isDirectory('docs/'));
   assert.ok(!isDirectory('src/main.rs'));
 });
-test('a truncated listing is a message, never a partial tree', () => {
+test('a truncated listing shows its folders alone, or a message, never a partial tree', () => {
   assert.deepEqual(shown(listing({ truncated: true })), { kind: 'too-many' });
   assert.deepEqual(shown(listing({ truncated: true, paths: ['a'] })), { kind: 'too-many' });
+  assert.deepEqual(shown(listing({ truncated: true, foldersOnly: true, paths: ['src/'] })), {
+    kind: 'folders',
+    paths: ['src/'],
+  });
+  assert.deepEqual(shown(listing({ truncated: true, foldersOnly: true })), { kind: 'too-many' });
 });
 test('an empty root is its own state', () => {
   assert.deepEqual(shown(listing({})), { kind: 'empty' });

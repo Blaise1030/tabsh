@@ -3,7 +3,7 @@ import { FONT_SIZES, FONTS, THEMES, TYPING_SOUNDS } from './catalog.ts';
 import { comboProblem, type KeyId, keybindings } from './keys.ts';
 
 // The explorer sidebar's width, in px.
-export const EXPLORER_WIDTH = { min: 160, max: 640, default: 260 };
+export const EXPLORER_WIDTH = { min: 200, max: 640, default: 260 };
 
 export interface Settings {
   theme: string;

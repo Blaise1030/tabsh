@@ -25,7 +25,7 @@ use resolve::{resolve_path, session_base_dir};
 use save::{SaveError, save_file};
 use serde::Deserialize;
 use std::{io::Read, path::PathBuf};
-use tree::{TREE_LIMIT_PATHS, list_tree, tree_root};
+use tree::{TREE_LIMIT_PATHS, list_tree_or_folders, tree_root};
 
 /// The file pane's routes. A save may carry up to four times the text limit
 /// (JSON escaping can grow it).
@@ -36,6 +36,7 @@ pub(crate) fn routes() -> Router<AppState> {
             get(file_info).put(save.layer(DefaultBodyLimit::max(4 * TEXT_LIMIT_BYTES as usize))),
         )
         .route("/api/files/raw", get(file_raw))
+        .route("/api/files/root", get(file_root))
         .route("/api/files/tree", get(file_tree))
         .route("/api/files/watch", get(watch::watch_handler))
 }
@@ -132,10 +133,22 @@ async fn file_info(
 
 /// Lists the tab's project for the explorer: everything under the repo root
 /// (or the working directory, outside a repo) that git wouldn't ignore.
+/// A tab's project root alone, without its listing: what the tab strip labels
+/// a tab with.
+async fn file_root(State(st): State<AppState>, Query(q): Query<TreeQuery>) -> Response {
+    let cwd = session_base_dir(&st, q.session.as_deref().unwrap_or(""));
+    match tokio::task::spawn_blocking(move || tree_root(&cwd)).await {
+        Ok(root) => Json(serde_json::json!({ "root": root.to_string_lossy() })).into_response(),
+        Err(e) => internal_error(e).into_response(),
+    }
+}
+
 async fn file_tree(State(st): State<AppState>, Query(q): Query<TreeQuery>) -> Response {
     let cwd = session_base_dir(&st, q.session.as_deref().unwrap_or(""));
-    let listed =
-        tokio::task::spawn_blocking(move || list_tree(&tree_root(&cwd), TREE_LIMIT_PATHS)).await;
+    let listed = tokio::task::spawn_blocking(move || {
+        list_tree_or_folders(&tree_root(&cwd), TREE_LIMIT_PATHS)
+    })
+    .await;
     match listed {
         Ok(tree) => Json(tree).into_response(),
         Err(e) => internal_error(e).into_response(),

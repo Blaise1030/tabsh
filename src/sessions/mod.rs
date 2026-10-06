@@ -11,7 +11,7 @@ use axum::{
     body::Bytes,
     extract::{Path, State},
     http::StatusCode,
-    routing::{get, patch},
+    routing::{get, patch, put},
 };
 use modes::ModeTracker;
 use portable_pty::{ChildKiller, MasterPty};
@@ -28,6 +28,7 @@ pub(crate) use store::{flush, open_db};
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/sessions", get(list_sessions).post(create_session))
+        .route("/api/sessions/order", put(reorder_sessions))
         .route(
             "/api/sessions/{id}",
             patch(rename_session).delete(delete_session),
@@ -125,6 +126,11 @@ struct Rename {
     name: String,
 }
 
+#[derive(Deserialize)]
+struct Order {
+    ids: Vec<String>,
+}
+
 #[derive(Deserialize, Default)]
 struct NewSession {
     cwd: Option<String>,
@@ -177,6 +183,17 @@ async fn rename_session(
     ) {
         Ok(0) => StatusCode::NOT_FOUND,
         Ok(_) => StatusCode::NO_CONTENT,
+        Err(e) => internal_error(e),
+    }
+}
+
+/// Puts the tabs in the order given (the tab strip after a drag). Ids that
+/// aren't sessions are skipped; sessions left out keep their place after the
+/// ones given.
+async fn reorder_sessions(State(st): State<AppState>, Json(body): Json<Order>) -> StatusCode {
+    let mut db = st.db.lock().unwrap();
+    match store::reorder(&mut db, &body.ids) {
+        Ok(()) => StatusCode::NO_CONTENT,
         Err(e) => internal_error(e),
     }
 }

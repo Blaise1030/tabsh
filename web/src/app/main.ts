@@ -9,6 +9,7 @@ import { initPalette } from './palette/palette.ts';
 import { initBell } from './sessions/bell.ts';
 import { activate, newSession, newTabAt, savedActive, sendSize, store, sync } from './sessions/store.ts';
 import { initTabStrip } from './sessions/tabs.ts';
+import { initTabLabels } from './sessions/tags.ts';
 import { FONTS, fontStack, prefersLight, THEMES } from './settings/catalog.ts';
 import { applySettings, current, loadSettings, onApply, terminalOptions } from './settings/settings.ts';
 import { initTypingSound } from './sound/typing.ts';
@@ -57,6 +58,7 @@ addEventListener('beforeunload', (e) => {
 
 initBell();
 initTabStrip();
+initTabLabels();
 initExplorer();
 initTypingSound();
 initPalette();

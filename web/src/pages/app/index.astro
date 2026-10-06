@@ -52,26 +52,32 @@ import '../../styles/app.css';
     </div>
   </dialog>
 
+  <!-- The tab bar spans the page: a tab owns the sidebar, terminal and file pane under it. -->
+  <div class="tabbar">
+    <button type="button" class="btn" data-variant="ghost" data-size="icon-sm" aria-label="Toggle file explorer" title="Toggle file explorer" id="explorer-btn" aria-pressed="false">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>
+    </button>
+    <div id="tabs" role="tablist" aria-label="Terminals"></div>
+    <button type="button" class="btn" data-variant="ghost" data-size="icon-sm" aria-label="New terminal" title="New terminal" data-new-session>
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+    </button>
+    <button type="button" class="btn" data-variant="ghost" data-size="icon-sm" aria-label="Filter tabs by repo or tag" title="Filter tabs" id="tab-filter-btn" aria-pressed="false">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M7 12h10"/><path d="M10 18h4"/></svg>
+      <span class="filter-count"></span>
+    </button>
+    <button type="button" class="btn settings-btn" data-variant="ghost" data-size="icon-sm" aria-label="Settings" id="settings-btn">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg>
+    </button>
+  </div>
   <div id="workspace">
     <aside id="explorer" hidden aria-label="Files">
       <p id="explorer-root" hidden></p>
+      <p id="explorer-note" hidden>Too many files to list, so only folders are shown.</p>
       <div id="explorer-tree" hidden></div>
       <p id="explorer-msg" hidden></p>
     </aside>
     <div id="explorer-divider" hidden></div>
     <div id="main">
-    <div class="tabbar">
-      <button type="button" class="btn" data-variant="ghost" data-size="icon-sm" aria-label="Toggle file explorer" title="Toggle file explorer" id="explorer-btn" aria-pressed="false">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>
-      </button>
-      <div id="tabs" role="tablist" aria-label="Terminals"></div>
-      <button type="button" class="btn" data-variant="ghost" data-size="icon-sm" aria-label="New terminal" title="New terminal" data-new-session>
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
-      </button>
-      <button type="button" class="btn settings-btn" data-variant="ghost" data-size="icon-sm" aria-label="Settings" id="settings-btn">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg>
-      </button>
-    </div>
     <div id="terms">
       <div class="empty" id="empty" hidden>
         <p>No terminals open.</p>
@@ -110,7 +116,7 @@ import '../../styles/app.css';
 
   <template id="tab-template">
     <div class="tab" role="tab" aria-selected="false">
-      <span></span>
+      <span class="tab-name"></span>
       <button type="button" class="btn" data-variant="ghost" data-size="icon-xs" aria-label="Close terminal">
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
       </button>

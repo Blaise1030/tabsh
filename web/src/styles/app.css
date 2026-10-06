@@ -23,7 +23,8 @@ html.themed {
   --card-foreground: var(--term-fg);
 }
 
-.settings-btn { margin-left: auto; }
+/* The filter and settings buttons sit together at the bar's right end. */
+#tab-filter-btn { margin-left: auto; }
 /* Near the top of the screen at Tailwind's max-w-xl width; tall enough to show
    long lists. The menu fills what's left instead of Basecoat's fixed 18rem. */
 .command-dialog > .command { top: 10%; max-width: min(36rem, 100% - 2rem); max-height: min(75%, 44rem); }
@@ -82,11 +83,49 @@ html.themed {
 /* New tabs grow in from nothing; closed tabs shrink away before removal. */
 .tab.entering, .tab.leaving { max-width: 0; min-width: 0; padding-inline: 0; opacity: 0; }
 .tab.leaving { pointer-events: none; }
+/* A tab being dragged rides above the others and follows the pointer. */
+.tab.dragging { z-index: 1; cursor: grabbing; background: var(--muted); box-shadow: 0 2px 8px rgb(0 0 0 / .25); }
 @media (prefers-reduced-motion: reduce) { .tab { transition: none; } }
 .tab:hover { background: color-mix(in srgb, transparent 50%, var(--muted)); color: var(--foreground); }
 /* The selected tab is a flat muted fill, no border or shadow. */
 .tab[aria-selected="true"] { background: var(--muted); color: var(--foreground); font-weight: 500; }
-.tab span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tab[hidden] { display: none; }
+.tab .tab-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* A tagged tab has a short bar in its tags' colors in front of its name. */
+.tab.tagged { padding-left: 1.125rem; }
+.tab.tagged::after {
+  content: ""; position: absolute; left: .4375rem; top: 50%; width: 3px; height: 1rem;
+  transform: translateY(-50%); border-radius: 2px; background: var(--tag);
+}
+/* The filter button shows how many repos and tags are checked. */
+#tab-filter-btn { position: relative; flex-shrink: 0; }
+#tab-filter-btn[aria-pressed="true"] { color: var(--foreground); background: var(--muted); }
+#tab-filter-btn .filter-count:empty { display: none; }
+#tab-filter-btn .filter-count {
+  position: absolute; top: -2px; right: -2px; min-width: .875rem; height: .875rem; padding: 0 2px;
+  border-radius: 999px; background: var(--primary); color: var(--primary-foreground, var(--background));
+  font-size: .5625rem; font-weight: 600; line-height: .875rem; text-align: center;
+}
+.row-menu.tab-menu { position: fixed; z-index: 50; min-width: 16rem; }
+.row-menu.tab-menu [role="menuitem"] { display: flex; align-items: center; gap: .5rem; }
+/* Basecoat's input, set off from the tags listed under it. */
+.tab-menu > input.input { margin-bottom: .25rem; }
+.tab-menu .menu-list { display: flex; flex-direction: column; }
+.tab-menu .menu-heading { padding: .375rem .5rem .125rem; font-size: .6875rem; color: var(--muted-foreground); }
+.tab-menu .menu-hint { padding: .25rem .5rem .375rem; font-size: .75rem; color: var(--muted-foreground); }
+/* A checkbox row is Basecoat's label (its layout, gap and type); the menu adds
+   the padding and the hover. */
+.tab-menu .menu-check { padding: .375rem .5rem; cursor: default; border-radius: calc(var(--radius, .5rem) - 2px); }
+.tab-menu .menu-check:hover { background: var(--accent); }
+.tab-menu .menu-check input { margin: 0; }
+.tab-menu .menu-check i { flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; }
+.tab-menu .menu-check.repo i { display: none; } /* repos have no color of their own */
+.tab-menu .menu-check span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-menu .menu-check small { color: var(--muted-foreground); }
+.tab-menu .menu-foot { display: flex; flex-direction: column; }
+.tab-menu .menu-foot[hidden] { display: none; }
+.tab-menu .menu-sep { height: 1px; margin: .25rem -.25rem; background: var(--border); }
+.tab-menu .menu-foot svg { flex-shrink: 0; width: 1rem; height: 1rem; color: var(--muted-foreground); }
 .tab .btn { flex-shrink: 0; opacity: 0; }
 .tab:hover .btn, .tab[aria-selected="true"] .btn, .tab .btn:focus-visible { opacity: 1; }
 /* Unread output shows a dot before the tab's label, like the favicon badge. */
@@ -99,8 +138,8 @@ html.themed {
 @keyframes bell-pulse { 0% { box-shadow: 0 0 0 0 #f97316aa; } 100% { box-shadow: 0 0 0 6px #f9731600; } }
 @media (prefers-reduced-motion: reduce) { .tab.bell::before { animation: none; } }
 
-/* The tab bar and terminals, with a tab's file pane (web/src/app/file-pane.ts)
-   beside them at full height. */
+/* Under the full-width tab bar: the sidebar, the terminals, and a tab's file
+   pane (web/src/app/files/pane.ts) beside them. */
 #workspace { flex: 1; min-height: 0; display: flex; position: relative; }
 #main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 #terms { flex: 1; min-width: 0; min-height: 0; position: relative; }
@@ -114,6 +153,7 @@ html.themed {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 #explorer-tree { flex: 1; min-height: 0; padding-top: .25rem; box-sizing: border-box; }
+#explorer-note { margin: 0; padding: .25rem .75rem 0; font-size: .75rem; color: var(--muted-foreground); }
 #explorer-msg { margin: 0; padding: .75rem; font-size: .8125rem; color: var(--muted-foreground); }
 /* The tree's colors come from the page's theme; the custom properties
    inherit into its shadow DOM. */
@@ -151,15 +191,25 @@ file-tree-container {
 .row-menu [role="menuitem"]:hover, .row-menu [role="menuitem"]:focus-visible {
   background: var(--accent); color: var(--accent-foreground);
 }
-#explorer-divider { flex: 0 0 1px; background: var(--border); position: relative; touch-action: none; }
-#explorer-divider::before { content: ''; position: absolute; inset: 0 -3px; cursor: col-resize; z-index: 6; }
+/* The dividers beside the sidebar and the file pane draw no line, so the page
+   reads as one canvas. A short pill in the middle marks the drag handle, and
+   darkens while it is hovered or dragged. */
+#explorer-divider, #pane-divider { flex: 0 0 1px; position: relative; touch-action: none; }
+/* A wider grab area than the divider itself. */
+#explorer-divider::before, #pane-divider::before {
+  content: ''; position: absolute; inset: 0 -3px; cursor: col-resize; z-index: 6;
+}
+#explorer-divider::after, #pane-divider::after {
+  content: ''; position: absolute; top: 50%; left: 50%; width: 4px; height: 2rem;
+  transform: translate(-50%, -50%); border-radius: 2px; background: var(--border);
+  pointer-events: none; z-index: 6; transition: background .15s ease;
+}
+#explorer-divider:hover::after, #explorer-divider:active::after,
+#pane-divider:hover::after, #pane-divider:active::after { background: var(--muted-foreground); }
 @media (max-width: 799px) {
   #explorer { position: absolute; inset: 0; z-index: 5; }
   #explorer-divider { display: none; }
 }
-#pane-divider { flex: 0 0 1px; background: var(--border); position: relative; touch-action: none; }
-/* A wider grab area than the 1px line. */
-#pane-divider::before { content: ''; position: absolute; inset: 0 -3px; cursor: col-resize; z-index: 6; }
 #workspace.dragging { user-select: none; cursor: col-resize; }
 #workspace.dragging iframe { pointer-events: none; }
 #pane {
