@@ -1929,7 +1929,7 @@ git commit -m "feat(web): the board view"
 - Modify: `web/src/pages/app/index.astro`, `web/src/app/main.ts`, `web/src/styles/app.css`, `web/src/app/settings/schema.ts`, `web/src/app/settings/schema.test.ts`, `web/src/app/board/model.ts`, `web/src/app/board/model.test.ts`
 
 **Interfaces:**
-- Consumes: `openTab({ cwd?, name?, prompt?, command? })` (Task 7), `current`, `saveSettings`-style persistence from `settings/settings.ts` (use whatever function `settings.ts` exports to save `current.saved`; read it before writing this task), `recentFolders` (Task 6), `setNewCard`, `toggleBoard` (Task 8), `setStatus` (Task 7).
+- Consumes: `openTab({ cwd?, name?, prompt?, command? })` (Task 7), `current` and `saveSetting(key, value)` from `settings/settings.ts`, `recentFolders` (Task 6), `setNewCard`, `toggleBoard` (Task 8), `setStatus` (Task 7).
 - Produces: `initNewCard(): void`; `openNewCard(status: Status): void`; `Settings.agentCommands: string[]` (most recent first, at most 8, default `['claude {prompt}']`); `model.rememberCommand(list: string[], command: string): string[]`.
 
 - [ ] **Step 0: Agent commands, test first**
@@ -2016,7 +2016,7 @@ Run: `cd web && npm test` — expected PASS.
 // prompt the terminal starts that agent and the card is In progress; without
 // one it's a plain shell in the column it came from.
 import { openTab, store } from '../sessions/store.ts';
-import { current } from '../settings/settings.ts';
+import { current, saveSetting } from '../settings/settings.ts';
 import { el } from '../ui/dom.ts';
 import { DEFAULT_COMMAND, rememberCommand, type Status, recentFolders } from './model.ts';
 import { setStatus } from './status.ts';
@@ -2071,10 +2071,8 @@ export function initNewCard(): void {
     }
     dialog().close();
     if (prompt) {
-      // Save it so the next card offers it first (same path the palette uses
-      // to persist a changed setting; see settings.ts).
-      current.saved.agentCommands = rememberCommand(current.saved.agentCommands, command);
-      saveAgentCommands();
+      // The next card offers it first.
+      saveSetting('agentCommands', rememberCommand(current.saved.agentCommands, command));
     }
     const s = store.active;
     if (s && !prompt && column !== 'backlog') await setStatus(s, column).catch(() => {});
@@ -2083,10 +2081,6 @@ export function initNewCard(): void {
   setNewCard(openNewCard);
 }
 ```
-
-`saveAgentCommands()` is a two-line local function that persists `current.saved` through the
-function `settings.ts` already exports for saving settings (the palette calls it after a change).
-Read `settings.ts` and call that function; don't add a second way to save.
 
 `main.ts`: `import { initNewCard } from './board/new-card.ts';` and `initNewCard();` after `initBoard();`.
 
