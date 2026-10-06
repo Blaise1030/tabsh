@@ -109,6 +109,7 @@ impl Default for NewCard<'_> {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn insert_session(db: &Connection, cwd: Option<&str>) -> rusqlite::Result<SessionInfo> {
     insert_card(
         db,

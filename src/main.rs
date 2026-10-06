@@ -63,6 +63,13 @@ async fn main() {
         };
         format!("{origin}/app/{daemon}").into()
     });
+    // Shells reach us on loopback even when we listen on every interface.
+    let self_host = if host == "0.0.0.0" || host == "::" {
+        "127.0.0.1"
+    } else {
+        host.as_str()
+    };
+    let self_url = format!("http://{self_host}:{port}");
     let state = AppState {
         db: Arc::new(Mutex::new(db)),
         live: Default::default(),
@@ -71,6 +78,7 @@ async fn main() {
         token: token.into(),
         origins: origins.into(),
         app_url,
+        self_url: self_url.into(),
         events: tokio::sync::broadcast::channel(256).0,
     };
 

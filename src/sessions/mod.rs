@@ -18,6 +18,7 @@ use portable_pty::{ChildKiller, MasterPty};
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::{collections::VecDeque, path::PathBuf, sync::Mutex, time::Duration};
+#[cfg(test)]
 use store::insert_session;
 use tokio::sync::broadcast;
 
@@ -138,6 +139,9 @@ struct Order {
 #[derive(Deserialize, Default)]
 struct NewSession {
     cwd: Option<String>,
+    name: Option<String>,
+    prompt: Option<String>,
+    command: Option<String>,
 }
 
 async fn list_sessions(State(st): State<AppState>) -> Result<Json<Vec<SessionInfo>>, StatusCode> {
@@ -159,15 +163,43 @@ async fn create_session(
     State(st): State<AppState>,
     body: Option<Json<NewSession>>,
 ) -> Result<Json<SessionInfo>, StatusCode> {
-    let cwd = body.as_ref().and_then(|b| b.cwd.as_deref());
-    if let Some(cwd_path) = cwd
+    let body = body.map(|Json(b)| b).unwrap_or_default();
+    if let Some(cwd_path) = body.cwd.as_deref()
         && !std::path::Path::new(cwd_path).is_dir()
     {
         return Err(StatusCode::BAD_REQUEST);
     }
-
+    let name: Option<String> = body
+        .name
+        .map(|n| n.trim().chars().take(100).collect::<String>())
+        .filter(|n| !n.is_empty());
+    let pending = body
+        .prompt
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(|p| {
+            crate::board::launch_line(
+                body.command
+                    .as_deref()
+                    .unwrap_or(crate::board::DEFAULT_COMMAND),
+                p,
+            )
+        });
+    let card = store::NewCard {
+        cwd: body.cwd.as_deref(),
+        name: name.as_deref(),
+        status: if pending.is_some() {
+            "in_progress"
+        } else {
+            "backlog"
+        },
+        pending: pending.as_deref(),
+    };
     let db = st.db.lock().unwrap();
-    insert_session(&db, cwd).map(Json).map_err(internal_error)
+    store::insert_card(&db, &card)
+        .map(Json)
+        .map_err(internal_error)
 }
 
 async fn rename_session(
@@ -231,5 +263,75 @@ mod tests {
         let info = insert_session(&st.db.lock().unwrap(), Some("/tmp")).unwrap();
         assert_eq!(cwd(&st, &info.id), Some(PathBuf::from("/tmp")));
         assert_eq!(cwd(&st, "missing"), None);
+    }
+
+    use axum::http::{Method, Request};
+    use tower::ServiceExt;
+
+    async fn create(st: &AppState, body: serde_json::Value) -> (StatusCode, serde_json::Value) {
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/api/sessions")
+            .header("Host", "127.0.0.1:7681")
+            .header("Authorization", "Bearer t0k3n")
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(body.to_string()))
+            .unwrap();
+        let res = crate::state::router(st.clone()).oneshot(req).await.unwrap();
+        let code = res.status();
+        let bytes = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        (code, serde_json::from_slice(&bytes).unwrap_or_default())
+    }
+
+    fn pending(st: &AppState, id: &serde_json::Value) -> Option<String> {
+        st.db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT pending_input FROM sessions WHERE id = ?1",
+                [id.as_str().unwrap()],
+                |r| r.get(0),
+            )
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_card_with_a_prompt_starts_its_agent_and_is_in_progress() {
+        let st = test_state();
+        let (code, body) = create(
+            &st,
+            serde_json::json!({"cwd": "/tmp", "name": " Fix login ", "prompt": "fix it"}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK);
+        assert_eq!(
+            (body["name"].as_str(), body["status"].as_str()),
+            (Some("Fix login"), Some("in_progress"))
+        );
+        assert_eq!(
+            pending(&st, &body["id"]).as_deref(),
+            Some("claude 'fix it'\r")
+        );
+        let (_, body) = create(
+            &st,
+            serde_json::json!({"prompt": "hi", "command": "gemini -i {prompt}"}),
+        )
+        .await;
+        assert_eq!(
+            pending(&st, &body["id"]).as_deref(),
+            Some("gemini -i 'hi'\r")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_card_without_a_prompt_is_a_backlog_shell() {
+        let st = test_state();
+        let (_, body) = create(&st, serde_json::json!({"name": "Docs", "prompt": "   "})).await;
+        assert_eq!(body["status"], "backlog");
+        assert_eq!(pending(&st, &body["id"]), None);
+        let (_, body) = create(&st, serde_json::json!({})).await;
+        assert_eq!(body["name"], "Terminal 1");
     }
 }

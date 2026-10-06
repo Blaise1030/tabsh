@@ -19,6 +19,29 @@ use rules::Source;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
+/// The agent a new card starts when the page names none.
+pub(crate) const DEFAULT_COMMAND: &str = "claude {prompt}";
+
+/// The line typed into a new card's shell to start its agent on its first
+/// prompt. `command` is the agent's launch template; `{prompt}` becomes the
+/// prompt as one single-quoted argument (so nothing in it runs), or the
+/// prompt is appended when the template has no `{prompt}`. All on one line
+/// (a newline would submit early), then Enter.
+pub(crate) fn launch_line(command: &str, prompt: &str) -> String {
+    let one_line = |t: &str| t.split_whitespace().collect::<Vec<_>>().join(" ");
+    let command = match one_line(command) {
+        c if c.is_empty() => DEFAULT_COMMAND.to_owned(),
+        c => c,
+    };
+    let quoted = format!("'{}'", one_line(prompt).replace('\'', r"'\''"));
+    let line = if command.contains("{prompt}") {
+        command.replace("{prompt}", &quoted)
+    } else {
+        format!("{command} {quoted}")
+    };
+    format!("{line}\r")
+}
+
 /// A card's status changed; sent to every open page.
 #[derive(Serialize, Clone, Debug)]
 pub(crate) struct BoardEvent {
@@ -269,6 +292,41 @@ mod tests {
             body["note"],
             serde_json::Value::Null,
             "a change without a note clears it"
+        );
+    }
+
+    #[test]
+    fn launch_line_passes_the_prompt_as_one_literal_argument() {
+        let c = DEFAULT_COMMAND;
+        assert_eq!(launch_line(c, "fix the login"), "claude 'fix the login'\r");
+        assert_eq!(
+            launch_line(c, "it's $(rm -rf ~) `x`"),
+            "claude 'it'\\''s $(rm -rf ~) `x`'\r"
+        );
+        assert_eq!(
+            launch_line(c, "one\ntwo\r\n  three\t"),
+            "claude 'one two three'\r"
+        );
+    }
+
+    #[test]
+    fn launch_line_fits_any_agent() {
+        assert_eq!(launch_line("gemini -i {prompt}", "hi"), "gemini -i 'hi'\r");
+        assert_eq!(
+            launch_line("codex", "hi"),
+            "codex 'hi'\r",
+            "appended when there's no {{prompt}}"
+        );
+        assert_eq!(
+            launch_line("  ", "hi"),
+            "claude 'hi'\r",
+            "blank means the default"
+        );
+        assert_eq!(launch_line("a {prompt} b {prompt}", "x"), "a 'x' b 'x'\r");
+        assert_eq!(
+            launch_line("claude\n--x {prompt}", "x"),
+            "claude --x 'x'\r",
+            "one line only"
         );
     }
 }

@@ -56,6 +56,16 @@ pub(super) fn process_cwd(_pid: u32) -> Option<String> {
     None
 }
 
+/// What every shell gets in its environment: hooks and `tabsh status` read
+/// `TABSH_SESSION_ID` to know which card they belong to.
+pub(super) fn shell_env(st: &AppState, id: &str) -> Vec<(&'static str, String)> {
+    vec![
+        ("TERM", "xterm-256color".into()),
+        ("TABSH_SESSION_ID", id.into()),
+        ("TABSH_URL", st.self_url.to_string()),
+    ]
+}
+
 /// Return the running shell for `id`, starting it (in its saved cwd, with its
 /// saved scrollback) if the session exists but isn't running yet.
 pub(super) fn get_or_spawn(st: &AppState, id: &str) -> Result<Option<Arc<Session>>, BoxError> {
@@ -68,15 +78,30 @@ pub(super) fn get_or_spawn(st: &AppState, id: &str) -> Result<Option<Arc<Session
         .lock()
         .unwrap()
         .query_row(
-            "SELECT cwd, scrollback FROM sessions WHERE id = ?1",
+            "SELECT cwd, scrollback, pending_input FROM sessions WHERE id = ?1",
             params![id],
-            |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, Vec<u8>>(1)?)),
+            |r| {
+                Ok((
+                    r.get::<_, Option<String>>(0)?,
+                    r.get::<_, Vec<u8>>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                ))
+            },
         )
         .optional()?;
-    let Some((cwd, scrollback)) = row else {
+    let Some((cwd, scrollback, pending)) = row else {
         return Ok(None);
     };
     let session = spawn_session(st.clone(), id.to_owned(), cwd, scrollback)?;
+    // The PTY buffers it until the shell reads its first line, so this is
+    // safe to send before the prompt is drawn.
+    if let Some(line) = pending {
+        let _ = session.input.send(Bytes::from(line));
+        st.db.lock().unwrap().execute(
+            "UPDATE sessions SET pending_input = NULL WHERE id = ?1",
+            params![id],
+        )?;
+    }
     live.insert(id.to_owned(), session.clone());
     Ok(Some(session))
 }
@@ -97,7 +122,9 @@ fn spawn_session(
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
     let mut cmd = CommandBuilder::new(shell);
     cmd.arg("-l");
-    cmd.env("TERM", "xterm-256color");
+    for (k, v) in shell_env(&st, &id) {
+        cmd.env(k, v);
+    }
     let dir = cwd
         .filter(|d| std::path::Path::new(d).is_dir())
         .map(Into::into)
@@ -175,4 +202,19 @@ fn spawn_session(
     });
 
     Ok(session)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::test_state;
+
+    #[test]
+    fn shells_know_their_card_and_the_daemon() {
+        let st = test_state();
+        let env = shell_env(&st, "abc-1");
+        assert!(env.contains(&("TERM", "xterm-256color".into())));
+        assert!(env.contains(&("TABSH_SESSION_ID", "abc-1".into())));
+        assert!(env.contains(&("TABSH_URL", "http://127.0.0.1:7681".into())));
+    }
 }

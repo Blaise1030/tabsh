@@ -22,6 +22,8 @@ pub(crate) struct AppState {
     pub(crate) origins: Arc<[String]>,
     /// The hosted UI, pointed at this daemon, without the token.
     pub(crate) app_url: Option<Arc<str>>,
+    /// This daemon's own address, given to shells as `TABSH_URL`.
+    pub(crate) self_url: Arc<str>,
     /// Card status changes, for `/api/board/events`.
     pub(crate) events: tokio::sync::broadcast::Sender<crate::board::BoardEvent>,
 }
