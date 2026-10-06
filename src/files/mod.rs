@@ -4,6 +4,7 @@ mod kind;
 mod read;
 mod resolve;
 mod save;
+mod tree;
 
 use crate::{AppState, error::internal_error};
 use axum::{
@@ -23,6 +24,7 @@ use resolve::{resolve_path, session_base_dir};
 use save::{SaveError, save_file};
 use serde::Deserialize;
 use std::{io::Read, path::PathBuf};
+use tree::{TREE_LIMIT_PATHS, list_tree, tree_root};
 
 /// The file pane's routes. A save may carry up to four times the text limit
 /// (JSON escaping can grow it).
@@ -33,12 +35,18 @@ pub(crate) fn routes() -> Router<AppState> {
             get(file_info).put(save.layer(DefaultBodyLimit::max(4 * TEXT_LIMIT_BYTES as usize))),
         )
         .route("/api/files/raw", get(file_raw))
+        .route("/api/files/tree", get(file_tree))
 }
 
 #[derive(Deserialize)]
 struct FileQuery {
     session: Option<String>,
     path: String,
+}
+
+#[derive(Deserialize)]
+struct TreeQuery {
+    session: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -120,6 +128,18 @@ async fn file_info(
     }
 }
 
+/// Lists the tab's project for the explorer: everything under the repo root
+/// (or the working directory, outside a repo) that git wouldn't ignore.
+async fn file_tree(State(st): State<AppState>, Query(q): Query<TreeQuery>) -> Response {
+    let cwd = session_base_dir(&st, q.session.as_deref().unwrap_or(""));
+    let listed =
+        tokio::task::spawn_blocking(move || list_tree(&tree_root(&cwd), TREE_LIMIT_PATHS)).await;
+    match listed {
+        Ok(tree) => Json(tree).into_response(),
+        Err(e) => internal_error(e).into_response(),
+    }
+}
+
 /// Serves a file's bytes for the pane's image, PDF and HTML previews. Pages
 /// and SVGs that can run script get a sandbox, so they can't reach the token
 /// or this daemon's API.
@@ -179,6 +199,7 @@ mod tests {
         state::router,
         test_support::{scratch, test_state},
     };
+    use axum::body::to_bytes;
     use axum::http::{Method, Request, StatusCode};
     use tower::ServiceExt;
 
@@ -220,5 +241,88 @@ mod tests {
         std::fs::remove_file(&f).unwrap();
         let res = router(test_state()).oneshot(head(&f)).await.unwrap();
         assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    }
+
+    fn tree_request(session: &str, auth: &[(&str, &str)]) -> Request<axum::body::Body> {
+        let mut req = Request::builder()
+            .uri(format!("/api/files/tree?session={session}"))
+            .header("Host", "127.0.0.1:7681");
+        for (name, value) in auth {
+            req = req.header(*name, *value);
+        }
+        req.body(axum::body::Body::empty()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn tree_lists_the_repo_root_of_a_known_session() {
+        let dir = scratch();
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src/main.rs"), "").unwrap();
+        let st = test_state();
+        st.db
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO sessions (id, name, position, cwd) VALUES ('s1', 'T', 1, ?1)",
+                [dir.join("src").to_str().unwrap()],
+            )
+            .unwrap();
+        let auth = [
+            ("Origin", "https://tabsh.cc"),
+            ("Authorization", "Bearer t0k3n"),
+        ];
+        let res = router(st).oneshot(tree_request("s1", &auth)).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["root"], dir.to_str().unwrap());
+        assert_eq!(json["truncated"], false);
+        let mut paths: Vec<&str> = json["paths"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p.as_str().unwrap())
+            .collect();
+        paths.sort_unstable();
+        assert_eq!(paths, ["src/", "src/main.rs"]);
+    }
+
+    #[tokio::test]
+    async fn tree_of_an_unknown_session_falls_back_to_home() {
+        let auth = [
+            ("Origin", "https://tabsh.cc"),
+            ("Authorization", "Bearer t0k3n"),
+        ];
+        let res = router(test_state())
+            .oneshot(tree_request("nope", &auth))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(json["root"].is_string());
+    }
+
+    #[tokio::test]
+    async fn tree_needs_the_token_and_a_known_origin() {
+        // No Origin and no token.
+        let res = router(test_state())
+            .oneshot(tree_request("x", &[]))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+        // A foreign Origin, even with the token.
+        let res = router(test_state())
+            .oneshot(tree_request(
+                "x",
+                &[
+                    ("Origin", "https://evil.example"),
+                    ("Authorization", "Bearer t0k3n"),
+                ],
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
     }
 }

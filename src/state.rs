@@ -73,6 +73,7 @@ mod tests {
             (Method::HEAD, "/api/files?session=x&path=a"),
             (Method::PUT, "/api/files"),
             (Method::GET, "/api/files/raw?path=/a"),
+            (Method::GET, "/api/files/tree?session=x"),
             (Method::GET, "/ws?id=x"),
             (Method::GET, "/nope"),
         ];
@@ -115,7 +116,11 @@ mod tests {
         );
 
         // File API requires token when no Origin header
-        for path in &["/api/files?session=x&path=a", "/api/files/raw?path=/a"] {
+        for path in &[
+            "/api/files?session=x&path=a",
+            "/api/files/raw?path=/a",
+            "/api/files/tree?session=x",
+        ] {
             let req = axum::http::Request::builder()
                 .method(Method::GET)
                 .uri(*path)
