@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { type Activity, type ActivityFrame, activityView, IDLE, onFrame, onReattach, onVisit } from './activity-view.ts';
+import {
+  type Activity,
+  type ActivityFrame,
+  activityView,
+  IDLE,
+  onFrame,
+  onReattach,
+  onVisit,
+} from './activity-view.ts';
 
 const a = (state: ActivityFrame, doneUnseen = false): Activity => ({ state, doneUnseen });
 

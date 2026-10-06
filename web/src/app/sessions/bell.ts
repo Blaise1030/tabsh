@@ -55,9 +55,7 @@ export function initBell(): void {
   // hidden) badges an already-needs-input tab without waiting for a frame.
   // Recomputed only — a badge the rules still justify is never cleared here.
   const recompute = () => updateBadge();
-  document.addEventListener('visibilitychange', () =>
-    document.hidden ? recompute() : seen(),
-  );
+  document.addEventListener('visibilitychange', () => (document.hidden ? recompute() : seen()));
   addEventListener('focus', seen);
   addEventListener('blur', recompute);
   favicon().href = FAVICON;
