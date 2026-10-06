@@ -97,6 +97,24 @@
 - Out of scope for this slice: pressing Enter for `cd` automatically (the front program may not be the shell); file operations (rename/delete/create/move); drag from the tree onto the terminal.
 - Done when: e2e + unit tests pass locally, all CI checks green, PR closes the issue.
 
+## Slice 5: search the tree by name
+
+- Issue: [#33](https://github.com/Blaise1030/tabsh/issues/33)
+- Depends on: 1, 2, 3, 4 (all merged into `features/file-explorer`)
+- Flow (REQUIRED): With the sidebar open and the tree focused, you press `/` (or pick "Search files" in the palette, which opens the sidebar if it's closed) → a search field opens at the top of the tree; typing filters the rows to matching names and their parent folders; Enter opens the focused match in the file pane; Escape clears the search and the tree is back as it was, open folders kept.
+- E2E spec (REQUIRED): `web/e2e/explorer-search.spec.ts` —
+  1. Project fixture; open the app, `cd` into it, open the sidebar; expand `docs` (so restoring open folders is checked).
+  2. Focus a row, press `/` → the search field is focused.
+  3. Type `main` → row `main.rs` visible (inside `src`), `README.md` and `.env.example` hidden.
+  4. Press Enter → `#pane` shows `main.rs`.
+  5. Focus the tree's search again, press Escape → search closed, `README.md` visible again, `docs` still expanded.
+  6. While a search for `new` is open, `touch src/new-file.rs` in the terminal → `new-file.rs` appears as a match (live updates still apply).
+  7. Close the sidebar with the shortcut; open the palette, run "Search files" → sidebar opens with the search field focused. Leave the sidebar closed at the end (shared daemon, see README).
+- Unit tests (REQUIRED): any pure logic added (e.g. deciding whether `/` opens search given the focused element, or the palette entry's availability) in `listing.test.ts` / a sibling test; palette `pages` test (if one exists) lists "Search files".
+- Layers touched: `web/src/app/explorer/view.ts` (`search: true`, `fileTreeSearchMode: 'hide-non-matches'`, `openSearch()` / `closeSearch()` exported for the palette), `explorer.ts` (`/` key while the tree is focused, Enter → open in pane, clear search on a new root), `web/src/app/palette/pages.ts` ("Search files" in the Files group), `web/src/styles/app.css` (`--trees-*` search field tokens from the tabsh theme), `docs/architecture.md` (explorer row mentions search).
+- Out of scope for this slice: content search (grep), fuzzy ranking beyond what the library does, searching while the sidebar is closed, a dedicated keybinding setting.
+- Done when: e2e + unit tests pass locally, all CI checks green, PR closes the issue.
+
 ## Phase 5 (after all slices merge): regression + finalization
 
 1. Pull `features/file-explorer`; run everything CI runs locally: `cargo fmt --check && cargo clippy --all-targets --locked -- -D warnings && cargo test --locked`, and in `web/`: `npm run check && npm run lint && npm test && npm run build && npm run test:e2e`.

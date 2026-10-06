@@ -18,10 +18,22 @@ beside the terminal.
   another project, and the tree re-roots.
 - Clicking a file opens it in the existing file pane. A row's menu offers:
   insert its path at the prompt, `cd` there, open a new tab there.
+- Searching filters the tree by name, so a file deep in the project is found
+  without expanding folders (added 2026-10-06, issue #33).
 
 **Non-goal (from `PROBLEM.md`, "Replacing a full IDE"):** the tree is a
-navigator for the terminal. No rename, delete, create, drag-to-move, git
-status badges or search in this feature. The shell beside it does those.
+navigator for the terminal. No rename, delete, create, drag-to-move or git
+status badges in this feature. The shell beside it does those.
+
+### Search
+
+The library's built-in search (`search: true`) over the paths the page
+already holds; no daemon change. Mode `hide-non-matches`: matches and their
+parent folders show, everything else hides. It opens from `/` while the tree
+has focus and from a palette entry "Search files" (which opens the sidebar
+first if needed). Enter opens the focused match in the file pane, Escape
+clears the search and restores the tree as it was (open folders kept). Live
+batches keep applying while a search is open; a new root clears it.
 
 ## Behaviour
 
