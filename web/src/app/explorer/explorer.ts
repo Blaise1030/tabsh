@@ -15,6 +15,7 @@ import {
   cdCommand,
   folderOf,
   type Listing,
+  opensSearch,
   pastedPath,
   type RowAction,
   rootName,
@@ -34,12 +35,27 @@ let listing: Listing | null = null; // what the tree shows
 const live: Live = { known: null, settling: false }; // the paths the tree has, and whether a new root's listing is awaited
 let unwatch: (() => void) | null = null;
 let watched: string | null = null; // the session the socket is open for
+let wantSearch = false; // "Search files" was picked and the tree isn't there yet
 let seq = 0; // bumped by every fetch, so a slow answer to a superseded one is dropped
 
 const isOpen = () => !aside.hidden;
 
 export function toggleExplorer(): void {
   saveSetting('explorerOpen', !current.saved.explorerOpen);
+}
+
+// Opens the sidebar if it is closed, then the tree's search field (once the
+// tree is there). The palette that calls this closes after and hands focus
+// back, so the field opens a moment later.
+export function searchFiles(): void {
+  wantSearch = true;
+  if (!isOpen()) saveSetting('explorerOpen', true);
+  else if (ready && !mount.hidden) openSearchSoon();
+}
+
+function openSearchSoon(): void {
+  wantSearch = false;
+  setTimeout(() => ready?.openSearch(), 0);
 }
 
 export function initExplorer(): void {
@@ -51,6 +67,17 @@ export function initExplorer(): void {
   const button = document.getElementById('explorer-btn') as HTMLButtonElement;
 
   button.onclick = toggleExplorer;
+  // `/` in the tree opens the search; anywhere else it is a plain key.
+  mount.addEventListener(
+    'keydown',
+    (e) => {
+      if (!ready || !opensSearch(e, ready.isSearchOpen())) return;
+      e.preventDefault();
+      e.stopPropagation();
+      ready.openSearch();
+    },
+    true,
+  );
   window.addEventListener(
     'keydown',
     (e) => {
@@ -154,6 +181,7 @@ async function load(mine: number): Promise<void> {
   heading.hidden = false;
   if (s.kind === 'too-many') return say('Too many files to show here. cd into a project.');
   if (s.kind === 'empty') return say('This folder is empty');
+  if (listing && listing.root !== l.root) ready?.closeSearch(); // a new root starts unfiltered
   listing = l;
   view ??= import('./view.ts').catch((err) => {
     view = null;
@@ -181,6 +209,7 @@ async function load(mine: number): Promise<void> {
     },
     act,
   );
+  if (wantSearch) openSearchSoon();
 }
 
 // A pick from a row's menu. Paste never presses Enter (the front program may
@@ -198,6 +227,7 @@ function act(action: RowAction, path: string): void {
 
 // A message in place of the tree (the tree keeps its place, hidden).
 function say(text: string): void {
+  wantSearch = false;
   message.textContent = text;
   message.hidden = false;
   mount.hidden = true;

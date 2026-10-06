@@ -6,7 +6,7 @@
 import { type ContextMenuItem, type ContextMenuOpenContext, FileTree } from '@pierre/trees';
 import { el } from '../ui/dom.ts';
 import type { Op } from './changes.ts';
-import { menuStep, type RowAction, rowActions } from './listing.ts';
+import { enterAction, menuStep, type RowAction, rowActions } from './listing.ts';
 
 const LABELS: Record<RowAction, string> = { insert: 'Insert path', cd: 'cd here', tab: 'Open in new tab' };
 
@@ -18,6 +18,10 @@ let shown: string[] = []; // the paths the last `showTree` was given
 export function applyOps(ops: Op[]): void {
   if (tree && ops.length) tree.batch(ops);
 }
+
+export const openSearch = (): void => tree?.openSearch();
+export const closeSearch = (): void => tree?.closeSearch();
+export const isSearchOpen = (): boolean => !!tree?.isSearchOpen();
 
 // Shows `paths` in `mount`: the first call builds the tree, later ones
 // replace its paths (open folders and the selection are carried over where
@@ -46,6 +50,8 @@ export function showTree(
     paths,
     initialExpansion: 'closed',
     flattenEmptyDirectories: false,
+    search: true,
+    fileTreeSearchMode: 'hide-non-matches',
     composition: {
       contextMenu: {
         triggerMode: 'both',
@@ -55,6 +61,23 @@ export function showTree(
     },
   });
   tree.render({ containerWrapper: mount });
+  // Enter on the focused match opens it like a click would (a folder toggles).
+  // This runs before the library's own Enter, which closes the search.
+  mount.addEventListener(
+    'keydown',
+    (e) => {
+      if (e.key !== 'Enter' || !tree?.isSearchOpen()) return;
+      const path = tree.getFocusedPath();
+      const action = enterAction(path);
+      if (!path || !action) return;
+      if (action === 'open') onFile(path);
+      else {
+        const item = tree.getItem(path);
+        if (item && 'toggle' in item) item.toggle();
+      }
+    },
+    true,
+  );
   // A click is read from the row it lands on, not from the selection, so
   // clicking the open file again opens it again.
   mount.addEventListener('click', (e) => {

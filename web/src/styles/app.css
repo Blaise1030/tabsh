@@ -127,6 +127,8 @@ file-tree-container {
   --trees-selected-fg: var(--accent-foreground);
   --trees-accent: var(--foreground);
   --trees-font-family: var(--font-sans);
+  --trees-search-bg: var(--input);
+  --trees-search-fg: var(--foreground);
 }
 /* A row's menu, in the palette's look: the popover surface, a border, rounded,
    and accent-highlighted items. It sits in the tree's slot, so it is page CSS. */
