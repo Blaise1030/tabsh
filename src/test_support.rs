@@ -14,6 +14,7 @@ pub(crate) fn test_state() -> AppState {
         token: "t0k3n".into(),
         origins: vec!["https://tabsh.cc".to_string()].into(),
         app_url: None,
+        events: tokio::sync::broadcast::channel(256).0,
     }
 }
 

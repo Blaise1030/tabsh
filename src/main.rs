@@ -71,6 +71,7 @@ async fn main() {
         token: token.into(),
         origins: origins.into(),
         app_url,
+        events: tokio::sync::broadcast::channel(256).0,
     };
 
     let flusher = state.clone();
