@@ -3,9 +3,8 @@
 import { socketUrl } from '../daemon/client.ts';
 import { linkProvider } from '../links/provider.ts';
 import { current, terminalOptions } from '../settings/settings.ts';
-import { onActivity, resetActivity } from './activity.ts';
+import { bellActivity, onActivity, resetActivity } from './activity.ts';
 import { IDLE } from './activity-view.ts';
-import { ring } from './bell.ts';
 import { scanBell } from './bell-scan.ts';
 import {
   activate,
@@ -130,7 +129,9 @@ function connect(s: Session): void {
       s.replaying = false;
       return;
     }
-    if (scanned.bell) ring(s);
+    // A BEL now depends on the tab's hook state: from a spoken agent it is
+    // a display-level ask (or noise); only a never-spoken tab rings.
+    if (scanned.bell) bellActivity(s);
     if (s !== store.active) s.tab.classList.add('unread');
   };
   // Dropped without an exit message (network blip, client lagged, daemon

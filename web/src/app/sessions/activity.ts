@@ -2,8 +2,8 @@
 // become the running spinner, the needs-you dot and the done ✓, and feed
 // the favicon/title badge. The rules live in activity-view.ts.
 
-import { type ActivityFrame, activityView, onFrame, onReattach, onVisit } from './activity-view.ts';
-import { updateBadge } from './bell.ts';
+import { type ActivityFrame, activityView, bellRings, onBell, onFrame, onReattach, onVisit } from './activity-view.ts';
+import { ring, updateBadge } from './bell.ts';
 import { type Session, store } from './store.ts';
 
 // A frame arrived from the daemon. Unknown states are ignored: the page
@@ -27,7 +27,23 @@ export function visitActivity(s: Session): void {
 // daemon's sessions all start idle — so begin from idle. Real activity is
 // re-stated by the attach intro or a live frame, right after the history.
 export function resetActivity(s: Session): void {
-  s.activity = onReattach();
+  s.activity = onReattach(s.activity);
+  render(s);
+  updateBadge();
+}
+
+// A BEL was scanned from this tab's output. Once its agent has spoken in
+// this page, the BEL is the agent's, not the shell's: asking for you while
+// it runs, noise otherwise — never a bell pulse. A tab that never spoke
+// keeps today's bell (bell.ts).
+export function bellActivity(s: Session): void {
+  if (bellRings(s.activity)) {
+    ring(s);
+    return;
+  }
+  const next = onBell(s.activity);
+  if (next === s.activity) return;
+  s.activity = next;
   render(s);
   updateBadge();
 }
