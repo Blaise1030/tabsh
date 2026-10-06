@@ -5,20 +5,24 @@ Status: approved in brainstorming, awaiting spec review
 
 ## Goal
 
-A kanban board on top of tabsh, for one person running many Claude Code sessions at once.
-The board is the overview for switching between tasks; each card is a tabsh terminal opened in
-the task's folder, so the folder's files and the terminal are right there when you open it.
-Claude keeps the board accurate itself, through a `tabsh` CLI, Claude Code hooks and a skill.
+A kanban board on top of tabsh, for one person running many coding-agent sessions at once
+(Claude Code first; Gemini CLI, Codex and others should work too). The board is the overview for
+switching between tasks; each card is a tabsh terminal opened in the task's folder, so the folder's
+files and the terminal are right there when you open it. The agent keeps the board accurate itself
+through one agent-neutral contract, the `tabsh status` CLI. tabsh never edits an agent's config:
+`tabsh setup` prints a guide that the agent follows to wire its own hooks to that contract.
 
 Inspired by ckanban (github.com/leoawesome/kanban), but none of its code or server is used:
 tickets here are interactive terminals, not headless `claude -p` runs.
 
 ## Non-goals
 
-- Headless or automatic Claude runs, interview forms, PR tracking.
+- Headless or automatic agent runs, interview forms, PR tracking.
 - Git worktrees. Agents create them if they want; the card follows the shell's cwd.
 - Several terminals per card, task descriptions, labels, dates, assignees.
-- Claude creating cards (`tabsh card new`). A likely follow-up once the CLI exists.
+- Agents creating cards (`tabsh card new`). A likely follow-up once the CLI exists.
+- tabsh writing any agent's config files or knowing their hook formats. That knowledge lives in
+  the agent; tabsh ships the contract and the guide.
 - Publishing a GitHub fork. The fork lives locally on branch `kanban-board`; remote `upstream`
   is Blaise1030/tabsh.
 
@@ -31,9 +35,14 @@ tickets here are interactive terminals, not headless `claude -p` runs.
 | Status | Set by |
 |---|---|
 | backlog | Default for new sessions without a first prompt; the user |
-| in_progress | `UserPromptSubmit` hook; new card with a first prompt; the user |
-| needs_input | `Notification` hook (note = notification text); `Stop` hook (note = "Claude finished its turn"); the user |
-| completed | The skill (`tabsh status completed --note "<summary>"`); the user |
+| in_progress | The agent's "user sent a prompt" hook; new card with a first prompt; the user |
+| needs_input | The agent's "needs permission/input" hook (note = its message); its "turn ended" hook (note = "Agent finished its turn"); the user |
+| completed | The agent itself, following its instructions (`tabsh status completed --note "<summary>"`); the user |
+
+For Claude Code those hooks are `UserPromptSubmit`, `Notification` and `Stop`; for Gemini CLI
+`BeforeAgent`, `Notification` and `AfterAgent`. Codex only reports a finished turn (`notify`), so
+its cards reach in_progress only through a first prompt or a drag. The agent works this out from
+the guide; tabsh hard-codes none of it.
 | archived | The user only |
 
 ## Daemon (Rust)
@@ -74,9 +83,12 @@ working; existing sessions become backlog cards):
 
 ### First prompt
 
-`POST /api/sessions` accepts optional `name` and `prompt`. With a prompt, the daemon writes
-`claude <shell-quoted prompt>\r` to the new PTY's input once it's spawned and sets
-`in_progress`; otherwise status stays `backlog`. A missing `claude` just shows the shell's error.
+`POST /api/sessions` accepts optional `name`, `prompt` and `command` (the agent's launch
+template, e.g. `claude {prompt}` or `gemini -i {prompt}`; default `claude {prompt}`). With a
+prompt, the daemon replaces `{prompt}` with the prompt as one single-quoted, single-line argument
+(appending it when the template has no `{prompt}`), writes that line plus Enter to the new PTY's
+input once it's spawned, and sets `in_progress`; otherwise status stays `backlog`. A missing
+agent binary just shows the shell's error.
 
 ### CLI (`src/cli/`)
 
@@ -88,22 +100,28 @@ exactly as today.
     `~/.tabsh/token`; PATCHes the daemon with a 500 ms timeout.
   - `--hook`: reads the hook's JSON from stdin (uses `message` as the note for `Notification`),
     prints nothing and **always exits 0**, including when `TABSH_SESSION_ID` is unset, the
-    daemon is down, or the session is gone. Hooks must never disturb Claude.
+    daemon is down, or the session is gone. Hooks must never disturb the agent.
   - Without `--hook`: clear error and exit 1 for each of those cases.
-- `tabsh hooks install` / `tabsh hooks uninstall`
-  - Merges into `~/.claude/settings.json`: `UserPromptSubmit` → `tabsh status in_progress --hook`,
-    `Notification` → `tabsh status needs_input --hook`, `Stop` →
-    `tabsh status needs_input --hook --if-not completed --note "Claude finished its turn"`.
-  - Writes `settings.json.bak` first; idempotent; never touches other hooks. Uninstall removes
-    only entries whose command starts with `tabsh status`.
-  - Also writes / removes the skill at `~/.claude/skills/tabsh-board/SKILL.md`.
+  - `--hook` takes the note from the `message` field of JSON on stdin when `--note` isn't given
+    (Claude Code's and Gemini CLI's notification payloads carry one).
+- `tabsh setup`: prints the agent setup guide (embedded in the binary, with `{tabsh}` replaced by
+  this binary's quoted path). You tell any agent "run `tabsh setup` and follow it".
 
-### Skill (`tabsh-board`)
+### Agent setup guide (`src/cli/setup.md`)
 
-Embedded in the binary, written by `hooks install`. Tells Claude: when running inside a tabsh
-terminal (`TABSH_SESSION_ID` is set) and the user's task is done, run
-`tabsh status completed --note "<one-line summary of what was done>"`. Don't set other statuses;
-hooks handle them.
+Addressed to the agent. It states the contract and how to wire it, safely:
+
+1. The contract, as the table under Concepts: which moments call which `tabsh status` command.
+2. Find your own hook / notification mechanism and config file. Back the file up, then merge:
+   never replace other hooks, and skip entries that already call `tabsh status` (idempotent).
+3. Map your events onto the contract; where you have no matching event, leave it out and say so.
+4. Add an instruction to your own persistent instructions (a skill, `AGENTS.md`, `GEMINI.md`…):
+   when `TABSH_SESSION_ID` is set and the user's task is done, run
+   `tabsh status completed --note "<one line>"`; set no other status.
+5. Verify: inside a tabsh terminal, `tabsh status needs_input --note "setup test"` moves the card;
+   outside one, `tabsh status needs_input --hook` exits 0 silently.
+6. Report what you set up, what you couldn't, the backup path, and how to undo it (remove
+   hooks that call `tabsh status` and the instruction).
 
 ## Web app (`web/src/app/board/`)
 
@@ -138,7 +156,9 @@ Replaces the terminal area while open. Linear-style, minimal:
 ### New card
 
 Dialog: title, folder (text field + recent folders from existing sessions' cwds), optional first
-prompt. Create → `POST /api/sessions {name, cwd, prompt?}`, close the board, focus the new tab.
+prompt, and the agent command (text field, default `claude {prompt}`, offering recently used
+commands, which are kept in the page settings as `agentCommands`). Create →
+`POST /api/sessions {name, cwd, prompt?, command?}`, close the board, focus the new tab.
 
 ### Workspace
 
@@ -151,12 +171,13 @@ Unchanged tabsh: explorer rooted at the session's folder, terminal, file pane/ed
   - PATCH 200 / 400 / 404; event broadcast on change;
   - migration on a database without the new columns;
   - `POST /api/sessions` with a prompt sets `in_progress` and quotes the prompt safely;
-  - hooks install: merge with foreign hooks, idempotent, backup written, uninstall removes ours only;
+  - the launch line: quoting, `{prompt}` replaced, appended when missing, other agents' templates;
+  - `tabsh setup` prints the guide with the binary path filled in;
   - CLI `--hook` exits 0 silently when env/daemon/session is missing; non-hook exits 1;
   - `every_route_is_guarded` covers the new routes.
 - **Web (`node --test`)**: grouping and ordering by column, time-in-status formatting, recent
   folders.
 - **Playwright e2e**: create a card with a prompt → In progress; PATCH `needs_input` via the API
   → card moves, tab glyph turns amber; drag to Completed.
-- **Manual**: real `claude` in a card moves in progress → needs input → completed via hooks and
-  the skill.
+- **Manual**: ask Claude Code to run `tabsh setup` and follow it; then a real `claude` in a card
+  moves in progress → needs input → completed. Optionally repeat with Gemini CLI.

@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** A Linear-style kanban board inside tabsh where every card is a tabsh terminal, and Claude Code keeps each card's status current through a `tabsh status` CLI, hooks and a skill.
+**Goal:** A Linear-style kanban board inside tabsh where every card is a tabsh terminal, and the coding agent in it (Claude Code first, any agent CLI with hooks) keeps the card's status current through the agent-neutral `tabsh status` CLI.
 
-**Architecture:** The Rust daemon gains a `board` feature (status columns on the `sessions` table, a status `PATCH`, and a WebSocket that pushes status changes) and a `cli` module (`tabsh status`, `tabsh hooks install|uninstall`) on the same binary. Shells get `TABSH_SESSION_ID`/`TABSH_URL` in their environment so hooks know their card. The web app gains a `board/` folder: status glyphs on tabs, a toggleable board view, and a New card dialog, styled only with the theme-derived Basecoat tokens.
+**Architecture:** The Rust daemon gains a `board` feature (status columns on the `sessions` table, a status `PATCH`, and a WebSocket that pushes status changes) and a `cli` module (`tabsh status`, and `tabsh setup`, which prints a guide the agent follows to wire its own hooks to `tabsh status`; tabsh never edits agent config) on the same binary. Shells get `TABSH_SESSION_ID`/`TABSH_URL` in their environment so hooks know their card. The web app gains a `board/` folder: status glyphs on tabs, a toggleable board view, and a New card dialog, styled only with the theme-derived Basecoat tokens.
 
 **Tech Stack:** Rust 2024 (axum 0.8, rusqlite, tokio, serde_json), Astro + vanilla TypeScript, xterm.js, Basecoat CSS, `node --test`, Playwright.
 
@@ -18,7 +18,8 @@
 - `tabsh status --hook` prints nothing and always exits 0. Without `--hook`, errors print one line to stderr and exit 1. HTTP timeout 500 ms.
 - `tabsh` with no subcommand (or a port number as the first argument) starts the daemon exactly as before.
 - The board uses only Basecoat tokens (`--background`, `--foreground`, `--card`, `--border`, `--muted`, `--muted-foreground`, `--accent`) plus one new `--needs-input` amber. The needs-input glyph is the only coloured element on the board.
-- Every user-controlled string (session names come from shell OSC titles, notes come from Claude) is put in the DOM with `textContent`, never `innerHTML`.
+- Every user-controlled string (session names come from shell OSC titles, notes come from the agent) is put in the DOM with `textContent`, never `innerHTML`.
+- tabsh never reads or writes an agent's config files and hard-codes no agent's hook names; the only agent-specific default is the launch template `claude {prompt}`.
 - Spec deviation, agreed by the reality of the code: tabsh's ⌘K palette does not list sessions, so "needs_input first in ⌘K" becomes a "Toggle board" palette item instead.
 - Commit after each task with a conventional message ending in `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>`. Work on branch `kanban-board`.
 - Checks: `cargo test`, `cargo clippy --all-targets -- -D warnings`, and in `web/`: `npm test`, `npm run check`, `npm run lint`.
@@ -27,22 +28,22 @@
 
 - A session name containing markup (e.g. `<img src=x onerror=alert(1)>` set via OSC 0) must render as text on the board card. Pinned in Task 8 (e2e asserts the literal text).
 - Adding an element to the tab must not break existing e2e selectors `#tabs .tab[aria-selected="true"] span` (strict mode: exactly one `span`). The glyph is therefore an `<i>`, not a `<span>`. Pinned in Task 10 by running the existing e2e suite.
-- A prompt containing quotes, `$(...)`, backticks or newlines must reach `claude` as one literal argument, never executed by the shell. Pinned in Task 3 (`claude_line` tests).
+- A prompt containing quotes, `$(...)`, backticks or newlines must reach the agent as one literal argument, never executed by the shell. Pinned in Task 3 (`launch_line` tests).
 - An old `~/.tabsh/state.db` without the new columns must open, and its sessions show as backlog cards with a sane `status_at` (not 1970). Pinned in Task 1.
-- `~/.claude/settings.json` that is invalid JSON must not be overwritten by `tabsh hooks install`. Pinned in Task 5.
+- An agent command template without `{prompt}` (e.g. `gemini`) must still start the agent with the prompt, appended as one quoted argument, and a template with `{prompt}` twice must not double-run anything unquoted. Pinned in Task 3 (`launch_line` tests).
 
 ---
 
 ## File Structure
 
 Daemon:
-- Create `src/board/mod.rs` — statuses, migration, `routes()`, the status `PATCH` handler, `BoardEvent`, `claude_line()`.
+- Create `src/board/mod.rs` — statuses, migration, `routes()`, the status `PATCH` handler, `BoardEvent`, `launch_line()`.
 - Create `src/board/rules.rs` — the pure "does this update apply" rule.
 - Create `src/board/events.rs` — the `/api/board/events` WebSocket.
 - Create `src/cli/mod.rs` — subcommand dispatch and usage.
 - Create `src/cli/status.rs` — `tabsh status`: args, env, the tiny HTTP client.
-- Create `src/cli/hooks.rs` — `tabsh hooks install|uninstall`, settings.json merge.
-- Create `src/cli/skill.md` — the skill text, embedded with `include_str!`.
+- Create `src/cli/setup.rs` — `tabsh setup`: prints the guide.
+- Create `src/cli/setup.md` — the agent setup guide, embedded with `include_str!`.
 - Modify `src/main.rs` — CLI dispatch before the daemon; `events`, `self_url` in `AppState`.
 - Modify `src/state.rs` — `AppState` fields, merge `board::routes()`, guarded-route list.
 - Modify `src/test_support.rs` — new `AppState` fields.
@@ -56,7 +57,7 @@ Web (`web/src/app/board/`):
 - Create `status.ts` — a session's card state, applying it to its tab, change listeners.
 - Create `events.ts` — the board events socket.
 - Create `view.ts` — the board view, drag and drop, toggle, keybinding.
-- Create `new-card.ts` — the New card dialog.
+- Create `new-card.ts` — the New card dialog (title, folder, first prompt, agent command).
 - Modify `sessions/store.ts`, `sessions/terminal.ts`, `daemon/client.ts`, `settings/keys.ts`, `settings/schema.ts`, `palette/pages.ts`, `palette/palette.ts`, `main.ts`, `pages/app/index.astro`, `styles/app.css`.
 - Create `web/e2e/board.spec.ts`.
 
@@ -137,8 +138,8 @@ Expected: compile errors (`status` field, `insert_card`, `NewCard`, `info` not f
 Create `src/board/mod.rs`:
 
 ```rust
-//! The kanban board: every session is a card with a status, set by Claude
-//! Code's hooks (through `tabsh status`) and by dragging cards on the board.
+//! The kanban board: every session is a card with a status, set by the
+//! coding agent's hooks (through `tabsh status`) and by dragging cards on the board.
 
 use rusqlite::Connection;
 
@@ -282,7 +283,7 @@ git commit -m "feat(board): card status columns on sessions"
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) enum Source {
-    /// Claude Code's hooks and skill, through `tabsh status`.
+    /// The agent's hooks and instructions, through `tabsh status`.
     Hook,
     /// The board: a drag always wins.
     User,
@@ -578,14 +579,14 @@ git commit -m "feat(board): status endpoint, hook rules and events socket"
 
 ---
 
-### Task 3: Shell environment and first prompt
+### Task 3: Shell environment and first prompt (any agent)
 
 **Files:**
 - Modify: `src/board/mod.rs`, `src/sessions/pty.rs`, `src/sessions/mod.rs`, `src/state.rs`, `src/main.rs`, `src/test_support.rs`
 
 **Interfaces:**
 - Consumes: `store::{NewCard, insert_card}` (Task 1).
-- Produces: `AppState.self_url: Arc<str>` (e.g. `http://127.0.0.1:7681`); `board::claude_line(&str) -> String`; `pty::shell_env(&AppState, &str) -> Vec<(&'static str, String)>`; `POST /api/sessions` body `{cwd?, name?, prompt?}`.
+- Produces: `AppState.self_url: Arc<str>` (e.g. `http://127.0.0.1:7681`); `board::launch_line(command: &str, prompt: &str) -> String` (`DEFAULT_COMMAND = "claude {prompt}"`); `pty::shell_env(&AppState, &str) -> Vec<(&'static str, String)>`; `POST /api/sessions` body `{cwd?, name?, prompt?, command?}`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -593,10 +594,20 @@ Append to `src/board/mod.rs` `mod tests`:
 
 ```rust
     #[test]
-    fn claude_line_passes_the_prompt_as_one_literal_argument() {
-        assert_eq!(claude_line("fix the login"), "claude 'fix the login'\r");
-        assert_eq!(claude_line("it's $(rm -rf ~) `x`"), "claude 'it'\\''s $(rm -rf ~) `x`'\r");
-        assert_eq!(claude_line("one\ntwo\r\n  three\t"), "claude 'one two three'\r");
+    fn launch_line_passes_the_prompt_as_one_literal_argument() {
+        let c = DEFAULT_COMMAND;
+        assert_eq!(launch_line(c, "fix the login"), "claude 'fix the login'\r");
+        assert_eq!(launch_line(c, "it's $(rm -rf ~) `x`"), "claude 'it'\\''s $(rm -rf ~) `x`'\r");
+        assert_eq!(launch_line(c, "one\ntwo\r\n  three\t"), "claude 'one two three'\r");
+    }
+
+    #[test]
+    fn launch_line_fits_any_agent() {
+        assert_eq!(launch_line("gemini -i {prompt}", "hi"), "gemini -i 'hi'\r");
+        assert_eq!(launch_line("codex", "hi"), "codex 'hi'\r", "appended when there's no {prompt}");
+        assert_eq!(launch_line("  ", "hi"), "claude 'hi'\r", "blank means the default");
+        assert_eq!(launch_line("a {prompt} b {prompt}", "x"), "a 'x' b 'x'\r");
+        assert_eq!(launch_line("claude\n--x {prompt}", "x"), "claude --x 'x'\r", "one line only");
     }
 ```
 
@@ -641,7 +652,7 @@ Append to `src/sessions/mod.rs` `mod tests`:
     }
 
     #[tokio::test]
-    async fn a_card_with_a_prompt_starts_claude_and_is_in_progress() {
+    async fn a_card_with_a_prompt_starts_its_agent_and_is_in_progress() {
         let st = test_state();
         let (code, body) = create(&st, serde_json::json!({"cwd": "/tmp", "name": " Fix login ", "prompt": "fix it"})).await;
         assert_eq!(code, StatusCode::OK);
@@ -653,6 +664,14 @@ Append to `src/sessions/mod.rs` `mod tests`:
             .query_row("SELECT pending_input FROM sessions WHERE id = ?1", [body["id"].as_str().unwrap()], |r| r.get(0))
             .unwrap();
         assert_eq!(pending.as_deref(), Some("claude 'fix it'\r"));
+        let (_, body) = create(&st, serde_json::json!({"prompt": "hi", "command": "gemini -i {prompt}"})).await;
+        let pending: Option<String> = st
+            .db
+            .lock()
+            .unwrap()
+            .query_row("SELECT pending_input FROM sessions WHERE id = ?1", [body["id"].as_str().unwrap()], |r| r.get(0))
+            .unwrap();
+        assert_eq!(pending.as_deref(), Some("gemini -i 'hi'\r"));
     }
 
     #[tokio::test]
@@ -668,19 +687,35 @@ Append to `src/sessions/mod.rs` `mod tests`:
 - [ ] **Step 2: Run to verify they fail**
 
 Run: `cargo test --lib`
-Expected: compile errors (`claude_line`, `shell_env`, `self_url`).
+Expected: compile errors (`launch_line`, `shell_env`, `self_url`).
 
 - [ ] **Step 3: Implement**
 
 `src/board/mod.rs`:
 
 ```rust
-/// The line typed into a new card's shell to start Claude on its first
-/// prompt: one single-quoted argument (so nothing in it runs), on one line
-/// (a newline would submit early), then Enter.
-pub(crate) fn claude_line(prompt: &str) -> String {
-    let one_line = prompt.split_whitespace().collect::<Vec<_>>().join(" ");
-    format!("claude '{}'\r", one_line.replace('\'', r"'\''"))
+/// The agent a new card starts when the page names none.
+pub(crate) const DEFAULT_COMMAND: &str = "claude {prompt}";
+
+/// The line typed into a new card's shell to start its agent on its first
+/// prompt. `command` is the agent's launch template (the user's own, from
+/// the New card dialog); `{prompt}` becomes the prompt as one single-quoted
+/// argument (so nothing in it runs), or the prompt is appended when the
+/// template has no `{prompt}`. All on one line (a newline would submit
+/// early), then Enter.
+pub(crate) fn launch_line(command: &str, prompt: &str) -> String {
+    let one_line = |t: &str| t.split_whitespace().collect::<Vec<_>>().join(" ");
+    let command = match one_line(command) {
+        c if c.is_empty() => DEFAULT_COMMAND.to_owned(),
+        c => c,
+    };
+    let quoted = format!("'{}'", one_line(prompt).replace('\'', r"'\''"));
+    let line = if command.contains("{prompt}") {
+        command.replace("{prompt}", &quoted)
+    } else {
+        format!("{command} {quoted}")
+    };
+    format!("{line}\r")
 }
 ```
 
@@ -756,6 +791,7 @@ struct NewSession {
     cwd: Option<String>,
     name: Option<String>,
     prompt: Option<String>,
+    command: Option<String>,
 }
 ```
 
@@ -772,7 +808,7 @@ struct NewSession {
         .as_deref()
         .map(str::trim)
         .filter(|p| !p.is_empty())
-        .map(crate::board::claude_line);
+        .map(|p| crate::board::launch_line(body.command.as_deref().unwrap_or(crate::board::DEFAULT_COMMAND), p));
     let card = store::NewCard {
         cwd: body.cwd.as_deref(),
         name: name.as_deref(),
@@ -794,7 +830,7 @@ Expected: all pass.
 
 ```bash
 git add src
-git commit -m "feat(board): shells know their card; new cards can start claude"
+git commit -m "feat(board): shells know their card; new cards can start their agent"
 ```
 
 ---
@@ -894,10 +930,11 @@ Expected: compile errors (module missing).
 `src/cli/mod.rs`:
 
 ```rust
-//! Subcommands on the daemon's binary: `tabsh status` (what Claude Code's
-//! hooks and skill run inside a tabsh terminal) and `tabsh hooks`.
+//! Subcommands on the daemon's binary: `tabsh status` (what a coding agent's
+//! hooks run inside a tabsh terminal) and `tabsh setup` (the guide an agent
+//! follows to wire its own hooks to it).
 
-mod hooks;
+mod setup;
 mod status;
 
 const USAGE: &str = "usage:
@@ -905,14 +942,15 @@ const USAGE: &str = "usage:
   tabsh status <status> [--note <text>] [--if-not <status>] [--hook]
                                        set this terminal's card status:
                                        backlog, in_progress, needs_input, completed, archived
-  tabsh hooks install|uninstall        add or remove tabsh's Claude Code hooks and skill";
+  tabsh setup                          print the guide a coding agent follows to keep
+                                       its card current (\"run `tabsh setup` and follow it\")";
 
 /// Runs a subcommand and returns its exit code, or `None` when `args` (the
 /// command line without the program name) means "start the daemon".
 pub(crate) fn run(args: &[String]) -> Option<i32> {
     match args.first().map(String::as_str) {
         Some("status") => Some(status::run(&args[1..], &status::Env::from_process(), &mut std::io::stdin())),
-        Some("hooks") => Some(hooks::run(&args[1..])),
+        Some("setup") => Some(setup::run()),
         Some("help" | "--help" | "-h") => {
             println!("{USAGE}");
             Some(0)
@@ -922,13 +960,13 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
 }
 ```
 
-Until Task 5, create `src/cli/hooks.rs` with only:
+Until Task 5, create `src/cli/setup.rs` with only:
 
 ```rust
-//! `tabsh hooks install|uninstall`.
+//! `tabsh setup`.
 
-pub(super) fn run(_args: &[String]) -> i32 {
-    eprintln!("tabsh hooks: not implemented yet");
+pub(super) fn run() -> i32 {
+    eprintln!("tabsh setup: not implemented yet");
     1
 }
 ```
@@ -937,7 +975,7 @@ pub(super) fn run(_args: &[String]) -> i32 {
 
 ```rust
 //! `tabsh status`: sets the card of the terminal it runs in. Hooks call it
-//! with `--hook`, which must never disturb Claude: silent, always exit 0.
+//! with `--hook`, which must never disturb the agent: silent, always exit 0.
 
 use crate::board::STATUSES;
 use std::{
@@ -1000,8 +1038,8 @@ pub(super) fn parse(args: &[String]) -> Result<Parsed, String> {
     Ok(Parsed { status, note, unless, hook })
 }
 
-/// The `message` of the hook event Claude Code writes on stdin
-/// (Notification has one; other events don't).
+/// The `message` of the hook event the agent writes on stdin (Claude Code's
+/// and Gemini CLI's Notification payloads have one; other events don't).
 pub(super) fn hook_message(stdin: &mut dyn Read) -> Option<String> {
     let mut buf = Vec::new();
     stdin.take(64 * 1024).read_to_end(&mut buf).ok()?;
@@ -1108,286 +1146,142 @@ git commit -m "feat(cli): tabsh status sets the terminal's card"
 
 ---
 
-### Task 5: `tabsh hooks install|uninstall` and the skill
+### Task 5: `tabsh setup` and the agent setup guide
 
 **Files:**
-- Create: `src/cli/skill.md`
-- Modify: `src/cli/hooks.rs`
+- Create: `src/cli/setup.md`
+- Modify: `src/cli/setup.rs`
 
 **Interfaces:**
-- Consumes: `tabsh status … --hook` (Task 4).
-- Produces: `hooks::run(&[String]) -> i32`; `hooks::merged(Value, exe: &str) -> Value`; `hooks::without_ours(Value) -> Value`; `hooks::install(claude_dir: &Path, exe: &str) -> Result<(), String>`; `hooks::uninstall(claude_dir: &Path) -> Result<(), String>`.
+- Consumes: `tabsh status` and its flags (Task 4).
+- Produces: `setup::guide(exe: &str) -> String`; `setup::run() -> i32` (prints the guide, exit 0).
 
-- [ ] **Step 1: Write the failing tests** — `src/cli/hooks.rs` test module:
+tabsh does not install anything. The guide is the whole integration: an agent reads it and wires
+its own hooks to `tabsh status`. It is embedded in the binary so it always matches its version.
+
+- [ ] **Step 1: Write the failing test** — `src/cli/setup.rs`:
 
 ```rust
+//! `tabsh setup`: prints the guide a coding agent follows to keep its card on
+//! the board current. tabsh never edits an agent's config itself: the agent
+//! knows its own hooks better, and keeps knowing them when they change.
+
+const GUIDE: &str = include_str!("setup.md");
+
+/// The guide, with `{tabsh}` replaced by this binary, quoted for a shell.
+pub(super) fn guide(exe: &str) -> String {
+    todo!()
+}
+
+pub(super) fn run() -> i32 {
+    todo!()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::scratch;
-    use serde_json::json;
-
-    const EXE: &str = "/bin/tabsh";
-
-    fn commands(v: &Value, event: &str) -> Vec<String> {
-        v["hooks"][event]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .flat_map(|g| g["hooks"].as_array().cloned().unwrap_or_default())
-            .filter_map(|h| h["command"].as_str().map(String::from))
-            .collect()
-    }
 
     #[test]
-    fn merge_adds_ours_and_keeps_theirs() {
-        let theirs = json!({"model": "opus", "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "say done"}]}]}});
-        let v = merged(theirs, EXE);
-        assert_eq!(v["model"], "opus");
-        assert_eq!(
-            commands(&v, "Stop"),
-            ["say done", "'/bin/tabsh' status needs_input --hook --if-not completed --note 'Claude finished its turn'"]
-        );
-        assert_eq!(commands(&v, "UserPromptSubmit"), ["'/bin/tabsh' status in_progress --hook"]);
-        assert_eq!(commands(&v, "Notification"), ["'/bin/tabsh' status needs_input --hook"]);
-    }
-
-    #[test]
-    fn merge_is_idempotent_and_uninstall_removes_only_ours() {
-        let theirs = json!({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "say done"}]}]}});
-        let once = merged(theirs.clone(), EXE);
-        assert_eq!(merged(once.clone(), EXE), once);
-        assert_eq!(without_ours(once), theirs);
-        assert_eq!(without_ours(merged(json!({}), EXE)), json!({}));
-    }
-
-    #[test]
-    fn install_backs_up_writes_the_skill_and_uninstall_undoes_it() {
-        let dir = scratch();
-        std::fs::write(dir.join("settings.json"), r#"{"model":"opus"}"#).unwrap();
-        install(&dir, EXE).unwrap();
-        assert_eq!(std::fs::read_to_string(dir.join("settings.json.bak")).unwrap(), r#"{"model":"opus"}"#);
-        let v: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("settings.json")).unwrap()).unwrap();
-        assert_eq!(commands(&v, "UserPromptSubmit").len(), 1);
-        let skill = std::fs::read_to_string(dir.join("skills/tabsh-board/SKILL.md")).unwrap();
-        assert!(skill.contains("'/bin/tabsh' status completed"));
-        uninstall(&dir).unwrap();
-        let v: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("settings.json")).unwrap()).unwrap();
-        assert_eq!(v, json!({"model": "opus"}));
-        assert!(!dir.join("skills/tabsh-board").exists());
-    }
-
-    #[test]
-    fn install_creates_settings_when_missing() {
-        let dir = scratch();
-        install(&dir, EXE).unwrap();
-        assert!(dir.join("settings.json").exists());
-        assert!(!dir.join("settings.json.bak").exists());
-    }
-
-    #[test]
-    fn install_refuses_to_overwrite_broken_json() {
-        let dir = scratch();
-        std::fs::write(dir.join("settings.json"), "{ nope").unwrap();
-        assert!(install(&dir, EXE).is_err());
-        assert_eq!(std::fs::read_to_string(dir.join("settings.json")).unwrap(), "{ nope");
+    fn the_guide_names_this_binary_and_the_whole_contract() {
+        let g = guide("/opt/my tabsh/tabsh");
+        assert!(!g.contains("{tabsh}"));
+        assert!(g.contains("'/opt/my tabsh/tabsh' status in_progress --hook"));
+        assert!(g.contains("'/opt/my tabsh/tabsh' status needs_input --hook"));
+        assert!(g.contains("status needs_input --hook --if-not completed --note 'Agent finished its turn'"));
+        assert!(g.contains("status completed --note"));
+        for must in ["Back up", "merge", "TABSH_SESSION_ID", "undo"] {
+            assert!(g.contains(must), "guide must mention {must}");
+        }
     }
 }
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [ ] **Step 2: Run to verify it fails**
 
-Run: `cargo test --lib cli::hooks`
-Expected: compile errors.
+Run: `cargo test --lib cli::setup`
+Expected: FAIL (`include_str!` can't find `setup.md`, then `todo!()` panics).
 
-- [ ] **Step 3: Implement**
+- [ ] **Step 3: Write the guide** — `src/cli/setup.md`:
 
-`src/cli/skill.md` (`{tabsh}` is replaced with the quoted binary path on install):
+````markdown
+# Connect this coding agent to the tabsh board
 
-```markdown
----
-name: tabsh-board
-description: Use when you are running inside a tabsh terminal (the TABSH_SESSION_ID environment variable is set) and you have finished the task the user gave you. Marks this terminal's card Completed on the user's tabsh kanban board.
----
+You are a coding agent (Claude Code, Gemini CLI, Codex, …). The user runs you inside tabsh, where
+every terminal is a card on a kanban board with the statuses backlog, in_progress, needs_input,
+completed and archived. Set up your own hooks and instructions so you keep your card current.
+tabsh does not know your config format; you do. Follow these steps and report back.
 
-# tabsh board
+## The contract
 
-This terminal is a card on the user's tabsh kanban board. Hooks already mark
-it In progress while you work and Needs input when you stop or ask for
-permission. You only do one thing:
+Inside a tabsh terminal the environment has `TABSH_SESSION_ID`. These commands set that terminal's
+card. With `--hook` they print nothing and always exit 0, even outside tabsh, so they are safe to
+run from hooks that fire everywhere.
 
-When the user's task is done (not paused, and not waiting on an answer from
-them), run:
+| When | Run |
+|---|---|
+| The user sends you a prompt | `{tabsh} status in_progress --hook` |
+| You need permission or input from the user | `{tabsh} status needs_input --hook` |
+| Your turn ends | `{tabsh} status needs_input --hook --if-not completed --note 'Agent finished its turn'` |
+| The user's task is done (you decide; not a hook) | `{tabsh} status completed --note "<one line: what you did>"` |
 
-    {tabsh} status completed --note "<one line: what you did>"
+`--hook` reads JSON on stdin and uses its `message` field as the card's note when there is one,
+so a notification hook can pass its payload straight through. `--note` sets the note explicitly.
 
-- Only when `TABSH_SESSION_ID` is set.
-- Don't set any other status. Hooks handle the rest, and Archive is the user's.
-```
+## Steps
 
-`src/cli/hooks.rs`:
+1. **Find your mechanism.** Identify your own hook or notification system and its config file
+   (for example Claude Code: `~/.claude/settings.json` hooks `UserPromptSubmit`, `Notification`,
+   `Stop`; Gemini CLI: `~/.gemini/settings.json` hooks `BeforeAgent`, `Notification`,
+   `AfterAgent`; Codex: `notify` in `~/.codex/config.toml`). Check your current documentation
+   rather than trusting these examples.
+2. **Back up** that config file next to itself with a `.bak` suffix before changing it.
+3. **merge, never replace.** Add one entry per row of the contract that you have an event for.
+   Keep every existing hook. If an entry that runs `tabsh status` is already there, update it
+   instead of adding a second one, so running this setup again changes nothing.
+4. **Map honestly.** If you have no event for a row (Codex, for example, has no "prompt sent"
+   event), leave that row out. Never fake it with an event that means something else.
+5. **Instruct yourself.** Add to your persistent instructions (a skill, `AGENTS.md`, `GEMINI.md`,
+   or whatever you read at the start of every session) a short rule: when `TABSH_SESSION_ID` is
+   set and the user's task is done (not paused, not waiting on them), run
+   `{tabsh} status completed --note "<one line: what you did>"`; never set any other status
+   yourself, because hooks handle those and archiving is the user's.
+6. **Verify.** If `TABSH_SESSION_ID` is set, run `{tabsh} status needs_input --note "setup test"`
+   and ask the user to confirm the card moved, then `{tabsh} status in_progress`. In any case run
+   `env -u TABSH_SESSION_ID {tabsh} status needs_input --hook; echo $?` and check it prints `0`.
+7. **Report** to the user: the file you changed and its backup path, which rows you wired to
+   which events, which rows you could not wire and why, and how to undo it: remove the entries
+   that run `tabsh status` and the instruction from step 5.
+````
+
+- [ ] **Step 4: Implement**
 
 ```rust
-//! `tabsh hooks install|uninstall`: adds (or removes) the Claude Code hooks
-//! that move a terminal's card, and the skill that marks it completed.
-
-use serde_json::{Map, Value, json};
-use std::path::{Path, PathBuf};
-
-const SKILL: &str = include_str!("skill.md");
-
-fn quoted(s: &str) -> String {
-    format!("'{}'", s.replace('\'', r"'\''"))
+pub(super) fn guide(exe: &str) -> String {
+    let quoted = format!("'{}'", exe.replace('\'', r"'\''"));
+    GUIDE.replace("{tabsh}", &quoted)
 }
 
-/// Our hook commands, by Claude Code hook event.
-fn ours(exe: &str) -> [(&'static str, String); 3] {
-    let t = quoted(exe);
-    [
-        ("UserPromptSubmit", format!("{t} status in_progress --hook")),
-        ("Notification", format!("{t} status needs_input --hook")),
-        ("Stop", format!("{t} status needs_input --hook --if-not completed --note 'Claude finished its turn'")),
-    ]
-}
-
-fn is_ours(hook: &Value) -> bool {
-    hook["command"].as_str().is_some_and(|c| c.contains("tabsh") && c.contains(" status ") && c.contains("--hook"))
-}
-
-/// `settings` with every tabsh hook removed, and any group, event or `hooks`
-/// object that leaves empty dropped too.
-pub(super) fn without_ours(mut settings: Value) -> Value {
-    let Some(events) = settings.get_mut("hooks").and_then(Value::as_object_mut) else {
-        return settings;
-    };
-    for groups in events.values_mut() {
-        if let Some(groups) = groups.as_array_mut() {
-            for g in groups.iter_mut() {
-                if let Some(hooks) = g.get_mut("hooks").and_then(Value::as_array_mut) {
-                    hooks.retain(|h| !is_ours(h));
-                }
-            }
-            groups.retain(|g| g["hooks"].as_array().is_none_or(|h| !h.is_empty()));
-        }
-    }
-    events.retain(|_, groups| groups.as_array().is_none_or(|g| !g.is_empty()));
-    if events.is_empty()
-        && let Some(root) = settings.as_object_mut()
-    {
-        root.remove("hooks");
-    }
-    settings
-}
-
-/// `settings` with exactly one copy of each tabsh hook.
-pub(super) fn merged(settings: Value, exe: &str) -> Value {
-    let mut settings = without_ours(settings);
-    if !settings.is_object() {
-        settings = json!({});
-    }
-    let root = settings.as_object_mut().expect("object");
-    let events = root.entry("hooks").or_insert_with(|| Value::Object(Map::new()));
-    for (event, command) in ours(exe) {
-        let groups = events
-            .as_object_mut()
-            .expect("hooks is an object")
-            .entry(event)
-            .or_insert_with(|| json!([]));
-        if let Some(groups) = groups.as_array_mut() {
-            groups.push(json!({ "hooks": [{ "type": "command", "command": command }] }));
-        }
-    }
-    settings
-}
-
-fn read_settings(path: &Path) -> Result<Option<(String, Value)>, String> {
-    match std::fs::read_to_string(path) {
-        Ok(text) => {
-            let v = serde_json::from_str(&text)
-                .map_err(|e| format!("{} isn't valid JSON ({e}); fix it and run this again", path.display()))?;
-            Ok(Some((text, v)))
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(format!("can't read {}: {e}", path.display())),
-    }
-}
-
-fn write_json(path: &Path, v: &Value) -> Result<(), String> {
-    let text = serde_json::to_string_pretty(v).expect("serializable") + "\n";
-    std::fs::write(path, text).map_err(|e| format!("can't write {}: {e}", path.display()))
-}
-
-fn skill_dir(claude_dir: &Path) -> PathBuf {
-    claude_dir.join("skills/tabsh-board")
-}
-
-pub(super) fn install(claude_dir: &Path, exe: &str) -> Result<(), String> {
-    std::fs::create_dir_all(claude_dir).map_err(|e| format!("can't create {}: {e}", claude_dir.display()))?;
-    let path = claude_dir.join("settings.json");
-    let current = read_settings(&path)?;
-    if let Some((text, _)) = &current {
-        let bak = claude_dir.join("settings.json.bak");
-        std::fs::write(&bak, text).map_err(|e| format!("can't write {}: {e}", bak.display()))?;
-    }
-    write_json(&path, &merged(current.map(|(_, v)| v).unwrap_or_else(|| json!({})), exe))?;
-    let dir = skill_dir(claude_dir);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("can't create {}: {e}", dir.display()))?;
-    std::fs::write(dir.join("SKILL.md"), SKILL.replace("{tabsh}", &quoted(exe)))
-        .map_err(|e| format!("can't write the skill: {e}"))
-}
-
-pub(super) fn uninstall(claude_dir: &Path) -> Result<(), String> {
-    let path = claude_dir.join("settings.json");
-    if let Some((_, v)) = read_settings(&path)? {
-        write_json(&path, &without_ours(v))?;
-    }
-    let dir = skill_dir(claude_dir);
-    if dir.exists() {
-        std::fs::remove_dir_all(&dir).map_err(|e| format!("can't remove {}: {e}", dir.display()))?;
-    }
-    Ok(())
-}
-
-/// `CLAUDE_CONFIG_DIR`, else `~/.claude`, as Claude Code itself resolves it.
-fn claude_dir() -> PathBuf {
-    std::env::var_os("CLAUDE_CONFIG_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_else(|| ".".into())).join(".claude"))
-}
-
-pub(super) fn run(args: &[String]) -> i32 {
-    let dir = claude_dir();
-    let result = match args.first().map(String::as_str) {
-        Some("install") => std::env::current_exe()
-            .map_err(|e| format!("can't find this binary: {e}"))
-            .and_then(|exe| install(&dir, &exe.to_string_lossy()))
-            .map(|()| format!("Installed tabsh's hooks in {0}/settings.json and the tabsh-board skill in {0}/skills.", dir.display())),
-        Some("uninstall") => uninstall(&dir).map(|()| format!("Removed tabsh's hooks and skill from {}.", dir.display())),
-        _ => Err("usage: tabsh hooks install|uninstall".into()),
-    };
-    match result {
-        Ok(msg) => {
-            println!("{msg}");
-            0
-        }
-        Err(e) => {
-            eprintln!("tabsh hooks: {e}");
-            1
-        }
-    }
+pub(super) fn run() -> i32 {
+    // The installed binary's own path, so hooks work even where `tabsh`
+    // isn't on the PATH the agent's hooks run with.
+    let exe = std::env::current_exe()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "tabsh".into());
+    print!("{}", guide(&exe));
+    0
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [ ] **Step 5: Run tests**
 
-Run: `cargo test && cargo clippy --all-targets -- -D warnings`
-Expected: all pass.
+Run: `cargo test && cargo clippy --all-targets -- -D warnings && cargo build && ./target/debug/tabsh setup | head -20`
+Expected: all pass; the guide prints with this binary's absolute path in the table.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/cli
-git commit -m "feat(cli): tabsh hooks install|uninstall with the tabsh-board skill"
+git commit -m "feat(cli): tabsh setup prints the agent setup guide"
 ```
 
 ---
@@ -1707,7 +1601,7 @@ export interface SessionInfo {
 
 - `shown` becomes: `store.sessions.filter((s) => s === store.active || (!s.tab.hidden && s.card.status !== 'archived'));`
 - In `sync`, `if (s) setName(s, info.name, false);` becomes `if (s) { setName(s, info.name, false); applyCard(s, cardOf(info)); }`.
-- `openTab(body?: { cwd?: string; name?: string; prompt?: string })` (widen the type; `newCard` in Task 9 uses it). Export it: `export async function openTab(…)`.
+- `openTab(body?: { cwd?: string; name?: string; prompt?: string; command?: string })` (widen the type; `newCard` in Task 9 uses it). Export it: `export async function openTab(…)`.
 
 `web/src/app/sessions/terminal.ts`: build `s` with `card: cardOf(info)` and call `applyCard(s, s.card);` right after `labelTab(s);` (import from `../board/status.ts`). `openSession` receives the whole `info`: change its signature to `openSession(info: SessionInfo)` and destructure `const { id, name } = info;` inside.
 
@@ -2028,15 +1922,66 @@ git commit -m "feat(web): the board view"
 
 ---
 
-### Task 9: New card dialog
+### Task 9: New card dialog (with agent command)
 
 **Files:**
 - Create: `web/src/app/board/new-card.ts`
-- Modify: `web/src/pages/app/index.astro`, `web/src/app/main.ts`, `web/src/styles/app.css`
+- Modify: `web/src/pages/app/index.astro`, `web/src/app/main.ts`, `web/src/styles/app.css`, `web/src/app/settings/schema.ts`, `web/src/app/settings/schema.test.ts`, `web/src/app/board/model.ts`, `web/src/app/board/model.test.ts`
 
 **Interfaces:**
-- Consumes: `openTab({ cwd?, name?, prompt? })` (Task 7), `recentFolders` (Task 6), `setNewCard`, `toggleBoard` (Task 8), `setStatus` (Task 7).
-- Produces: `initNewCard(): void`; `openNewCard(status: Status): void`.
+- Consumes: `openTab({ cwd?, name?, prompt?, command? })` (Task 7), `current`, `saveSettings`-style persistence from `settings/settings.ts` (use whatever function `settings.ts` exports to save `current.saved`; read it before writing this task), `recentFolders` (Task 6), `setNewCard`, `toggleBoard` (Task 8), `setStatus` (Task 7).
+- Produces: `initNewCard(): void`; `openNewCard(status: Status): void`; `Settings.agentCommands: string[]` (most recent first, at most 8, default `['claude {prompt}']`); `model.rememberCommand(list: string[], command: string): string[]`.
+
+- [ ] **Step 0: Agent commands, test first**
+
+Append to `web/src/app/board/model.test.ts` (and add `rememberCommand` to its import):
+
+```ts
+test('used agent commands move to the front, without repeats, at most 8', () => {
+  assert.deepEqual(rememberCommand(['claude {prompt}'], 'gemini -i {prompt}'), ['gemini -i {prompt}', 'claude {prompt}']);
+  assert.deepEqual(rememberCommand(['a', 'b'], ' b '), ['b', 'a']);
+  assert.deepEqual(rememberCommand(['a'], '   '), ['a']);
+  assert.equal(rememberCommand(['1', '2', '3', '4', '5', '6', '7', '8'], '9').length, 8);
+});
+```
+
+Append to `web/src/app/settings/schema.test.ts`:
+
+```ts
+test('agent commands are kept as a short list of strings', () => {
+  assert.deepEqual(defaults(true).agentCommands, ['claude {prompt}']);
+  assert.deepEqual(cleanSettings({ agentCommands: ['codex', 3, '', 'codex'] }, true).agentCommands, ['codex']);
+  assert.deepEqual(cleanSettings({ agentCommands: 'nope' }, true).agentCommands, ['claude {prompt}']);
+});
+```
+
+Run: `cd web && npm test` — expected FAIL (`rememberCommand`, `agentCommands` missing).
+
+`model.ts`:
+
+```ts
+export const DEFAULT_COMMAND = 'claude {prompt}';
+
+// The agent commands offered in New card: the one just used first.
+export function rememberCommand(list: string[], command: string): string[] {
+  const c = command.trim();
+  if (!c) return list;
+  return [c, ...list.filter((x) => x !== c)].slice(0, 8);
+}
+```
+
+`schema.ts`: add `agentCommands: string[];` to `Settings`; `agentCommands: ['claude {prompt}'],` to `defaults`; and to `cleanSettings`'s returned object:
+
+```ts
+    agentCommands: (() => {
+      const list = Array.isArray(stored.agentCommands)
+        ? [...new Set(stored.agentCommands.filter((c): c is string => typeof c === 'string' && !!c.trim()))].slice(0, 8)
+        : [];
+      return list.length ? list : d.agentCommands;
+    })(),
+```
+
+Run: `cd web && npm test` — expected PASS.
 
 - [ ] **Step 1: Markup** — `index.astro`, after the `#about` dialog:
 
@@ -2048,8 +1993,11 @@ git commit -m "feat(web): the board view"
         <label class="label">Title <input class="input" name="name" required maxlength="100" autocomplete="off"></label>
         <label class="label">Folder <input class="input" name="cwd" list="new-card-folders" placeholder="~/code/app" autocomplete="off" spellcheck="false"></label>
         <datalist id="new-card-folders"></datalist>
-        <label class="label">First prompt <span class="mark">(optional, starts claude)</span>
+        <label class="label">First prompt <span class="mark">(optional, starts the agent)</span>
           <textarea class="textarea" name="prompt" rows="3"></textarea></label>
+        <label class="label">Agent <span class="mark">({prompt} is replaced by the prompt)</span>
+          <input class="input" name="command" list="new-card-commands" autocomplete="off" spellcheck="false"></label>
+        <datalist id="new-card-commands"></datalist>
         <p class="new-card-error" hidden></p>
       </section>
       <footer>
@@ -2063,12 +2011,14 @@ git commit -m "feat(web): the board view"
 - [ ] **Step 2: Implement** — `web/src/app/board/new-card.ts`:
 
 ```ts
-// New card: a title, a folder (recent ones offered) and an optional first
-// prompt. With a prompt the terminal starts `claude` on it and the card is
-// In progress; without one it's a plain shell in the column it came from.
+// New card: a title, a folder (recent ones offered), an optional first
+// prompt and the agent command to start on it (recent ones offered). With a
+// prompt the terminal starts that agent and the card is In progress; without
+// one it's a plain shell in the column it came from.
 import { openTab, store } from '../sessions/store.ts';
+import { current } from '../settings/settings.ts';
 import { el } from '../ui/dom.ts';
-import { type Status, recentFolders } from './model.ts';
+import { DEFAULT_COMMAND, rememberCommand, type Status, recentFolders } from './model.ts';
 import { setStatus } from './status.ts';
 import { setNewCard, toggleBoard } from './view.ts';
 
@@ -2093,6 +2043,11 @@ export function openNewCard(status: Status): void {
     ...folders.map((f) => el('option', { value: f })),
   );
   (form.elements.namedItem('cwd') as HTMLInputElement).value = folders[0] ?? '';
+  const commands = current.saved.agentCommands;
+  (document.getElementById('new-card-commands') as HTMLDataListElement).replaceChildren(
+    ...commands.map((c) => el('option', { value: c })),
+  );
+  (form.elements.namedItem('command') as HTMLInputElement).value = commands[0] ?? DEFAULT_COMMAND;
   dialog().showModal();
 }
 
@@ -2106,14 +2061,21 @@ export function initNewCard(): void {
     const name = String(data.get('name') ?? '').trim();
     const cwd = expandHome(String(data.get('cwd') ?? '').trim());
     const prompt = String(data.get('prompt') ?? '').trim();
+    const command = String(data.get('command') ?? '').trim() || DEFAULT_COMMAND;
     try {
-      await openTab({ name, ...(cwd && { cwd }), ...(prompt && { prompt }) });
+      await openTab({ name, ...(cwd && { cwd }), ...(prompt && { prompt, command }) });
     } catch {
       error.textContent = cwd ? `No folder at ${cwd}` : "Couldn't create the card";
       error.hidden = false;
       return;
     }
     dialog().close();
+    if (prompt) {
+      // Save it so the next card offers it first (same path the palette uses
+      // to persist a changed setting; see settings.ts).
+      current.saved.agentCommands = rememberCommand(current.saved.agentCommands, command);
+      saveAgentCommands();
+    }
     const s = store.active;
     if (s && !prompt && column !== 'backlog') await setStatus(s, column).catch(() => {});
     toggleBoard(false);
@@ -2121,6 +2083,10 @@ export function initNewCard(): void {
   setNewCard(openNewCard);
 }
 ```
+
+`saveAgentCommands()` is a two-line local function that persists `current.saved` through the
+function `settings.ts` already exports for saving settings (the palette calls it after a change).
+Read `settings.ts` and call that function; don't add a second way to save.
 
 `main.ts`: `import { initNewCard } from './board/new-card.ts';` and `initNewCard();` after `initBoard();`.
 
@@ -2135,7 +2101,7 @@ export function initNewCard(): void {
 - [ ] **Step 3: Check**
 
 Run: `cd web && npm run check && npm run lint && npm test`
-Expected: pass. Manually: `+` on Completed with no prompt makes a Completed card; with a prompt `say hi` in an existing folder, a new tab opens there typing `claude 'say hi'` and the card is In progress; a bad folder shows "No folder at …" and keeps the dialog open.
+Expected: pass. Manually: `+` on Completed with no prompt makes a Completed card; with a prompt `say hi` in an existing folder, a new tab opens there typing `claude 'say hi'` and the card is In progress; changing Agent to `echo {prompt}` types `echo 'say hi'` and the next New card offers `echo {prompt}` first; a bad folder shows "No folder at …" and keeps the dialog open.
 
 - [ ] **Step 4: Commit**
 
@@ -2226,11 +2192,11 @@ Expected: `board.spec.ts` passes, and every existing spec still passes (in parti
 
 - [ ] **Step 4: Docs** — `docs/architecture.md`:
 - Daemon table: add rows
-  - `| \`board/\` | The kanban board: card status columns and their migration (\`mod.rs\`), \`PATCH /api/sessions/{id}/status\` and \`claude_line\` (a new card's first prompt), \`rules.rs\` (hooks never touch archived cards; \`unless\`), \`events.rs\` (\`/api/board/events\`: status changes pushed to pages) |`
-  - `| \`cli/\` | Subcommands on the same binary: \`status.rs\` (\`tabsh status\`, a one-shot loopback PATCH; \`--hook\` is silent and always exits 0), \`hooks.rs\` and \`skill.md\` (\`tabsh hooks install\|uninstall\`: Claude Code hooks in \`~/.claude/settings.json\`, the \`tabsh-board\` skill) |`
+  - `| \`board/\` | The kanban board: card status columns and their migration (\`mod.rs\`), \`PATCH /api/sessions/{id}/status\` and \`launch_line\` (a new card's agent command and first prompt), \`rules.rs\` (hooks never touch archived cards; \`unless\`), \`events.rs\` (\`/api/board/events\`: status changes pushed to pages) |`
+  - `| \`cli/\` | Subcommands on the same binary: \`status.rs\` (\`tabsh status\`, a one-shot loopback PATCH; \`--hook\` is silent and always exits 0), \`setup.rs\` and \`setup.md\` (\`tabsh setup\`: the guide an agent follows to wire its own hooks to \`tabsh status\`; tabsh never edits agent config) |`
 - `main.rs` row: "Startup only: CLI dispatch (`cli::run`), then environment, …".
 - `sessions/` row: append "; shells get `TABSH_SESSION_ID` and `TABSH_URL` (`pty::shell_env`) and type a card's pending first prompt once started".
-- App table: add `| \`board/\` | \`model.ts\` (statuses, columns, grouping, drop order, no DOM), \`glyph.ts\`, \`status.ts\` (a tab's card: glyph, archived tabs hidden, bell on needs input), \`events.ts\` (the board events socket), \`view.ts\` (the board, drag and drop, ⌘B), \`new-card.ts\` (the New card dialog) |`
+- App table: add `| \`board/\` | \`model.ts\` (statuses, columns, grouping, drop order, no DOM), \`glyph.ts\`, \`status.ts\` (a tab's card: glyph, archived tabs hidden, bell on needs input), \`events.ts\` (the board events socket), \`view.ts\` (the board, drag and drop, ⌘B), \`new-card.ts\` (the New card dialog, with recent agent commands) |`
 
 `README.md`: after the Features table add:
 
@@ -2241,16 +2207,18 @@ Every terminal is a card on a kanban board (⌘B): Backlog, In progress,
 Needs input, Completed, and a collapsed Archive. Drag cards to change their
 status; click one to go to its terminal.
 
-Let Claude Code keep the board current:
+Let your coding agent keep the board current. Tell Claude Code, Gemini CLI,
+Codex or any agent with hooks:
 
-```sh
-tabsh hooks install     # hooks + the tabsh-board skill in ~/.claude
-```
+> Run `tabsh setup` and follow it.
 
-Inside a tabsh terminal, sending Claude a prompt moves the card to In
-progress, Claude stopping or asking permission moves it to Needs input, and
-Claude marks it Completed when the task is done. Outside tabsh the hooks do
-nothing. `tabsh hooks uninstall` removes them.
+It wires its own hooks to `tabsh status`: a prompt moves the card to In
+progress, the agent stopping or asking permission moves it to Needs input,
+and the agent marks it Completed when the task is done. Outside tabsh the
+hooks do nothing. The agent reports what it changed and how to undo it.
+
+New card (`+`) can start an agent on a first prompt: `claude {prompt}` by
+default, or any command, such as `gemini -i {prompt}`.
 
 `tabsh status <status> [--note <text>]` sets the card by hand.
 ```
@@ -2265,10 +2233,14 @@ git add src/app.html src/app-assets web/e2e/board.spec.ts docs/architecture.md R
 git commit -m "feat: embed the board in the app; e2e and docs"
 ```
 
-- [ ] **Step 6: Manual check with real Claude** (needs the user's Claude login)
+- [ ] **Step 6: Manual check with a real agent** (needs the user's Claude login)
 
 ```bash
-cargo install --path . && tabsh hooks install && tabsh
+cargo install --path . && tabsh
 ```
 
-In a new card with a prompt, confirm: In progress while Claude works → Needs input with the permission text when it asks → Needs input "Claude finished its turn" when it stops → Completed with Claude's note when it reports the task done. Report results honestly, including any step that did not behave.
+In a tabsh terminal, ask Claude Code: "Run `tabsh setup` and follow it." Check its report (file
+changed, backup path, rows wired). Then in a new card with a prompt, confirm: In progress while
+Claude works → Needs input with the permission text when it asks → Needs input "Agent finished
+its turn" when it stops → Completed with Claude's note when it reports the task done. Optionally
+repeat with Gemini CLI. Report results honestly, including any step that did not behave.
