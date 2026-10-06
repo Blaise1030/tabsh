@@ -10,7 +10,7 @@ import { startDaemon, type Daemon } from './daemon.ts';
 // One daemon — its own port and its own empty state dir — per worker, so
 // specs never see each other's tabs. Tests within a worker run one at a time.
 // (The second generic types worker-scoped fixtures; tests still get `daemon`.)
-const test = base.extend<{ project: string; crowd: string }, { daemon: Daemon }>({
+const test = base.extend<{ project: string; crowd: string; twins: { alpha: string; beta: string } }, { daemon: Daemon }>({
   // A git project for the file explorer: a README, `src/main.rs`, an ignored
   // `target/`, an empty `docs/`, a dotfile, and a file whose name is markup.
   // The path is the real one (the tmp dir is a symlink on macOS).
@@ -27,6 +27,25 @@ const test = base.extend<{ project: string; crowd: string }, { daemon: Daemon }>
     writeFileSync(path.join(dir, '.env.example'), 'A=1\n');
     writeFileSync(path.join(dir, '<img src=x onerror=alert(1)>.txt'), 'x\n');
     await use(dir);
+    rmSync(dir, { recursive: true, force: true });
+  },
+  // Two git projects side by side, for a tab that moves between them: `alpha`
+  // holds `alpha.md`; `beta` holds `beta.md` and `docs/guide.md`.
+  twins: async ({}, use) => {
+    const dir = realpathSync(mkdtempSync(path.join(tmpdir(), 'tabsh-twins-')));
+    const make = (name: string, files: Record<string, string>) => {
+      const root = path.join(dir, name);
+      mkdirSync(root);
+      execFileSync('git', ['init', '-q'], { cwd: root });
+      for (const [file, text] of Object.entries(files)) {
+        mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+        writeFileSync(path.join(root, file), text);
+      }
+      return root;
+    };
+    const alpha = make('alpha', { 'alpha.md': '# alpha\n' });
+    const beta = make('beta', { 'beta.md': '# beta\n', 'docs/guide.md': '# guide\n' });
+    await use({ alpha, beta });
     rmSync(dir, { recursive: true, force: true });
   },
   // A directory outside any repo with more files than the explorer lists.
