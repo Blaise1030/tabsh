@@ -89,6 +89,25 @@ pub(super) fn insert_session(db: &Connection, cwd: Option<&str>) -> rusqlite::Re
     Ok(SessionInfo { id, name })
 }
 
+/// Sets the tab order: `ids` first, in that order, then any other sessions in
+/// their old order.
+pub(super) fn reorder(db: &mut Connection, ids: &[String]) -> rusqlite::Result<()> {
+    let tx = db.transaction()?;
+    let old: Vec<String> = tx
+        .prepare("SELECT id FROM sessions ORDER BY position")?
+        .query_map([], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+    let given = ids.iter().filter(|id| old.contains(id));
+    let rest = old.iter().filter(|id| !ids.contains(id));
+    for (pos, id) in given.chain(rest).enumerate() {
+        tx.execute(
+            "UPDATE sessions SET position = ?1 WHERE id = ?2",
+            params![pos as i64 + 1, id],
+        )?;
+    }
+    tx.commit()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -108,5 +127,20 @@ mod tests {
             )
             .unwrap();
         assert_eq!(cwd.as_deref(), Some("/tmp"));
+    }
+
+    #[test]
+    fn reorder_puts_given_ids_first_and_keeps_the_rest_in_order() {
+        let mut db = open_db(":memory:").unwrap();
+        let [a, b, c, d] = [(); 4].map(|_| insert_session(&db, None).unwrap().id);
+        reorder(&mut db, &[c.clone(), "nope".into(), a.clone()]).unwrap();
+        let order: Vec<String> = db
+            .prepare("SELECT id FROM sessions ORDER BY position")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(order, [c, a, b, d]);
     }
 }

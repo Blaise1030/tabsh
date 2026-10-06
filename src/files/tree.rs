@@ -13,12 +13,20 @@ use std::{
 pub(super) const TREE_LIMIT_PATHS: usize = 20_000;
 
 /// A tree's listing. Paths are relative to `root`, with `/` after directories.
+/// `folders_only` marks a listing of a root too big to list whole: its
+/// folders, without their files.
 #[derive(Debug, Serialize)]
 pub(super) struct Tree {
     pub(super) root: String,
     pub(super) paths: Vec<String>,
     pub(super) truncated: bool,
+    #[serde(rename = "foldersOnly")]
+    pub(super) folders_only: bool,
 }
+
+/// How many times the path cap the sidebar's walk may look at before giving
+/// up on a folders-only listing too.
+pub(super) const FOLDER_SCAN_FACTOR: usize = 2;
 
 /// The nearest ancestor of `cwd` (itself included) holding a `.git` entry (a
 /// directory, or a file in a worktree), else `cwd`.
@@ -80,6 +88,7 @@ pub(super) fn list_tree(root: &Path, limit: usize) -> Tree {
                 root: root.to_string_lossy().into_owned(),
                 paths,
                 truncated: true,
+                folders_only: false,
             };
         }
         let is_dir = entry.file_type().is_some_and(|t| t.is_dir());
@@ -89,6 +98,55 @@ pub(super) fn list_tree(root: &Path, limit: usize) -> Tree {
         root: root.to_string_lossy().into_owned(),
         paths,
         truncated: false,
+        folders_only: false,
+    }
+}
+
+/// The sidebar's listing of `root`: everything, as `list_tree` lists it, or,
+/// past `limit` paths, its folders alone, gathered in the same walk. It gives
+/// up and lists nothing past `limit` folders, or once it has looked at
+/// `FOLDER_SCAN_FACTOR` times `limit` paths, so a huge root (a home folder)
+/// still answers quickly.
+pub(super) fn list_tree_or_folders(root: &Path, limit: usize) -> Tree {
+    let tree = |paths, truncated, folders_only| Tree {
+        root: root.to_string_lossy().into_owned(),
+        paths,
+        truncated,
+        folders_only,
+    };
+    let mut paths = Vec::new();
+    let mut folders = Vec::new();
+    let mut whole = true;
+    for (seen, entry) in walker(root).build().flatten().enumerate() {
+        if seen == limit * FOLDER_SCAN_FACTOR {
+            return tree(Vec::new(), true, false);
+        }
+        let Ok(rel) = entry.path().strip_prefix(root) else {
+            continue;
+        };
+        if rel.as_os_str().is_empty() {
+            continue;
+        }
+        let is_dir = entry.file_type().is_some_and(|t| t.is_dir());
+        if is_dir {
+            if folders.len() == limit {
+                return tree(Vec::new(), true, false);
+            }
+            folders.push(tree_path(rel, true));
+        }
+        if whole && paths.len() == limit {
+            whole = false;
+            paths = Vec::new();
+        }
+        if whole {
+            paths.push(tree_path(rel, is_dir));
+        }
+    }
+    if whole {
+        tree(paths, false, false)
+    } else {
+        let any = !folders.is_empty();
+        tree(folders, true, any)
     }
 }
 
@@ -169,5 +227,35 @@ mod tests {
         let over = list_tree(&dir, 2);
         assert!(over.truncated);
         assert!(over.paths.is_empty());
+    }
+
+    #[test]
+    fn the_sidebar_lists_everything_or_past_the_cap_its_folders() {
+        let dir = scratch();
+        touch(&dir, "src/deep/main.rs");
+        touch(&dir, "docs/a.md");
+        touch(&dir, "top.txt");
+        let whole = list_tree_or_folders(&dir, 10);
+        assert!(!whole.truncated && !whole.folders_only);
+        assert_eq!(sorted(&whole), sorted(&list_tree(&dir, 10)));
+        let folders = list_tree_or_folders(&dir, 4);
+        assert!(folders.truncated && folders.folders_only);
+        assert_eq!(sorted(&folders), ["docs/", "src/", "src/deep/"]);
+    }
+
+    #[test]
+    fn the_sidebar_gives_up_past_the_folder_cap_or_the_scan_budget() {
+        let dir = scratch();
+        for name in ["a/x", "b/x", "c/x"] {
+            touch(&dir, name);
+        }
+        let over = list_tree_or_folders(&dir, 2);
+        assert!(over.truncated && !over.folders_only && over.paths.is_empty());
+        let dir = scratch();
+        for i in 0..20 {
+            touch(&dir, &format!("one/{i}"));
+        }
+        let over = list_tree_or_folders(&dir, 5);
+        assert!(over.truncated && !over.folders_only && over.paths.is_empty());
     }
 }
