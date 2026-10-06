@@ -83,7 +83,9 @@ socket and opens one for the new active tab.
   editor, it is only reached through `import()` when the sidebar first
   opens. A daemon test keeps it out of the first page load.
 - Batches apply through `FileTree.batch()`, and re-fetches through
-  `resetPaths()`. Both keep open folders and the selection.
+  `resetPaths()`. `batch` keeps open folders and the selection; `resetPaths`
+  closes every folder unless given `initialExpandedPaths`, so the page
+  passes the open ones and re-selects the selection.
 - Colors come from the tabsh theme: `--trees-*` custom properties are set in
   `app.css` from the app's own variables. They inherit into the tree's
   Shadow DOM. `unsafeCSS` is not used.
