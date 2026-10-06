@@ -48,7 +48,8 @@ test('a new tab under a repo filter starts in that repo', async ({ page, daemon,
   await openApp(page, daemon);
   // Earlier specs' tabs may sit in another `alpha`: count from here. The menu
   // is built when opened, so it is reopened until the count moves.
-  const alpha = page.locator('.filter-menu label', { hasText: 'alpha' });
+  // Exactly `alpha`: on Linux a deleted folder reads as `alpha (deleted)`.
+  const alpha = page.locator('.filter-menu label', { has: page.locator('span', { hasText: /^alpha$/ }) });
   const alphaCount = async () => {
     await page.keyboard.press('Escape');
     await page.locator('#tab-filter-btn').click();
