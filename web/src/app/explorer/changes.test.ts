@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyChange, parseChange } from './changes.ts';
+import { applyChange, type Live, onMessage, parseChange } from './changes.ts';
 
 const known = (...paths: string[]) => new Set(paths);
 
@@ -72,8 +72,32 @@ test('parseChange reads the two message shapes and nothing else', () => {
   assert.deepEqual(parseChange('{"add":["a"],"remove":["b"]}'), { add: ['a'], remove: ['b'] });
   assert.deepEqual(parseChange('{"add":["a"]}'), { add: ['a'], remove: [] });
   assert.deepEqual(parseChange('{"reset":true}'), { reset: true });
+  assert.deepEqual(parseChange('{"root":"/work/beta"}'), { root: '/work/beta' });
+  assert.equal(parseChange('{"root":""}'), null);
+  assert.equal(parseChange('{"root":7}'), null);
   assert.equal(parseChange('not json'), null);
   assert.equal(parseChange('{"add":[1]}'), null);
   assert.equal(parseChange('{"hello":1}'), null);
   assert.equal(parseChange('[]'), null);
+});
+
+test('a root message is one re-fetch, and batches for the old root are dropped until it lands', () => {
+  const live: Live = { known: known('a.txt'), settling: false };
+  assert.deepEqual(onMessage(live, { root: '/work/beta' }), { kind: 'reset' });
+  assert.equal(live.known, null);
+  // Queued for the old root, or a second reset: nothing more to fetch.
+  assert.deepEqual(onMessage(live, { add: ['old.txt'], remove: [] }), { kind: 'ignore' });
+  assert.deepEqual(onMessage(live, { reset: true }), { kind: 'ignore' });
+  // The new listing landed.
+  live.known = known('beta.md');
+  live.settling = false;
+  assert.deepEqual(onMessage(live, { add: ['beta-2.md'], remove: [] }), {
+    kind: 'ops',
+    ops: [{ type: 'add', path: 'beta-2.md' }],
+  });
+});
+
+test('with no tree showing a change asks for a re-fetch', () => {
+  const live: Live = { known: null, settling: false };
+  assert.deepEqual(onMessage(live, { add: ['a'], remove: [] }), { kind: 'reset' });
 });
