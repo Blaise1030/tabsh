@@ -16,6 +16,7 @@ import {
   sync,
 } from './store.ts';
 import { setName } from './tabs.ts';
+import { labelTab } from './tags.ts';
 
 const enc = new TextEncoder();
 
@@ -68,6 +69,7 @@ export function openSession({ id, name }: SessionInfo): Session {
   const s: Session = { id, name, term, fit, el, tab, ws: null, closed: false, replaying: false, esc: 0, bell: false };
   store.sessions.push(s);
   setName(s, name, false);
+  labelTab(s);
   tab.onclick = () => activate(s);
   tab.onauxclick = (e) => e.button === 1 && closeSession(s); // middle-click closes
   (tab.querySelector('button') as HTMLButtonElement).onclick = (e) => {

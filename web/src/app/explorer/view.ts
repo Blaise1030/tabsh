@@ -10,6 +10,25 @@ import { enterAction, menuStep, type RowAction, rowActions } from './listing.ts'
 
 const LABELS: Record<RowAction, string> = { insert: 'Insert path', cd: 'cd here', tab: 'Open in new tab' };
 
+// Names are never cut with `…`: the whole name is laid out, and only one too
+// long for the row fades out in its last 1.5rem, so the sidebar melts into the
+// terminals. The unused decoration lane and the action lane are dropped so
+// names get the room (a row's menu button floats over the faded end on its
+// own), and the tree's side padding is cut to 4px. (A rename's input is left
+// unfaded.)
+const TREE_CSS = `
+  :host { --trees-padding-inline-override: 4px; }
+  [data-item-section="decoration"]:empty, [data-item-section="action"] { display: none; }
+  [data-item-section="content"] {
+    flex: 1 1 0;
+    mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
+  }
+  [data-item-section="content"]:has(input) { mask-image: none; }
+  [data-truncate-segment-priority], [data-truncate-container] { flex: none; }
+  [data-truncate-grid] { grid-template-columns: max-content; }
+  [data-truncate-marker-cell] { display: none; }
+`;
+
 let tree: FileTree | null = null;
 let shown: string[] = []; // the paths the last `showTree` was given
 
@@ -52,6 +71,7 @@ export function showTree(
     flattenEmptyDirectories: false,
     search: true,
     fileTreeSearchMode: 'hide-non-matches',
+    unsafeCSS: TREE_CSS,
     composition: {
       contextMenu: {
         triggerMode: 'both',

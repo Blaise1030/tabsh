@@ -5,7 +5,7 @@ import type { Terminal as XTerm } from '@xterm/xterm';
 import { api } from '../daemon/client.ts';
 import { loadedPane } from '../files/open.ts';
 import { clearBell, updateBadge } from './bell.ts';
-import { setName, updateFades } from './tabs.ts';
+import { orderTabs, setName, updateFades } from './tabs.ts';
 import { openSession } from './terminal.ts';
 
 export interface Session {
@@ -70,6 +70,7 @@ export async function sync(): Promise<void> {
     if (s) setName(s, info.name, false);
     else openSession(info);
   }
+  orderTabs(list.map((s) => s.id));
   if (!store.active && store.sessions.length) activate(store.sessions[0]);
 }
 

@@ -29,6 +29,7 @@ let aside: HTMLElement;
 let mount: HTMLElement;
 let message: HTMLElement;
 let heading: HTMLElement;
+let note: HTMLElement; // says when only folders are shown
 let view: Promise<View> | null = null;
 let ready: View | null = null; // the loaded tree library, once there is a tree
 let listing: Listing | null = null; // what the tree shows
@@ -63,6 +64,7 @@ export function initExplorer(): void {
   mount = document.getElementById('explorer-tree') as HTMLElement;
   message = document.getElementById('explorer-msg') as HTMLElement;
   heading = document.getElementById('explorer-root') as HTMLElement;
+  note = document.getElementById('explorer-note') as HTMLElement;
   const divider = document.getElementById('explorer-divider') as HTMLElement;
   const button = document.getElementById('explorer-btn') as HTMLButtonElement;
 
@@ -189,6 +191,7 @@ async function load(mine: number): Promise<void> {
   heading.textContent = rootName(l.root);
   heading.title = l.root;
   heading.hidden = false;
+  note.hidden = s.kind !== 'folders';
   if (s.kind === 'too-many') return say('Too many files to show here. cd into a project.');
   if (s.kind === 'empty') return say('This folder is empty');
   if (listing && listing.root !== l.root) ready?.closeSearch(); // a new root starts unfiltered
@@ -238,6 +241,7 @@ function act(action: RowAction, path: string): void {
 // A message in place of the tree (the tree keeps its place, hidden).
 function say(text: string): void {
   wantSearch = false;
+  note.hidden = true;
   message.textContent = text;
   message.hidden = false;
   mount.hidden = true;

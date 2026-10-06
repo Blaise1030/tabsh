@@ -21,8 +21,8 @@ should touch one folder.
 | `web/guard.rs` | The one access check: Host, Origin and token |
 | `web/pages.rs` | The pages (`/`, `/open`, `/app/`), the CSP, `/api/about` |
 | `web/assets.rs` | Embedded typing sounds and app bundle (`/sounds/…`, `/_astro/…`) |
-| `sessions/` | Shells in PTYs that outlive browser tabs: `store.rs` (SQLite), `pty.rs` (spawn, cwd), `ws.rs` (attach), `modes.rs` (terminal modes for replay) |
-| `files/` | The file pane's and the explorer's API: `resolve.rs`, `kind.rs`, `read.rs`, `save.rs`, `tree.rs` (a tab's project root, and its listing, capped at `TREE_LIMIT_PATHS`), `watch.rs` (`/api/files/watch`: one `notify` watcher per root shared by its sockets, events coalesced over 100 ms and checked on disk, sent as `{add, remove}` or `{reset}`; a socket also checks its tab's project root every second and sends `{root}` when it changes, moving to the new root's watcher) |
+| `sessions/` | Shells in PTYs that outlive browser tabs: `store.rs` (SQLite, and the tab order set by `PUT /api/sessions/order`), `pty.rs` (spawn, cwd), `ws.rs` (attach), `modes.rs` (terminal modes for replay) |
+| `files/` | The file pane's and the explorer's API: `resolve.rs`, `kind.rs`, `read.rs`, `save.rs`, `tree.rs` (a tab's project root, served alone at `/api/files/root` for the tab strip's labels, and its listing, capped at `TREE_LIMIT_PATHS`: past it, the sidebar gets its folders alone from the same walk, within the same cap and a scan budget of `FOLDER_SCAN_FACTOR` times it), `watch.rs` (`/api/files/watch`: one `notify` watcher per root shared by its sockets, events coalesced over 100 ms and checked on disk, sent as `{add, remove}` or `{reset}`; a socket also checks its tab's project root every second and sends `{root}` when it changes, moving to the new root's watcher) |
 | `settings.rs` | `/api/settings`: the page's preferences as one JSON object |
 | `upload.rs` | `/api/uploads`: files dropped onto a terminal |
 | `test_support.rs` | `test_state()` and `scratch()` for tests |
@@ -47,7 +47,7 @@ it in `state::router()`, and add its routes to `every_route_is_guarded`.
 | `main.ts` | Startup only: adopt the token, wire the features, restore tabs |
 | `daemon/` | `config.ts` (which daemon), `token.ts` and `parse.ts` (pairing), `client.ts` (`daemonFetch`, `api`, the connection gate) |
 | `settings/` | `catalog.ts` (themes, fonts, sounds), `keys.ts` (keybindings), `schema.ts` (`Settings`, cleanup), `settings.ts` (current values, apply, save, `onApply` and `onSaved`) |
-| `sessions/` | `store.ts` (tabs, active tab, sync), `terminal.ts` (xterm, socket), `tabs.ts` (tab strip), `bell.ts` and `bell-scan.ts` |
+| `sessions/` | `store.ts` (tabs, active tab, sync), `terminal.ts` (xterm, socket), `tabs.ts` (tab strip, dragging tabs into order), `order.ts` (where a dragged tab lands), `tags.ts` and `labels.ts` (each tab's repo and tags, the tag menu and the tab filter), `bell.ts` and `bell-scan.ts` |
 | `links/` | `links.ts` (finding URLs and paths), `provider.ts` (xterm link provider) |
 | `files/` | `api.ts` (file API client), `open.ts` (loads the pane on first use, reopens files after a reload), `remember.ts` (each tab's file, in `localStorage`), `pane.ts` and `editor.ts` (pane and CodeMirror) |
 | `explorer/` | `explorer.ts` (the sidebar: toggle, divider, fetch on open and on tab switch, `/`, "Search files" and its keybinding opening the search), `view.ts` (the tree, its search and its row menu, drawn by `@pierre/trees`), `listing.ts` (the listing as what the sidebar shows, row paths, pasted paths and `cd` commands, a row menu's entries, whether a key opens the search), `api.ts` (the listing request), `socket.ts` (the live socket, open while the sidebar is, reconnecting), `changes.ts` (a live message as tree operations, or a re-fetch for a new root) |
@@ -72,6 +72,7 @@ The page's CSS is in `web/src/styles/app.css`. The markup is in
 - **Pure logic stays testable:** files that `node --test` loads don't touch
   the DOM when imported: `links.ts`, `files/api.ts`, `daemon/parse.ts`,
   `settings/catalog.ts`, `keys.ts`, `schema.ts`, `sessions/bell-scan.ts`,
+  `sessions/labels.ts`, `sessions/order.ts`,
   `explorer/listing.ts`, `explorer/changes.ts`, `ui/drop-paths.ts`. Their tests sit beside them as `*.test.ts`.
 - **The editor stays lazy:** `files/pane.ts` and `editor.ts` (CodeMirror,
   `marked`) are only reached through `import()`. The daemon test

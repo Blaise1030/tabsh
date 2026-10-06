@@ -3,18 +3,25 @@
 import { shellQuote } from '../ui/drop-paths.ts';
 
 // The daemon's answer: paths are relative to `root`, directories end in `/`.
+// A root with too many paths comes truncated, with its folders alone when
+// those fit (`foldersOnly`).
 export interface Listing {
   root: string;
   paths: string[];
   truncated: boolean;
+  foldersOnly?: boolean;
 }
 
-export type Shown = { kind: 'tree'; paths: string[] } | { kind: 'empty' } | { kind: 'too-many' };
+export type Shown =
+  | { kind: 'tree'; paths: string[] }
+  | { kind: 'folders'; paths: string[] }
+  | { kind: 'empty' }
+  | { kind: 'too-many' };
 
-// A truncated listing never carries a partial tree: the sidebar says so
-// instead.
+// A truncated listing never carries a partial tree: it shows every folder
+// without files, or the sidebar says there are too many.
 export function shown(l: Listing): Shown {
-  if (l.truncated) return { kind: 'too-many' };
+  if (l.truncated) return l.foldersOnly && l.paths.length ? { kind: 'folders', paths: l.paths } : { kind: 'too-many' };
   if (!l.paths.length) return { kind: 'empty' };
   return { kind: 'tree', paths: l.paths };
 }
