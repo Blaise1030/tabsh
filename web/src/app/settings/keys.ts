@@ -5,7 +5,13 @@
 // `modifier+…+code`; matching on `code` means Shift doesn't turn `]` into
 // `}` first.
 
-export type KeyId = 'keyPalette' | 'keyNextTab' | 'keyPrevTab' | 'keyToggleExplorer' | 'keySearchFiles';
+export type KeyId =
+  | 'keyPalette'
+  | 'keyNextTab'
+  | 'keyPrevTab'
+  | 'keyToggleExplorer'
+  | 'keySearchFiles'
+  | 'keyFilterTabs';
 export interface Keybinding {
   name: string;
   keywords: string;
@@ -50,6 +56,11 @@ export function keybindings(isMac: boolean): Record<KeyId, Keybinding> {
       name: 'Search files',
       keywords: 'find filter name tree explorer sidebar',
       presets: isMac ? ['meta+shift+KeyF', 'ctrl+shift+KeyF'] : ['ctrl+shift+KeyF', 'alt+shift+KeyF'],
+    },
+    keyFilterTabs: {
+      name: 'Filter tabs',
+      keywords: 'switch tags repos projects show hide focus',
+      presets: isMac ? ['meta+shift+KeyY', 'ctrl+shift+KeyY'] : ['ctrl+shift+KeyY', 'alt+shift+KeyY'],
     },
   };
 }

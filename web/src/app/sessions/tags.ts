@@ -1,14 +1,16 @@
 // Tab labels: the repo a tab's shell is in, read from the daemon, and the tags
 // checked in the tab's right-click menu (kept in this browser). A tagged tab
-// shows its tags' colors; the filter button beside settings shows only the
-// tabs under the repos and tags checked there. The checks are kept in this
-// browser too, and a tab opened under them joins them.
+// shows its tags' colors; the palette's filter page (the filter button beside
+// settings, or its shortcut) shows only the tabs under the one repo or tag
+// picked there, previewing each while it is highlighted. The picked filter is
+// kept in this browser too, and a tab opened under it joins it.
 import { daemonFetch } from '../daemon/client.ts';
 import { el } from '../ui/dom.ts';
 import {
   cleanTag,
   filterKey,
   filterOptions,
+  isSingleFilter,
   type Labels,
   matches,
   newTabLabels,
@@ -27,7 +29,8 @@ const FILTER_KEY = 'tabsh.filter';
 const repos = new Map<string, string>(); // session id → repo label
 const roots = new Map<string, string>(); // session id → project root
 const looked = new Set<string>(); // session ids whose repo has been asked for
-const checked = new Set<string>(); // filter keys
+const checked = new Set<string>(); // the filter's keys (at most one)
+const committed = new Set<string>(); // the picked filter the palette reverts to
 let menu: HTMLElement | null = null;
 
 const filterButton = () => document.getElementById('tab-filter-btn') as HTMLButtonElement;
@@ -50,15 +53,22 @@ function setTags(s: Session, list: string[]): void {
   render(s);
 }
 
+// The picked filter is what survives a reload; a preview never is.
 function saveChecked(): void {
   try {
-    localStorage.setItem(FILTER_KEY, JSON.stringify([...checked]));
+    localStorage.setItem(FILTER_KEY, JSON.stringify([...committed]));
   } catch {}
 }
 
 function loadChecked(): void {
   try {
-    for (const k of parseChecked(JSON.parse(localStorage.getItem(FILTER_KEY) ?? '[]'))) checked.add(k);
+    const kept = parseChecked(JSON.parse(localStorage.getItem(FILTER_KEY) ?? '[]'));
+    checked.clear();
+    committed.clear();
+    for (const k of kept) {
+      checked.add(k);
+      committed.add(k);
+    }
   } catch {}
 }
 
@@ -97,9 +107,10 @@ async function refreshRepo(s: Session): Promise<void> {
 function applyFilter(): void {
   if (store.sessions.every((s) => looked.has(s.id))) {
     const offered = new Set(filterOptions(store.sessions.map(labelsOf)).map((o) => filterKey(o.filter)));
-    const before = checked.size;
+    const before = committed.size;
     for (const k of checked) if (!offered.has(k)) checked.delete(k);
-    if (checked.size !== before) saveChecked();
+    for (const k of committed) if (!offered.has(k)) committed.delete(k);
+    if (committed.size !== before) saveChecked();
   }
   for (const s of store.sessions) s.tab.hidden = s !== store.active && !matches(checked, labelsOf(s));
   const b = filterButton();
@@ -108,116 +119,77 @@ function applyFilter(): void {
   updateFades();
 }
 
+// The palette's filter page. `key` is a filter key, or null for "All tabs".
+export function filterChoices(): { key: string; value: string; kind: 'repo' | 'tag'; count: number }[] {
+  return filterOptions(store.sessions.map(labelsOf)).map(({ filter, count }) => ({
+    key: filterKey(filter),
+    value: filter.value,
+    kind: filter.kind,
+    count,
+  }));
+}
+
+// Whether `key` is the one filter checked — or, for null, none at all.
+export function filterIsCurrent(key: string | null): boolean {
+  return isSingleFilter(checked, key);
+}
+
+// The picked filter's name, for the palette's root page to hint.
+export function filterCurrentLabel(): string {
+  if (!checked.size) return 'All';
+  const only = [...checked][0] as string;
+  return filterChoices().find((c) => c.key === only)?.value ?? 'All';
+}
+
+function showOnly(key: string | null): void {
+  checked.clear();
+  if (key) checked.add(key);
+  applyFilter();
+}
+
+// A highlighted choice shows at once, without being kept yet.
+export function previewFilter(key: string | null): void {
+  showOnly(key);
+}
+
+// Picking a choice keeps it — the one filter, replacing any other.
+export function setFilter(key: string | null): void {
+  showOnly(key);
+  committed.clear();
+  for (const k of checked) committed.add(k);
+  saveChecked();
+}
+
+// Closing the palette without a pick returns to the kept filter.
+export function revertFilter(): void {
+  checked.clear();
+  for (const k of committed) checked.add(k);
+  applyFilter();
+}
+
 function closeMenu(): void {
   menu?.remove();
   menu = null;
 }
 
-// Opens a menu at (x, y): its left edge there, or with `alignRight` its right
-// edge, kept inside the window.
-function showMenu(m: HTMLElement, x: number, y: number, alignRight = false): void {
+// Opens a menu at (x, y): its left edge there, kept inside the window.
+function showMenu(m: HTMLElement, x: number, y: number): void {
   closeMenu();
   m.style.top = `${y}px`;
   document.body.append(m);
-  const left = alignRight ? x - m.offsetWidth : x;
-  m.style.left = `${Math.max(8, Math.min(left, innerWidth - m.offsetWidth - 8))}px`;
+  m.style.left = `${Math.max(8, Math.min(x, innerWidth - m.offsetWidth - 8))}px`;
   menu = m;
 }
 
-// Icons (Lucide paths) for the menus' footer actions.
-const FILTER_X = ['M13.013 3H2l8 9.46V19l4 2v-8.54l.9-1.055', 'm22 3-5 5', 'm17 3 5 5'];
-
-function icon(paths: string[]): SVGSVGElement {
-  const ns = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(ns, 'svg');
-  for (const [k, v] of Object.entries({
-    viewBox: '0 0 24 24',
-    fill: 'none',
-    stroke: 'currentColor',
-    'stroke-width': '2',
-    'stroke-linecap': 'round',
-    'stroke-linejoin': 'round',
-    'aria-hidden': 'true',
-  }))
-    svg.setAttribute(k, v);
-  for (const d of paths) {
-    const path = document.createElementNS(ns, 'path');
-    path.setAttribute('d', d);
-    svg.append(path);
-  }
-  return svg;
-}
-
-// A menu's last action, set apart by a line, with a leading icon. Picking it
-// closes the menu.
-function footer(label: string, paths: string[], run: () => void): HTMLElement {
-  const b = el('button', { type: 'button', role: 'menuitem' }, icon(paths), label);
-  b.onclick = () => {
-    run();
-    closeMenu();
-  };
-  return el('div', { className: 'menu-foot' }, el('div', { className: 'menu-sep' }), b);
-}
-
 // A checkbox row, as Basecoat's label and checkbox: a tag gets its color's
-// dot, and `count` (when given) shows at the end.
-function checkRow(
-  kind: 'repo' | 'tag',
-  value: string,
-  on: boolean,
-  change: (on: boolean) => void,
-  count?: number,
-): HTMLElement {
+// dot.
+function checkRow(kind: 'repo' | 'tag', value: string, on: boolean, change: (on: boolean) => void): HTMLElement {
   const box = document.createElement('input');
   Object.assign(box, { type: 'checkbox', className: 'input', checked: on });
   box.onchange = () => change(box.checked);
   const dot = el('i');
   if (kind === 'tag') dot.style.background = tagColor(value);
-  return el(
-    'label',
-    { className: `label menu-check ${kind}` },
-    box,
-    dot,
-    el('span', { textContent: value }),
-    ...(count === undefined ? [] : [el('small', { textContent: String(count) })]),
-  );
-}
-
-// The filter's popover: a checkbox per repo and per tag, with its tab count.
-function filterMenu(): HTMLElement {
-  const m = el('div', { className: 'row-menu tab-menu filter-menu', role: 'dialog', ariaLabel: 'Filter tabs' });
-  const options = filterOptions(store.sessions.map(labelsOf));
-  for (const kind of ['repo', 'tag'] as const) {
-    const mine = options.filter((o) => o.filter.kind === kind);
-    m.append(el('div', { className: 'menu-heading', textContent: kind === 'repo' ? 'Repos' : 'Tags' }));
-    if (!mine.length && kind === 'tag')
-      m.append(el('div', { className: 'menu-hint', textContent: 'Right-click a tab to tag it' }));
-    for (const { filter, count } of mine) {
-      const key = filterKey(filter);
-      const row = checkRow(
-        kind,
-        filter.value,
-        checked.has(key),
-        (on) => {
-          if (on) checked.add(key);
-          else checked.delete(key);
-          saveChecked();
-          applyFilter();
-          clear.hidden = !checked.size;
-        },
-        count,
-      );
-      m.append(row);
-    }
-  }
-  const clear = footer('Show all tabs', FILTER_X, () => {
-    checked.clear();
-    saveChecked();
-    applyFilter();
-  });
-  clear.hidden = !checked.size;
-  m.append(clear);
-  return m;
+  return el('label', { className: `label menu-check ${kind}` }, box, dot, el('span', { textContent: value }));
 }
 
 // The tab's right-click menu: a box to type a new tag, then a checkbox per tag
@@ -257,7 +229,7 @@ function tagMenu(s: Session): HTMLElement {
 }
 
 // Where a new tab starts and which tags it gets, so it shows under the
-// checked filters: in a checked repo's root, with every checked tag.
+// checked filters: in the checked repo's root, with every checked tag.
 export function newTabFilter(): { cwd: string | null; tags: string[] } {
   const active = store.active ? (repos.get(store.active.id) ?? null) : null;
   const { repo, tags } = newTabLabels(checked, active);
@@ -289,15 +261,11 @@ export function labelTab(s: Session): void {
 
 export function initTabLabels(): void {
   loadChecked();
-  const b = filterButton();
-  b.onclick = () => {
-    if (menu?.classList.contains('filter-menu')) return closeMenu();
-    const r = b.getBoundingClientRect();
-    showMenu(filterMenu(), r.right, r.bottom + 4, true);
-  };
+  // The filter button itself is bound by the palette, which owns the filter
+  // page; only its badge lives here, in applyFilter.
   addEventListener('pointerdown', (e) => {
     const t = e.target as Node;
-    if (menu && !menu.contains(t) && !b.contains(t)) closeMenu();
+    if (menu && !menu.contains(t)) closeMenu();
   });
   addEventListener('keydown', (e) => e.key === 'Escape' && closeMenu());
   // The active tab's shell may `cd` into another repo: check it on a switch

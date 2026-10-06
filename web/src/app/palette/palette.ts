@@ -4,6 +4,14 @@
 import { searchFiles, toggleExplorer } from '../explorer/explorer.ts';
 import { loadedPane } from '../files/open.ts';
 import { cycleTab, store } from '../sessions/store.ts';
+import {
+  filterChoices,
+  filterCurrentLabel,
+  filterIsCurrent,
+  previewFilter,
+  revertFilter,
+  setFilter,
+} from '../sessions/tags.ts';
 import { comboFromEvent, comboProblem, type KeyId, keyLabel, matchesKey } from '../settings/keys.ts';
 import type { Settings } from '../settings/schema.ts';
 import { applySettings, current, saveSetting, setPreviewing } from '../settings/settings.ts';
@@ -30,6 +38,13 @@ function showPage(name: string): void {
     openAbout,
     toggleExplorer,
     searchFiles,
+    filters: {
+      choices: filterChoices,
+      currentLabel: filterCurrentLabel,
+      isCurrent: filterIsCurrent,
+      preview: previewFilter,
+      set: setFilter,
+    },
   })[name]();
   paletteInput.value = '';
   paletteInput.placeholder = name === 'root' ? placeholder : `${placeholder}  (Esc to go back)`;
@@ -45,7 +60,7 @@ function showPage(name: string): void {
         .map((item) => {
           const id = `pi-${n++}`;
           itemsById.set(id, item);
-          const checked = item.key && current.saved[item.key] === item.value;
+          const checked = (item.key && current.saved[item.key] === item.value) || item.checked;
           const swatch = item.swatch
             ? `<span class="swatch" style="background:${item.swatch.background}">${(
                 ['red', 'green', 'yellow', 'blue', 'magenta'] as const
@@ -57,7 +72,7 @@ function showPage(name: string): void {
                      ${item.go || item.record ? 'data-keep-command-open' : ''} ${checked ? 'data-checked="true"' : ''}>
           ${item.icon ?? swatch}<span>${item.label}</span>
           ${item.hint ? `<span data-shortcut>${item.hint}</span>` : ''}
-          ${item.key ? `<span data-indicator>${CHECK}</span>` : ''}
+          ${item.key || item.checked ? `<span data-indicator>${CHECK}</span>` : ''}
         </div>`;
         })
         .join('')}
@@ -112,7 +127,7 @@ function updatePaletteFades(): void {
   paletteMenu.classList.toggle('fade-bottom', paletteMenu.scrollTop < end - 1);
 }
 
-export function openPalette(): void {
+export function openPalette(at: string = 'root'): void {
   if (palette.open) {
     palette.close();
     return;
@@ -120,7 +135,18 @@ export function openPalette(): void {
   (document.getElementById('about') as HTMLDialogElement).close();
   palette.showModal();
   setPreviewing(true);
-  showPage('root');
+  showPage(at);
+}
+
+// The filter button and its keybinding: the palette straight on its filter
+// page, closed again when it is already there.
+export function openFilterPalette(): void {
+  if (palette.open) {
+    if (page === 'filterTabs') palette.close();
+    else showPage('filterTabs');
+    return;
+  }
+  openPalette('filterTabs');
 }
 
 export function initPalette(): void {
@@ -130,12 +156,14 @@ export function initPalette(): void {
   new ResizeObserver(updatePaletteFades).observe(paletteMenu);
 
   // Live preview: whatever setting is highlighted (keyboard or mouse) is shown,
-  // or for typing sounds, heard once per highlight.
+  // or for typing sounds, heard once per highlight — and a filter choice is
+  // previewed on the strip the same way.
   let previewed: PaletteItem | undefined;
   new MutationObserver(() => {
     const item = itemsById.get(paletteMenu.querySelector('[role="menuitem"].active')?.id ?? '');
     if (palette.open && item?.key) applySettings({ ...current.saved, [item.key]: item.value } as Settings);
     if (palette.open && item?.key === 'typingSound' && item !== previewed) previewSound(String(item.value));
+    if (palette.open && item?.preview) item.preview();
     previewed = item;
   }).observe(paletteMenu, { subtree: true, attributes: true, attributeFilter: ['class'] });
 
@@ -164,6 +192,7 @@ export function initPalette(): void {
     recording = null;
     setPreviewing(false);
     applySettings(current.saved);
+    revertFilter();
     store.active?.term.focus();
   });
   // Clicking the backdrop closes it.
@@ -199,10 +228,26 @@ export function initPalette(): void {
     true,
   );
 
+  // The filter keybinding opens the palette straight on its filter page.
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if (palette.open) return;
+      if (!matchesKey(e, current.saved.keyFilterTabs)) return;
+      e.preventDefault();
+      e.stopPropagation(); // capture phase: keep it away from the terminal
+      openFilterPalette();
+    },
+    true,
+  );
+
   const settingsBtn = document.getElementById('settings-btn') as HTMLButtonElement;
   // Set on hover so it always shows the current keybinding.
   settingsBtn.addEventListener('pointerenter', () => {
     settingsBtn.title = `Settings (${keyLabel(current.saved.keyPalette, isMac)})`;
   });
-  settingsBtn.onclick = openPalette;
+  settingsBtn.onclick = () => openPalette();
+
+  // The filter button beside it opens the palette on the filter page.
+  (document.getElementById('tab-filter-btn') as HTMLButtonElement).onclick = openFilterPalette;
 }

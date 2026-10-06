@@ -4,6 +4,7 @@ import {
   cleanTag,
   filterKey,
   filterOptions,
+  isSingleFilter,
   matches,
   newTabLabels,
   parseChecked,
@@ -71,6 +72,14 @@ test('the filter offers each repo and tag once, with its tab count', () => {
       ['tag:deploy', 2],
     ],
   );
+});
+
+test('the palette marks an item current only when it is the one filter checked, or none for all tabs', () => {
+  assert.ok(isSingleFilter(new Set(), null));
+  assert.ok(!isSingleFilter(new Set(['repo:tabsh']), null));
+  assert.ok(isSingleFilter(new Set(['repo:tabsh']), 'repo:tabsh'));
+  assert.ok(!isSingleFilter(new Set(['repo:tabsh', 'tag:deploy']), 'repo:tabsh'));
+  assert.ok(!isSingleFilter(new Set(['tag:deploy']), 'repo:tabsh'));
 });
 
 test('a tab shows when nothing is checked, or when any checked filter fits it', () => {

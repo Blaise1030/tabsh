@@ -85,6 +85,12 @@ export function filterOptions(all: Labels[]): { filter: Filter; count: number }[
   );
 }
 
+// Whether the checked filters are exactly this one — or, for the palette's
+// "All tabs" (`key` null), none at all. The palette marks that item current.
+export function isSingleFilter(checked: ReadonlySet<string>, key: string | null): boolean {
+  return key === null ? checked.size === 0 : checked.size === 1 && checked.has(key);
+}
+
 // Whether a tab shows under the checked filters: nothing checked shows every
 // tab, otherwise it needs any one of them.
 export function matches(checked: ReadonlySet<string>, labels: Labels): boolean {

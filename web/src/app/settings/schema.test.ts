@@ -53,3 +53,8 @@ test('searching files defaults to its own combo', () => {
     'alt+shift+KeyF',
   );
 });
+test('filtering tabs defaults to its own combo', () => {
+  assert.equal(defaults(true).keyFilterTabs, 'meta+shift+KeyY');
+  assert.equal(defaults(false).keyFilterTabs, 'ctrl+shift+KeyY');
+  assert.equal(cleanSettings({ keyFilterTabs: 'alt+shift+KeyY' }, false).keyFilterTabs, 'alt+shift+KeyY');
+});
