@@ -30,3 +30,6 @@ export function absolutePath(root: string, path: string): string {
 
 // What pasting a row's path at the prompt types.
 export const pastedPath = (root: string, path: string): string => shellQuote(absolutePath(root, path));
+
+// The folder's name, for the header above the tree.
+export const rootName = (root: string): string => root.replace(/\/+$/, '').split('/').pop() || '/';

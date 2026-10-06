@@ -55,6 +55,20 @@ pub(crate) fn cwd(st: &AppState, id: &str) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+/// Whether a session is still there: running, or saved.
+pub(crate) fn exists(st: &AppState, id: &str) -> bool {
+    st.live.lock().unwrap().contains_key(id)
+        || st
+            .db
+            .lock()
+            .unwrap()
+            .query_row("SELECT 1 FROM sessions WHERE id = ?1", params![id], |_| {
+                Ok(())
+            })
+            .optional()
+            .is_ok_and(|row| row.is_some())
+}
+
 /// Running shells and all sessions, for the About dialog.
 pub(crate) fn counts(st: &AppState) -> rusqlite::Result<(usize, i64)> {
     let running = st.live.lock().unwrap().len();

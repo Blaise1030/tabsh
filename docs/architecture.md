@@ -22,7 +22,7 @@ should touch one folder.
 | `web/pages.rs` | The pages (`/`, `/open`, `/app/`), the CSP, `/api/about` |
 | `web/assets.rs` | Embedded typing sounds and app bundle (`/sounds/…`, `/_astro/…`) |
 | `sessions/` | Shells in PTYs that outlive browser tabs: `store.rs` (SQLite), `pty.rs` (spawn, cwd), `ws.rs` (attach), `modes.rs` (terminal modes for replay) |
-| `files/` | The file pane's and the explorer's API: `resolve.rs`, `kind.rs`, `read.rs`, `save.rs`, `tree.rs` (a tab's project root, and its listing, capped at `TREE_LIMIT_PATHS`), `watch.rs` (`/api/files/watch`: one `notify` watcher per root shared by its sockets, events coalesced over 100 ms and checked on disk, sent as `{add, remove}` or `{reset}`) |
+| `files/` | The file pane's and the explorer's API: `resolve.rs`, `kind.rs`, `read.rs`, `save.rs`, `tree.rs` (a tab's project root, and its listing, capped at `TREE_LIMIT_PATHS`), `watch.rs` (`/api/files/watch`: one `notify` watcher per root shared by its sockets, events coalesced over 100 ms and checked on disk, sent as `{add, remove}` or `{reset}`; a socket also checks its tab's project root every second and sends `{root}` when it changes, moving to the new root's watcher) |
 | `settings.rs` | `/api/settings`: the page's preferences as one JSON object |
 | `upload.rs` | `/api/uploads`: files dropped onto a terminal |
 | `test_support.rs` | `test_state()` and `scratch()` for tests |
@@ -50,7 +50,7 @@ it in `state::router()`, and add its routes to `every_route_is_guarded`.
 | `sessions/` | `store.ts` (tabs, active tab, sync), `terminal.ts` (xterm, socket), `tabs.ts` (tab strip), `bell.ts` and `bell-scan.ts` |
 | `links/` | `links.ts` (finding URLs and paths), `provider.ts` (xterm link provider) |
 | `files/` | `api.ts` (file API client), `open.ts` (loads the pane on first use, reopens files after a reload), `remember.ts` (each tab's file, in `localStorage`), `pane.ts` and `editor.ts` (pane and CodeMirror) |
-| `explorer/` | `explorer.ts` (the sidebar: toggle, divider, fetch on open and on tab switch), `view.ts` (the tree, drawn by `@pierre/trees`), `listing.ts` (the listing as what the sidebar shows, row paths, pasted paths), `api.ts` (the listing request), `socket.ts` (the live socket, open while the sidebar is, reconnecting), `changes.ts` (a live message as tree operations) |
+| `explorer/` | `explorer.ts` (the sidebar: toggle, divider, fetch on open and on tab switch), `view.ts` (the tree, drawn by `@pierre/trees`), `listing.ts` (the listing as what the sidebar shows, row paths, pasted paths), `api.ts` (the listing request), `socket.ts` (the live socket, open while the sidebar is, reconnecting), `changes.ts` (a live message as tree operations, or a re-fetch for a new root) |
 | `sound/` | `packs.ts` (samples), `typing.ts` (key listeners) |
 | `palette/` | `pages.ts` (what the palette offers), `palette.ts` (dialog, preview, shortcuts) |
 | `ui/` | `dom.ts` (`el`, `isMac`), `divider.ts`, `about.ts`, `drop.ts` and `drop-paths.ts` |

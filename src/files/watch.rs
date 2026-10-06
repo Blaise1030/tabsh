@@ -9,13 +9,20 @@
 //! with root-relative paths, directories ending in `/` (a removed path's kind
 //! is gone with it, so removes carry no `/`), or `{"reset":true}`, after
 //! which the page re-fetches the listing.
+//!
+//! A socket follows its tab's shell: every `ROOT_CHECK` it looks at the
+//! session's directory, and when the project root differs from the one it
+//! watches it sends `{"root":"/abs/new/root"}`, moves to that root's watcher
+//! and lets the old one go. A root with too many files has no watcher; the
+//! socket stays open and resumes when the root changes again. A session that
+//! is gone ends the socket.
 
 use super::{
     TreeQuery,
     resolve::session_base_dir,
     tree::{TREE_LIMIT_PATHS, list_tree, tree_path, tree_root, visible_names, walker},
 };
-use crate::AppState;
+use crate::{AppState, sessions};
 use axum::{
     extract::{
         Query, State,
@@ -43,6 +50,8 @@ const WINDOW: Duration = Duration::from_millis(100);
 /// A batch of more paths than this is sent as a reset.
 const RESET_ABOVE: usize = 1_000;
 const RESET: &str = r#"{"reset":true}"#;
+/// How often a socket looks at where its tab's shell is.
+const ROOT_CHECK: Duration = Duration::from_secs(1);
 
 /// What a notify event said happened to a path.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -321,18 +330,29 @@ enum WatchError {
 struct Registry(Mutex<HashMap<PathBuf, Weak<Watcher>>>);
 
 impl Registry {
+    fn live(&self, root: &Path) -> Option<Arc<Watcher>> {
+        self.0.lock().unwrap().get(root).and_then(Weak::upgrade)
+    }
+
     /// The watcher for `root`, started if no socket has one. The registry
     /// holds only a `Weak`, so the watcher ends with its last socket.
     async fn acquire(&self, root: PathBuf, limit: usize) -> Result<Arc<Watcher>, WatchError> {
         // The backends report real paths; the listing's root may be a symlink.
-        let probed = tokio::task::spawn_blocking(move || {
-            let root = std::fs::canonicalize(&root).unwrap_or(root);
-            let truncated = list_tree(&root, limit).truncated;
-            (root, truncated)
-        });
-        let (root, truncated) = probed
+        let root =
+            tokio::task::spawn_blocking(move || std::fs::canonicalize(&root).unwrap_or(root))
+                .await
+                .map_err(|e| WatchError::Backend(e.to_string()))?;
+        // Walking the root to see if it is too big is only for a watcher
+        // that is about to start.
+        if let Some(watcher) = self.live(&root) {
+            return Ok(watcher);
+        }
+        let at = root.clone();
+        let truncated = tokio::task::spawn_blocking(move || list_tree(&at, limit).truncated)
             .await
             .map_err(|e| WatchError::Backend(e.to_string()))?;
+        // Another socket may have started one meanwhile: look again and
+        // insert under the same lock.
         let mut live = self.0.lock().unwrap();
         if let Some(watcher) = live.get(&root).and_then(Weak::upgrade) {
             return Ok(watcher);
@@ -361,42 +381,129 @@ pub(super) async fn watch_handler(
     Query(q): Query<TreeQuery>,
     State(st): State<AppState>,
 ) -> Response {
-    let cwd = session_base_dir(&st, q.session.as_deref().unwrap_or(""));
-    let root = tokio::task::spawn_blocking(move || tree_root(&cwd))
+    let session = q.session.unwrap_or_default();
+    let (cwd_st, id) = (st.clone(), session.clone());
+    let root = tokio::task::spawn_blocking(move || tree_root(&session_base_dir(&cwd_st, &id)))
         .await
         .unwrap_or_default();
-    let watcher = match registry().acquire(root, TREE_LIMIT_PATHS).await {
-        Ok(watcher) => watcher,
-        Err(WatchError::Truncated) => return StatusCode::CONFLICT.into_response(),
+    let root = tokio::task::spawn_blocking(move || std::fs::canonicalize(&root).unwrap_or(root))
+        .await
+        .unwrap_or_default();
+    let mut follow = Follow::at(root.clone());
+    match registry().acquire(root, TREE_LIMIT_PATHS).await {
+        Ok(watcher) => follow.watch(watcher),
+        // The socket stays: the tab may move to a root that can be watched.
+        Err(WatchError::Truncated) => {}
         Err(WatchError::Backend(e)) => {
             eprintln!("failed to watch files: {e}");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
-    };
-    ws.on_upgrade(move |socket| relay(socket, watcher))
+    }
+    ws.on_upgrade(move |socket| relay(socket, st, session, follow))
 }
 
-/// Forwards the watcher's messages until the browser goes away.
-async fn relay(socket: WebSocket, watcher: Arc<Watcher>) {
-    let mut changes = watcher.subscribe();
+/// What a socket follows: the project root of its tab, and the watcher on it
+/// (none while it has too many files).
+struct Follow {
+    root: PathBuf,
+    watcher: Option<(Arc<Watcher>, broadcast::Receiver<Arc<str>>)>,
+}
+
+impl Follow {
+    fn at(root: PathBuf) -> Follow {
+        Follow {
+            root,
+            watcher: None,
+        }
+    }
+
+    fn watch(&mut self, watcher: Arc<Watcher>) {
+        let changes = watcher.subscribe();
+        self.watcher = Some((watcher, changes));
+    }
+
+    /// The next message from the watcher; never, while there is none.
+    async fn next_change(&mut self) -> Result<Arc<str>, broadcast::error::RecvError> {
+        match &mut self.watcher {
+            Some((_, changes)) => changes.recv().await,
+            None => std::future::pending().await,
+        }
+    }
+}
+
+/// What the tab's shell did to the root, as far as the socket can tell.
+#[derive(Debug, PartialEq)]
+enum Look {
+    /// The session no longer exists.
+    Gone,
+    Same,
+    Moved(PathBuf),
+}
+
+/// Compares the project root of the session's directory (`None`: no such
+/// session) with the root being followed. Blocking: it probes the disk.
+fn look(followed: &Path, cwd: Option<PathBuf>) -> Look {
+    let Some(cwd) = cwd else { return Look::Gone };
+    let root = tree_root(&cwd);
+    let root = std::fs::canonicalize(&root).unwrap_or(root);
+    if root == followed {
+        Look::Same
+    } else {
+        Look::Moved(root)
+    }
+}
+
+/// Moves the socket to `root`: the old watcher is let go first, so one that
+/// nobody else uses ends. A root that can't be watched leaves the socket
+/// without one.
+async fn move_to(registry: &Registry, follow: &mut Follow, root: PathBuf, limit: usize) {
+    follow.watcher = None;
+    follow.root = root.clone();
+    match registry.acquire(root, limit).await {
+        Ok(watcher) => follow.watch(watcher),
+        Err(WatchError::Truncated) => {}
+        Err(WatchError::Backend(e)) => eprintln!("failed to watch files: {e}"),
+    }
+}
+
+/// Forwards the watcher's messages, and says when the tab's root changes,
+/// until the browser or the session goes away.
+async fn relay(socket: WebSocket, st: AppState, session: String, mut follow: Follow) {
     let (mut sink, mut stream) = socket.split();
+    let mut check = tokio::time::interval_at(tokio::time::Instant::now() + ROOT_CHECK, ROOT_CHECK);
+    check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
-        tokio::select! {
-            change = changes.recv() => {
-                let text = match change {
-                    Ok(text) => text.to_string(),
-                    // Behind: some changes were dropped, so start over.
-                    Err(broadcast::error::RecvError::Lagged(_)) => RESET.to_string(),
-                    Err(broadcast::error::RecvError::Closed) => break,
-                };
-                if sink.send(Message::Text(text.into())).await.is_err() {
-                    break;
+        let text = tokio::select! {
+            change = follow.next_change() => match change {
+                Ok(text) => text.to_string(),
+                // Behind: some changes were dropped, so start over.
+                Err(broadcast::error::RecvError::Lagged(_)) => RESET.to_string(),
+                Err(broadcast::error::RecvError::Closed) => break,
+            },
+            _ = check.tick() => {
+                let (st, id, followed) = (st.clone(), session.clone(), follow.root.clone());
+                let seen = tokio::task::spawn_blocking(move || {
+                    let cwd = sessions::exists(&st, &id).then(|| session_base_dir(&st, &id));
+                    look(&followed, cwd)
+                })
+                .await;
+                match seen {
+                    Ok(Look::Moved(root)) => {
+                        let text = serde_json::json!({ "root": root }).to_string();
+                        move_to(registry(), &mut follow, root, TREE_LIMIT_PATHS).await;
+                        text
+                    }
+                    Ok(Look::Same) | Err(_) => continue,
+                    Ok(Look::Gone) => break,
                 }
-            }
+            },
             msg = stream.next() => match msg {
                 Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
-                Some(Ok(_)) => {}
+                Some(Ok(_)) => continue,
             },
+        };
+        if sink.send(Message::Text(text.into())).await.is_err() {
+            break;
         }
     }
     let _ = sink.close().await;
@@ -673,6 +780,82 @@ mod tests {
         assert!(registry.acquire(dir, 3).await.is_ok());
     }
 
+    fn project(parent: &Path, name: &str) -> PathBuf {
+        let dir = std::fs::canonicalize(parent).unwrap().join(name);
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        dir
+    }
+
+    #[test]
+    fn look_reports_a_root_only_when_it_differs() {
+        let dir = scratch();
+        let (alpha, beta) = (project(&dir, "alpha"), project(&dir, "beta"));
+        std::fs::create_dir_all(alpha.join("sub/deeper")).unwrap();
+        // Anywhere inside the followed project is the same root.
+        assert_eq!(look(&alpha, Some(alpha.clone())), Look::Same);
+        assert_eq!(look(&alpha, Some(alpha.join("sub/deeper"))), Look::Same);
+        assert_eq!(look(&alpha, Some(beta.clone())), Look::Moved(beta));
+        // Out of any repo, the directory itself is the root.
+        let loose = std::fs::canonicalize(scratch()).unwrap();
+        assert_eq!(look(&alpha, Some(loose.clone())), Look::Moved(loose));
+        assert_eq!(look(&alpha, None), Look::Gone);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn look_compares_real_paths() {
+        let dir = scratch();
+        let alpha = project(&dir, "alpha");
+        let link = std::fs::canonicalize(&dir).unwrap().join("link");
+        std::os::unix::fs::symlink(&alpha, &link).unwrap();
+        assert_eq!(look(&alpha, Some(link)), Look::Same);
+    }
+
+    #[tokio::test]
+    async fn moving_swaps_watchers_and_releases_the_old_one() {
+        let dir = scratch();
+        let (alpha, beta) = (project(&dir, "alpha"), project(&dir, "beta"));
+        let registry = Registry::default();
+        let mut follow = Follow::at(alpha.clone());
+        follow.watch(registry.acquire(alpha.clone(), 100).await.unwrap());
+        let old = Arc::downgrade(&follow.watcher.as_ref().unwrap().0);
+        move_to(&registry, &mut follow, beta.clone(), 100).await;
+        assert_eq!(follow.root, beta);
+        assert!(old.upgrade().is_none(), "the old watcher is still running");
+        let new = follow.watcher.as_ref().unwrap().0.clone();
+        assert!(Arc::ptr_eq(&new, &registry.live(&beta).unwrap()));
+    }
+
+    #[tokio::test]
+    async fn moving_to_a_crowded_root_leaves_no_watcher_until_it_moves_again() {
+        let dir = scratch();
+        let (alpha, beta) = (project(&dir, "alpha"), project(&dir, "beta"));
+        for name in ["a", "b", "c"] {
+            std::fs::write(beta.join(name), "").unwrap();
+        }
+        let registry = Registry::default();
+        let mut follow = Follow::at(alpha.clone());
+        follow.watch(registry.acquire(alpha.clone(), 2).await.unwrap());
+        move_to(&registry, &mut follow, beta.clone(), 2).await;
+        assert_eq!(follow.root, beta);
+        assert!(follow.watcher.is_none());
+        move_to(&registry, &mut follow, alpha, 2).await;
+        assert!(follow.watcher.is_some());
+    }
+
+    #[tokio::test]
+    async fn a_live_root_is_not_walked_again() {
+        let dir = scratch();
+        for name in ["a", "b", "c"] {
+            std::fs::write(dir.join(name), "").unwrap();
+        }
+        let registry = Registry::default();
+        let first = registry.acquire(dir.clone(), 100).await.unwrap();
+        // Over the limit now, but a watcher is running: no probe, no error.
+        let second = registry.acquire(dir, 2).await.unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+    }
+
     #[tokio::test]
     async fn a_real_watcher_reports_a_new_file() {
         let dir = scratch();
@@ -720,6 +903,69 @@ mod tests {
         let quiet = tokio::time::timeout(Duration::from_millis(200), socket.next()).await;
         assert!(quiet.is_err());
         Ok(())
+    }
+
+    async fn heard_from<S: futures_util::Stream + Unpin>(
+        socket: &mut S,
+    ) -> Result<Option<S::Item>, tokio::time::error::Elapsed> {
+        tokio::time::timeout(Duration::from_secs(15), socket.next()).await
+    }
+
+    #[tokio::test]
+    async fn the_socket_says_when_the_root_changes_and_ends_with_the_session() {
+        let dir = scratch();
+        let (alpha, beta) = (project(&dir, "alpha"), project(&dir, "beta"));
+        let st = test_state();
+        let set_cwd = |cwd: &Path| {
+            st.db
+                .lock()
+                .unwrap()
+                .execute(
+                    "UPDATE sessions SET cwd = ?1 WHERE id = 's1'",
+                    [cwd.to_str().unwrap()],
+                )
+                .unwrap();
+        };
+        st.db
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO sessions (id, name, position, cwd) VALUES ('s1', 'T', 1, ?1)",
+                [alpha.to_str().unwrap()],
+            )
+            .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let app = router(st.clone());
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let (mut socket, _) = tokio_tungstenite::connect_async(format!(
+            "ws://{addr}/api/files/watch?session=s1&token=t0k3n"
+        ))
+        .await
+        .unwrap();
+        // A cd within the project says nothing; into another one, its root.
+        set_cwd(&alpha.join("sub"));
+        set_cwd(&beta);
+        let heard = heard_from(&mut socket).await.unwrap().unwrap().unwrap();
+        let json: serde_json::Value = serde_json::from_str(heard.to_text().unwrap()).unwrap();
+        assert_eq!(json, serde_json::json!({ "root": beta }));
+        // The session is deleted: the socket ends.
+        st.db
+            .lock()
+            .unwrap()
+            .execute("DELETE FROM sessions", [])
+            .unwrap();
+        loop {
+            match heard_from(&mut socket)
+                .await
+                .expect("the socket stayed open")
+            {
+                None
+                | Some(Err(_))
+                | Some(Ok(tokio_tungstenite::tungstenite::Message::Close(_))) => break,
+                Some(Ok(_)) => {}
+            }
+        }
     }
 
     fn status(result: Result<(), WsError>) -> Option<StatusCode> {

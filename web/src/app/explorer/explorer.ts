@@ -9,8 +9,8 @@ import { matchesKey } from '../settings/keys.ts';
 import { EXPLORER_WIDTH } from '../settings/schema.ts';
 import { applySettings, current, onApply, saveSetting } from '../settings/settings.ts';
 import { fetchTree } from './api.ts';
-import { applyChange, type Change } from './changes.ts';
-import { absolutePath, type Listing, shown } from './listing.ts';
+import { type Change, type Live, onMessage } from './changes.ts';
+import { absolutePath, type Listing, rootName, shown } from './listing.ts';
 import { watchFiles } from './socket.ts';
 
 type View = typeof import('./view.ts');
@@ -18,10 +18,11 @@ type View = typeof import('./view.ts');
 let aside: HTMLElement;
 let mount: HTMLElement;
 let message: HTMLElement;
+let heading: HTMLElement;
 let view: Promise<View> | null = null;
 let ready: View | null = null; // the loaded tree library, once there is a tree
 let listing: Listing | null = null; // what the tree shows
-let known: Set<string> | null = null; // every path the tree has; null with no tree showing
+const live: Live = { known: null, settling: false }; // the paths the tree has, and whether a new root's listing is awaited
 let unwatch: (() => void) | null = null;
 let watched: string | null = null; // the session the socket is open for
 let seq = 0; // bumped by every fetch, so a slow answer to a superseded one is dropped
@@ -36,6 +37,7 @@ export function initExplorer(): void {
   aside = document.getElementById('explorer') as HTMLElement;
   mount = document.getElementById('explorer-tree') as HTMLElement;
   message = document.getElementById('explorer-msg') as HTMLElement;
+  heading = document.getElementById('explorer-root') as HTMLElement;
   const divider = document.getElementById('explorer-divider') as HTMLElement;
   const button = document.getElementById('explorer-btn') as HTMLButtonElement;
 
@@ -109,18 +111,24 @@ function watch(): void {
   if (want) unwatch = watchFiles(want, () => void refresh(), onChange);
 }
 
-// A live update: operations for the open tree, or a re-fetch.
+// A live update: operations for the open tree, or a re-fetch (once, for a new
+// root, whatever arrives before its listing does).
 function onChange(change: Change): void {
-  if (!ready || !known || mount.hidden) return void refresh();
-  const action = applyChange(known, change);
+  if (!ready || mount.hidden) live.known = null;
+  const action = onMessage(live, change);
   if (action.kind === 'reset') void refresh();
-  else ready.applyOps(action.ops);
+  else if (action.kind === 'ops') ready?.applyOps(action.ops);
 }
 
 async function refresh(): Promise<void> {
+  const mine = ++seq;
+  await load(mine);
+  if (mine === seq) live.settling = false;
+}
+
+async function load(mine: number): Promise<void> {
   const tab = store.active;
   if (!isOpen() || !tab) return;
-  const mine = ++seq;
   let l: Listing;
   try {
     l = await fetchTree(daemonFetch, tab.id);
@@ -131,7 +139,10 @@ async function refresh(): Promise<void> {
   }
   if (mine !== seq) return;
   const s = shown(l);
-  known = null;
+  live.known = null;
+  heading.textContent = rootName(l.root);
+  heading.title = l.root;
+  heading.hidden = false;
   if (s.kind === 'too-many') return say('Too many files to show here. cd into a project.');
   if (s.kind === 'empty') return say('This folder is empty');
   listing = l;
@@ -149,7 +160,7 @@ async function refresh(): Promise<void> {
   }
   if (mine !== seq) return;
   ready = v;
-  known = new Set(s.paths);
+  live.known = new Set(s.paths);
   message.hidden = true;
   mount.hidden = false;
   v.showTree(mount, s.paths, (path) => {

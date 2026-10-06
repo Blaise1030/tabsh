@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { absolutePath, isDirectory, type Listing, pastedPath, shown } from './listing.ts';
+import { absolutePath, isDirectory, type Listing, pastedPath, rootName, shown } from './listing.ts';
 
 const listing = (over: Partial<Listing>): Listing => ({ root: '/p', paths: [], truncated: false, ...over });
 
@@ -30,4 +30,10 @@ test('a pasted path is shell-quoted when it needs it', () => {
   assert.equal(pastedPath('/p', 'ünï/日本.txt'), "'/p/ünï/日本.txt'");
   assert.equal(pastedPath('/p', '$(rm -rf).txt'), "'/p/$(rm -rf).txt'");
   assert.equal(pastedPath('/p', 'dir name/'), "'/p/dir name'");
+});
+
+test('the header names the root folder', () => {
+  assert.equal(rootName('/work/beta'), 'beta');
+  assert.equal(rootName('/work/beta/'), 'beta');
+  assert.equal(rootName('/'), '/');
 });
