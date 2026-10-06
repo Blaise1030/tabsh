@@ -127,8 +127,14 @@ file-tree-container {
   --trees-selected-fg: var(--accent-foreground);
   --trees-accent: var(--foreground);
   --trees-font-family: var(--font-sans);
-  --trees-search-bg: var(--input);
+  /* The search field sits on the sidebar like the page's other inputs: the
+     same background, the input border, and a quiet focus ring (the library's
+     default ring is the accent, which is the foreground here: stark white on
+     a dark theme). The ring is also the rows' focus outline. */
+  --trees-search-bg: var(--background);
   --trees-search-fg: var(--foreground);
+  --trees-border-color: var(--input);
+  --trees-focus-ring-color: color-mix(in srgb, var(--foreground) 35%, var(--background));
 }
 /* A row's menu, in the palette's look: the popover surface, a border, rounded,
    and accent-highlighted items. It sits in the tree's slot, so it is page CSS. */
