@@ -3,7 +3,7 @@
 - Spec: `docs/superpowers/specs/2026-10-06-file-explorer-design.md` (approved 2026-10-06)
 - Feature branch: `features/file-explorer` (spec + plan committed here; final PR → `main`)
 - Base SHA: `2b5b8af` (`origin/main` when `features/file-explorer` was cut)
-- Tracker: GitHub Issues, repo `Blaise1030/tabsh` — parent: `<filled in Phase 3>`
+- Tracker: GitHub Issues, repo `Blaise1030/tabsh` — parent: [#23](https://github.com/Blaise1030/tabsh/issues/23)
 - CI checks on PR: `.github/workflows/ci.yml` → `daemon` (fmt, clippy, `cargo test --locked` on ubuntu + macos), `site` (`astro check`, biome, `npm test`, `npm run build` + committed app copy), `e2e` (Playwright chromium)
 - E2E: Playwright (`@playwright/test`), specs in `web/e2e/`, run with `cd web && TABSH_BIN=../target/debug/tabsh npm run test:e2e`, conventions doc at `web/e2e/README.md`
 - Conventions source: `CLAUDE.md` → `docs/architecture.md` (module layout, route rules, dependency order, pure-logic testability, security invariants); `.agents/skills/trees` (the `@pierre/trees` API); exemplars: `src/files/` (daemon feature), `src/sessions/ws.rs` (WebSocket route), `web/src/app/files/open.ts` (lazy `import()` of a heavy module), `web/src/app/sessions/bell.ts` + `bell-scan.ts` (app feature with pure logic)
@@ -19,7 +19,7 @@
 
 ## Slice 1: walking skeleton — open the sidebar, see the tab's project, click a file to open it
 
-- Issue: `<filled in Phase 3>`
+- Issue: [#24](https://github.com/Blaise1030/tabsh/issues/24)
 - Depends on: none
 - Flow (REQUIRED): In a tab whose shell is inside a git repo, you click the tab bar's explorer button (or press Mod+Shift+E, or pick "Toggle file explorer" in the palette) → a sidebar opens on the left showing the repo root's files and folders, ignored ones left out; you open a folder and click a file → it opens in the file pane. The sidebar's open state and width survive a reload. A tab in `~` (no repo, too many files) shows "Too many files to show here" instead of a tree.
 - E2E spec (REQUIRED): `web/e2e/explorer.spec.ts` —
@@ -43,7 +43,7 @@
 
 ## Slice 2: the tree stays current as files change on disk
 
-- Issue: `<filled in Phase 3>`
+- Issue: [#25](https://github.com/Blaise1030/tabsh/issues/25)
 - Depends on: 1
 - Flow (REQUIRED): With the sidebar open, you (or an agent, or `git checkout`) create, delete or rename files and folders in the project → the tree shows the change within about a second, keeping open folders and the selection; a huge change (or a `.gitignore` edit) re-fetches the whole tree; ignored paths never appear.
 - E2E spec (REQUIRED): `web/e2e/explorer-live.spec.ts` —
@@ -66,7 +66,7 @@
 
 ## Slice 3: the tree follows the shell — `cd` and tab switches re-root it
 
-- Issue: `<filled in Phase 3>`
+- Issue: [#26](https://github.com/Blaise1030/tabsh/issues/26)
 - Depends on: 2 (the `root` message rides the watch socket)
 - Flow (REQUIRED): With the sidebar open, you `cd` from one project into another (or out of any repo) → within about a second the tree re-roots to the new project; switching to a tab in a different project shows that project's tree; `cd` within the same repo changes nothing.
 - E2E spec (REQUIRED): `web/e2e/explorer-follow.spec.ts` —
@@ -83,7 +83,7 @@
 
 ## Slice 4: act on a row — insert its path, `cd` there, open a tab there
 
-- Issue: `<filled in Phase 3>`
+- Issue: [#27](https://github.com/Blaise1030/tabsh/issues/27)
 - Depends on: 1 (independent of 2 and 3 — can run in parallel with them)
 - Flow (REQUIRED): You right-click a row (or use its menu button) → **Insert path** pastes the shell-quoted absolute path at the prompt; on a folder, **cd here** pastes `cd -- '<dir>'` for you to confirm with Enter; **Open in new tab** opens a terminal in that folder (a file's parent folder).
 - E2E spec (REQUIRED): `web/e2e/explorer-actions.spec.ts` —
