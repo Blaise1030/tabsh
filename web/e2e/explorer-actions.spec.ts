@@ -45,9 +45,12 @@ test("a row's menu inserts its path, cds there and opens a tab there", async ({ 
     await row('src').click({ button: 'right' });
     await item('Open in new tab').click();
     await expect(page.locator('#tabs .tab')).toHaveCount(2);
-    await typeInTerminal(page, titleWithDir);
-    await page.keyboard.press('Enter');
-    await expect(label).toHaveText('src');
+    // The new shell may not be listening yet: retry, like cdInTerminal.
+    await expect(async () => {
+      await typeInTerminal(page, `\u0003${titleWithDir}`);
+      await page.keyboard.press('Enter');
+      await expect(label).toHaveText('src', { timeout: 2_000 });
+    }).toPass({ timeout: 10_000 });
   });
 
   await test.step('the menu opens from the keyboard and Escape returns to the row', async () => {

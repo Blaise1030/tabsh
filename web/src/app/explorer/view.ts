@@ -71,7 +71,8 @@ function rowMenu(
   }
   // Keys: arrows, Home and End move between items (buttons already take Enter
   // and Space); Escape closes and the row gets focus back. The menu is in the
-  // DOM only after this returns, so focus waits a tick.
+  // DOM only after this returns, so focus waits a frame (and leaves it alone
+  // if a key already moved it by then).
   const items = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')];
   menu.addEventListener('keydown', (e) => {
     const at = items.indexOf(document.activeElement as HTMLElement);
@@ -82,6 +83,6 @@ function rowMenu(
     if (to === null) ctx.close({ restoreFocus: true });
     else items[to]?.focus();
   });
-  queueMicrotask(() => requestAnimationFrame(() => items[0]?.focus()));
+  queueMicrotask(() => requestAnimationFrame(() => menu.contains(document.activeElement) || items[0]?.focus()));
   return menu;
 }
