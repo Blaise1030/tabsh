@@ -43,3 +43,13 @@ test('toggling the explorer defaults to its own combo', () => {
   assert.equal(defaults(true).keyToggleExplorer, 'meta+shift+KeyE');
   assert.equal(cleanSettings({ keyToggleExplorer: 'ctrl+shift+KeyE' }, false).keyToggleExplorer, 'ctrl+shift+KeyE');
 });
+test('searching files defaults to its own combo', () => {
+  assert.equal(defaults(true).keySearchFiles, 'meta+shift+KeyF');
+  assert.equal(defaults(false).keySearchFiles, 'ctrl+shift+KeyF');
+  assert.equal(cleanSettings({ keySearchFiles: 'alt+shift+KeyF' }, false).keySearchFiles, 'alt+shift+KeyF');
+  // A combo another action already has gives way to a free preset.
+  assert.equal(
+    cleanSettings({ keyToggleExplorer: 'ctrl+shift+KeyF', keySearchFiles: 'ctrl+shift+KeyF' }, false).keySearchFiles,
+    'alt+shift+KeyF',
+  );
+});

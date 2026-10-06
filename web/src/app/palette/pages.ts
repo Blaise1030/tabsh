@@ -108,6 +108,7 @@ export function pages(ctx: {
             {
               label: 'Search files',
               icon: ICONS.explorer,
+              hint: keyLabel(saved.keySearchFiles, isMac),
               keywords: 'find filter name tree explorer',
               run: ctx.searchFiles,
             },

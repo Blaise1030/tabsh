@@ -5,7 +5,7 @@
 // `modifier+…+code`; matching on `code` means Shift doesn't turn `]` into
 // `}` first.
 
-export type KeyId = 'keyPalette' | 'keyNextTab' | 'keyPrevTab' | 'keyToggleExplorer';
+export type KeyId = 'keyPalette' | 'keyNextTab' | 'keyPrevTab' | 'keyToggleExplorer' | 'keySearchFiles';
 export interface Keybinding {
   name: string;
   keywords: string;
@@ -45,6 +45,11 @@ export function keybindings(isMac: boolean): Record<KeyId, Keybinding> {
       name: 'Toggle file explorer',
       keywords: 'files sidebar tree folders project',
       presets: isMac ? ['meta+shift+KeyE', 'ctrl+shift+KeyE'] : ['ctrl+shift+KeyE', 'alt+shift+KeyE'],
+    },
+    keySearchFiles: {
+      name: 'Search files',
+      keywords: 'find filter name tree explorer sidebar',
+      presets: isMac ? ['meta+shift+KeyF', 'ctrl+shift+KeyF'] : ['ctrl+shift+KeyF', 'alt+shift+KeyF'],
     },
   };
 }
