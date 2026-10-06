@@ -100,3 +100,20 @@ export function matches(checked: ReadonlySet<string>, labels: Labels): boolean {
     labels.tags.some((t) => checked.has(filterKey({ kind: 'tag', value: t })))
   );
 }
+
+// The stored filter: the checked keys, dropping anything that isn't one.
+export function parseChecked(raw: unknown): Set<string> {
+  if (!Array.isArray(raw)) return new Set();
+  return new Set(raw.filter((k): k is string => typeof k === 'string' && /^(repo|tag):./.test(k)));
+}
+
+// The labels a new tab gets so it shows under the checked filters: every
+// checked tag, and a checked repo to start in (the active tab's when it is
+// one of them, otherwise the first checked).
+export function newTabLabels(checked: ReadonlySet<string>, activeRepo: string | null): Labels {
+  const of = (kind: Filter['kind']) =>
+    [...checked].filter((k) => k.startsWith(`${kind}:`)).map((k) => k.slice(kind.length + 1));
+  const repos = of('repo');
+  const repo = activeRepo && repos.includes(activeRepo) ? activeRepo : (repos[0] ?? null);
+  return { repo, tags: of('tag') };
+}

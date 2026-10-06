@@ -1,9 +1,21 @@
-// Switching the tab filter from the palette, end to end: the filter button
-// and its shortcut open the palette on its filter page; highlighting a repo
-// or a tag previews the strip live, Enter keeps the filter, closing without
-// a pick restores it, and "All tabs" clears it.
+// The tab filter, end to end: the filter button and its shortcut open the
+// palette on its filter page, where highlighting a repo or tag previews the
+// strip live, Enter keeps the filter, closing without a pick restores it, and
+// "All tabs" clears it. The kept filter survives a reload, a tab opened under
+// it joins it, the next/previous tab keys stay inside it, and a new tab under
+// a repo filter starts in that repo. The daemon is shared by the worker, so
+// earlier specs' tabs may be open: positions are counted from the tabs each
+// test opens.
 import type { Page } from '@playwright/test';
 import { cdInTerminal, expect, newTab, openApp, test, typeInTerminal } from './fixture.ts';
+
+const tab = (page: Page, name: string) => page.locator('#tabs .tab').filter({ hasText: name });
+const item = (page: Page, name: string) => page.locator('#palette [role="menuitem"]').filter({ hasText: name });
+// The palette dialog itself has no box (its .command child does), so its
+// state is read from `open` rather than visibility.
+const paletteOpen = (page: Page) => page.locator('#palette').evaluate((d) => (d as HTMLDialogElement).open);
+const paletteClosed = (page: Page) => expect.poll(() => paletteOpen(page)).toBe(false);
+const paletteOpened = (page: Page) => expect.poll(() => paletteOpen(page)).toBe(true);
 
 // Name the active tab through the shell, the one DOM effect of output.
 async function nameTab(page: Page, name: string): Promise<void> {
@@ -14,7 +26,7 @@ async function nameTab(page: Page, name: string): Promise<void> {
 // Tag a tab from its right-click menu: type the tag, Enter adds it, Escape
 // closes the menu.
 async function tagTab(page: Page, tabName: string, tag: string): Promise<void> {
-  await page.locator('#tabs .tab').filter({ hasText: tabName }).click({ button: 'right' });
+  await tab(page, tabName).click({ button: 'right' });
   const menu = page.locator('.tab-menu[aria-label="Tab tags"]');
   await expect(menu).toBeVisible();
   await menu.locator('input[aria-label="New tag"]').fill(tag);
@@ -22,14 +34,6 @@ async function tagTab(page: Page, tabName: string, tag: string): Promise<void> {
   await page.keyboard.press('Escape');
   await expect(menu).toBeHidden();
 }
-
-const tab = (page: Page, name: string) => page.locator('#tabs .tab').filter({ hasText: name });
-const item = (page: Page, name: string) => page.locator('#palette [role="menuitem"]').filter({ hasText: name });
-// The palette dialog itself has no box (its .command child does), so its
-// state is read from `open` rather than visibility.
-const paletteOpen = (page: Page) => page.locator('#palette').evaluate((d) => (d as HTMLDialogElement).open);
-const paletteClosed = (page: Page) => expect.poll(() => paletteOpen(page)).toBe(false);
-const paletteOpened = (page: Page) => expect.poll(() => paletteOpen(page)).toBe(true);
 
 test('the palette switches the strip between repos and tags', async ({ page, daemon, twins }) => {
   const button = page.locator('#tab-filter-btn');
@@ -129,4 +133,75 @@ test('the palette switches the strip between repos and tags', async ({ page, dae
     await expect(tab(page, 'work-tab')).toBeVisible();
     await expect(button).toHaveAttribute('aria-pressed', 'false');
   });
+});
+
+test('the filter survives a reload, new tabs join it, and tab keys skip what it hides', async ({ page, daemon }) => {
+  await openApp(page, daemon);
+  await newTab(page);
+  const tabs = page.locator('#tabs .tab');
+  const first = tabs.nth(0);
+  const tagged = (await tabs.count()) - 1;
+
+  // Tag the new tab and filter by its tag from the palette: the others hide.
+  await tabs.nth(tagged).click({ button: 'right' });
+  await page.getByPlaceholder('New tag…').fill('work');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Escape');
+  await page.locator('#tab-filter-btn').click();
+  await item(page, 'work').click();
+  await expect(first).toBeHidden();
+
+  // A reload keeps it. (Not openApp: it waits on the first tab, now hidden.)
+  await page.reload();
+  await expect(tabs.nth(tagged)).toBeVisible();
+  await expect(page.locator('#tab-filter-btn')).toHaveAttribute('aria-pressed', 'true');
+  await expect(first).toBeHidden();
+
+  // A new tab gets the tag, so it stays shown once another tab is active.
+  await newTab(page);
+  const added = tagged + 1;
+  await tabs.nth(tagged).click();
+  await expect(tabs.nth(added)).toBeVisible();
+  await expect(first).toBeHidden();
+
+  // Cycling goes between the two shown tabs, never through a hidden one.
+  for (const want of [added, tagged, added]) {
+    await page.keyboard.press('Control+Shift+BracketRight');
+    await expect(tabs.nth(want)).toHaveAttribute('aria-selected', 'true');
+  }
+  await page.keyboard.press('Control+Shift+BracketLeft');
+  await expect(tabs.nth(tagged)).toHaveAttribute('aria-selected', 'true');
+  await expect(first).toHaveAttribute('aria-selected', 'false');
+});
+
+test('a new tab under a repo filter starts in that repo', async ({ page, daemon, twins }) => {
+  await openApp(page, daemon);
+  // Earlier specs' tabs may sit in another `alpha`: count from here. The page
+  // is built when opened, so it is reopened until the count moves — and
+  // closed again: the palette is modal, and would block the next click.
+  // Exactly `alpha`: on Linux a deleted folder reads as `alpha (deleted)`.
+  const alpha = item(page, 'alpha').filter({ has: page.locator('span', { hasText: /^alpha$/ }) });
+  const alphaCount = async () => {
+    await page.keyboard.press('Escape'); // the root page, or nothing to close
+    await page.locator('#tab-filter-btn').click();
+    const n = (await alpha.count()) ? Number(await alpha.locator('[data-shortcut]').textContent()) : 0;
+    if (await paletteOpen(page)) {
+      await page.keyboard.press('Escape'); // back to the root page
+      await page.keyboard.press('Escape'); // closed
+      await paletteClosed(page);
+    }
+    return n;
+  };
+  const before = await alphaCount();
+
+  // The active tab's repo is re-read every few seconds.
+  await newTab(page);
+  await cdInTerminal(page, twins.alpha, 'in-alpha');
+  await expect.poll(alphaCount, { timeout: 10_000 }).toBe(before + 1);
+  await page.locator('#tab-filter-btn').click(); // the filter page, with alpha
+  await alpha.click(); // picks the repo filter, closing the palette
+
+  // The new tab starts in `alpha`, so it is one more under it.
+  await newTab(page);
+  await expect.poll(alphaCount, { timeout: 10_000 }).toBe(before + 2);
 });
