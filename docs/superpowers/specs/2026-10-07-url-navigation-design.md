@@ -92,7 +92,8 @@ limit (`file` 4096 characters, others 128).
 
 | Change | How |
 |---|---|
-| Switching tabs (including closing the active one) | push |
+| Switching tabs | push |
+| Closing the active tab | replace, like a tab closed elsewhere (a push would leave a Back entry onto a gone tab) |
 | Opening or closing the board | push |
 | Opening a file, jumping to a line from a terminal link | push |
 | Closing a file | push |

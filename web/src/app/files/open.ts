@@ -45,7 +45,8 @@ async function applyFile(to: Place, from: Place, signal: AbortSignal, initial: b
     return;
   }
   const file = to.file as string;
-  const dirTab = !initial && clicked?.tab === tab && clicked.file === file;
+  const clicked_ = !initial && clicked?.tab === tab && clicked.file === file;
+  const dirTab = clicked_;
   clicked = null;
   let p: Pane;
   try {
@@ -56,7 +57,9 @@ async function applyFile(to: Place, from: Place, signal: AbortSignal, initial: b
     loadFailed = true;
     return { file: null, line: null };
   }
-  const abs = await p.showFile(tab, file, to.line, { focus: !initial, signal, dirTab });
+  // A load the user clicked says why it failed; URL, startup and restore loads drop it quietly.
+  const quiet = initial || !clicked_;
+  const abs = await p.showFile(tab, file, to.line, { focus: !initial, signal, dirTab, quiet });
   // The daemon's absolute path, so a reload after a `cd` reopens the same file.
   if (abs !== file) return { file: abs, line: abs ? to.line : null };
 }
@@ -67,13 +70,12 @@ export function loadedPane(): Pane | null {
 
 // Once the router has started: reopens the files the other tabs showed
 // before a reload, and forgets those of tabs that are gone. The active tab's
-// file is the place's; when the URL names none, the tab's remembered one
-// comes back through it. The pane is only fetched if there's something to show.
+// file is the place's (main.ts puts its remembered one in the startup place).
+// The pane is only fetched if there's something to show.
 export function restoreFiles(sessionIds: string[]): void {
   const saved = rememberedFiles();
   for (const id of Object.keys(saved)) if (!sessionIds.includes(id)) rememberFile(id, null);
-  const { tab, file } = here();
-  if (tab && !file && saved[tab]) go({ file: saved[tab] }, 'replace');
+  const { tab } = here();
   const ids = sessionIds.filter((id) => saved[id] && id !== tab);
   if (!ids.length) return;
   filePane().then((p) => {

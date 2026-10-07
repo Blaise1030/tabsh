@@ -1,7 +1,8 @@
 // The file explorer: a sidebar left of the terminals that lists the active
 // tab's project. It opens from the tab bar's button, the palette or a
 // keybinding, and clicking a file opens it in the file pane. Whether it is
-// open and how wide are settings. The tree's library loads on first use.
+// open is part of the place (the setting only follows it); how wide is a
+// setting. The tree's library loads on first use.
 import { daemonFetch } from '../daemon/client.ts';
 import { openInPane } from '../files/open.ts';
 import { go, here, onPlace } from '../nav/router.ts';

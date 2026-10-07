@@ -476,3 +476,20 @@ test('a refused Go back leaves the palette openable', async ({ page, daemon, pro
   await page.locator('#settings-btn').click();
   await expect.poll(() => paletteOpen(page)).toBe(true);
 });
+
+test('a fresh launch reopens the remembered file and keeps the keyboard in the terminal', async ({ page, daemon, project }) => {
+  await openApp(page, daemon);
+  await cdInTerminal(page, project, 'in-project');
+  await openLink(page, 'src/main.rs', 'src/main.rs');
+  await expect.poll(() => urlFile(page)).toBe(`${project}/src/main.rs`);
+
+  // A plain launch: no tab or file in the URL.
+  await page.goto(`${daemon.baseUrl}/app/`);
+  await expect(page.locator('#tabs .tab').first()).toBeVisible();
+  await expect(page.locator('#pane .pane-head')).toContainText('main.rs');
+  await expect.poll(() => urlFile(page)).toBe(`${project}/src/main.rs`);
+  // Give a stray focus() time to land, then check where the keyboard is.
+  await page.waitForTimeout(500);
+  const inTerm = await page.evaluate(() => !!document.activeElement?.closest('.term.active'));
+  expect(inTerm).toBe(true);
+});

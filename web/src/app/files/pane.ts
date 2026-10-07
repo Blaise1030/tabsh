@@ -489,13 +489,13 @@ async function renderBody(st: PaneState, info: FileInfo, body: HTMLElement, isCu
 // Shows `path` in the tab, or with null forgets its file, without asking
 // about unsaved edits (the router's guard has). A file the tab already shows
 // only moves to `line`. Resolves to the absolute path shown: null when the
-// file couldn't be read, which is dropped quietly. A directory opens a new tab
+// file couldn't be read, which with `quiet` is dropped quietly (else shown). A directory opens a new tab
 // only with `dirTab` (a click, never a URL), and the tab keeps its file.
 export async function showFile(
   sessionId: string,
   path: string | null,
   line: number | null,
-  opts: { focus: boolean; signal: AbortSignal; dirTab?: boolean },
+  opts: { focus: boolean; signal: AbortSignal; dirTab?: boolean; quiet?: boolean },
 ): Promise<string | null> {
   if (path === null) {
     forget(sessionId);
@@ -506,7 +506,7 @@ export async function showFile(
     if (line !== null && st.editor && st.editor.line() !== line) st.editor.goTo(line);
     return path;
   }
-  const res = await load(sessionId, path, { ...opts, line: line ?? undefined, quiet: true });
+  const res = await load(sessionId, path, { ...opts, line: line ?? undefined });
   if (res === 'failed') forget(sessionId);
   return fileOf(sessionId);
 }
