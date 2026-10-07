@@ -14,7 +14,7 @@ import { labelsOf, rootOf } from './tags.ts';
 
 const COLLAPSED_KEY = 'tabsh.collapsed';
 const collapsed = new Set<string>(); // group keys
-const chips = new Map<string, HTMLElement>(); // group key → its label
+const boxes = new Map<string, HTMLElement>(); // group key → its box: label, then tabs
 const mirrors = new Map<string, HTMLElement[]>(); // session id → its copies
 const watched = new WeakSet<HTMLElement>(); // tabs whose changes reach their copies
 let activeGroup: string | null = null; // the group the active tab was picked in
@@ -56,29 +56,45 @@ function toggleCollapsed(key: string): void {
   layout();
 }
 
-// A group's label: its color's dot, its name, and its tab count while
-// collapsed.
-function chip(g: Group): HTMLElement {
-  let c = chips.get(g.key);
-  if (!c) {
-    c = el(
+// A group's box: its label (a Basecoat badge with its color's dot, its name,
+// and its tab count while collapsed), then its tabs, underlined in its color
+// while open.
+function boxOf(g: Group): HTMLElement {
+  let box = boxes.get(g.key);
+  if (!box) {
+    const label = el(
       'button',
-      { type: 'button', className: 'tab-group' },
+      { type: 'button', className: 'badge tab-group' },
       el('i'),
       el('span', { className: 'tab-group-name' }),
       el('small'),
     );
-    c.onclick = () => toggleCollapsed(g.key);
-    chips.set(g.key, c);
+    label.dataset.variant = 'secondary';
+    label.onclick = () => toggleCollapsed(g.key);
+    box = el('div', { className: 'tab-group-box', role: 'presentation' }, label);
+    boxes.set(g.key, box);
   }
+  const label = box.firstElementChild as HTMLElement;
   const name = g.value ?? (g.kind === 'repo' ? 'No repo' : 'Untagged');
   const shut = collapsed.has(g.key);
-  (c.querySelector('.tab-group-name') as HTMLElement).textContent = name;
-  (c.querySelector('small') as HTMLElement).textContent = shut ? String(g.ids.length) : '';
-  c.style.setProperty('--group', g.value ? tagColor(g.value) : 'var(--muted-foreground)');
-  c.title = `${shut ? 'Expand' : 'Collapse'} ${name}`;
-  c.setAttribute('aria-expanded', String(!shut));
-  return c;
+  (label.querySelector('.tab-group-name') as HTMLElement).textContent = name;
+  (label.querySelector('small') as HTMLElement).textContent = shut ? String(g.ids.length) : '';
+  label.title = `${shut ? 'Expand' : 'Collapse'} ${name}`;
+  label.setAttribute('aria-expanded', String(!shut));
+  box.style.setProperty('--group', g.value ? tagColor(g.value) : 'var(--muted-foreground)');
+  box.classList.toggle('collapsed', shut);
+  return box;
+}
+
+// Puts `nodes` in `parent` in order, moving only what is out of place and
+// leaving closing tabs where they are, to finish shrinking.
+function place(parent: HTMLElement, nodes: HTMLElement[]): void {
+  let at = parent.firstElementChild;
+  for (const node of nodes) {
+    while (at?.classList.contains('leaving')) at = at.nextElementSibling;
+    if (node === at) at = at.nextElementSibling;
+    else parent.insertBefore(node, at);
+  }
 }
 
 // A copy of a tab for another of its groups, acting as the tab: a click
@@ -124,22 +140,25 @@ function watch(s: Session): void {
   });
 }
 
-// Lays the strip out: the tabs in order, or each group's label and tabs,
-// with collapsed groups showing only the active tab. Closing tabs are left
-// where they are, to finish shrinking.
+// Lays the strip out: the tabs in order, or a box per group holding its
+// label and tabs, with collapsed groups showing only the active tab.
 export function layout(): void {
   const all = groups();
-  const want: HTMLElement[] = [];
+  const top: HTMLElement[] = []; // the strip's children
+  const inside = new Map<HTMLElement, HTMLElement[]>(); // box → its children
   const places = new Map<string, number>(); // session id → places so far
   const byId = new Map(store.sessions.map((s) => [s.id, s]));
   if (!all.length)
     for (const s of store.sessions) {
       s.tab.hidden = false;
       delete s.tab.dataset.group;
-      want.push(s.tab);
+      top.push(s.tab);
     }
   for (const g of all) {
-    want.push(chip(g));
+    const box = boxOf(g);
+    const want = [box.firstElementChild as HTMLElement];
+    top.push(box);
+    inside.set(box, want);
     for (const id of g.ids) {
       const s = byId.get(id) as Session;
       const n = places.get(id) ?? 0;
@@ -157,26 +176,25 @@ export function layout(): void {
       want.push(t);
     }
   }
-  // Drop copies and labels nothing uses any more.
+  place(strip(), top);
+  for (const [box, want] of inside) {
+    place(box, want);
+    // Its narrowest: the label, and its shown tabs at their minimum width.
+    box.style.setProperty('--label', `${want[0].offsetWidth}px`);
+    box.style.setProperty('--tabs', String(want.filter((t) => !t.hidden).length - 1));
+  }
+  // Drop copies and boxes nothing uses any more.
   for (const [id, list] of mirrors) {
     const keep = Math.max(0, (places.get(id) ?? 0) - 1);
     for (const m of list.splice(keep)) m.remove();
     if (!list.length) mirrors.delete(id);
   }
   const live = new Set(all.map((g) => g.key));
-  for (const [key, c] of chips)
+  for (const [key, box] of boxes)
     if (!live.has(key)) {
-      c.remove();
-      chips.delete(key);
+      box.remove();
+      boxes.delete(key);
     }
-  // Move only what is out of place.
-  const box = strip();
-  let at = box.firstElementChild;
-  for (const node of want) {
-    while (at?.classList.contains('leaving')) at = at.nextElementSibling;
-    if (node === at) at = at.nextElementSibling;
-    else box.insertBefore(node, at);
-  }
   groupButton().setAttribute('aria-pressed', String(current.applied.tabGrouping !== 'none'));
   updateFades();
 }

@@ -68,7 +68,9 @@ function initDrag(el: HTMLElement): void {
       const ref = i < others.length ? others[i] : (others.at(-1)?.nextSibling ?? null);
       if (ref !== tab && tab.nextSibling !== ref) {
         const before = new Map(others.map((t) => [t, t.getBoundingClientRect().left]));
-        el.insertBefore(tab, ref);
+        // Grouped, tabs sit in their group's box: insert beside the reference.
+        const parent = (ref?.parentElement ?? others.at(-1)?.parentElement ?? el) as HTMLElement;
+        parent.insertBefore(tab, ref);
         slide(others, before);
       }
       tab.style.transform = 'none';
