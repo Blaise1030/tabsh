@@ -22,6 +22,8 @@ export interface Session {
   ws: WebSocket | null;
   closed: boolean;
   replaying: boolean;
+  // xterm is still parsing the replay: its answers to queries in it go nowhere.
+  parsingReplay: boolean;
   esc: number;
   bell: boolean;
   card: Card;
