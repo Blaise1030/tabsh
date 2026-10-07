@@ -74,9 +74,12 @@ export function newTabAt(cwd: string): Promise<void> {
 // Bring the tab list in line with the server: picks up tabs opened or
 // closed from another browser, and drops ones whose shell is gone.
 export async function sync(): Promise<void> {
+  // Only tabs open before the list was asked for can be missing from it: one
+  // opened while it was on its way is new, not gone.
+  const asked = new Set(store.sessions);
   const list = (await api<SessionInfo[]>('GET', '')) ?? [];
   const ids = new Set(list.map((s) => s.id));
-  for (const s of store.sessions.filter((s) => !ids.has(s.id))) removeSession(s);
+  for (const s of store.sessions.filter((s) => asked.has(s) && !ids.has(s.id))) removeSession(s);
   for (const info of list) {
     const s = store.sessions.find((s) => s.id === info.id);
     if (s) setName(s, info.name, false);
