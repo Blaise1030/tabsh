@@ -4,6 +4,7 @@
 import { toggleBoard } from '../board/view.ts';
 import { searchFiles, toggleExplorer } from '../explorer/explorer.ts';
 import { loadedPane } from '../files/open.ts';
+import { go } from '../nav/router.ts';
 import { cycleTab, store } from '../sessions/store.ts';
 import { comboFromEvent, comboProblem, type KeyId, keyLabel, matchesKey } from '../settings/keys.ts';
 import type { Settings } from '../settings/schema.ts';
@@ -27,7 +28,7 @@ function showPage(name: string): void {
   const active = store.active;
   const { placeholder, groups } = pages({
     hasFile: !!active && !!loadedPane()?.hasFile(active.id),
-    closeFile: () => active && loadedPane()?.close(active.id),
+    closeFile: () => go({ file: null }),
     openAbout,
     toggleExplorer,
     toggleBoard: () => toggleBoard(),

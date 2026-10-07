@@ -27,6 +27,7 @@ interface Navigation extends EventTarget {
   readonly currentEntry: NavigationHistoryEntry | null;
   readonly canGoBack: boolean;
   readonly canGoForward: boolean;
+  readonly transition: { readonly finished: Promise<void> } | null; // a navigation still running
   navigate(url: string, options?: { history?: 'auto' | 'push' | 'replace'; info?: unknown }): NavigationResult;
   traverseTo(key: string): NavigationResult;
   back(): NavigationResult;

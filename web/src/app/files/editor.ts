@@ -13,6 +13,7 @@ import {
   type Extension,
   StateEffect,
   StateField,
+  Transaction,
 } from '@codemirror/state';
 import { Decoration, type DecorationSet, EditorView, keymap } from '@codemirror/view';
 import { tags as t } from '@lezer/highlight';
@@ -24,6 +25,7 @@ export interface Editor {
   setReadOnly(ro: boolean): void;
   setTheme(t: PaneTheme): void;
   goTo(line: number, col?: number): void;
+  line(): number; // the cursor's
   text(): string;
   setText(text: string): void; // the file changed on disk; not an edit
   destroy(): void;
@@ -135,6 +137,7 @@ export function createEditor(
     theme: PaneTheme;
     onChange(): void;
     onSave(): void;
+    onCursor(line: number): void; // the user moved the cursor; at most every 300 ms
   },
 ): Editor {
   const readOnly = new Compartment(),
@@ -163,11 +166,25 @@ export function createEditor(
         gotoLine,
         EditorView.updateListener.of((u) => {
           if (u.docChanged && !u.transactions.some((tr) => tr.annotation(fromDisk))) opts.onChange();
+          // Only the user's moves: a goTo or a change from disk carries no user event.
+          if (u.selectionSet && u.transactions.some((tr) => tr.annotation(Transaction.userEvent) !== undefined)) {
+            cursorMoved();
+          }
         }),
       ],
     }),
   });
   let destroyed = false;
+  let cursorTimer: number | undefined;
+  const cursorLine = () => view.state.doc.lineAt(view.state.selection.main.head).number;
+  // Reports the cursor's line at most every 300 ms, the last move included.
+  function cursorMoved(): void {
+    if (cursorTimer !== undefined) return;
+    cursorTimer = window.setTimeout(() => {
+      cursorTimer = undefined;
+      if (!destroyed) opts.onCursor(cursorLine());
+    }, 300);
+  }
   const load = languageFor(opts.path);
   load?.().then(
     (ext) => {
@@ -189,6 +206,7 @@ export function createEditor(
         effects: [setGoto.of(l.from), EditorView.scrollIntoView(pos, { y: 'center' })],
       });
     },
+    line: cursorLine,
     text: () => view.state.doc.toString(),
     setText(text) {
       // Replace only what differs, so the cursor and scroll stay put around it.
@@ -210,6 +228,7 @@ export function createEditor(
     },
     destroy() {
       destroyed = true;
+      clearTimeout(cursorTimer);
       view.destroy();
     },
   };

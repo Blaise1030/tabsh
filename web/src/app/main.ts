@@ -105,7 +105,7 @@ window.addEventListener('focus', () => {
   await loadSettings().catch(() => applySettings(current.saved));
   await sync();
   initBoardEvents();
-  restoreFiles(store.sessions.map((s) => s.id));
   if (!store.sessions.length) await newSession().catch(console.error);
   await startRouter({ tab: (store.sessions.find((s) => s.id === activeId) ?? store.sessions[0])?.id ?? null });
+  restoreFiles(store.sessions.map((s) => s.id));
 })();

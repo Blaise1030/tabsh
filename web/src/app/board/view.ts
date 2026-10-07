@@ -271,7 +271,7 @@ export function render(): void {
 }
 
 export function initBoard(): void {
-  onPlace('view', (to) => showBoard(to.view === 'board'));
+  onPlace('view', (to) => void showBoard(to.view === 'board'));
   button().onclick = () => toggleBoard();
   window.addEventListener(
     'keydown',
