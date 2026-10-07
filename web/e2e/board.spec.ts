@@ -3,7 +3,7 @@
 // a status set through the daemon's API (as `tabsh status` does) moves it and
 // colours its tab; dragging moves it on; a name with markup stays text.
 import type { Page } from '@playwright/test';
-import { expect, openApp, test, typeInTerminal } from './fixture.ts';
+import { expect, newTab, openApp, test, typeInTerminal } from './fixture.ts';
 
 const card = (page: Page, name: string) => page.locator('.board-card').filter({ hasText: name });
 const col = (page: Page, status: string) => page.locator(`.board-col[data-status="${status}"]`);
@@ -86,4 +86,39 @@ test('a card name with markup is shown as text', async ({ page, daemon }) => {
   await page.locator('#board-btn').click();
   await expect(card(page, '<b>bold</b>').locator('.card-title')).toHaveText('<b>bold</b>');
   await expect(page.locator('.board-card b')).toHaveCount(0);
+});
+
+test("an archived card's tab leaves the strip, grouped or not", async ({ page, daemon, project }) => {
+  const oldTab = page.locator('#tabs .tab:not(.mirror)').filter({ hasText: 'Old work' });
+  const grouping = (label: string) => page.locator(`#palette [role="menuitem"][data-filter="${label}"]`);
+  await openApp(page, daemon);
+  await page.locator('#board-btn').click();
+  await col(page, 'backlog').locator('header .btn').click();
+  await page.locator('#new-card input[name="name"]').fill('Old work');
+  await page.locator('#new-card input[name="cwd"]').fill(project);
+  await page.locator('#new-card button[type="submit"]').click();
+  await expect(oldTab).toBeVisible();
+  await newTab(page); // another tab is active: an active archived tab stays shown
+
+  const list = await page.request.get(`${daemon.baseUrl}/api/sessions`, {
+    headers: { Authorization: `Bearer ${daemon.token}` },
+  });
+  const old = ((await list.json()) as { id: string; name: string }[]).find((s) => s.name === 'Old work');
+  expect(old).toBeTruthy();
+  await page.request.patch(`${daemon.baseUrl}/api/sessions/${old?.id}/status`, {
+    headers: { Authorization: `Bearer ${daemon.token}` },
+    data: { status: 'archived', source: 'user' },
+  });
+  await expect(oldTab).toBeHidden();
+
+  // Grouped by repo, it is in no group and stays hidden.
+  await page.locator('#tab-group-btn').click();
+  await grouping('By repo').click();
+  await expect(page.locator('#tabs .tab-group').first()).toBeVisible();
+  await expect(oldTab).toBeHidden();
+  await expect(oldTab).not.toHaveAttribute('data-group', /.*/);
+
+  await page.locator('#tab-group-btn').click();
+  await grouping('No grouping').click();
+  await expect(page.locator('#tabs .tab-group')).toHaveCount(0);
 });
