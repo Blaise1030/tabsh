@@ -2,6 +2,8 @@
 // glow. Features find their parts by id once this is mounted.
 import van from 'vanjs-core';
 import { Board, shown } from '../board/view.ts';
+import { open as explorerOpen } from '../explorer/explorer.ts';
+import { Sidebar } from '../explorer/sidebar.ts';
 import { grouping, TabStrip } from '../sessions/groups.ts';
 import { noTab } from '../sessions/store.ts';
 import { Gate } from './gate.ts';
@@ -107,7 +109,7 @@ function TabBar(): HTMLElement {
       'aria-label': 'Toggle file explorer',
       title: 'Toggle file explorer',
       id: 'explorer-btn',
-      'aria-pressed': 'false',
+      'aria-pressed': () => String(explorerOpen.val),
     }),
     TabStrip(),
     barButton(icons.plus, { 'aria-label': 'New terminal', title: 'New terminal', 'data-new-session': '' }),
@@ -125,14 +127,7 @@ function TabBar(): HTMLElement {
 function Workspace(): HTMLElement {
   return div(
     { id: 'workspace' },
-    aside(
-      { id: 'explorer', hidden: true, 'aria-label': 'Files' },
-      p({ id: 'explorer-root', hidden: true }),
-      p({ id: 'explorer-note', hidden: true }, 'Too many files to list, so only folders are shown.'),
-      div({ id: 'explorer-tree', hidden: true }),
-      p({ id: 'explorer-msg', hidden: true }),
-    ),
-    div({ id: 'explorer-divider', hidden: true }),
+    ...Sidebar(),
     div(
       { id: 'main' },
       Board(),

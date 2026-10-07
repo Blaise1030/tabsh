@@ -4,9 +4,11 @@
 // and are untrusted: the library renders them as text, and nothing here puts
 // one in markup.
 import { type ContextMenuItem, type ContextMenuOpenContext, FileTree } from '@pierre/trees';
-import { el } from '../ui/dom.ts';
+import van from 'vanjs-core';
 import type { Op } from './changes.ts';
 import { enterAction, menuStep, type RowAction, rowActions } from './listing.ts';
+
+const { button, div } = van.tags;
 
 const LABELS: Record<RowAction, string> = { insert: 'Insert path', cd: 'cd here', tab: 'Open in new tab' };
 
@@ -119,20 +121,24 @@ function rowMenu(
   onAction: (action: RowAction, path: string) => void,
 ): HTMLElement {
   const path = item.kind === 'directory' && !item.path.endsWith('/') ? `${item.path}/` : item.path;
-  const menu = el('div', { className: 'row-menu', role: 'menu', ariaLabel: 'File actions' });
-  for (const action of rowActions(path)) {
-    const button = el('button', { type: 'button', role: 'menuitem', textContent: LABELS[action] });
-    button.onclick = () => {
-      ctx.close({ restoreFocus: false });
-      onAction(action, path);
-    };
-    menu.append(button);
-  }
+  const items: HTMLElement[] = rowActions(path).map((action) =>
+    button(
+      {
+        type: 'button',
+        role: 'menuitem',
+        onclick: () => {
+          ctx.close({ restoreFocus: false });
+          onAction(action, path);
+        },
+      },
+      LABELS[action],
+    ),
+  );
+  const menu = div({ class: 'row-menu', role: 'menu', 'aria-label': 'File actions' }, items);
   // Keys: arrows, Home and End move between items (buttons already take Enter
   // and Space); Escape closes and the row gets focus back. The menu is in the
   // DOM only after this returns, so focus waits a frame (and leaves it alone
   // if a key already moved it by then).
-  const items = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')];
   menu.addEventListener('keydown', (e) => {
     const at = items.indexOf(document.activeElement as HTMLElement);
     const to = menuStep(at, items.length, e.key);
