@@ -9,7 +9,9 @@ export type ParentLike = { insertBefore(node: any, ref: any): unknown; firstElem
 // Keeps `parent`'s children in step with `items`: a key's node is made once
 // by `render` and moved, never rebuilt. A key that leaves goes to `exit`
 // (which may animate) and is removed when that settles. `items` is read
-// inside a derive, so it reruns when the states it reads change.
+// inside a derive, so it reruns when the states it reads change. Call
+// `keyed` once per long-lived parent; the parent holds only the list (or
+// trailing extras).
 export function keyed<T>(
   parent: ParentLike,
   items: () => T[],
