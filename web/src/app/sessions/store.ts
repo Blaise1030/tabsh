@@ -68,6 +68,9 @@ export const store: { readonly sessions: Session[]; readonly active: Session | n
     return active.val;
   },
 };
+// The tab step found no tab to show: the empty state's cue. False until
+// that step first runs, so the empty state stays hidden while tabs restore.
+export const noTab: State<boolean> = van.state(false);
 export function setSessions(next: Session[]): void {
   sessionList.val = next;
 }
@@ -145,6 +148,7 @@ export function sendSize(s: Session): void {
 // Only the router's tab step calls this; everything else calls go().
 export function activate(s: Session | null): void {
   active.val = s;
+  noTab.val = !s;
   loadedPane()?.show(s?.id ?? null);
   updateBadge();
   if (s) {

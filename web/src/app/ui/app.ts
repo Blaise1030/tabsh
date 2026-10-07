@@ -1,7 +1,7 @@
 // The page: the dialogs, the tab bar, the workspace under it and the drop
 // glow. Features find their parts by id once this is mounted.
 import van from 'vanjs-core';
-import { active } from '../sessions/store.ts';
+import { noTab } from '../sessions/store.ts';
 import { Gate } from './gate.ts';
 import { type Icon, icons } from './icons.ts';
 
@@ -131,7 +131,7 @@ function Workspace(): HTMLElement {
       div(
         { id: 'terms' },
         div(
-          { class: 'empty', id: 'empty', hidden: () => !!active.val },
+          { class: 'empty', id: 'empty', hidden: () => !noTab.val },
           p('No terminals open.'),
           button({ type: 'button', class: 'btn', 'data-new-session': '' }, 'New terminal'),
         ),

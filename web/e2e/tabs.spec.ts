@@ -54,3 +54,20 @@ test('no tab-template in the page', async ({ page, daemon }) => {
   await openApp(page, daemon);
   await expect(page.locator('#tab-template')).toHaveCount(0);
 });
+
+test('the empty state stays hidden while tabs are restored', async ({ page, daemon }) => {
+  await openApp(page, daemon);
+  // From before the page's own scripts: note any moment #empty is shown.
+  await page.addInitScript(() => {
+    const w = window as unknown as { emptyShown: boolean };
+    w.emptyShown = false;
+    new MutationObserver(() => {
+      const empty = document.getElementById('empty');
+      if (empty && !empty.hidden) w.emptyShown = true;
+    }).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden'] });
+  });
+  await page.reload();
+  await expect(tabs(page)).toHaveCount(1);
+  await expect(tabs(page).first()).toHaveAttribute('aria-selected', 'true');
+  expect(await page.evaluate(() => (window as unknown as { emptyShown: boolean }).emptyShown)).toBe(false);
+});

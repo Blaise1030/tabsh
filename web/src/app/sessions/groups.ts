@@ -9,6 +9,7 @@
 // onto its label), a tab trades the tag it was dragged by for that one.
 import { current, onApply } from '../settings/settings.ts';
 import { el } from '../ui/dom.ts';
+import { scoped } from '../ui/keyed.ts';
 import { type Group, groupTabs, joinGroup, moveTag, parseCollapsed, tagColor } from './labels.ts';
 import { onActivate, type Session, store } from './store.ts';
 import { sessionOfTab, Tab, tabOf } from './tab.ts';
@@ -135,10 +136,11 @@ export function layout(): void {
       places.set(id, n + 1);
       let t = tabOf(s);
       if (n) {
-        // Its copy for this group, acting for it (a click picks it here).
+        // Its copy for this group, acting for it (a click picks it here);
+        // its derives go once it's dropped.
         const list = mirrors.get(id) ?? [];
         mirrors.set(id, list);
-        list[n - 1] ??= Tab(s, { copy: true });
+        list[n - 1] ??= scoped(() => Tab(s, { copy: true }));
         t = list[n - 1];
       }
       t.dataset.group = g.key;

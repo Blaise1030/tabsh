@@ -3,7 +3,14 @@ import { test } from 'node:test';
 import van from 'vanjs-core';
 import { keyed } from './keyed.ts';
 
-type Node = { key: string; parent: Fake | null; nextElementSibling: Node | null; remove(): void };
+type Node = {
+  key: string;
+  nodeType: number;
+  isConnected: boolean;
+  parent: Fake | null;
+  nextElementSibling: Node | null;
+  remove(): void;
+};
 
 // Just enough of a parent for keyed(): ordered children, insertBefore, firstElementChild.
 class Fake {
@@ -25,14 +32,20 @@ class Fake {
 // VanJS reruns derives on a timer, not at once.
 const tick = () => new Promise((r) => setTimeout(r, 5));
 
-function setup(initial: string[], exit?: (n: Node) => Promise<void>) {
+// `each` runs inside render, e.g. to make an item's own derives.
+function setup(initial: string[], exit?: (n: Node) => Promise<void>, each?: (key: string) => void) {
   const parent = new Fake();
   const items = van.state(initial);
   const made: string[] = [];
   const render = (key: string) => {
     made.push(key);
+    each?.(key);
     const node: Node = {
       key,
+      nodeType: 1,
+      get isConnected() {
+        return node.parent !== null;
+      },
       parent: null,
       nextElementSibling: null,
       remove() {
@@ -52,7 +65,7 @@ function setup(initial: string[], exit?: (n: Node) => Promise<void>) {
     () => items.val,
     (k) => k,
     render as never,
-    { exit: exit as never },
+    exit ? { exit: exit as never } : {},
   );
   return { parent, items, made };
 }
@@ -101,4 +114,23 @@ test('exit runs before removal', async () => {
   await new Promise((r) => setTimeout(r, 0));
   assert.ok(!parent.kids.includes(b), 'b is gone once exit resolves');
   assert.deepEqual(parent.keys(), ['a', 'b']);
+});
+
+test("a removed key's derives stop", async () => {
+  const shared = van.state(0);
+  const runs: string[] = [];
+  const { items } = setup(['a', 'b'], undefined, (key) =>
+    van.derive(() => {
+      runs.push(`${key}${shared.val}`);
+    }),
+  );
+  items.val = ['a'];
+  await tick();
+  shared.val = 1;
+  await tick();
+  assert.deepEqual(
+    runs.filter((r) => r.endsWith('1')),
+    ['a1'],
+    'only the kept key reruns',
+  );
 });

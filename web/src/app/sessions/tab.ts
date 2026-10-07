@@ -6,6 +6,7 @@ import van from 'vanjs-core';
 import { STATUS_NAMES } from '../board/glyph.ts';
 import type { Card } from '../board/model.ts';
 import { glyph, icons } from '../ui/icons.ts';
+import { scoped } from '../ui/keyed.ts';
 import { tagBar } from './labels.ts';
 import { active, closeSession, pick, type Session } from './store.ts';
 import { openTagMenu } from './tags.ts';
@@ -87,11 +88,11 @@ export function Tab(s: Session, opts: { group?: string; copy?: boolean } = {}): 
 }
 
 // A session's tab, made on first use. The grouped strip (groups.ts) moves
-// these same nodes into its groups.
+// these same nodes into its groups. Its derives go once it leaves the page.
 export function tabOf(s: Session): HTMLElement {
   let t = tabs.get(s);
   if (!t) {
-    t = Tab(s);
+    t = scoped(() => Tab(s));
     tabs.set(s, t);
   }
   return t;

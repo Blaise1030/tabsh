@@ -6,6 +6,7 @@ import { cardOf, cardsChanged } from '../board/status.ts';
 import { socketUrl } from '../daemon/client.ts';
 import { linkProvider } from '../links/provider.ts';
 import { current, terminalOptions } from '../settings/settings.ts';
+import { scoped } from '../ui/keyed.ts';
 import { ring } from './bell.ts';
 import { scanBell } from './bell-scan.ts';
 import { active, removeSession, type Session, type SessionInfo, sendSize, setSessions, store, sync } from './store.ts';
@@ -20,8 +21,8 @@ export function openSession(info: SessionInfo): Session {
   const known = store.sessions.find((x) => x.id === info.id);
   if (known) return known;
   const { id, name } = info;
-  // Shown while its tab is the active one.
-  const el = van.tags.div({ class: () => (active.val?.id === id ? 'term active' : 'term') });
+  // Shown while its tab is the active one (until it's closed and gone).
+  const el = scoped(() => van.tags.div({ class: () => (active.val?.id === id ? 'term active' : 'term') }));
   document.getElementById('terms')?.append(el);
 
   const term = new Terminal({
