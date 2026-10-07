@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.1.8
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.7...v0.1.8)
+
+### Features
+
+- **board:** Card status columns on sessions ([be43de2](https://github.com/Blaise1030/tabsh/commit/be43de2))
+- **board:** Status endpoint, hook rules and events socket ([cfad89c](https://github.com/Blaise1030/tabsh/commit/cfad89c))
+- **board:** Shells know their card; new cards can start their agent ([4f35f58](https://github.com/Blaise1030/tabsh/commit/4f35f58))
+- **web:** Board model ([3563556](https://github.com/Blaise1030/tabsh/commit/3563556))
+- **web:** Card status glyphs on tabs, live board events ([034a6d4](https://github.com/Blaise1030/tabsh/commit/034a6d4))
+- **cli:** Tabsh status sets the terminal's card ([bc7442d](https://github.com/Blaise1030/tabsh/commit/bc7442d))
+- **web:** The board view ([b900ddd](https://github.com/Blaise1030/tabsh/commit/b900ddd))
+- **web:** New card dialog ([c8d8f0c](https://github.com/Blaise1030/tabsh/commit/c8d8f0c))
+- **cli:** Tabsh setup prints the agent setup guide ([f75e64a](https://github.com/Blaise1030/tabsh/commit/f75e64a))
+- Embed the board in the app; e2e and docs ([acae46b](https://github.com/Blaise1030/tabsh/commit/acae46b))
+- **settings:** Add Monokai theme ([3d2a8e8](https://github.com/Blaise1030/tabsh/commit/3d2a8e8))
+- **board:** A card's agent starts when it's dragged to In progress ([a100733](https://github.com/Blaise1030/tabsh/commit/a100733))
+- **board:** A setup screen until the board is onboarded ([9981e3f](https://github.com/Blaise1030/tabsh/commit/9981e3f))
+
+### Fixes
+
+- **board:** Quote prompts for fish, drop control characters, clear pending input first ([0c3b4cd](https://github.com/Blaise1030/tabsh/commit/0c3b4cd))
+- **web:** Board keyboard target, drag-safe render, archive selector ([f2e6f09](https://github.com/Blaise1030/tabsh/commit/f2e6f09))
+- **cli:** Refine setup guide for clarity and shell safety ([fa7c175](https://github.com/Blaise1030/tabsh/commit/fa7c175))
+- Board review findings (long prompts, archive, pinned names, hook edge cases) ([4a81766](https://github.com/Blaise1030/tabsh/commit/4a81766))
+
 ## v0.1.7
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.6...v0.1.7)
