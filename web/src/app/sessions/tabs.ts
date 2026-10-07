@@ -2,6 +2,7 @@
 // dragging tabs into a new order.
 import { api } from '../daemon/client.ts';
 import { updateBadge } from './bell.ts';
+import { canMove, layout, moveToGroup, sessionOf } from './groups.ts';
 import { dropIndex, inOrder } from './order.ts';
 import { type Session, store } from './store.ts';
 
@@ -30,7 +31,7 @@ export function orderTabs(ids: string[]): void {
   const sorted = inOrder(store.sessions, ids);
   if (sorted.every((s, i) => s === store.sessions[i])) return;
   store.sessions.splice(0, store.sessions.length, ...sorted);
-  for (const s of sorted) strip().append(s.tab);
+  layout();
 }
 
 // Slides each tab from where it was drawn (`before`) to where it now is.
@@ -41,16 +42,32 @@ function slide(tabs: HTMLElement[], before: Map<HTMLElement, number>): void {
   }
 }
 
+// The group label under the pointer, if any (beneath the dragged tab).
+const labelAt = (x: number, y: number): HTMLElement | undefined =>
+  document.elementsFromPoint(x, y).find((e): e is HTMLElement => e.matches('.tab-group'));
+
+// The group a dragged tab would land in: a label under the pointer (even a
+// collapsed group's), else the group whose box it sits in; null ungrouped.
+function dropGroup(tab: HTMLElement, x: number, y: number): string | null {
+  const box = (labelAt(x, y) ?? tab).closest<HTMLElement>('.tab-group-box');
+  return box?.dataset.group ?? null;
+}
+
 // A tab dragged sideways (past a few pixels, so a click stays a click)
 // follows the pointer; it moves among the other tabs as it passes their
-// middles, and the new order is saved when it's let go.
+// middles, and the new order is saved when it's let go. Grouped, letting it
+// go in another group (or on its label) moves it there when it may (by tag);
+// otherwise it shows it can't and goes back. A tab's copy under another tag
+// drags too, moving that place only.
 function initDrag(el: HTMLElement): void {
   el.addEventListener('pointerdown', (down) => {
     const target = down.target as HTMLElement;
     const tab = target.closest<HTMLElement>('.tab');
     if (down.button !== 0 || !tab || target.closest('button')) return;
+    const from = tab.dataset.group ?? null;
     const grab = down.clientX - tab.getBoundingClientRect().left;
     let dragging = false;
+    let over: HTMLElement | undefined; // the label it would drop on
     const move = (e: PointerEvent) => {
       if (!dragging) {
         if (Math.abs(e.clientX - down.clientX) < 5) return;
@@ -67,26 +84,46 @@ function initDrag(el: HTMLElement): void {
       const ref = i < others.length ? others[i] : (others.at(-1)?.nextSibling ?? null);
       if (ref !== tab && tab.nextSibling !== ref) {
         const before = new Map(others.map((t) => [t, t.getBoundingClientRect().left]));
-        el.insertBefore(tab, ref);
+        // Grouped, tabs sit in their group's box: insert beside the reference.
+        const parent = (ref?.parentElement ?? others.at(-1)?.parentElement ?? el) as HTMLElement;
+        parent.insertBefore(tab, ref);
         slide(others, before);
       }
       tab.style.transform = 'none';
       tab.style.transform = `translateX(${e.clientX - grab - tab.getBoundingClientRect().left}px)`;
+      const label = labelAt(e.clientX, e.clientY);
+      if (label !== over) {
+        over?.classList.remove('drop-target');
+        over = label;
+      }
+      const ok = canMove(from, dropGroup(tab, e.clientX, e.clientY));
+      over?.classList.toggle('drop-target', ok);
+      tab.classList.toggle('over-label', !!over && ok);
+      tab.classList.toggle('no-drop', !ok);
     };
-    const up = () => {
+    const up = (e: PointerEvent) => {
       removeEventListener('pointermove', move);
       removeEventListener('pointerup', up);
       removeEventListener('pointercancel', up);
       if (!dragging) return;
+      over?.classList.remove('drop-target');
+      const to = e.type === 'pointerup' ? dropGroup(tab, e.clientX, e.clientY) : from;
       const left = tab.getBoundingClientRect().left;
       tab.style.transform = '';
-      tab.classList.remove('dragging');
+      tab.classList.remove('dragging', 'no-drop', 'over-label');
       slide([tab], new Map([[tab, left]]));
-      const ids = [...el.querySelectorAll<HTMLElement>('.tab')]
-        .map((t) => store.sessions.find((s) => s.tab === t)?.id)
-        .filter((id): id is string => !!id);
-      store.sessions.splice(0, store.sessions.length, ...inOrder(store.sessions, ids));
-      api('PUT', '/order', { ids }).catch(() => {});
+      // A copy's place in the strip isn't its tab's, so only the tab itself
+      // reorders; either can change group.
+      if (!tab.classList.contains('mirror')) {
+        const ids = [...el.querySelectorAll<HTMLElement>('.tab')]
+          .map((t) => store.sessions.find((s) => s.tab === t)?.id)
+          .filter((id): id is string => !!id);
+        store.sessions.splice(0, store.sessions.length, ...inOrder(store.sessions, ids));
+        api('PUT', '/order', { ids }).catch(() => {});
+      }
+      const s = sessionOf(tab);
+      if (s && to !== from) moveToGroup(s, from, to);
+      layout(); // under its group's label: the new one, or back to its own
     };
     addEventListener('pointermove', move);
     addEventListener('pointerup', up);

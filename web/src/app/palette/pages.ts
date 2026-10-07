@@ -1,7 +1,7 @@
 // The command palette's pages: settings to pick, pages to open, and actions.
 import { FONT_SIZES, FONTS, THEMES, type ThemeColors, TYPING_SOUNDS } from '../settings/catalog.ts';
 import { type KeyId, keyLabel } from '../settings/keys.ts';
-import type { Settings } from '../settings/schema.ts';
+import type { Settings, TabGrouping } from '../settings/schema.ts';
 import { current, KEYBINDINGS } from '../settings/settings.ts';
 import { isMac } from '../ui/dom.ts';
 
@@ -16,8 +16,8 @@ export const ICONS = {
     '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 8h.01"/><path d="M12 12h.01"/><path d="M14 8h.01"/><path d="M16 12h.01"/><path d="M18 8h.01"/><path d="M6 8h.01"/><path d="M7 16h10"/><path d="M8 12h.01"/><rect width="20" height="16" x="2" y="4" rx="2"/></svg>',
   keybinding:
     '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/></svg>',
-  filter:
-    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>',
+  group:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5c0-1.1.9-2 2-2h2"/><path d="M17 3h2c1.1 0 2 .9 2 2v2"/><path d="M21 17v2c0 1.1-.9 2-2 2h-2"/><path d="M7 21H5c-1.1 0-2-.9-2-2v-2"/><rect width="7" height="5" x="7" y="7" rx="1"/><rect width="7" height="5" x="10" y="12" rx="1"/></svg>',
   explorer:
     '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>',
   info: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>',
@@ -48,6 +48,8 @@ export interface PalettePage {
 
 const keyIds = Object.keys(KEYBINDINGS) as KeyId[];
 
+const GROUPINGS: Record<TabGrouping, string> = { none: 'No grouping', repo: 'By repo', tag: 'By tag' };
+
 // Each page is a list of groups. `ctx` is what the root page needs from the
 // rest of the app.
 export function pages(ctx: {
@@ -56,13 +58,6 @@ export function pages(ctx: {
   openAbout(): void;
   toggleExplorer(): void;
   searchFiles(): void;
-  filters: {
-    choices(): { key: string; value: string; kind: 'repo' | 'tag'; count: number }[];
-    currentLabel(): string;
-    isCurrent(key: string | null): boolean;
-    preview(key: string | null): void;
-    set(key: string | null): void;
-  };
 }): Record<string, () => PalettePage> {
   const { saved } = current;
   return {
@@ -111,11 +106,11 @@ export function pages(ctx: {
           heading: 'Tabs',
           items: [
             {
-              label: 'Filter tabs…',
-              icon: ICONS.filter,
-              hint: ctx.filters.currentLabel(),
-              keywords: 'tags repos projects show hide switch',
-              go: 'filterTabs',
+              label: 'Group tabs…',
+              icon: ICONS.group,
+              hint: GROUPINGS[saved.tabGrouping],
+              keywords: 'tags repos projects collapse filter',
+              go: 'tabGrouping',
             },
           ],
         },
@@ -203,37 +198,19 @@ export function pages(ctx: {
         { heading: 'Font size', items: FONT_SIZES.map((n) => ({ label: `${n}px`, key: 'fontSize', value: n })) },
       ],
     }),
-    filterTabs: () => {
-      const f = ctx.filters;
-      const choice = (c: { key: string; value: string; kind: 'repo' | 'tag'; count: number }): PaletteItem => ({
-        label: c.value,
-        hint: String(c.count),
-        keywords: c.kind === 'repo' ? 'repo project' : 'tag',
-        checked: f.isCurrent(c.key),
-        run: () => f.set(c.key),
-        preview: () => f.preview(c.key),
-      });
-      const choices = f.choices();
-      return {
-        placeholder: 'Filter tabs…',
-        groups: [
-          {
-            heading: 'Show',
-            items: [
-              {
-                label: 'All tabs',
-                icon: ICONS.filter,
-                checked: f.isCurrent(null),
-                run: () => f.set(null),
-                preview: () => f.preview(null),
-              },
-            ],
-          },
-          { heading: 'Repos', items: choices.filter((c) => c.kind === 'repo').map(choice) },
-          { heading: 'Tags', items: choices.filter((c) => c.kind === 'tag').map(choice) },
-        ],
-      };
-    },
+    tabGrouping: () => ({
+      placeholder: 'Group tabs…',
+      groups: [
+        {
+          heading: 'Group tabs',
+          items: (Object.entries(GROUPINGS) as [TabGrouping, string][]).map(([value, label]) => ({
+            label,
+            key: 'tabGrouping',
+            value,
+          })),
+        },
+      ],
+    }),
     ...Object.fromEntries(
       keyIds.map((id) => [
         id,
