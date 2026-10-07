@@ -5,14 +5,6 @@ import { toggleBoard } from '../board/view.ts';
 import { searchFiles, toggleExplorer } from '../explorer/explorer.ts';
 import { loadedPane } from '../files/open.ts';
 import { cycleTab, store } from '../sessions/store.ts';
-import {
-  filterChoices,
-  filterCurrentLabel,
-  filterIsCurrent,
-  previewFilter,
-  revertFilter,
-  setFilter,
-} from '../sessions/tags.ts';
 import { comboFromEvent, comboProblem, type KeyId, keyLabel, matchesKey } from '../settings/keys.ts';
 import type { Settings } from '../settings/schema.ts';
 import { applySettings, current, saveSetting, setPreviewing } from '../settings/settings.ts';
@@ -40,13 +32,6 @@ function showPage(name: string): void {
     toggleExplorer,
     toggleBoard: () => toggleBoard(),
     searchFiles,
-    filters: {
-      choices: filterChoices,
-      currentLabel: filterCurrentLabel,
-      isCurrent: filterIsCurrent,
-      preview: previewFilter,
-      set: setFilter,
-    },
   })[name]();
   paletteInput.value = '';
   paletteInput.placeholder = name === 'root' ? placeholder : `${placeholder}  (Esc to go back)`;
@@ -140,15 +125,15 @@ export function openPalette(at: string = 'root'): void {
   showPage(at);
 }
 
-// The filter button and its keybinding: the palette straight on its filter
+// The group button and its keybinding: the palette straight on its grouping
 // page, closed again when it is already there.
-export function openFilterPalette(): void {
+export function openGroupPalette(): void {
   if (palette.open) {
-    if (page === 'filterTabs') palette.close();
-    else showPage('filterTabs');
+    if (page === 'tabGrouping') palette.close();
+    else showPage('tabGrouping');
     return;
   }
-  openPalette('filterTabs');
+  openPalette('tabGrouping');
 }
 
 export function initPalette(): void {
@@ -158,8 +143,7 @@ export function initPalette(): void {
   new ResizeObserver(updatePaletteFades).observe(paletteMenu);
 
   // Live preview: whatever setting is highlighted (keyboard or mouse) is shown,
-  // or for typing sounds, heard once per highlight — and a filter choice is
-  // previewed on the strip the same way.
+  // or for typing sounds, heard once per highlight.
   let previewed: PaletteItem | undefined;
   new MutationObserver(() => {
     const item = itemsById.get(paletteMenu.querySelector('[role="menuitem"].active')?.id ?? '');
@@ -194,7 +178,6 @@ export function initPalette(): void {
     recording = null;
     setPreviewing(false);
     applySettings(current.saved);
-    revertFilter();
     store.active?.term.focus();
   });
   // Clicking the backdrop closes it.
@@ -230,15 +213,15 @@ export function initPalette(): void {
     true,
   );
 
-  // The filter keybinding opens the palette straight on its filter page.
+  // The group keybinding opens the palette straight on its grouping page.
   window.addEventListener(
     'keydown',
     (e) => {
       if (palette.open) return;
-      if (!matchesKey(e, current.saved.keyFilterTabs)) return;
+      if (!matchesKey(e, current.saved.keyGroupTabs)) return;
       e.preventDefault();
       e.stopPropagation(); // capture phase: keep it away from the terminal
-      openFilterPalette();
+      openGroupPalette();
     },
     true,
   );
@@ -250,6 +233,6 @@ export function initPalette(): void {
   });
   settingsBtn.onclick = () => openPalette();
 
-  // The filter button beside it opens the palette on the filter page.
-  (document.getElementById('tab-filter-btn') as HTMLButtonElement).onclick = openFilterPalette;
+  // The group button beside it opens the palette on the grouping page.
+  (document.getElementById('tab-group-btn') as HTMLButtonElement).onclick = openGroupPalette;
 }

@@ -11,7 +11,7 @@ export type KeyId =
   | 'keyPrevTab'
   | 'keyToggleExplorer'
   | 'keySearchFiles'
-  | 'keyFilterTabs'
+  | 'keyGroupTabs'
   | 'keyToggleBoard';
 export interface Keybinding {
   name: string;
@@ -58,9 +58,9 @@ export function keybindings(isMac: boolean): Record<KeyId, Keybinding> {
       keywords: 'find filter name tree explorer sidebar',
       presets: isMac ? ['meta+shift+KeyF', 'ctrl+shift+KeyF'] : ['ctrl+shift+KeyF', 'alt+shift+KeyF'],
     },
-    keyFilterTabs: {
-      name: 'Filter tabs',
-      keywords: 'switch tags repos projects show hide focus',
+    keyGroupTabs: {
+      name: 'Group tabs',
+      keywords: 'group filter tags repos projects collapse',
       presets: isMac ? ['meta+shift+KeyY', 'ctrl+shift+KeyY'] : ['ctrl+shift+KeyY', 'alt+shift+KeyY'],
     },
     keyToggleBoard: {

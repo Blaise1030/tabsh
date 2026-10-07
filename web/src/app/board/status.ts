@@ -2,6 +2,7 @@
 // strip, a bell when a card starts needing you, and listeners (the board).
 import { api } from '../daemon/client.ts';
 import { ring } from '../sessions/bell.ts';
+import { layout } from '../sessions/groups.ts';
 import type { Session, SessionInfo } from '../sessions/store.ts';
 import { glyphSvg, STATUS_NAMES } from './glyph.ts';
 import { asStatus, type Card, type Status } from './model.ts';
@@ -31,6 +32,8 @@ export function applyCard(s: Session, card: Card): void {
   }
   glyph.title = card.note ? `${STATUS_NAMES[card.status]}: ${card.note}` : STATUS_NAMES[card.status];
   s.tab.classList.toggle('archived', card.status === 'archived');
+  // In or out of the strip and its groups.
+  if (before !== undefined && (before === 'archived') !== (card.status === 'archived')) layout();
   if (before && before !== 'needs_input' && card.status === 'needs_input') ring(s);
   cardsChanged();
 }

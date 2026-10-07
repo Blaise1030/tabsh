@@ -23,8 +23,8 @@ html.themed {
   --card-foreground: var(--term-fg);
 }
 
-/* The filter and settings buttons sit together at the bar's right end. */
-#tab-filter-btn { margin-left: auto; }
+/* The group and settings buttons sit together at the bar's right end. */
+#tab-group-btn { margin-left: auto; }
 /* Near the top of the screen at Tailwind's max-w-xl width; tall enough to show
    long lists. The menu fills what's left instead of Basecoat's fixed 18rem. */
 .command-dialog > .command { top: 10%; max-width: min(36rem, 100% - 2rem); max-height: min(75%, 44rem); }
@@ -53,10 +53,14 @@ html.themed {
 @property --fade-l { syntax: '<length>'; inherits: false; initial-value: 0px; }
 @property --fade-r { syntax: '<length>'; inherits: false; initial-value: 0px; }
 #tabs {
-  display: flex; gap: .375rem; min-width: 0; overflow-x: auto; scrollbar-width: none;
+  /* Tab widths, here so a group's box can count its tabs at their narrowest. */
+  --tab-max: 13rem;
+  --tab-min: 6.5rem;
+  display: flex; align-items: center; gap: .375rem; min-width: 0; overflow-x: auto; scrollbar-width: none;
   /* Room for focus rings, which the scroll container would otherwise
-     clip, including after scrollIntoView. */
-  padding: 3px; scroll-padding-inline: 3px;
+     clip, including after scrollIntoView, and below the tabs for a group's
+     underline (the same above, so the strip stays centred). */
+  padding: 5px 3px; scroll-padding-inline: 3px;
   --fade-l: 0px; --fade-r: 0px;
   mask-image: linear-gradient(to right, transparent, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent);
   transition: --fade-l .2s ease, --fade-r .2s ease;
@@ -67,8 +71,6 @@ html.themed {
 /* Browser-style sizing: every tab gets the same width, shrinking evenly as
    tabs are added until they hit the minimum, after which the strip scrolls. */
 .tab {
-  --tab-max: 13rem;
-  --tab-min: 6.5rem;
   position: relative; display: flex; align-items: center; gap: .5rem;
   /* `width` (not just flex-basis) so the strip's own size counts full-width tabs. */
   flex: 0 1 auto; width: var(--tab-max); max-width: var(--tab-max); min-width: var(--tab-min);
@@ -85,6 +87,10 @@ html.themed {
 .tab.leaving { pointer-events: none; }
 /* A tab being dragged rides above the others and follows the pointer. */
 .tab.dragging { z-index: 1; cursor: grabbing; background: var(--muted); box-shadow: 0 2px 8px rgb(0 0 0 / .25); }
+/* Over a group's label, it lets the label's highlight show through. */
+.tab.dragging.over-label { opacity: .55; }
+/* Over a group it can't join (another repo's): it goes back when let go. */
+.tab.dragging.no-drop { cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) { .tab { transition: none; } }
 .tab:hover { background: color-mix(in srgb, transparent 50%, var(--muted)); color: var(--foreground); }
 /* The selected tab is a flat muted fill, no border or shadow. */
@@ -97,15 +103,40 @@ html.themed {
   content: ""; position: absolute; left: .4375rem; top: 50%; width: 3px; height: 1rem;
   transform: translateY(-50%); border-radius: 2px; background: var(--tag);
 }
-/* The filter button shows how many repos and tags are checked. */
-#tab-filter-btn { position: relative; flex-shrink: 0; }
-#tab-filter-btn[aria-pressed="true"] { color: var(--foreground); background: var(--muted); }
-#tab-filter-btn .filter-count:empty { display: none; }
-#tab-filter-btn .filter-count {
-  position: absolute; top: -2px; right: -2px; min-width: .875rem; height: .875rem; padding: 0 2px;
-  border-radius: 999px; background: var(--primary); color: var(--primary-foreground, var(--background));
-  font-size: .5625rem; font-weight: 600; line-height: .875rem; text-align: center;
+/* Grouping is on: the button stays lit. */
+#tab-group-btn { flex-shrink: 0; }
+#tab-group-btn[aria-pressed="true"] { color: var(--foreground); background: var(--muted); }
+/* A group's box holds its label and tabs, set apart from the group before
+   it, with a line in its color under them all while open (as Chrome's tab
+   groups). */
+.tab-group-box {
+  /* Shrinks with the strip, down to its label and its tabs at their
+     narrowest (counted by layout() as --label and --tabs). */
+  position: relative; display: flex; flex: 0 1 auto; align-items: center; gap: .375rem;
+  min-width: calc(var(--label, 0px) + var(--tabs, 0) * (var(--tab-min) + .375rem));
+  margin-left: .625rem;
 }
+.tab-group-box:first-child { margin-left: 0; }
+.tab-group-box::after {
+  /* In the strip's bottom padding, a little below the tabs, so the line
+     takes no height of its own. */
+  content: ""; position: absolute; left: .25rem; right: .25rem; bottom: -5px; height: 2px;
+  border-radius: 1px; background: var(--group);
+}
+.tab-group-box.collapsed::after { display: none; }
+/* Its label is Basecoat's badge, tinted in the group's color, a little
+   shorter than a tab, with a tab's corners and text size. */
+.badge.tab-group {
+  height: 1.5rem; padding-inline: .625rem; border-radius: .375rem; font-size: .875rem;
+  cursor: pointer; color: var(--foreground);
+  background: color-mix(in srgb, var(--group) 22%, transparent);
+}
+.badge.tab-group:hover { background: color-mix(in srgb, var(--group) 34%, transparent); }
+/* A dragged tab over a label joins that group when let go. */
+.badge.tab-group.drop-target { box-shadow: 0 0 0 2px var(--group); }
+.badge.tab-group i { width: .5rem; height: .5rem; border-radius: 999px; background: var(--group); }
+.badge.tab-group small { font-size: inherit; font-weight: 400; color: var(--muted-foreground); }
+.badge.tab-group small:empty { display: none; }
 .row-menu.tab-menu { position: fixed; z-index: 50; min-width: 16rem; }
 .row-menu.tab-menu [role="menuitem"] { display: flex; align-items: center; gap: .5rem; }
 /* Basecoat's input, set off from the tags listed under it. */

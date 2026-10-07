@@ -1,13 +1,9 @@
 // A tab's labels: the repo its shell is in (automatic) and the tags the user
-// gives it, and which tabs a label filter keeps. No DOM here.
+// gives it, and how the strip groups tabs by them. No DOM here.
 
 export interface Labels {
   repo: string | null;
   tags: string[];
-}
-export interface Filter {
-  kind: 'repo' | 'tag';
-  value: string;
 }
 
 // The colors a tag can get, picked from its name so a tag keeps its color.
@@ -62,58 +58,54 @@ export function tagBar(tags: string[]): string {
   return `linear-gradient(to bottom, ${stops.join(', ')})`;
 }
 
-// A filter key, as kept in the set of checked filters.
-export const filterKey = (f: Filter): string => `${f.kind}:${f.value}`;
+// A group of tabs on the strip. `value` is the repo or tag it stands for, or
+// null for the tabs without one (no repo known yet, or no tag).
+export interface Group {
+  key: string;
+  kind: 'repo' | 'tag';
+  value: string | null;
+  ids: string[];
+}
 
-// The filters the tabs offer: their repos, then their tags, each once and
-// sorted, with how many tabs carry it.
-export function filterOptions(all: Labels[]): { filter: Filter; count: number }[] {
-  const counts = new Map<string, { filter: Filter; count: number }>();
-  for (const l of all) {
-    const own: Filter[] = [];
-    if (l.repo) own.push({ kind: 'repo', value: l.repo });
-    for (const t of l.tags) own.push({ kind: 'tag', value: t });
-    for (const f of own) {
-      const k = filterKey(f);
-      const o = counts.get(k) ?? { filter: f, count: 0 };
-      o.count++;
-      counts.set(k, o);
+export const groupKey = (kind: Group['kind'], value: string | null): string => `${kind}:${value ?? ''}`;
+
+// The strip's groups, in the order their first tab comes in `tabs` (the
+// strip's own order); the group of tabs without a label comes last. By tag,
+// a tab sits in the group of each of its tags. Not grouping gives no groups.
+export function groupTabs(tabs: { id: string; labels: Labels }[], by: 'none' | 'repo' | 'tag'): Group[] {
+  if (by === 'none') return [];
+  const groups = new Map<string, Group>();
+  const rest: Group = { key: groupKey(by, null), kind: by, value: null, ids: [] };
+  for (const { id, labels } of tabs) {
+    const values = by === 'repo' ? (labels.repo ? [labels.repo] : []) : labels.tags;
+    if (!values.length) rest.ids.push(id);
+    for (const value of values) {
+      const key = groupKey(by, value);
+      const g = groups.get(key) ?? { key, kind: by, value, ids: [] };
+      g.ids.push(id);
+      groups.set(key, g);
     }
   }
-  return [...counts.values()].sort(
-    (a, b) => a.filter.kind.localeCompare(b.filter.kind) || a.filter.value.localeCompare(b.filter.value),
-  );
+  return [...groups.values(), ...(rest.ids.length ? [rest] : [])];
 }
 
-// Whether the checked filters are exactly this one — or, for the palette's
-// "All tabs" (`key` null), none at all. The palette marks that item current.
-export function isSingleFilter(checked: ReadonlySet<string>, key: string | null): boolean {
-  return key === null ? checked.size === 0 : checked.size === 1 && checked.has(key);
-}
-
-// Whether a tab shows under the checked filters: nothing checked shows every
-// tab, otherwise it needs any one of them.
-export function matches(checked: ReadonlySet<string>, labels: Labels): boolean {
-  if (!checked.size) return true;
-  return (
-    (!!labels.repo && checked.has(filterKey({ kind: 'repo', value: labels.repo }))) ||
-    labels.tags.some((t) => checked.has(filterKey({ kind: 'tag', value: t })))
-  );
-}
-
-// The stored filter: the checked keys, dropping anything that isn't one.
-export function parseChecked(raw: unknown): Set<string> {
+// The stored collapsed groups: their keys, dropping anything that isn't one.
+export function parseCollapsed(raw: unknown): Set<string> {
   if (!Array.isArray(raw)) return new Set();
-  return new Set(raw.filter((k): k is string => typeof k === 'string' && /^(repo|tag):./.test(k)));
+  return new Set(raw.filter((k): k is string => typeof k === 'string' && /^(repo|tag):/.test(k)));
 }
 
-// The labels a new tab gets so it shows under the checked filters: every
-// checked tag, and a checked repo to start in (the active tab's when it is
-// one of them, otherwise the first checked).
-export function newTabLabels(checked: ReadonlySet<string>, activeRepo: string | null): Labels {
-  const of = (kind: Filter['kind']) =>
-    [...checked].filter((k) => k.startsWith(`${kind}:`)).map((k) => k.slice(kind.length + 1));
-  const repos = of('repo');
-  const repo = activeRepo && repos.includes(activeRepo) ? activeRepo : (repos[0] ?? null);
-  return { repo, tags: of('tag') };
+// What a new tab opened from group `key` needs to land in it: its tag, or
+// its repo to start in. The unlabelled group needs nothing.
+export function joinGroup(key: string | null): { tag: string | null; repo: string | null } {
+  const m = key?.match(/^(repo|tag):(.+)$/);
+  return { tag: m?.[1] === 'tag' ? m[2] : null, repo: m?.[1] === 'repo' ? m[2] : null };
+}
+
+// A tab's tags once it is dragged from the group of tag `from` into that of
+// `to` (null for the untagged group): `to` takes `from`'s place, so the tab
+// keeps its other tags and their order.
+export function moveTag(tags: string[], from: string | null, to: string | null): string[] {
+  const swapped = from && tags.includes(from) ? tags.map((t) => (t === from ? to : t)) : [...tags, to];
+  return [...new Set(swapped.filter((t): t is string => !!t))];
 }

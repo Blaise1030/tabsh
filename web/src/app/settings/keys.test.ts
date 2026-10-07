@@ -52,7 +52,7 @@ test('comboProblem allows only combos the shell and browser leave free', () => {
     keyPrevTab: 'ctrl+shift+BracketLeft',
     keyToggleExplorer: 'meta+shift+KeyE',
     keySearchFiles: 'meta+shift+KeyF',
-    keyFilterTabs: 'meta+shift+KeyY',
+    keyGroupTabs: 'meta+shift+KeyY',
     keyToggleBoard: 'meta+KeyB',
   };
   const ok = (combo: string, isMac = true) => comboProblem(combo, 'keyPalette', saved, isMac) === null;
@@ -85,7 +85,7 @@ test('every preset passes comboProblem', () => {
       keyPrevTab: '',
       keyToggleExplorer: '',
       keySearchFiles: '',
-      keyFilterTabs: '',
+      keyGroupTabs: '',
       keyToggleBoard: '',
     };
     for (const id of Object.keys(k) as (keyof typeof k)[]) {
@@ -113,13 +113,13 @@ test('searching files has a default combo that no other action shares', () => {
     }
   }
 });
-test('filtering tabs has a default combo that no other action shares', () => {
+test('grouping tabs has a default combo that no other action shares', () => {
   for (const mac of [true, false]) {
     const k = keybindings(mac);
-    const [first] = k.keyFilterTabs.presets;
+    const [first] = k.keyGroupTabs.presets;
     assert.equal(first, mac ? 'meta+shift+KeyY' : 'ctrl+shift+KeyY');
     for (const [id, other] of Object.entries(k)) {
-      if (id !== 'keyFilterTabs') assert.ok(!other.presets.includes(first), id);
+      if (id !== 'keyGroupTabs') assert.ok(!other.presets.includes(first), id);
     }
   }
 });
