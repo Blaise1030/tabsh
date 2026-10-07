@@ -5,7 +5,7 @@
 // the worker.
 import type { Page } from '@playwright/test';
 import type { Daemon } from './daemon.ts';
-import { expect, newTab, openApp, test } from './fixture.ts';
+import { expect, newTab, openApp, setOnboarded, test } from './fixture.ts';
 
 const tabs = (page: Page) => page.locator('#tabs .tab:not(.mirror)');
 const urlTab = (page: Page) => new URL(page.url()).searchParams.get('tab');
@@ -88,4 +88,24 @@ test('a tab closed elsewhere is replaced, not pushed', async ({ page, daemon }) 
   await page.goBack();
   await expect(tabs(page).nth(0)).toHaveAttribute('aria-selected', 'true');
   await expect.poll(() => urlTab(page)).toBe(a);
+});
+
+test('the board is a place', async ({ page, daemon }) => {
+  await setOnboarded(page, daemon, true);
+  await openApp(page, daemon);
+  await newTab(page);
+  await onTab(page, 1);
+  await page.locator('#board-btn').click();
+  await expect(page.locator('#board')).toBeVisible();
+  await page.goBack();
+  await expect(page.locator('#board')).toBeHidden();
+  await page.goBack();
+  await onTab(page, 0);
+  await expect(page.locator('#terms')).toBeVisible();
+  await expect(page.locator('#board')).toBeHidden();
+  await page.goForward();
+  await onTab(page, 1);
+  await page.goForward();
+  await expect(page.locator('#board')).toBeVisible();
+  expect(new URL(page.url()).searchParams.get('view')).toBe('board');
 });

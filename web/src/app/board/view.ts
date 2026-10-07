@@ -2,7 +2,8 @@
 // to its terminal; dragging one sets its status and its place in the tab
 // order. Names and notes are user text: textContent only.
 import { api } from '../daemon/client.ts';
-import { activate, closeSession, newSession, openTab, type Session, sendSize, store } from '../sessions/store.ts';
+import { go, onPlace } from '../nav/router.ts';
+import { closeSession, newSession, openTab, type Session, sendSize, store } from '../sessions/store.ts';
 import { orderTabs } from '../sessions/tabs.ts';
 import { matchesKey } from '../settings/keys.ts';
 import { current, onSaved, saveSetting } from '../settings/settings.ts';
@@ -24,6 +25,10 @@ export function setNewCard(fn: (status: Status) => void): void {
 export const boardOpen = (): boolean => !board().hidden;
 
 export function toggleBoard(open = !boardOpen()): void {
+  go({ view: open ? 'board' : 'terms' });
+}
+
+function showBoard(open: boolean): void {
   board().hidden = !open;
   terms().hidden = open;
   button().setAttribute('aria-pressed', String(open));
@@ -60,8 +65,7 @@ function cardEl(s: Session, now: number): HTMLElement {
   const card = el('article', { className: 'board-card', draggable: true, tabIndex: 0 }, ...kids);
   card.dataset.id = s.id;
   card.onclick = () => {
-    toggleBoard(false);
-    activate(s);
+    go({ view: 'terms', tab: s.id });
   };
   card.onkeydown = (e) => e.target === card && e.key === 'Enter' && card.click();
   if (s.card.status === 'completed') {
@@ -220,8 +224,7 @@ function onboarding(): HTMLElement {
     }
     saveSetting('boardOnboarded', true);
     await setStatus(s, 'in_progress').catch(console.error); // starts its agent
-    toggleBoard(false);
-    activate(s);
+    go({ view: 'terms', tab: s.id });
   };
   skip.onclick = () => saveSetting('boardOnboarded', true);
   const icon = el('div', { className: 'board-onboarding-icon' });
@@ -268,6 +271,7 @@ export function render(): void {
 }
 
 export function initBoard(): void {
+  onPlace('view', (to) => showBoard(to.view === 'board'));
   button().onclick = () => toggleBoard();
   window.addEventListener(
     'keydown',
