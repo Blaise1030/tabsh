@@ -493,3 +493,53 @@ test('a fresh launch reopens the remembered file and keeps the keyboard in the t
   const inTerm = await page.evaluate(() => !!document.activeElement?.closest('.term.active'));
   expect(inTerm).toBe(true);
 });
+
+// A move that doesn't switch tabs leaves the keyboard where it was: the
+// router must not let the Navigation API reset focus to the page.
+const inActiveTerm = (page: Page) => page.evaluate(() => !!document.activeElement?.closest('.term.active'));
+const explorerKey = process.platform === 'darwin' ? 'Meta+Shift+KeyE' : 'Control+Shift+KeyE';
+const forwardKey = process.platform === 'darwin' ? 'Control+Shift+Equal' : 'Alt+Shift+ArrowRight';
+
+test('Back and Forward in the same tab keep the keyboard in the terminal', async ({ page, daemon }) => {
+  await openApp(page, daemon);
+  await onTab(page, 0);
+  await page.locator('.term.active').click();
+  await page.keyboard.press(explorerKey);
+  await expect(page.locator('#explorer')).toBeVisible();
+  await expect.poll(() => inActiveTerm(page)).toBe(true);
+
+  await page.keyboard.press(backKey);
+  await expect(page.locator('#explorer')).toBeHidden();
+  await expect.poll(() => inActiveTerm(page)).toBe(true);
+
+  await page.keyboard.press(forwardKey);
+  await expect(page.locator('#explorer')).toBeVisible();
+  await expect.poll(() => inActiveTerm(page)).toBe(true);
+
+  await page.goBack();
+  await expect(page.locator('#explorer')).toBeHidden();
+  await expect.poll(() => inActiveTerm(page)).toBe(true);
+});
+
+test('closing the palette gives the keyboard back to the terminal', async ({ page, daemon }) => {
+  await openApp(page, daemon);
+  await onTab(page, 0);
+  await page.locator('.term.active').click();
+  await page.locator('#settings-btn').click();
+  await expect.poll(() => paletteOpen(page)).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect.poll(() => paletteOpen(page)).toBe(false);
+  await expect.poll(() => urlPalette(page)).toBeNull();
+  await expect.poll(() => inActiveTerm(page)).toBe(true);
+
+  // "Go back" from the palette, staying on the tab: the explorer closes.
+  await page.keyboard.press(explorerKey);
+  await expect(page.locator('#explorer')).toBeVisible();
+  await page.locator('#settings-btn').click();
+  await expect.poll(() => paletteOpen(page)).toBe(true);
+  await page.locator('#palette-input').fill('go back');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#explorer')).toBeHidden();
+  await expect.poll(() => paletteOpen(page)).toBe(false);
+  await expect.poll(() => inActiveTerm(page)).toBe(true);
+});

@@ -21,7 +21,7 @@ interface NavigateEvent extends Event {
   readonly downloadRequest: string | null;
   readonly info: unknown;
   readonly signal: AbortSignal;
-  intercept(options?: { handler?: () => Promise<void> }): void;
+  intercept(options?: { handler?: () => Promise<void>; focusReset?: 'after-transition' | 'manual' }): void;
 }
 interface Navigation extends EventTarget {
   readonly currentEntry: NavigationHistoryEntry | null;

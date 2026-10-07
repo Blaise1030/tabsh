@@ -129,8 +129,11 @@ startRouter(fallback: Partial<Place>): Promise<void>
 ```
 
 **One `navigate` handler.** For a same-document navigation that only
-changes the query, it calls `e.intercept()`, then runs the registered steps
-in a fixed order: **tab → view → file → explorer → palette**. Each step
+changes the query, it calls `e.intercept({ focusReset: 'manual' })`, then
+runs the registered steps in a fixed order: **tab → view → file → explorer →
+palette**. Focus is the steps' (the tab's terminal, the file's editor); the
+browser's default reset would drop the keyboard on the page after every move
+that focuses nothing (amended after a bug report). Each step
 compares `to` with `from` and does nothing when its part is unchanged.
 
 | Step | Registered by | Does |

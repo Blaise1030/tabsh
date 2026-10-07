@@ -151,13 +151,18 @@ function onNavigate(e: NavigateEvent): void {
     // Back or Forward that can't be cancelled: let it land, then walk back.
     const key = navigation.currentEntry?.key ?? null;
     e.intercept({
+      focusReset: 'manual',
       handler: async () => {
         refusedKey = key;
       },
     });
     return;
   }
+  // Focus is the steps' to move (a tab's terminal, a file's editor): left
+  // to the browser, every move that focuses nothing (the explorer, the
+  // palette closing, a file's line) would drop the keyboard on the page.
   e.intercept({
+    focusReset: 'manual',
     handler: async () => {
       const before = current;
       const from = appliedFrom();
