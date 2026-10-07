@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.10
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.9...v0.1.10)
+
+### Features
+
+- **board:** Tag a new card, and title it by its prompt ([fb0b8f2](https://github.com/Blaise1030/tabsh/commit/fb0b8f2))
+
 ## v0.1.9
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.8...v0.1.9)
