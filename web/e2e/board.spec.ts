@@ -1,7 +1,8 @@
 // The board, end to end (the agent is `true`, so the real `claude` never
 // starts; the launch line is covered by the daemon's tests): a new card waits
 // in Backlog with the board still open, and dragging it to In progress starts
-// its agent; one made from another column starts at once; a status set through the daemon's API (as `tabsh status` does) moves it and
+// its agent (and a drop types nothing into a terminal); one made from another
+// column starts at once; a status set through the daemon's API (as `tabsh status` does) moves it and
 // colours its tab; dragging moves it on; a name with markup stays text.
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -94,6 +95,22 @@ test("a card made from another column's + starts its agent at once", async ({ pa
   // The agent `touch`es the prompt, so the file shows it ran.
   await newCard(page, 'Right away', project, mark, 'touch');
   await expect(col(page, 'in_progress').locator('.board-card').filter({ hasText: 'Right away' })).toBeVisible();
+  await expect.poll(() => existsSync(mark), { timeout: 10_000 }).toBe(true);
+});
+
+test("dragging a card doesn't type its id into the active terminal", async ({ page, daemon, project }) => {
+  const mark = join(project, 'dragged');
+  await openApp(page, daemon);
+  await page.locator('#board-btn').click();
+  await col(page, 'backlog').locator('header .btn').click();
+  await newCard(page, 'Drag me', project, mark, 'touch');
+  // Its own tab is the active one, so a stray paste would land before its
+  // launch line.
+  await card(page, 'Drag me').click();
+  await expect(page.locator('#tabs .tab:has-text("Drag me")')).toHaveAttribute('aria-selected', 'true');
+  await page.locator('#board-btn').click();
+  await card(page, 'Drag me').dragTo(col(page, 'needs_input').locator('.board-cards'));
+  await card(page, 'Drag me').dragTo(col(page, 'in_progress').locator('.board-cards'));
   await expect.poll(() => existsSync(mark), { timeout: 10_000 }).toBe(true);
 });
 
