@@ -135,14 +135,17 @@ test('a completed card has an Archive button', async ({ page, daemon, project })
 test('tags picked as chips show on the card, and are offered next time', async ({ page, daemon, project }) => {
   const tag = page.locator('#new-card-tag');
   const chips = page.locator('#new-card-chips .tag-badge');
+  const rows = page.locator('#new-card-tag-options [role="option"]');
   await openApp(page, daemon);
   await page.locator('#board-btn').click();
   await col(page, 'backlog').locator('header .btn').click();
   await page.locator('#new-card input[name="cwd"]').fill(project);
   await page.locator('#new-card textarea[name="prompt"]').fill('Tag me');
   await tag.fill('bug');
+  await expect(rows).toHaveText(['Create "bug"']);
   await tag.press('Enter'); // a chip, not the card
   await expect(page.locator('#new-card-form')).toBeVisible();
+  await expect(tag).toHaveValue('');
   await tag.pressSequentially('ui,docs,');
   await expect(chips).toHaveText(['bug', 'ui', 'docs'].map((t) => new RegExp(`^${t}`)));
   await tag.press('Backspace'); // the empty box takes the last chip off
@@ -153,8 +156,21 @@ test('tags picked as chips show on the card, and are offered next time', async (
   await expect(card(page, 'Tag me').locator('.tag-badge')).toHaveText(['ui', 'perf']);
   await col(page, 'backlog').locator('header .btn').click();
   await expect(chips).toHaveCount(0);
-  const offered = page.locator('#new-card-tags option');
-  expect(await offered.evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value))).toEqual(['perf', 'ui']);
+  // The tags in use, offered as a list to pick several from.
+  await tag.focus();
+  await expect(rows).toHaveText(['perf', 'ui']);
+  await rows.filter({ hasText: 'ui' }).click();
+  await expect(rows.filter({ hasText: 'ui' })).toHaveAttribute('aria-selected', 'true');
+  await tag.press('ArrowDown');
+  await tag.press('Enter'); // perf, the first row
+  await expect(chips).toHaveText([/^ui/, /^perf/]);
+  await tag.press('Enter'); // and off again
+  await expect(chips).toHaveText([/^ui/]);
+  await tag.fill('P');
+  await expect(rows).toHaveText(['Create "P"', 'perf']); // "perf" holds a p
+  await tag.press('Escape'); // the list closes, not the dialog
+  await expect(page.locator('#new-card-tag-options')).toBeHidden();
+  await expect(page.locator('#new-card-form')).toBeVisible();
 });
 
 test('the folder is searched as it is typed, and Tab goes into the highlighted one', async ({

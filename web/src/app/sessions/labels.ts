@@ -39,6 +39,25 @@ export function addTag(picked: string[], raw: string): string[] {
   return [...new Set([...picked, ...parseTagList(raw)])];
 }
 
+// A row of the New card dialog's tag list.
+export interface TagOption {
+  tag: string;
+  on: boolean; // picked
+  create: boolean; // typed, and not a tag yet
+}
+
+// The tag list: every tag in use or picked, sorted, the ones holding what's
+// typed (ignoring case); first, a row creating the typed tag, unless it's
+// already there in some case.
+export function tagOptions(used: string[], picked: string[], typed: string): TagOption[] {
+  const q = cleanTag(typed);
+  const all = [...new Set([...used, ...picked])].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  const shown = q ? all.filter((t) => t.toLowerCase().includes(q.toLowerCase())) : all;
+  const rows = shown.map((tag) => ({ tag, on: picked.includes(tag), create: false }));
+  const exists = q && all.some((t) => t.toLowerCase() === q.toLowerCase());
+  return q && !exists ? [{ tag: q, on: false, create: true }, ...rows] : rows;
+}
+
 // The stored tags (session id → its tags), dropping anything that isn't a
 // tag and repeats. A single string (one tag per tab, as first stored) is read
 // as a list of one.

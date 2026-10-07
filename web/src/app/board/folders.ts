@@ -16,6 +16,7 @@ export function expandHome(input: string, home: string | null): string {
 }
 
 // The highlighted result after an arrow key, wrapping around; -1 for none.
+// The tag list (tag-picker.ts) moves the same way.
 export function moveActive(active: number, delta: 1 | -1, count: number): number {
   if (count === 0) return -1;
   if (active < 0) return delta === 1 ? 0 : count - 1;

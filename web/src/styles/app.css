@@ -382,25 +382,32 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .new-card-fields { display: flex; flex-direction: column; gap: .75rem; }
 .new-card-fields .label { display: flex; flex-direction: column; align-items: stretch; gap: .375rem; text-align: left; }
 .new-card-fields .mark { color: var(--muted-foreground); font-weight: 400; }
-/* The folder search's list hangs under its field, over the fields below, in
-   the row menu's look. */
-.folder-picker { position: relative; display: block; }
-.folder-picker .input { width: 100%; }
-.folder-options {
+/* The folder and tag lists hang under their fields, over the fields below,
+   in the row menu's look. */
+.picker { position: relative; display: block; }
+.picker > .input { width: 100%; }
+.picker-options {
   position: absolute; top: calc(100% + .25rem); left: 0; right: 0; z-index: 10;
   margin: 0; padding: .25rem; list-style: none; max-height: 14rem; overflow-y: auto;
   background: var(--popover); color: var(--popover-foreground);
   border: 1px solid var(--border); border-radius: var(--radius, .5rem);
   box-shadow: 0 4px 16px rgb(0 0 0 / .25); font-size: .8125rem;
 }
-.folder-options[hidden] { display: none; }
-.folder-options [role="option"] {
+.picker-options[hidden] { display: none; }
+.picker-options [role="option"] {
   cursor: default; padding: .375rem .5rem; border-radius: calc(var(--radius, .5rem) - 2px);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.folder-options [role="option"][aria-selected="true"], .folder-options [role="option"]:hover {
-  background: var(--accent); color: var(--accent-foreground);
-}
+.picker-options [role="option"]:hover { background: var(--accent); color: var(--accent-foreground); }
+/* The folder list highlights its one pick; the tag list, where several are
+   picked, marks them with a check and highlights the row the keys are on. */
+#new-card-folders [role="option"][aria-selected="true"],
+.tag-options [role="option"][data-active] { background: var(--accent); color: var(--accent-foreground); }
+.tag-options [role="option"] { display: flex; align-items: center; gap: .5rem; }
+.tag-options [role="option"] i { flex: none; width: .5rem; height: .5rem; border-radius: 999px; }
+.tag-options [role="option"]::after { content: ''; margin-left: auto; }
+.tag-options [role="option"][aria-selected="true"]::after { content: '✓'; }
+.tag-options .create { color: var(--muted-foreground); }
 /* The tags box: chips, then the text box, wrapping like one input. */
 .tag-field { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem; height: auto; min-height: 2.25rem; padding-block: .25rem; cursor: text; }
 .tag-field:focus-within { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent); }
