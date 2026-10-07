@@ -4,6 +4,7 @@
 // its agent; a status set through the daemon's API (as `tabsh status` does) moves it and
 // colours its tab; dragging moves it on; a name with markup stays text.
 import type { Page } from '@playwright/test';
+import type { Daemon } from './daemon.ts';
 import { expect, newTab, openApp, test, typeInTerminal } from './fixture.ts';
 
 const card = (page: Page, name: string) => page.locator('.board-card').filter({ hasText: name });
@@ -17,6 +18,20 @@ async function newCard(page: Page, name: string, cwd: string): Promise<void> {
   await page.locator('#new-card input[name="command"]').fill('true');
   await page.locator('#new-card button[type="submit"]').click();
 }
+
+// Sets the stored `boardOnboarded` flag, keeping the other settings.
+async function setOnboarded(page: Page, daemon: Daemon, on: boolean): Promise<void> {
+  const headers = { Authorization: `Bearer ${daemon.token}` };
+  const now = await (await page.request.get(`${daemon.baseUrl}/api/settings`, { headers })).json();
+  const res = await page.request.put(`${daemon.baseUrl}/api/settings`, {
+    headers,
+    data: { ...now, boardOnboarded: on },
+  });
+  expect(res.status()).toBe(204);
+}
+
+// These cards need the columns, not the setup screen.
+test.beforeEach(async ({ page, daemon }) => setOnboarded(page, daemon, true));
 
 // The daemon is shared by the worker's later specs, some of which count tabs:
 // leave it with no sessions.
@@ -129,4 +144,28 @@ test("an archived card's tab leaves the strip, grouped or not", async ({ page, d
   await page.locator('#tab-group-btn').click();
   await grouping('No grouping').click();
   await expect(page.locator('#tabs .tab-group')).toHaveCount(0);
+});
+
+// Until it's onboarded, the board offers to set up the agent's hooks instead
+// of showing columns; skipping stores the flag, so a reload shows columns.
+// (Set up isn't clicked: it would start the real `claude`.)
+test('the board shows its setup screen until skipped', async ({ page, daemon }) => {
+  await setOnboarded(page, daemon, false);
+  await openApp(page, daemon);
+  await page.locator('#board-btn').click();
+  await expect(page.locator('.board-onboarding')).toBeVisible();
+  await expect(page.locator('.board-onboarding')).toContainText('Set up with Claude Code');
+  await expect(page.locator('.board-col')).toHaveCount(0);
+
+  const saved = page.waitForResponse((r) => r.url().includes('/api/settings') && r.request().method() === 'PUT');
+  await page.locator('.board-onboarding button', { hasText: 'Skip' }).click();
+  await saved;
+  await expect(page.locator('.board-onboarding')).toHaveCount(0);
+  await expect(page.locator('.board-col[data-status="backlog"]')).toBeVisible();
+
+  await page.goto('about:blank'); // a fresh load, not just a new fragment
+  await openApp(page, daemon);
+  await page.locator('#board-btn').click();
+  await expect(page.locator('.board-col[data-status="backlog"]')).toBeVisible();
+  await expect(page.locator('.board-onboarding')).toHaveCount(0);
 });

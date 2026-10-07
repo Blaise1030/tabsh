@@ -26,6 +26,7 @@ export interface Settings {
   keyGroupTabs: string;
   keyToggleBoard: string;
   agentCommands: string[]; // most recent first, at most 8
+  boardOnboarded: boolean; // the board's setup screen was dealt with (set up or skipped)
 }
 
 export function defaults(isMac: boolean): Settings {
@@ -47,6 +48,7 @@ export function defaults(isMac: boolean): Settings {
     keyGroupTabs: keys.keyGroupTabs.presets[0],
     keyToggleBoard: keys.keyToggleBoard.presets[0],
     agentCommands: ['claude {prompt}'],
+    boardOnboarded: false,
   };
 }
 
@@ -104,5 +106,6 @@ export function cleanSettings(stored: Record<string, unknown>, isMac: boolean): 
         : [];
       return list.length ? list : d.agentCommands;
     })(),
+    boardOnboarded: stored.boardOnboarded === true,
   };
 }

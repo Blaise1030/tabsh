@@ -71,3 +71,8 @@ test('agent commands are kept as a short list of strings', () => {
   assert.deepEqual(cleanSettings({ agentCommands: ['codex', 3, '', 'codex'] }, true).agentCommands, ['codex']);
   assert.deepEqual(cleanSettings({ agentCommands: 'nope' }, true).agentCommands, ['claude {prompt}']);
 });
+test('the board shows its setup screen until it is marked as onboarded', () => {
+  assert.equal(defaults(true).boardOnboarded, false);
+  assert.equal(cleanSettings({ boardOnboarded: true }, true).boardOnboarded, true);
+  assert.equal(cleanSettings({ boardOnboarded: 'yes' }, true).boardOnboarded, false);
+});

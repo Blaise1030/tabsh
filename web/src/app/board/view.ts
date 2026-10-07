@@ -2,13 +2,13 @@
 // to its terminal; dragging one sets its status and its place in the tab
 // order. Names and notes are user text: textContent only.
 import { api } from '../daemon/client.ts';
-import { activate, closeSession, newSession, type Session, sendSize, store } from '../sessions/store.ts';
+import { activate, closeSession, newSession, openTab, type Session, sendSize, store } from '../sessions/store.ts';
 import { orderTabs } from '../sessions/tabs.ts';
 import { matchesKey } from '../settings/keys.ts';
-import { current } from '../settings/settings.ts';
+import { current, onSaved, saveSetting } from '../settings/settings.ts';
 import { el } from '../ui/dom.ts';
 import { glyphSvg } from './glyph.ts';
-import { COLUMNS, dropOrder, group, type Status, shortPath, since } from './model.ts';
+import { COLUMNS, DEFAULT_COMMAND, dropOrder, group, SETUP_PROMPT, type Status, shortPath, since } from './model.ts';
 import { onCardsChange, setStatus } from './status.ts';
 
 const board = () => document.getElementById('board') as HTMLElement;
@@ -193,8 +193,72 @@ function archive(cards: Session[], now: number): HTMLElement {
   return col;
 }
 
+// Until the board is onboarded (the `boardOnboarded` setting), it shows this
+// instead of its columns: one button opens a Claude Code card that wires its
+// own hooks through `tabsh setup`, the other skips it. Either one marks the
+// board onboarded.
+const BOARD_ICON =
+  '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v12"/><path d="M15 3v7"/></svg>';
+const ARROW_UP_RIGHT =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg>';
+const BOARD_DOCS = 'https://github.com/Blaise1030/tabsh#the-board';
+
+function onboarding(): HTMLElement {
+  const setup = el('button', { type: 'button', className: 'btn', textContent: 'Set up with Claude Code' });
+  const skip = el('button', { type: 'button', className: 'btn', textContent: 'Skip' });
+  skip.dataset.variant = 'outline';
+  for (const b of [setup, skip]) b.dataset.size = 'sm';
+  setup.onclick = async () => {
+    setup.disabled = true;
+    let s: Session;
+    try {
+      s = await openTab({ name: 'Set up tabsh hooks', prompt: SETUP_PROMPT, command: DEFAULT_COMMAND }, false);
+    } catch (err) {
+      console.error(err);
+      setup.disabled = false;
+      return;
+    }
+    saveSetting('boardOnboarded', true);
+    await setStatus(s, 'in_progress').catch(console.error); // starts its agent
+    toggleBoard(false);
+    activate(s);
+  };
+  skip.onclick = () => saveSetting('boardOnboarded', true);
+  const icon = el('div', { className: 'board-onboarding-icon' });
+  icon.innerHTML = BOARD_ICON; // static icon
+  const more = el('a', {
+    className: 'board-onboarding-more',
+    href: BOARD_DOCS,
+    target: '_blank',
+    rel: 'noopener noreferrer',
+    textContent: 'Learn more',
+  });
+  more.insertAdjacentHTML('beforeend', ARROW_UP_RIGHT); // static icon
+  // The shape of shadcn's Empty: header (icon, title, description), content, link.
+  return el(
+    'div',
+    { className: 'board-onboarding' },
+    el(
+      'div',
+      { className: 'board-onboarding-header' },
+      icon,
+      el('h2', { textContent: 'Connect your agents' }),
+      el('p', {
+        textContent:
+          'Cards move on their own when your coding agent reports what it is doing. Let Claude Code wire up its own hooks to get started.',
+      }),
+    ),
+    el('div', { className: 'board-onboarding-actions' }, setup, skip),
+    more,
+  );
+}
+
 export function render(): void {
   if (!boardOpen() || board().querySelector('.dragging')) return;
+  if (!current.saved.boardOnboarded) {
+    if (!board().querySelector('.board-onboarding')) board().replaceChildren(onboarding());
+    return;
+  }
   const now = Math.floor(Date.now() / 1000);
   const g = group(store.sessions);
   board().replaceChildren(
@@ -216,5 +280,6 @@ export function initBoard(): void {
     true,
   );
   onCardsChange(render);
+  onSaved(render); // e.g. the setup screen, once it's dealt with
   setInterval(render, 30_000); // keep "time in status" fresh
 }

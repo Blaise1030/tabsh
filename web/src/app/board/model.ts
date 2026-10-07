@@ -71,6 +71,11 @@ export function dropOrder(
 
 export const DEFAULT_COMMAND = 'claude {prompt}';
 
+// The first prompt of the card the board's setup screen opens: the agent
+// wires its own hooks by following `tabsh setup`'s guide.
+export const SETUP_PROMPT =
+  'Run `tabsh setup` and follow the guide it prints, so your hooks keep your card on the tabsh board current.';
+
 // The agent commands offered in New card: the one just used first.
 export function rememberCommand(list: string[], command: string): string[] {
   const c = command.trim();
