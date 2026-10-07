@@ -13,7 +13,12 @@ type Fix = Partial<Place> | undefined;
 type How = 'push' | 'replace';
 type Info = { to: Place; initial?: boolean };
 
+// `current` is where the app is going (what go() builds on); `applied` is
+// what the steps have actually done. They differ while a navigation runs, and
+// after one is overtaken mid-way: the next one then still runs the steps it
+// never finished.
 let current: Place = HOME;
+let applied: Place = HOME;
 const steps = new Map<Step, Apply>();
 const guards: ((to: Place, from: Place) => boolean)[] = [];
 // go() calls made before startRouter(); folded under its fallback and URL.
@@ -74,6 +79,15 @@ function placeOf(q: URLSearchParams): Place {
   return merge({ ...HOME, tab: current.tab }, fromQuery(q), 'replace');
 }
 
+// `applied` with `step`'s part taken from `to`. The file is the tab's, so a
+// tab counts as applied only with its file: one overtaken in between leaves
+// the next navigation to work out the file again.
+function withStep(p: Place, to: Place, step: Step, run: Step[]): Place {
+  if (step === 'tab' && run.includes('file')) return p;
+  if (step === 'file') return { ...p, tab: to.tab, file: to.file, line: to.line };
+  return { ...p, [step]: to[step] };
+}
+
 function onNavigate(e: NavigateEvent): void {
   if (!e.canIntercept || e.hashChange || e.downloadRequest !== null || e.navigationType === 'reload') return;
   const dest = new URL(e.destination.url);
@@ -81,7 +95,7 @@ function onNavigate(e: NavigateEvent): void {
   const info = e.info as Info | undefined;
   const to = info?.to ?? placeOf(dest.searchParams);
   const initial = !!info?.initial;
-  if (!initial && guards.some((guard) => !guard(to, current))) {
+  if (!initial && guards.some((guard) => !guard(to, applied))) {
     if (e.cancelable) {
       e.preventDefault();
       return;
@@ -97,22 +111,25 @@ function onNavigate(e: NavigateEvent): void {
   }
   e.intercept({
     handler: async () => {
-      const from = current;
+      const before = current;
+      const from = applied;
       current = to;
-      if (e.navigationType === 'push' && !from.palette && to.palette) {
+      if (e.navigationType === 'push' && !before.palette && to.palette) {
         paletteEntryKey = navigation.currentEntry?.key ?? null;
       }
       const due = changed(from, to);
       const run = initial ? STEPS.filter((s) => s === 'tab' || due.includes(s)) : due;
       const patch: Partial<Place> = {};
       for (const step of run) {
+        if (e.signal.aborted) break;
         const apply = steps.get(step);
-        if (!apply || e.signal.aborted) continue;
         try {
-          Object.assign(patch, (await apply(to, from, e.signal, initial)) ?? {});
+          if (apply) Object.assign(patch, (await apply(to, from, e.signal, initial)) ?? {});
         } catch (err) {
           console.error(err);
         }
+        // A step overtaken while it ran (a file still loading) dropped its result.
+        if (!e.signal.aborted) applied = withStep(applied, to, step, run);
       }
       if (!e.signal.aborted && Object.keys(patch).length) fixes = { patch, signal: e.signal };
     },

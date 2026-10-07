@@ -222,3 +222,28 @@ test('a deleted file is dropped quietly', async ({ page, daemon, project }) => {
   await expect.poll(() => urlFile(page)).toBeNull();
   await expect(pane(page)).toBeHidden();
 });
+
+test('steps an overtaken Back never ran still run', async ({ page, daemon, project }) => {
+  await setOnboarded(page, daemon, true);
+  await openApp(page, daemon);
+  await cdInTerminal(page, project, 'in-project');
+  await openLink(page, 'README.md', 'README.md');
+  await expect.poll(() => urlFile(page)).toBe(`${project}/README.md`);
+  await page.locator('#board-btn').click();
+  await expect(page.locator('#board')).toBeVisible();
+  // A URL that keeps the board and names another file.
+  const q = new URLSearchParams(new URL(page.url()).search);
+  q.set('file', `${project}/src/main.rs`);
+  await page.evaluate((s) => navigation.navigate(`?${s}`).finished, q.toString());
+  await expect(page.locator('#pane .pane-head')).toContainText('main.rs');
+
+  // The first Back (to README, board open) is overtaken while README loads;
+  // the second (board closed) must still show README.
+  await page.evaluate(async () => {
+    await navigation.back().committed;
+    await navigation.back().finished.catch(() => {});
+  });
+  await expect(page.locator('#board')).toBeHidden();
+  expect(urlFile(page)).toBe(`${project}/README.md`);
+  await expect(page.locator('#pane .pane-head')).toContainText('README.md');
+});
