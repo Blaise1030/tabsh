@@ -278,3 +278,30 @@ test('a tab switch overtaken mid-load is still undone', async ({ page, daemon, p
   await expect.poll(() => urlFile(page)).toBe(`${project}/README.md`);
   await expect(page.locator('#pane .pane-head')).toContainText('README.md');
 });
+
+test('Back closes the explorer and saves it', async ({ page, daemon }) => {
+  await openApp(page, daemon);
+  await page.locator('#explorer-btn').click();
+  await expect(page.locator('#explorer')).toBeVisible();
+  await expect.poll(() => new URL(page.url()).searchParams.get('explorer')).toBe('1');
+  await page.goBack();
+  await expect(page.locator('#explorer')).toBeHidden();
+  const headers = { Authorization: `Bearer ${daemon.token}` };
+  await expect
+    .poll(async () => ((await (await page.request.get(`${daemon.baseUrl}/api/settings`, { headers })).json()) as { explorerOpen: boolean }).explorerOpen)
+    .toBe(false);
+});
+
+test("settings from the daemon don't move you", async ({ page, daemon }) => {
+  await openApp(page, daemon);
+  await page.locator('#explorer-btn').click();
+  await expect(page.locator('#explorer')).toBeVisible();
+  const headers = { Authorization: `Bearer ${daemon.token}` };
+  const got = await page.request.get(`${daemon.baseUrl}/api/settings`, { headers });
+  const settings = (await got.json()) as Record<string, unknown>;
+  await page.request.put(`${daemon.baseUrl}/api/settings`, { headers, data: { ...settings, explorerOpen: false } });
+  await page.evaluate(() => dispatchEvent(new Event('focus')));
+  await page.waitForTimeout(300);
+  await expect(page.locator('#explorer')).toBeVisible();
+  expect(new URL(page.url()).searchParams.get('explorer')).toBe('1');
+});
