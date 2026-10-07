@@ -115,6 +115,24 @@ function layoutState(): State<Layout> {
   });
 }
 
+// The sessions whose tab has been on the strip: only a tab's first
+// appearance grows in; moved to a new place, it shows there at once.
+const drawn = new WeakSet<Session>();
+function PlacedTab(s: Session, opts: { group?: string; copy?: boolean } = {}): HTMLElement {
+  const t = Tab(s, { ...opts, grow: !drawn.has(s) });
+  drawn.add(s);
+  return t;
+}
+
+// A group's box goes at once when the strip regroups, but waits while it
+// holds only closing tabs (its group emptied as they closed), so they
+// collapse on screen first.
+function exitBox(box: Element): Promise<void> | undefined {
+  const inside = [...box.querySelectorAll(':scope > .tab')];
+  if (!inside.length || !inside.every((t) => sessionOfTab(t)?.closed)) return undefined;
+  return Promise.all(inside.map(collapse)).then(() => {});
+}
+
 // A tab (or copy) taken off the strip collapses when its session closed,
 // and goes at once when it only changed group or the strip regrouped. Its
 // `closed` flag, not a state: the list's derive calls this.
@@ -122,7 +140,7 @@ const exitTab = (node: Element): Promise<void> | undefined => (sessionOfTab(node
 
 // A tab with no group, hidden while it is an archived card's (unless active).
 function LoneTab(s: Session): HTMLElement {
-  const t = Tab(s);
+  const t = PlacedTab(s);
   van.derive(() => {
     t.hidden = !onStrip(s);
   });
@@ -166,7 +184,7 @@ function GroupBox(g: Group, all: State<Layout>): HTMLElement {
     (p) => (p === 'label' ? 'label' : p.key),
     (p) => {
       if (p === 'label') return label;
-      const t = Tab(p.s, { group: key, copy: p.copy });
+      const t = PlacedTab(p.s, { group: key, copy: p.copy });
       van.derive(() => {
         t.hidden = shut() && active.val !== p.s;
       });
@@ -203,7 +221,7 @@ export function TabStrip(): HTMLElement {
     },
     (it) => ('box' in it ? `group:${it.box.key}` : `tab:${it.tab.id}`),
     (it) => ('box' in it ? GroupBox(it.box, all) : LoneTab(it.tab)),
-    { exit: (node) => (node.matches('.tab') ? exitTab(node) : undefined) },
+    { exit: (node) => (node.matches('.tab') ? exitTab(node) : exitBox(node)) },
   );
   van.derive(() => {
     all.val;

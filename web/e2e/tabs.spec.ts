@@ -89,21 +89,31 @@ test('closing a tagged tab removes its copies', async ({ page, daemon }) => {
     await groupBy(page, 'By tag');
     await expect(tagged).toHaveCount(2);
     await expect(tagged.and(page.locator('.mirror'))).toHaveCount(1);
-    // The copy collapses as the tab does, rather than vanishing at once.
-    await tagged
-      .and(page.locator('.mirror'))
-      .evaluate((copy) => {
-        const w = window as unknown as { copyCollapsed: boolean };
-        w.copyCollapsed = false;
-        new MutationObserver(() => {
-          if (copy.isConnected && copy.classList.contains('leaving')) w.copyCollapsed = true;
-        }).observe(copy, { attributes: true, attributeFilter: ['class'] });
-      });
+    // Their groups empty as it closes, yet the tab and its copy both
+    // collapse on screen (still there frames after `.leaving`) before they go.
+    await page.locator('#tabs .tab').evaluateAll((all) => {
+      const w = window as unknown as { collapsedOnScreen: string[] };
+      w.collapsedOnScreen = [];
+      for (const t of all) {
+        if (!t.textContent?.includes('tagged')) continue;
+        const kind = t.classList.contains('mirror') ? 'copy' : 'tab';
+        const seen = new MutationObserver(() => {
+          if (!t.classList.contains('leaving')) return;
+          seen.disconnect();
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => t.isConnected && w.collapsedOnScreen.push(kind)),
+          );
+        });
+        seen.observe(t, { attributes: true, attributeFilter: ['class'] });
+      }
+    });
     const tab = tagged.and(page.locator(':not(.mirror)'));
     await tab.hover();
     await tab.getByRole('button', { name: 'Close terminal' }).click();
     await expect(tagged).toHaveCount(0, { timeout: 1_000 });
-    expect(await page.evaluate(() => (window as unknown as { copyCollapsed: boolean }).copyCollapsed)).toBe(true);
+    expect(
+      (await page.evaluate(() => (window as unknown as { collapsedOnScreen: string[] }).collapsedOnScreen)).sort(),
+    ).toEqual(['copy', 'tab']);
   } finally {
     await groupBy(page, 'No grouping');
   }
@@ -137,6 +147,39 @@ test('a rename mid-drag keeps the drag', async ({ page, daemon }) => {
   await expect
     .poll(async () => ((await (await page.request.get(`${daemon.baseUrl}/api/sessions`, { headers })).json()) as { id: string }[])[0]?.id)
     .toBe(id);
+});
+
+test('regrouping moves tabs without growing them in again', async ({ page, daemon }) => {
+  await openApp(page, daemon);
+  await newTab(page);
+  await expect(tabs(page)).toHaveCount(2);
+  await expect(page.locator('#tabs .tab.entering')).toHaveCount(0);
+  // From here, note any tab that starts growing in.
+  await page.evaluate(() => {
+    const w = window as unknown as { grew: number };
+    w.grew = 0;
+    new MutationObserver((records) => {
+      for (const r of records) {
+        const nodes = r.type === 'childList' ? [...r.addedNodes] : [r.target];
+        for (const n of nodes)
+          if (n instanceof Element) w.grew += [n, ...n.querySelectorAll('*')].filter((e) => e.matches('.tab.entering')).length;
+      }
+    }).observe(document.getElementById('tabs') as HTMLElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+  });
+  try {
+    await groupBy(page, 'By repo');
+    await expect(page.locator('#tabs .tab-group').first()).toBeVisible();
+    await expect(tabs(page)).toHaveCount(2);
+  } finally {
+    await groupBy(page, 'No grouping');
+  }
+  await expect(page.locator('#tabs .tab-group')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { grew: number }).grew)).toBe(0);
 });
 
 test('no tab-template in the page', async ({ page, daemon }) => {

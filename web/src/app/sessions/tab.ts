@@ -17,12 +17,15 @@ const statusTitle = (card: Card): string =>
 
 const tabSessions = new WeakMap<Element, Session>(); // a tab or copy → its session
 
-export function Tab(s: Session, opts: { group?: string; copy?: boolean } = {}): HTMLElement {
+// `grow: false` draws it at full width at once: a tab moving to a new place
+// (another group, a regroup) rather than first appearing.
+export function Tab(s: Session, opts: { group?: string; copy?: boolean; grow?: boolean } = {}): HTMLElement {
+  const grow = !opts.copy && opts.grow !== false;
   // Only a change of status redraws the glyph (a new note doesn't).
   const status = van.derive(() => s.card.val.status);
   const t = div(
     {
-      class: opts.copy ? 'tab mirror' : 'tab entering',
+      class: opts.copy ? 'tab mirror' : grow ? 'tab entering' : 'tab',
       role: 'tab',
       'aria-selected': () => String(active.val === s),
       title: () => s.name.val,
@@ -70,7 +73,7 @@ export function Tab(s: Session, opts: { group?: string; copy?: boolean } = {}): 
   // A tagged tab shows a bar in its tags' colors.
   van.derive(() => s.tags.val.length && t.style.setProperty('--tag', tagBar(s.tags.val)));
   tabSessions.set(t, s);
-  if (opts.copy) return t;
+  if (!grow) return t;
   // It grows in from nothing: the collapsed state is drawn first, then let go.
   requestAnimationFrame(() => {
     void t.offsetWidth;
