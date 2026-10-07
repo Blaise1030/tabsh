@@ -138,6 +138,13 @@ function clearDropMarks(): void {
   for (const x of board().querySelectorAll('.drop-before, .drop-end')) x.classList.remove('drop-before', 'drop-end');
 }
 
+// A drop ends the drag here, not at dragend: the drop may move the dragged
+// card's node (a new order), and some browsers then never fire its dragend.
+function endDrag(): void {
+  clearDropMarks();
+  for (const x of board().querySelectorAll('.dragging')) x.classList.remove('dragging');
+}
+
 // The tabs as the board's model takes them: each with its card.
 const cards = () => store.sessions.map((s) => ({ s, id: s.id, card: s.card.val }));
 
@@ -175,9 +182,10 @@ function Column(status: Status, name: string, columns: State<Columns>): HTMLElem
       ondragleave: (e: DragEvent) => !col.contains(e.relatedTarget as Node) && clearDropMarks(),
       ondrop: (e: DragEvent) => {
         e.preventDefault();
-        clearDropMarks();
+        const before = cardBefore(list, e.clientY)?.dataset.id ?? null; // while the dragged card is still marked
+        endDrag();
         const id = e.dataTransfer?.getData('text/plain');
-        if (id) void move(id, status, cardBefore(list, e.clientY)?.dataset.id ?? null);
+        if (id) void move(id, status, before);
       },
     },
     header(
@@ -225,7 +233,7 @@ function Archive(columns: State<Columns>): HTMLElement {
       ondragleave: (e: DragEvent) => !col.contains(e.relatedTarget as Node) && clearDropMarks(),
       ondrop: (e: DragEvent) => {
         e.preventDefault();
-        clearDropMarks();
+        endDrag();
         const id = e.dataTransfer?.getData('text/plain');
         if (id) void move(id, 'archived', null);
       },

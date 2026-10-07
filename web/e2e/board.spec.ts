@@ -101,6 +101,33 @@ test('a card name with markup is shown as text', async ({ page, daemon }) => {
   await expect(page.locator('.board-card b')).toHaveCount(0);
 });
 
+// A drop within a column reorders its cards and leaves none marked as
+// dragged, even without a dragend.
+test('cards reorder within a column', async ({ page, daemon, project }) => {
+  await openApp(page, daemon);
+  await page.locator('#board-btn').click();
+  for (const name of ['First card', 'Second card']) {
+    await col(page, 'backlog').locator('header .btn').click();
+    await newCard(page, name, project);
+    await expect(card(page, name)).toBeVisible();
+  }
+  const titles = col(page, 'backlog').locator('.board-card .card-title');
+  // The order of the two among the column's cards (the first terminal is there too).
+  const secondFirst = async () => {
+    const names = await titles.allTextContents();
+    return names.indexOf('Second card') < names.indexOf('First card');
+  };
+  expect(await secondFirst()).toBe(false);
+
+  // As where a browser loses dragend once the dragged node has moved (Firefox
+  // bug 460801): the drop alone must end the drag.
+  await page.evaluate(() => window.addEventListener('dragend', (e) => e.stopImmediatePropagation(), true));
+  await card(page, 'Second card').dragTo(card(page, 'First card'), { targetPosition: { x: 10, y: 2 } });
+  await expect.poll(secondFirst).toBe(true);
+  await expect(page.locator('.board-card.dragging')).toHaveCount(0);
+  await expect(page.locator('.drop-before, .drop-end')).toHaveCount(0);
+});
+
 // The open board follows its cards: a terminal renamed while it's shown
 // renames its card at once, not at the next 30 s refresh.
 test('a card follows its terminal while the board is open', async ({ page, daemon, project }) => {
