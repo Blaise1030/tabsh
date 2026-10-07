@@ -1,6 +1,7 @@
 // The command palette (Basecoat command-dialog): settings with live
 // preview, recording a keybinding, the keybindings that open it and switch
 // tabs, and the settings button.
+import van from 'vanjs-core';
 import { toggleBoard } from '../board/view.ts';
 import { searchFiles, toggleExplorer } from '../explorer/explorer.ts';
 import { loadedPane } from '../files/open.ts';
@@ -12,13 +13,18 @@ import { applySettings, current, saveSetting, setPreviewing } from '../settings/
 import { previewSound } from '../sound/packs.ts';
 import { openAbout } from '../ui/about.ts';
 import { isMac } from '../ui/dom.ts';
-import { CHECK, type PaletteItem, pages } from './pages.ts';
+import { icons } from '../ui/icons.ts';
+import { keyed } from '../ui/keyed.ts';
+import { type PaletteItem, pages } from './pages.ts';
+
+const { div, i, span } = van.tags;
 
 const paletteEl = () => document.getElementById('palette') as HTMLDialogElement;
 const paletteCmd = () => document.getElementById('palette-command') as HTMLElement & { refresh?: () => void };
 const paletteInput = () => document.getElementById('palette-input') as HTMLInputElement;
 const paletteMenu = () => document.getElementById('palette-menu') as HTMLElement;
-let page = 'root';
+// The page shown, or null while closed. Only the palette step assigns it.
+export const page = van.state<string | null>(null);
 let recording: KeyId | null = null; // the keybinding the next key press sets
 const itemsById = new Map<string, PaletteItem>();
 
@@ -36,53 +42,84 @@ function palettePages(): ReturnType<typeof pages> {
   });
 }
 
+// A shown page's groups, each item with its menu id. Every render is new
+// (`n`), so a page shown again is built afresh, its checks and hints current.
+interface MenuGroup {
+  key: string;
+  heading: string;
+  id: string;
+  items: { id: string; item: PaletteItem }[];
+}
+const menu = van.state<MenuGroup[]>([]);
+let renders = 0;
+
 function showPage(name: string): void {
-  page = name;
+  page.val = name;
   recording = null;
   const { placeholder, groups } = palettePages()[name]();
   paletteInput().value = '';
   paletteInput().placeholder = name === 'root' ? placeholder : `${placeholder}  (Esc to go back)`;
+  const n = renders++;
+  let k = 0;
+  menu.val = groups.map((g, gi) => ({
+    key: `${n}/${name}/${g.heading}`,
+    heading: g.heading,
+    id: `pg-${gi}`,
+    items: g.items.map((item) => ({ id: `pi-${k++}`, item })),
+  }));
+  if (name === 'root') applySettings(current.saved);
+  paletteInput().focus();
+}
+
+const SWATCH = ['red', 'green', 'yellow', 'blue', 'magenta'] as const;
+
+function PaletteRow({ id, item }: MenuGroup['items'][number]): HTMLElement {
+  const props: Record<string, string> = {
+    role: 'menuitem',
+    id,
+    'data-filter': item.label,
+    'data-keywords': item.keywords ?? '',
+  };
+  if (item.disabled) props['aria-disabled'] = 'true';
+  if (item.go || item.record || item.disabled) props['data-keep-command-open'] = '';
+  if ((item.key && current.saved[item.key] === item.value) || item.checked) props['data-checked'] = 'true';
+  const { swatch } = item;
+  return div(
+    props,
+    item.icon?.() ??
+      (swatch
+        ? span(
+            { class: 'swatch', style: `background:${swatch.background}` },
+            SWATCH.map((c) => i({ style: `background:${swatch[c]}` })),
+          )
+        : ''),
+    span(item.label),
+    item.hint ? span({ 'data-shortcut': '' }, item.hint) : '',
+    item.key || item.checked ? span({ 'data-indicator': '' }, icons.check()) : '',
+  );
+}
+
+function PaletteGroup(g: MenuGroup): HTMLElement {
+  return div(
+    { role: 'group', 'aria-labelledby': g.id },
+    span({ role: 'heading', id: g.id }, g.heading),
+    g.items.map(PaletteRow),
+  );
+}
+
+// After VanJS has put a render on the page: the ids now name its items (until
+// then they named the last render's, still on the page); Basecoat's command
+// menu caches its items, so it takes the new ones; then the page starts on
+// the current choice rather than the first entry.
+function afterRender(groups: MenuGroup[]): void {
   itemsById.clear();
-  let n = 0;
-  // Every string here is the app's own (labels, hints, theme colours).
-  paletteMenu().innerHTML = groups
-    .map(
-      (g, gi) => `
-    <div role="group" aria-labelledby="pg-${gi}">
-      <span role="heading" id="pg-${gi}">${g.heading}</span>
-      ${g.items
-        .map((item) => {
-          const id = `pi-${n++}`;
-          itemsById.set(id, item);
-          const checked = (item.key && current.saved[item.key] === item.value) || item.checked;
-          const swatch = item.swatch
-            ? `<span class="swatch" style="background:${item.swatch.background}">${(
-                ['red', 'green', 'yellow', 'blue', 'magenta'] as const
-              )
-                .map((c) => `<i style="background:${item.swatch?.[c]}"></i>`)
-                .join('')}</span>`
-            : '';
-          return `<div role="menuitem" id="${id}" data-filter="${item.label}" data-keywords="${item.keywords ?? ''}"
-                     ${item.disabled ? 'aria-disabled="true"' : ''}
-                     ${item.go || item.record || item.disabled ? 'data-keep-command-open' : ''} ${checked ? 'data-checked="true"' : ''}>
-          ${item.icon ?? swatch}<span>${item.label}</span>
-          ${item.hint ? `<span data-shortcut>${item.hint}</span>` : ''}
-          ${item.key || item.checked ? `<span data-indicator>${CHECK}</span>` : ''}
-        </div>`;
-        })
-        .join('')}
-    </div>`,
-    )
-    .join('');
+  for (const g of groups) for (const { id, item } of g.items) itemsById.set(id, item);
   paletteCmd().refresh?.();
-  // Start on the current choice rather than the first entry.
   const chosen = paletteMenu().querySelector('[data-checked="true"]');
   if (chosen) {
     chosen.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
     chosen.scrollIntoView({ block: 'nearest' });
   }
-  if (name === 'root') applySettings(current.saved);
-  paletteInput().focus();
   updatePaletteFades();
 }
 
@@ -125,6 +162,7 @@ function updatePaletteFades(): void {
 // The palette step's half: open on `at`, or closed. It never navigates.
 function showPalette(at: string | null): void {
   if (!at) {
+    page.val = null;
     if (paletteEl().open) paletteEl().close();
     return;
   }
@@ -132,7 +170,7 @@ function showPalette(at: string | null): void {
     (document.getElementById('about') as HTMLDialogElement).close();
     paletteEl().showModal();
     setPreviewing(true);
-  } else if (page === at) return;
+  } else if (page.val === at) return;
   showPage(at);
 }
 
@@ -146,7 +184,7 @@ export function openPalette(at: string = 'root'): void {
 // page, closed again when it is already there.
 export function openGroupPalette(): void {
   if (paletteEl().open) {
-    if (page === 'tabGrouping') paletteEl().close();
+    if (page.val === 'tabGrouping') paletteEl().close();
     else go({ palette: 'tabGrouping' }, 'replace');
     return;
   }
@@ -154,6 +192,18 @@ export function openGroupPalette(): void {
 }
 
 export function initPalette(): void {
+  // The menu is the shown page's groups; closed, it keeps the last page.
+  keyed(
+    paletteMenu(),
+    () => menu.val,
+    (g) => g.key,
+    PaletteGroup,
+  );
+  // Registered after keyed's own derive on the same state, so it runs once
+  // the render is on the page.
+  van.derive(() => {
+    if (menu.val.length) afterRender(menu.val);
+  });
   paletteMenu().addEventListener('scroll', updatePaletteFades, { passive: true });
   // Filtering hides items after this handler's turn; measure once it has.
   paletteInput().addEventListener('input', () => requestAnimationFrame(updatePaletteFades));
@@ -184,7 +234,7 @@ export function initPalette(): void {
 
   paletteInput().addEventListener('keydown', (e) => {
     const toRoot = e.key === 'Escape' || (e.key === 'Backspace' && !paletteInput().value);
-    if (toRoot && page !== 'root') {
+    if (toRoot && page.val !== 'root') {
       e.preventDefault(); // also stops Escape from closing the dialog
       go({ palette: 'root' }, 'replace');
     }

@@ -4,27 +4,7 @@ import { type KeyId, keyLabel } from '../settings/keys.ts';
 import type { Settings, TabGrouping } from '../settings/schema.ts';
 import { current, KEYBINDINGS } from '../settings/settings.ts';
 import { isMac } from '../ui/dom.ts';
-
-export const CHECK =
-  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
-export const ICONS = {
-  theme:
-    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z"/><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/></svg>',
-  font: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16"/><path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"/><path d="M9 20h6"/></svg>',
-  size: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 16 2.536-7.328a1.02 1.02 1 0 1 1.928 0L22 16"/><path d="M15.697 14h5.606"/><path d="m2 16 4.039-9.69a.5.5 0 0 1 .923 0L11 16"/><path d="M3.304 13h6.392"/></svg>',
-  sound:
-    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 8h.01"/><path d="M12 12h.01"/><path d="M14 8h.01"/><path d="M16 12h.01"/><path d="M18 8h.01"/><path d="M6 8h.01"/><path d="M7 16h10"/><path d="M8 12h.01"/><rect width="20" height="16" x="2" y="4" rx="2"/></svg>',
-  keybinding:
-    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/></svg>',
-  group:
-    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5c0-1.1.9-2 2-2h2"/><path d="M17 3h2c1.1 0 2 .9 2 2v2"/><path d="M21 17v2c0 1.1-.9 2-2 2h-2"/><path d="M7 21H5c-1.1 0-2-.9-2-2v-2"/><rect width="7" height="5" x="7" y="7" rx="1"/><rect width="7" height="5" x="10" y="12" rx="1"/></svg>',
-  board:
-    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M8 7v7"/><path d="M12 7v4"/><path d="M16 7v9"/></svg>',
-  explorer:
-    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>',
-  back: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>',
-  info: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>',
-};
+import { type Icon, icons } from '../ui/icons.ts';
 
 // An item either opens another page (`go`), picks a setting (`key` +
 // `value`, previewed while highlighted), records a keybinding (`record`)
@@ -32,7 +12,7 @@ export const ICONS = {
 // previews while highlighted, and `checked` marks the current such choice.
 export interface PaletteItem {
   label: string;
-  icon?: string;
+  icon?: Icon;
   hint?: string;
   keywords?: string;
   go?: string;
@@ -76,21 +56,21 @@ export function pages(ctx: {
           items: [
             {
               label: 'Theme…',
-              icon: ICONS.theme,
+              icon: icons.theme,
               hint: THEMES[saved.theme].name,
               keywords: 'color colour scheme dark light',
               go: 'theme',
             },
             {
               label: 'Font…',
-              icon: ICONS.font,
+              icon: icons.font,
               hint: FONTS[saved.font].name,
               keywords: 'typeface family',
               go: 'font',
             },
             {
               label: 'Font size…',
-              icon: ICONS.size,
+              icon: icons.size,
               hint: `${saved.fontSize}px`,
               keywords: 'zoom text bigger smaller',
               go: 'fontSize',
@@ -102,7 +82,7 @@ export function pages(ctx: {
           items: [
             {
               label: 'Typing sound…',
-              icon: ICONS.sound,
+              icon: icons.sound,
               hint: TYPING_SOUNDS[saved.typingSound],
               keywords: 'keyboard click clack audio mute',
               go: 'typingSound',
@@ -114,14 +94,14 @@ export function pages(ctx: {
           items: [
             {
               label: 'Toggle board',
-              icon: ICONS.board,
+              icon: icons.boardPage,
               hint: keyLabel(saved.keyToggleBoard, isMac),
               keywords: 'kanban cards tasks status overview',
               run: ctx.toggleBoard,
             },
             {
               label: 'Group tabs…',
-              icon: ICONS.group,
+              icon: icons.group,
               hint: GROUPINGS[saved.tabGrouping],
               keywords: 'tags repos projects collapse filter',
               go: 'tabGrouping',
@@ -133,7 +113,7 @@ export function pages(ctx: {
           items: [
             {
               label: 'Go back',
-              icon: ICONS.back,
+              icon: icons.back,
               hint: keyLabel(saved.keyBack, isMac),
               keywords: KEYBINDINGS.keyBack.keywords,
               disabled: !ctx.canGoBack,
@@ -146,20 +126,20 @@ export function pages(ctx: {
           items: [
             {
               label: 'Toggle file explorer',
-              icon: ICONS.explorer,
+              icon: icons.explorer,
               hint: keyLabel(saved.keyToggleExplorer, isMac),
               keywords: 'files sidebar tree folders project',
               run: ctx.toggleExplorer,
             },
             {
               label: 'Search files',
-              icon: ICONS.explorer,
+              icon: icons.explorer,
               hint: keyLabel(saved.keySearchFiles, isMac),
               keywords: 'find filter name tree explorer',
               run: ctx.searchFiles,
             },
             ...(ctx.hasFile
-              ? [{ label: 'Close file', icon: ICONS.info, keywords: 'pane editor hide', run: ctx.closeFile }]
+              ? [{ label: 'Close file', icon: icons.info, keywords: 'pane editor hide', run: ctx.closeFile }]
               : []),
           ],
         },
@@ -167,7 +147,7 @@ export function pages(ctx: {
           heading: 'Keybindings',
           items: keyIds.map((id) => ({
             label: `${KEYBINDINGS[id].name}…`,
-            icon: ICONS.keybinding,
+            icon: icons.keybinding,
             hint: keyLabel(saved[id], isMac),
             keywords: `shortcut hotkey keybinding keyboard ${KEYBINDINGS[id].keywords} ${keyLabel(saved[id], isMac, true)}`,
             go: id,
@@ -175,7 +155,7 @@ export function pages(ctx: {
         },
         {
           heading: 'Help',
-          items: [{ label: 'About tabsh', icon: ICONS.info, keywords: 'version info', run: ctx.openAbout }],
+          items: [{ label: 'About tabsh', icon: icons.info, keywords: 'version info', run: ctx.openAbout }],
         },
       ],
     }),
@@ -262,7 +242,7 @@ export function pages(ctx: {
                 items: [
                   {
                     label: 'Record shortcut…',
-                    icon: ICONS.keybinding,
+                    icon: icons.keybinding,
                     keywords: 'custom record press new other',
                     record: id,
                   },
