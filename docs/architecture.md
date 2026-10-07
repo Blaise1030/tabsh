@@ -47,6 +47,7 @@ it in `state::router()`, and add its routes to `every_route_is_guarded`.
 | Folder | Holds |
 |---|---|
 | `main.ts` | Startup only: adopt the token, wire the features, restore tabs |
+| `nav/` | `place.ts` (the place: tab, view, file, line, explorer, palette, and its query string; pure), `router.ts` (the one `navigate` handler, on the Navigation API: `go`, `here`, `onPlace` (each feature's step, run in the order tab → view → file → explorer → palette), `onLeave`, `startRouter`, `back`, `forward`) |
 | `daemon/` | `config.ts` (which daemon), `token.ts` and `parse.ts` (pairing), `client.ts` (`daemonFetch`, `api`, the connection gate) |
 | `settings/` | `catalog.ts` (themes, fonts, sounds), `keys.ts` (keybindings), `schema.ts` (`Settings`, cleanup), `settings.ts` (current values, apply, save, `onApply` and `onSaved`) |
 | `sessions/` | `store.ts` (tabs, active tab, sync), `terminal.ts` (xterm, socket), `tabs.ts` (tab strip, dragging tabs into order), `order.ts` (where a dragged tab lands), `tags.ts` (each tab's repo and tags, the tag menu), `groups.ts` (grouping the strip by repo or tag: labels, collapsing, copies of multi-tag tabs; archived cards' tabs kept out of the strip and its groups), `labels.ts` (their pure logic), `bell.ts` and `bell-scan.ts` |
@@ -63,15 +64,19 @@ The page's CSS is in `web/src/styles/app.css`. The markup is in
 
 **Rules**
 - **One-way dependencies between features:**
-  - `daemon` → `settings` → `sound`
-  - `daemon` → `files` → `links` → `sessions` → `explorer` → `palette` and `ui` → `main`
+  - `nav` → `daemon` → `settings` → `sound`
+  - `nav` → `daemon` → `files` → `links` → `sessions` → `explorer` → `palette` and `ui` → `main`
 
   A lower feature never imports a higher one:
   - `settings` tells others about changes through `onApply` and `onSaved`;
-  - `files/open.ts` gets a `Host` from `main.ts`.
+  - `files/open.ts` gets a `Host` from `main.ts`;
+  - `nav` imports no feature: features register their steps with it.
 
   Inside one folder, modules may import each other, as long as their top
   level doesn't call across.
+- **Only the router moves:** only the router changes the active tab, view,
+  file, explorer or palette; everything else calls `go()`. Back, Forward and
+  reload then walk the same places.
 - **Pure logic stays testable:** files that `node --test` loads don't touch
   the DOM when imported: `links.ts`, `files/api.ts`, `daemon/parse.ts`,
   `settings/catalog.ts`, `keys.ts`, `schema.ts`, `sessions/bell-scan.ts`,
@@ -109,6 +114,11 @@ A refactor must not change any of these.
   - Markdown and SVG render in `<iframe sandbox="">`.
   - Images and PDFs load from `blob:` URLs.
   - File content never goes through `innerHTML`.
+- **URLs select, never act:** a URL only selects what exists: it never opens
+  a tab, runs a command, sets a `cwd` or saves a file. The query string
+  holds the place; the router never reads the fragment (the token's), and
+  the daemon's app page sends `Referrer-Policy: no-referrer`
+  (`local_app_sends_no_referrer`).
 - **CSP:** `web/public/_headers` and `APP_CSP` (`web/pages.rs`) stay in step.
   Neither allows `'unsafe-inline'` scripts, so the page has no inline
   `<script>` or `on…=` attributes. Tests in `web/pages.rs` enforce both.

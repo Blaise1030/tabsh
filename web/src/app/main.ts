@@ -9,10 +9,11 @@ import { LOCAL_APP, MIXED_BLOCKED } from './daemon/config.ts';
 import { adoptToken } from './daemon/token.ts';
 import { initExplorer } from './explorer/explorer.ts';
 import { initFilePane, loadedPane, restoreFiles } from './files/open.ts';
+import { startRouter } from './nav/router.ts';
 import { initPalette } from './palette/palette.ts';
 import { initBell } from './sessions/bell.ts';
 import { initTabGroups } from './sessions/groups.ts';
-import { activate, newSession, newTabAt, savedActive, sendSize, store, sync } from './sessions/store.ts';
+import { initTabRouting, newSession, newTabAt, savedActive, sendSize, store, sync } from './sessions/store.ts';
 import { initTabStrip } from './sessions/tabs.ts';
 import { initTabLabels } from './sessions/tags.ts';
 import { FONTS, fontStack, prefersLight, THEMES } from './settings/catalog.ts';
@@ -61,6 +62,7 @@ addEventListener('beforeunload', (e) => {
   e.returnValue = ''; // older browsers
 });
 
+initTabRouting();
 initBell();
 initTabStrip();
 initTabLabels();
@@ -104,6 +106,6 @@ window.addEventListener('focus', () => {
   await sync();
   initBoardEvents();
   restoreFiles(store.sessions.map((s) => s.id));
-  if (!store.sessions.length) return newSession();
-  activate(store.sessions.find((s) => s.id === activeId) ?? store.sessions[0]);
+  if (!store.sessions.length) await newSession().catch(console.error);
+  await startRouter({ tab: (store.sessions.find((s) => s.id === activeId) ?? store.sessions[0])?.id ?? null });
 })();

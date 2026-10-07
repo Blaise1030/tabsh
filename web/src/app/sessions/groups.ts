@@ -10,7 +10,7 @@
 import { current, onApply } from '../settings/settings.ts';
 import { el } from '../ui/dom.ts';
 import { type Group, groupTabs, joinGroup, moveTag, parseCollapsed, tagColor } from './labels.ts';
-import { activate, closeSession, onActivate, type Session, store } from './store.ts';
+import { closeSession, onActivate, pick, type Session, store } from './store.ts';
 import { updateFades } from './tabs.ts';
 import { labelsOf, rootOf, setTags } from './tags.ts';
 
@@ -111,7 +111,7 @@ function copyOf(s: Session): HTMLElement {
   const m = s.tab.cloneNode(true) as HTMLElement;
   m.classList.add('mirror');
   m.classList.remove('entering', 'leaving', 'dragging');
-  m.onclick = (e) => ((e.target as Element).closest('button') ? closeSession(s) : activate(s));
+  m.onclick = (e) => ((e.target as Element).closest('button') ? closeSession(s) : pick(s));
   m.onauxclick = (e) => e.button === 1 && closeSession(s);
   m.oncontextmenu = (e) => {
     e.preventDefault();

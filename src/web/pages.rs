@@ -244,6 +244,14 @@ mod tests {
         assert!(!APP_PAGE.contains(HOSTED_DAEMON_META));
     }
 
+    /// The app's URL carries the place (tab, file path), so no request from
+    /// the page may send it on.
+    #[tokio::test]
+    async fn local_app_sends_no_referrer() {
+        let res = local_app().await;
+        assert_eq!(res.headers()[header::REFERRER_POLICY], "no-referrer");
+    }
+
     #[test]
     fn app_page_scripts_are_embedded() {
         use crate::web::assets;

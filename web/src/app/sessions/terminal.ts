@@ -6,16 +6,7 @@ import { linkProvider } from '../links/provider.ts';
 import { current, terminalOptions } from '../settings/settings.ts';
 import { ring } from './bell.ts';
 import { scanBell } from './bell-scan.ts';
-import {
-  activate,
-  closeSession,
-  removeSession,
-  type Session,
-  type SessionInfo,
-  sendSize,
-  store,
-  sync,
-} from './store.ts';
+import { closeSession, pick, removeSession, type Session, type SessionInfo, sendSize, store, sync } from './store.ts';
 import { setName } from './tabs.ts';
 import { labelTab } from './tags.ts';
 
@@ -88,7 +79,7 @@ export function openSession(info: SessionInfo): Session {
   setName(s, name, false);
   labelTab(s);
   applyCard(s, s.card);
-  tab.onclick = () => activate(s);
+  tab.onclick = () => pick(s);
   tab.onauxclick = (e) => e.button === 1 && closeSession(s); // middle-click closes
   (tab.querySelector('button') as HTMLButtonElement).onclick = (e) => {
     e.stopPropagation();

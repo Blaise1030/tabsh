@@ -1,0 +1,147 @@
+// The one place the app moves: every switch of tab, view, file, explorer or
+// palette is a same-document navigation whose query string is the place, so
+// Back, Forward and reload walk through the app. Features register a step
+// for their part of the place; everything else calls `go()`.
+import { changed, fromQuery, HOME, merge, type Place, STEPS, type Step, toQuery } from './place.ts';
+
+// A step applies its part of `to`. `initial` is true only for the place
+// applied at startup. A returned patch is a correction: the place couldn't
+// be applied as asked (say, the tab is gone), and the URL is fixed with a
+// replace once every step has run.
+export type Apply = (to: Place, from: Place, signal: AbortSignal, initial: boolean) => Fix | Promise<Fix>;
+type Fix = Partial<Place> | undefined;
+type How = 'push' | 'replace';
+type Info = { to: Place; initial?: boolean };
+
+let current: Place = HOME;
+const steps = new Map<Step, Apply>();
+const guards: ((to: Place, from: Place) => boolean)[] = [];
+// go() calls made before startRouter(); folded under its fallback and URL.
+const queue: Partial<Place>[] = [];
+let started = false;
+// The entry a push opened the palette on: leaving the palette from it
+// replaces that entry, so Back doesn't land on a closed palette.
+let paletteEntryKey: string | null = null;
+// Sent once the navigation that asked for them has finished.
+let fixes: { patch: Partial<Place>; signal: AbortSignal } | null = null;
+let refusedKey: string | null = null;
+
+export function onPlace(step: Step, apply: Apply): void {
+  steps.set(step, apply);
+}
+
+// A guard returning false refuses the move (an unsaved file, say).
+export function onLeave(guard: (to: Place, from: Place) => boolean): void {
+  guards.push(guard);
+}
+
+export function here(): Place {
+  return current;
+}
+
+// A navigation's promises reject when it is refused or overtaken; that is
+// not an error here.
+function quiet(r: NavigationResult): Promise<unknown> {
+  r.committed.catch(() => {});
+  return r.finished.catch(() => {});
+}
+
+const urlFor = (p: Place) => location.pathname + toQuery(p, new URLSearchParams(location.search));
+
+export function go(patch: Partial<Place>, how: How = 'push'): void {
+  if (!started) {
+    queue.push(patch);
+    return;
+  }
+  if (how === 'push' && current.palette && navigation.currentEntry?.key === paletteEntryKey) how = 'replace';
+  const to = merge(current, patch, how);
+  const url = urlFor(to);
+  if (url === location.pathname + location.search) return;
+  quiet(navigation.navigate(url, { history: how, info: { to } satisfies Info }));
+}
+
+export function back(): void {
+  if (navigation.canGoBack) quiet(navigation.back());
+}
+
+export function forward(): void {
+  if (navigation.canGoForward) quiet(navigation.forward());
+}
+
+// A URL typed, reloaded or walked to: its query over the empty place, keeping
+// the current tab when it names none.
+function placeOf(q: URLSearchParams): Place {
+  return merge({ ...HOME, tab: current.tab }, fromQuery(q), 'replace');
+}
+
+function onNavigate(e: NavigateEvent): void {
+  if (!e.canIntercept || e.hashChange || e.downloadRequest !== null || e.navigationType === 'reload') return;
+  const dest = new URL(e.destination.url);
+  if (dest.origin !== location.origin || dest.pathname !== location.pathname) return;
+  const info = e.info as Info | undefined;
+  const to = info?.to ?? placeOf(dest.searchParams);
+  const initial = !!info?.initial;
+  if (!initial && guards.some((guard) => !guard(to, current))) {
+    if (e.cancelable) {
+      e.preventDefault();
+      return;
+    }
+    // Back or Forward that can't be cancelled: let it land, then walk back.
+    const key = navigation.currentEntry?.key ?? null;
+    e.intercept({
+      handler: async () => {
+        refusedKey = key;
+      },
+    });
+    return;
+  }
+  e.intercept({
+    handler: async () => {
+      const from = current;
+      current = to;
+      if (e.navigationType === 'push' && !from.palette && to.palette) {
+        paletteEntryKey = navigation.currentEntry?.key ?? null;
+      }
+      const due = changed(from, to);
+      const run = initial ? STEPS.filter((s) => s === 'tab' || due.includes(s)) : due;
+      const patch: Partial<Place> = {};
+      for (const step of run) {
+        const apply = steps.get(step);
+        if (!apply || e.signal.aborted) continue;
+        try {
+          Object.assign(patch, (await apply(to, from, e.signal, initial)) ?? {});
+        } catch (err) {
+          console.error(err);
+        }
+      }
+      if (!e.signal.aborted && Object.keys(patch).length) fixes = { patch, signal: e.signal };
+    },
+  });
+}
+
+function onSuccess(): void {
+  if (refusedKey) {
+    const key = refusedKey;
+    refusedKey = null;
+    quiet(navigation.traverseTo(key));
+    return;
+  }
+  const f = fixes;
+  fixes = null;
+  if (f && !f.signal.aborted) go(f.patch, 'replace');
+}
+
+// Applies the URL over `fallback`, over any go() made before now (startup's
+// own defaults, such as sync() picking a first tab), and writes the result
+// back with a replace. With HOME as `from`, every step whose part differs
+// runs, and the tab step always does.
+export async function startRouter(fallback: Partial<Place>): Promise<void> {
+  let to = HOME;
+  for (const patch of queue.splice(0)) to = merge(to, patch, 'replace');
+  to = merge(to, fallback, 'replace');
+  to = merge(to, fromQuery(new URLSearchParams(location.search)), 'replace');
+  started = true;
+  navigation.addEventListener('navigate', onNavigate);
+  navigation.addEventListener('navigatesuccess', onSuccess);
+  await quiet(navigation.navigate(urlFor(to), { history: 'replace', info: { to, initial: true } satisfies Info }));
+}
