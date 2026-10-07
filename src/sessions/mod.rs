@@ -124,11 +124,16 @@ pub(crate) struct SessionInfo {
     pub(crate) status_at: i64,
     pub(crate) note: Option<String>,
     pub(crate) cwd: Option<String>,
+    /// A name the user chose: shell titles don't replace it.
+    pub(crate) pinned: bool,
 }
 
 #[derive(Deserialize)]
 struct Rename {
     name: String,
+    /// The name came from the shell's title, not the user: it doesn't pin.
+    #[serde(default)]
+    auto: bool,
 }
 
 #[derive(Deserialize)]
@@ -173,21 +178,19 @@ async fn create_session(
         .name
         .map(|n| n.trim().chars().take(100).collect::<String>())
         .filter(|n| !n.is_empty());
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
-    let pending = body
+    let prompt: Option<String> = body
         .prompt
         .as_deref()
-        .map(str::trim)
-        .filter(|p| !p.is_empty())
-        .map(|p| {
-            crate::board::launch_line(
-                body.command
-                    .as_deref()
-                    .unwrap_or(crate::board::DEFAULT_COMMAND),
-                p,
-                &shell,
-            )
-        });
+        .map(|p| p.replace('\0', ""))
+        .map(|p| p.trim().to_owned())
+        .filter(|p| !p.is_empty());
+    let pending = prompt.as_ref().map(|_| {
+        crate::board::launch_line(
+            body.command
+                .as_deref()
+                .unwrap_or(crate::board::DEFAULT_COMMAND),
+        )
+    });
     let card = store::NewCard {
         cwd: body.cwd.as_deref(),
         name: name.as_deref(),
@@ -197,6 +200,8 @@ async fn create_session(
             "backlog"
         },
         pending: pending.as_deref(),
+        prompt: prompt.as_deref(),
+        pinned: name.is_some(),
     };
     let db = st.db.lock().unwrap();
     store::insert_card(&db, &card)
@@ -214,8 +219,8 @@ async fn rename_session(
         return StatusCode::BAD_REQUEST;
     }
     match st.db.lock().unwrap().execute(
-        "UPDATE sessions SET name = ?1 WHERE id = ?2",
-        params![name, id],
+        "UPDATE sessions SET name = ?1, pinned = pinned OR ?2 WHERE id = ?3",
+        params![name, !body.auto, id],
     ) {
         Ok(0) => StatusCode::NOT_FOUND,
         Ok(_) => StatusCode::NO_CONTENT,
@@ -299,6 +304,18 @@ mod tests {
             .unwrap()
     }
 
+    fn prompt(st: &AppState, id: &serde_json::Value) -> Option<String> {
+        st.db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT pending_prompt FROM sessions WHERE id = ?1",
+                [id.as_str().unwrap()],
+                |r| r.get(0),
+            )
+            .unwrap()
+    }
+
     #[tokio::test]
     async fn a_card_with_a_prompt_starts_its_agent_and_is_in_progress() {
         let st = test_state();
@@ -314,8 +331,9 @@ mod tests {
         );
         assert_eq!(
             pending(&st, &body["id"]).as_deref(),
-            Some("claude 'fix it'\r")
+            Some("claude \"$TABSH_PROMPT\"\r")
         );
+        assert_eq!(prompt(&st, &body["id"]).as_deref(), Some("fix it"));
         let (_, body) = create(
             &st,
             serde_json::json!({"prompt": "hi", "command": "gemini -i {prompt}"}),
@@ -323,8 +341,58 @@ mod tests {
         .await;
         assert_eq!(
             pending(&st, &body["id"]).as_deref(),
-            Some("gemini -i 'hi'\r")
+            Some("gemini -i \"$TABSH_PROMPT\"\r")
         );
+    }
+
+    #[tokio::test]
+    async fn a_long_nasty_prompt_is_stored_verbatim_and_the_typed_line_stays_short() {
+        let st = test_state();
+        let nasty = "it's $(rm -rf ~) `x` \"q\"\nsecond line\n".repeat(150);
+        assert!(nasty.len() > 5000);
+        let (code, body) =
+            create(&st, serde_json::json!({"prompt": format!("  {nasty}\0  ")})).await;
+        assert_eq!(code, StatusCode::OK);
+        assert_eq!(prompt(&st, &body["id"]).as_deref(), Some(nasty.trim()));
+        let line = pending(&st, &body["id"]).unwrap();
+        assert_eq!(line, "claude \"$TABSH_PROMPT\"\r");
+        assert!(line.len() < 100);
+    }
+
+    #[tokio::test]
+    async fn a_named_card_is_pinned_and_a_user_rename_pins() {
+        let st = test_state();
+        let (_, named) = create(&st, serde_json::json!({"name": "Fix login"})).await;
+        assert_eq!(named["pinned"], true);
+        let (_, plain) = create(&st, serde_json::json!({})).await;
+        assert_eq!(plain["pinned"], false);
+        let id = plain["id"].as_str().unwrap();
+        let rename = |body: serde_json::Value| {
+            let req = Request::builder()
+                .method(Method::PATCH)
+                .uri(format!("/api/sessions/{id}"))
+                .header("Host", "127.0.0.1:7681")
+                .header("Authorization", "Bearer t0k3n")
+                .header("Content-Type", "application/json")
+                .body(axum::body::Body::from(body.to_string()))
+                .unwrap();
+            crate::state::router(st.clone()).oneshot(req)
+        };
+        let pinned = || -> bool {
+            st.db
+                .lock()
+                .unwrap()
+                .query_row("SELECT pinned FROM sessions WHERE id = ?1", [id], |r| {
+                    r.get(0)
+                })
+                .unwrap()
+        };
+        rename(serde_json::json!({"name": "~/code", "auto": true}))
+            .await
+            .unwrap();
+        assert!(!pinned(), "a shell title does not pin");
+        rename(serde_json::json!({"name": "Mine"})).await.unwrap();
+        assert!(pinned());
     }
 
     #[tokio::test]

@@ -22,42 +22,37 @@ use serde::{Deserialize, Serialize};
 /// The agent a new card starts when the page names none.
 pub(crate) const DEFAULT_COMMAND: &str = "claude {prompt}";
 
-/// The line typed into a new card's shell to start its agent on its first
-/// prompt. `command` is the agent's launch template; `{prompt}` becomes the
-/// prompt as one single-quoted argument (so nothing in it runs), or the
-/// prompt is appended when the template has no `{prompt}`. Quoting fits
-/// POSIX shells and fish (where a backslash escapes inside single quotes).
-/// All on one line (a newline would submit early) and free of control
-/// characters (which the PTY would take as keystrokes), then Enter.
-pub(crate) fn launch_line(command: &str, prompt: &str, shell: &str) -> String {
-    let one_line = |t: &str| {
-        let spaced: String = t
-            .chars()
-            .map(|c| if c.is_whitespace() { ' ' } else { c })
-            .filter(|c| !c.is_control())
-            .collect();
-        spaced.split_whitespace().collect::<Vec<_>>().join(" ")
-    };
-    let command = match one_line(command) {
-        c if c.is_empty() => DEFAULT_COMMAND.to_owned(),
-        c => c,
-    };
-    let fish = std::path::Path::new(shell)
-        .file_name()
-        .is_some_and(|n| n == "fish");
-    let prompt = one_line(prompt);
-    let quoted = if fish {
-        format!("'{}'", prompt.replace('\\', r"\\").replace('\'', r"\'"))
+/// The short line typed into a new card's shell to start its agent. The
+/// prompt itself travels in the shell's environment as `TABSH_PROMPT` (a PTY
+/// in canonical mode cuts a typed line at 1024 bytes on macOS), so `command`
+/// (the agent's launch template) gets `"$TABSH_PROMPT"` where `{prompt}` is,
+/// or appended when it has none. That double-quoted expansion is one literal
+/// argument in POSIX shells and fish alike. All on one line (a newline would
+/// submit early) and free of control characters (which the PTY would take as
+/// keystrokes), then Enter.
+pub(crate) fn launch_line(command: &str) -> String {
+    let command: String = command
+        .chars()
+        .map(|c| if c.is_whitespace() { ' ' } else { c })
+        .filter(|c| !c.is_control())
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let command = if command.is_empty() {
+        DEFAULT_COMMAND.to_owned()
     } else {
-        format!("'{}'", prompt.replace('\'', r"'\''"))
+        command
     };
     let line = if command.contains("{prompt}") {
-        command.replace("{prompt}", &quoted)
+        command.replace("{prompt}", PROMPT_ARG)
     } else {
-        format!("{command} {quoted}")
+        format!("{command} {PROMPT_ARG}")
     };
     format!("{line}\r")
 }
+
+const PROMPT_ARG: &str = "\"$TABSH_PROMPT\"";
 
 /// A card's status changed; sent to every open page.
 #[derive(Serialize, Clone, Debug)]
@@ -169,6 +164,14 @@ pub(crate) fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         (
             "pending_input",
             "ALTER TABLE sessions ADD COLUMN pending_input TEXT",
+        ),
+        (
+            "pending_prompt",
+            "ALTER TABLE sessions ADD COLUMN pending_prompt TEXT",
+        ),
+        (
+            "pinned",
+            "ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
         ),
     ] {
         if !cols.iter().any(|c| c == name) {
@@ -313,67 +316,37 @@ mod tests {
     }
 
     #[test]
-    fn launch_line_passes_the_prompt_as_one_literal_argument() {
-        let c = DEFAULT_COMMAND;
+    fn launch_line_is_short_and_reads_the_prompt_from_the_environment() {
+        assert_eq!(launch_line(DEFAULT_COMMAND), "claude \"$TABSH_PROMPT\"\r");
         assert_eq!(
-            launch_line(c, "fix the login", "/bin/zsh"),
-            "claude 'fix the login'\r"
+            launch_line("gemini -i {prompt}"),
+            "gemini -i \"$TABSH_PROMPT\"\r"
         );
         assert_eq!(
-            launch_line(c, "it's $(rm -rf ~) `x`", "/bin/zsh"),
-            "claude 'it'\\''s $(rm -rf ~) `x`'\r"
-        );
-        assert_eq!(
-            launch_line(c, "one\ntwo\r\n  three\t", "/bin/zsh"),
-            "claude 'one two three'\r"
-        );
-    }
-
-    #[test]
-    fn launch_line_fits_any_agent() {
-        assert_eq!(
-            launch_line("gemini -i {prompt}", "hi", "/bin/zsh"),
-            "gemini -i 'hi'\r"
-        );
-        assert_eq!(
-            launch_line("codex", "hi", "/bin/zsh"),
-            "codex 'hi'\r",
+            launch_line("codex"),
+            "codex \"$TABSH_PROMPT\"\r",
             "appended when there's no {{prompt}}"
         );
         assert_eq!(
-            launch_line("  ", "hi", "/bin/zsh"),
-            "claude 'hi'\r",
+            launch_line("  "),
+            "claude \"$TABSH_PROMPT\"\r",
             "blank means the default"
         );
         assert_eq!(
-            launch_line("a {prompt} b {prompt}", "x", "/bin/zsh"),
-            "a 'x' b 'x'\r"
-        );
-        assert_eq!(
-            launch_line("claude\n--x {prompt}", "x", "/bin/zsh"),
-            "claude --x 'x'\r",
-            "one line only"
+            launch_line("a {prompt} b {prompt}"),
+            "a \"$TABSH_PROMPT\" b \"$TABSH_PROMPT\"\r"
         );
     }
 
     #[test]
-    fn launch_line_quotes_for_fish() {
-        let fish = "/usr/local/bin/fish";
+    fn launch_line_drops_control_characters_and_newlines() {
         assert_eq!(
-            launch_line(DEFAULT_COMMAND, r"it's \ x", fish),
-            r"claude 'it\'s \\ x'".to_owned() + "\r"
+            launch_line("claude\n--x {prompt}"),
+            "claude --x \"$TABSH_PROMPT\"\r"
         );
         assert_eq!(
-            launch_line(DEFAULT_COMMAND, r"\' ; rm -rf ~ ; '", fish),
-            r"claude '\\\' ; rm -rf ~ ; \''".to_owned() + "\r"
-        );
-    }
-
-    #[test]
-    fn launch_line_drops_control_characters() {
-        assert_eq!(
-            launch_line(DEFAULT_COMMAND, "\u{1b}[A\u{3}hi\u{7f}", "/bin/zsh"),
-            "claude '[Ahi'\r"
+            launch_line("\u{1b}[A\u{3}claude\u{7f} {prompt}"),
+            "[Aclaude \"$TABSH_PROMPT\"\r"
         );
     }
 }

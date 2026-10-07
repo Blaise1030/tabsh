@@ -42,20 +42,33 @@ pub(super) struct Parsed {
     pub(super) note: Option<String>,
     pub(super) unless: Option<String>,
     pub(super) hook: bool,
+    /// Under `--hook`, one trailing argument some agents pass their event
+    /// JSON in (instead of stdin).
+    pub(super) payload: Option<String>,
 }
 
 pub(super) fn parse(args: &[String]) -> Result<Parsed, String> {
     let mut it = args.iter();
     let (mut status, mut note, mut unless, mut hook) = (None, None, None, false);
+    let mut extra: Vec<&String> = Vec::new();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--hook" => hook = true,
             "--note" => note = Some(it.next().ok_or("--note needs a value")?.clone()),
             "--if-not" => unless = Some(it.next().ok_or("--if-not needs a status")?.clone()),
             s if !s.starts_with("--") && status.is_none() => status = Some(s.to_owned()),
+            _ if status.is_some() && extra.is_empty() => extra.push(a),
             other => return Err(format!("unexpected argument '{other}'")),
         }
     }
+    // `a` above also takes flags like `--bogus` after the status; only hook mode
+    // may carry one extra argument, and it can't look like a flag.
+    if let Some(a) = extra.first()
+        && (!hook || a.starts_with("--"))
+    {
+        return Err(format!("unexpected argument '{a}'"));
+    }
+    let payload = extra.first().map(|a| (*a).clone());
     let status =
         status.ok_or("which status? backlog, in_progress, needs_input, completed or archived")?;
     for s in [Some(&status), unless.as_ref()].into_iter().flatten() {
@@ -71,6 +84,7 @@ pub(super) fn parse(args: &[String]) -> Result<Parsed, String> {
         note,
         unless,
         hook,
+        payload,
     })
 }
 
@@ -79,7 +93,11 @@ pub(super) fn parse(args: &[String]) -> Result<Parsed, String> {
 pub(super) fn hook_message(stdin: &mut dyn Read) -> Option<String> {
     let mut buf = Vec::new();
     stdin.take(64 * 1024).read_to_end(&mut buf).ok()?;
-    let v: serde_json::Value = serde_json::from_slice(&buf).ok()?;
+    message_of(&buf)
+}
+
+fn message_of(json: impl AsRef<[u8]>) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_slice(json.as_ref()).ok()?;
     v.get("message")?.as_str().map(String::from)
 }
 
@@ -104,9 +122,15 @@ fn set(args: &[String], env: &Env, stdin: &mut dyn Read) -> Result<(), String> {
     if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
         return Err(format!("odd TABSH_SESSION_ID '{id}'"));
     }
-    let note = p
-        .note
-        .or_else(|| if p.hook { hook_message(stdin) } else { None });
+    let note = p.note.or_else(|| {
+        if !p.hook {
+            return None;
+        }
+        p.payload
+            .as_deref()
+            .and_then(message_of)
+            .or_else(|| hook_message(stdin))
+    });
     let body = serde_json::json!({ "status": p.status, "note": note, "source": "hook", "unless": p.unless }).to_string();
     match patch(&env.url, env.token.as_deref(), id, &body)? {
         200 => Ok(()),
@@ -247,6 +271,23 @@ mod tests {
         );
         assert_eq!(hook_message(&mut &br#"{"prompt":"hi"}"#[..]), None);
         assert_eq!(hook_message(&mut &b"not json"[..]), None);
+    }
+
+    #[test]
+    fn hook_mode_takes_one_trailing_payload_argument() {
+        let a = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let p = parse(&a(&["completed", "--hook", r#"{"message":"hi"}"#])).unwrap();
+        assert_eq!(p.payload.as_deref(), Some(r#"{"message":"hi"}"#));
+        assert!(p.hook);
+        assert!(parse(&a(&["completed", "--hook", "x", "y"])).is_err());
+        assert!(parse(&a(&["completed", "--hook", "--bogus"])).is_err());
+        assert!(
+            parse(&a(&["completed", r#"{"message":"hi"}"#])).is_err(),
+            "without --hook an extra positional stays an error"
+        );
+        assert_eq!(message_of(r#"{"message":"hi"}"#).as_deref(), Some("hi"));
+        assert_eq!(message_of("nope"), None);
+        assert_eq!(message_of(r#"{"message":3}"#), None);
     }
 
     #[tokio::test(flavor = "multi_thread")]

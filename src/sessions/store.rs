@@ -64,7 +64,7 @@ pub(crate) fn flush(state: &AppState) {
 }
 
 /// The columns `SessionInfo` is read from, in `info_row`'s order.
-pub(crate) const INFO_COLUMNS: &str = "id, name, status, status_at, note, cwd";
+pub(crate) const INFO_COLUMNS: &str = "id, name, status, status_at, note, cwd, pinned";
 
 pub(super) fn info_row(r: &rusqlite::Row) -> rusqlite::Result<SessionInfo> {
     Ok(SessionInfo {
@@ -74,6 +74,7 @@ pub(super) fn info_row(r: &rusqlite::Row) -> rusqlite::Result<SessionInfo> {
         status_at: r.get(3)?,
         note: r.get(4)?,
         cwd: r.get(5)?,
+        pinned: r.get(6)?,
     })
 }
 
@@ -96,6 +97,10 @@ pub(crate) struct NewCard<'a> {
     pub(crate) status: &'a str,
     /// Typed into the shell once it starts.
     pub(crate) pending: Option<&'a str>,
+    /// Handed to that shell as `TABSH_PROMPT`.
+    pub(crate) prompt: Option<&'a str>,
+    /// The name was chosen by the user: shell titles don't replace it.
+    pub(crate) pinned: bool,
 }
 
 impl Default for NewCard<'_> {
@@ -105,6 +110,8 @@ impl Default for NewCard<'_> {
             name: None,
             status: "backlog",
             pending: None,
+            prompt: None,
+            pinned: false,
         }
     }
 }
@@ -145,9 +152,9 @@ pub(crate) fn insert_card(db: &Connection, card: &NewCard) -> rusqlite::Result<S
         }
     };
     db.execute(
-        "INSERT INTO sessions (id, name, position, cwd, status, status_at, pending_input)
-         VALUES (?1, ?2, (SELECT COALESCE(MAX(position), 0) + 1 FROM sessions), ?3, ?4, unixepoch(), ?5)",
-        params![id, name, card.cwd, card.status, card.pending],
+        "INSERT INTO sessions (id, name, position, cwd, status, status_at, pending_input, pending_prompt, pinned)
+         VALUES (?1, ?2, (SELECT COALESCE(MAX(position), 0) + 1 FROM sessions), ?3, ?4, unixepoch(), ?5, ?6, ?7)",
+        params![id, name, card.cwd, card.status, card.pending, card.prompt, card.pinned],
     )?;
     Ok(info(db, &id)?.expect("just inserted"))
 }
@@ -227,6 +234,8 @@ mod tests {
                 name: Some("Fix login"),
                 status: "in_progress",
                 pending: Some("claude 'x'\r"),
+                prompt: None,
+                pinned: false,
             },
         )
         .unwrap();

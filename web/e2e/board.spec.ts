@@ -46,6 +46,33 @@ test('cards move through the board', async ({ page, daemon, project }) => {
 
   await card(page, 'Fix login').dragTo(col(page, 'completed').locator('.board-cards'));
   await expect(col(page, 'completed').locator('.board-card').filter({ hasText: 'Fix login' })).toBeVisible();
+
+  // Dropping a card on the Archive section archives it.
+  await card(page, 'Fix login').dragTo(page.locator('.board-col.archive'));
+  await expect(col(page, 'completed').locator('.board-card')).toHaveCount(0);
+  const toggle = page.locator('.archive-toggle');
+  await expect(toggle).toContainText('Archive 1');
+  await toggle.click();
+  await expect(page.locator('.board-col.archive .board-card').filter({ hasText: 'Fix login' })).toBeVisible();
+});
+
+test('a completed card has an Archive button', async ({ page, daemon, project }) => {
+  await openApp(page, daemon);
+  await page.locator('#board-btn').click();
+  await col(page, 'backlog').locator('header .btn').click();
+  await page.locator('#new-card input[name="name"]').fill('Ship it');
+  await page.locator('#new-card input[name="cwd"]').fill(project);
+  await page.locator('#new-card button[type="submit"]').click();
+  await page.locator('#board-btn').click();
+  const id = await card(page, 'Ship it').getAttribute('data-id');
+  await page.request.patch(`${daemon.baseUrl}/api/sessions/${id}/status`, {
+    headers: { Authorization: `Bearer ${daemon.token}` },
+    data: { status: 'completed', source: 'user' },
+  });
+  await expect(col(page, 'completed').locator('.board-card').filter({ hasText: 'Ship it' })).toBeVisible();
+  await card(page, 'Ship it').getByRole('button', { name: 'Archive' }).click();
+  await expect(col(page, 'completed').locator('.board-card')).toHaveCount(0);
+  await expect(page.locator('.archive-toggle')).toContainText('Archive 1');
 });
 
 test('a card name with markup is shown as text', async ({ page, daemon }) => {

@@ -64,6 +64,17 @@ function cardEl(s: Session, now: number): HTMLElement {
     activate(s);
   };
   card.onkeydown = (e) => e.target === card && e.key === 'Enter' && card.click();
+  if (s.card.status === 'completed') {
+    const arch = el('button', { type: 'button', className: 'btn', textContent: 'Archive' });
+    arch.dataset.variant = 'ghost';
+    arch.dataset.size = 'sm';
+    arch.onclick = (e) => {
+      e.stopPropagation();
+      void setStatus(s, 'archived');
+    };
+    arch.onkeydown = (e) => e.stopPropagation(); // Enter/Space on the button must not open the card
+    card.append(el('div', { className: 'card-actions' }, arch));
+  }
   card.ondragstart = (e) => {
     e.dataTransfer?.setData('text/plain', s.id);
     card.classList.add('dragging');
@@ -144,6 +155,19 @@ function archive(cards: Session[], now: number): HTMLElement {
     render();
   };
   const col = el('section', { className: 'board-col archive' }, toggle);
+  col.dataset.status = 'archived';
+  col.ondragover = (e) => {
+    e.preventDefault();
+    clearDropMarks();
+    col.classList.add('drop-end');
+  };
+  col.ondragleave = (e) => !col.contains(e.relatedTarget as Node) && clearDropMarks();
+  col.ondrop = (e) => {
+    e.preventDefault();
+    clearDropMarks();
+    const id = e.dataTransfer?.getData('text/plain');
+    if (id) void move(id, 'archived', null);
+  };
   if (archiveOpen) {
     for (const s of cards) {
       const restore = el('button', { type: 'button', className: 'btn', textContent: 'Restore' });

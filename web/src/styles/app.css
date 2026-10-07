@@ -329,6 +329,7 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .card-actions { display: flex; gap: .25rem; }
 .status-glyph { display: inline-flex; flex-shrink: 0; color: var(--muted-foreground); }
 .status-glyph[data-status="needs_input"] { color: var(--needs-input); }
+.board-col.archive.drop-end { box-shadow: inset 0 0 0 1px var(--muted-foreground); border-radius: var(--radius, .5rem); }
 .board-col.archive { flex: 0 0 auto; min-width: 8rem; }
 .board-col.archive:has(.board-card) { flex-basis: 18rem; }
 .archive-toggle { align-self: flex-start; background: none; border: 0; color: var(--muted-foreground); font: inherit; font-size: .8125rem; padding: .25rem; cursor: pointer; }

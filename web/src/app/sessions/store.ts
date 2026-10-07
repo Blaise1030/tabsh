@@ -24,6 +24,8 @@ export interface Session {
   esc: number;
   bell: boolean;
   card: Card;
+  // A name the user chose: the shell's title doesn't replace it.
+  pinned: boolean;
 }
 export interface SessionInfo {
   id: string;
@@ -32,6 +34,7 @@ export interface SessionInfo {
   status_at: number;
   note: string | null;
   cwd: string | null;
+  pinned: boolean;
 }
 
 const activateListeners: (() => void)[] = [];
@@ -95,6 +98,7 @@ export async function sync(): Promise<void> {
   for (const info of list) {
     const s = store.sessions.find((s) => s.id === info.id);
     if (s) {
+      s.pinned = info.pinned;
       setName(s, info.name, false);
       applyCard(s, cardOf(info));
     } else openSession(info);

@@ -57,13 +57,22 @@ pub(super) fn process_cwd(_pid: u32) -> Option<String> {
 }
 
 /// What every shell gets in its environment: hooks and `tabsh status` read
-/// `TABSH_SESSION_ID` to know which card they belong to.
-pub(super) fn shell_env(st: &AppState, id: &str) -> Vec<(&'static str, String)> {
-    vec![
+/// `TABSH_SESSION_ID` to know which card they belong to. A new card's first
+/// prompt rides along as `TABSH_PROMPT` (the typed line only names it).
+pub(super) fn shell_env(
+    st: &AppState,
+    id: &str,
+    prompt: Option<&str>,
+) -> Vec<(&'static str, String)> {
+    let mut env = vec![
         ("TERM", "xterm-256color".into()),
         ("TABSH_SESSION_ID", id.into()),
         ("TABSH_URL", st.self_url.to_string()),
-    ]
+    ];
+    if let Some(p) = prompt {
+        env.push(("TABSH_PROMPT", p.into()));
+    }
+    env
 }
 
 /// Return the running shell for `id`, starting it (in its saved cwd, with its
@@ -78,26 +87,33 @@ pub(super) fn get_or_spawn(st: &AppState, id: &str) -> Result<Option<Arc<Session
         .lock()
         .unwrap()
         .query_row(
-            "SELECT cwd, scrollback, pending_input FROM sessions WHERE id = ?1",
+            "SELECT cwd, scrollback, pending_input, pending_prompt FROM sessions WHERE id = ?1",
             params![id],
             |r| {
                 Ok((
                     r.get::<_, Option<String>>(0)?,
                     r.get::<_, Vec<u8>>(1)?,
                     r.get::<_, Option<String>>(2)?,
+                    r.get::<_, Option<String>>(3)?,
                 ))
             },
         )
         .optional()?;
-    let Some((cwd, scrollback, pending)) = row else {
+    let Some((cwd, scrollback, pending, prompt)) = row else {
         return Ok(None);
     };
-    let session = spawn_session(st.clone(), id.to_owned(), cwd, scrollback)?;
+    let session = spawn_session(
+        st.clone(),
+        id.to_owned(),
+        cwd,
+        scrollback,
+        prompt.as_deref(),
+    )?;
     // The PTY buffers it until the shell reads its first line, so this is
     // safe to send before the prompt is drawn.
     if let Some(line) = pending {
         if let Err(e) = st.db.lock().unwrap().execute(
-            "UPDATE sessions SET pending_input = NULL WHERE id = ?1",
+            "UPDATE sessions SET pending_input = NULL, pending_prompt = NULL WHERE id = ?1",
             params![id],
         ) {
             eprintln!("failed to clear pending input of {id}: {e}");
@@ -113,6 +129,7 @@ fn spawn_session(
     id: String,
     cwd: Option<String>,
     saved: Vec<u8>,
+    prompt: Option<&str>,
 ) -> Result<Arc<Session>, BoxError> {
     let pair = native_pty_system().openpty(PtySize {
         rows: 24,
@@ -124,7 +141,7 @@ fn spawn_session(
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
     let mut cmd = CommandBuilder::new(shell);
     cmd.arg("-l");
-    for (k, v) in shell_env(&st, &id) {
+    for (k, v) in shell_env(&st, &id, prompt) {
         cmd.env(k, v);
     }
     let dir = cwd
@@ -214,9 +231,18 @@ mod tests {
     #[test]
     fn shells_know_their_card_and_the_daemon() {
         let st = test_state();
-        let env = shell_env(&st, "abc-1");
+        let env = shell_env(&st, "abc-1", None);
+        assert!(!env.iter().any(|(k, _)| *k == "TABSH_PROMPT"));
         assert!(env.contains(&("TERM", "xterm-256color".into())));
         assert!(env.contains(&("TABSH_SESSION_ID", "abc-1".into())));
         assert!(env.contains(&("TABSH_URL", "http://127.0.0.1:7681".into())));
+    }
+
+    #[test]
+    fn a_pending_prompt_reaches_the_shell_verbatim() {
+        let st = test_state();
+        let p = "it's $(x) `y`\n\"z\"";
+        let env = shell_env(&st, "abc-1", Some(p));
+        assert!(env.contains(&("TABSH_PROMPT", p.into())));
     }
 }

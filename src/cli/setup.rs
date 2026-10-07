@@ -30,7 +30,9 @@ mod tests {
         assert!(!g.contains("{tabsh}"));
         assert!(g.contains("'/opt/my tabsh/tabsh' status in_progress --hook"));
         assert!(g.contains("'/opt/my tabsh/tabsh' status needs_input --hook --if-not completed"));
-        assert!(g.contains("status needs_input --hook --if-not completed --note 'Agent finished its turn'"));
+        assert!(g.contains(
+            "status needs_input --hook --if-not completed --note 'Agent finished its turn'"
+        ));
         assert!(g.contains("status completed --note '<one line: what you did>'"));
 
         // Test that paths with single quotes are escaped correctly for shell
@@ -40,9 +42,15 @@ mod tests {
         // Keywords must be present (case-insensitive except for TABSH_SESSION_ID)
         let g_lower = g.to_lowercase();
         for must_lower in ["back up", "merge", "undo"] {
-            assert!(g_lower.contains(must_lower), "guide must mention {must_lower}");
+            assert!(
+                g_lower.contains(must_lower),
+                "guide must mention {must_lower}"
+            );
         }
         // TABSH_SESSION_ID must be exact case
-        assert!(g.contains("TABSH_SESSION_ID"), "guide must mention TABSH_SESSION_ID");
+        assert!(
+            g.contains("TABSH_SESSION_ID"),
+            "guide must mention TABSH_SESSION_ID"
+        );
     }
 }

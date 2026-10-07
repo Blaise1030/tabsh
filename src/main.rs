@@ -72,13 +72,7 @@ async fn daemon() {
         };
         format!("{origin}/app/{daemon}").into()
     });
-    // Shells reach us on loopback even when we listen on every interface.
-    let self_host = if host == "0.0.0.0" || host == "::" {
-        "127.0.0.1"
-    } else {
-        host.as_str()
-    };
-    let self_url = format!("http://{self_host}:{port}");
+    let self_url = self_url(&host, &port);
     let state = AppState {
         db: Arc::new(Mutex::new(db)),
         live: Default::default(),
@@ -141,5 +135,33 @@ async fn shutdown_signal() {
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {}
         _ = term.recv() => {}
+    }
+}
+
+/// Where shells (and `tabsh status`) reach the daemon: loopback when it
+/// listens on every interface, and IPv6 literals in brackets.
+fn self_url(host: &str, port: &str) -> String {
+    let host = match host {
+        "0.0.0.0" | "::" => "127.0.0.1",
+        h => h,
+    };
+    if host.contains(':') && !host.starts_with('[') {
+        format!("http://[{host}]:{port}")
+    } else {
+        format!("http://{host}:{port}")
+    }
+}
+
+#[cfg(test)]
+mod self_url_tests {
+    use super::self_url;
+
+    #[test]
+    fn shells_reach_the_daemon_on_loopback() {
+        assert_eq!(self_url("127.0.0.1", "7681"), "http://127.0.0.1:7681");
+        assert_eq!(self_url("0.0.0.0", "7681"), "http://127.0.0.1:7681");
+        assert_eq!(self_url("::", "7681"), "http://127.0.0.1:7681");
+        assert_eq!(self_url("::1", "7681"), "http://[::1]:7681");
+        assert_eq!(self_url("example.test", "1"), "http://example.test:1");
     }
 }

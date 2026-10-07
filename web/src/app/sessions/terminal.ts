@@ -81,6 +81,7 @@ export function openSession(info: SessionInfo): Session {
     esc: 0,
     bell: false,
     card: cardOf(info),
+    pinned: info.pinned,
   };
   store.sessions.push(s);
   setName(s, name, false);
@@ -94,7 +95,7 @@ export function openSession(info: SessionInfo): Session {
   };
 
   term.onData((d) => s.ws?.readyState === WebSocket.OPEN && s.ws.send(enc.encode(d)));
-  term.onTitleChange((t) => t && setName(s, t));
+  term.onTitleChange((t) => t && !s.pinned && setName(s, t));
   connect(s);
   return s;
 }

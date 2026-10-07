@@ -2,6 +2,7 @@
 // prompt and the agent command to start on it (recent ones offered). With a
 // prompt the terminal starts that agent and the card is In progress; without
 // one it's a plain shell in the column it came from.
+import { ApiError } from '../daemon/client.ts';
 import { openTab, store } from '../sessions/store.ts';
 import { current, saveSetting } from '../settings/settings.ts';
 import { el } from '../ui/dom.ts';
@@ -51,8 +52,10 @@ export function initNewCard(): void {
     const command = String(data.get('command') ?? '').trim() || DEFAULT_COMMAND;
     try {
       await openTab({ name, ...(cwd && { cwd }), ...(prompt && { prompt, command }) });
-    } catch {
-      error.textContent = cwd ? `No folder at ${cwd}` : "Couldn't create the card";
+    } catch (err) {
+      // The daemon answers 400 for a folder that isn't there.
+      const badFolder = err instanceof ApiError && err.status === 400 && cwd;
+      error.textContent = badFolder ? `No folder at ${cwd}` : "Couldn't create the card";
       error.hidden = false;
       return;
     }
