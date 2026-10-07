@@ -3,7 +3,6 @@
 // shows its tags' colors, and the strip groups tabs by either (groups.ts).
 import { daemonFetch } from '../daemon/client.ts';
 import { el } from '../ui/dom.ts';
-import { layout } from './groups.ts';
 import { cleanTag, type Labels, parseTags, repoName, tagColor, toggleTag } from './labels.ts';
 import { onActivate, type Session, store } from './store.ts';
 
@@ -34,7 +33,6 @@ export const labelsOf = (s: Session): Labels => ({ repo: s.repo.val, tags: s.tag
 // Its tags, as stored, reach its tab (and its groups).
 function render(s: Session): void {
   s.tags.val = storedTags()[s.id] ?? [];
-  layout();
 }
 
 // The project root of a tab's shell, once read.
@@ -49,7 +47,6 @@ async function refreshRepo(s: Session): Promise<void> {
     roots.set(s.id, root);
     if (s.repo.val === name) return;
     s.repo.val = name;
-    layout();
   } catch {}
 }
 

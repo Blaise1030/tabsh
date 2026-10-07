@@ -2,7 +2,6 @@
 // strip, a bell when a card starts needing you, and listeners (the board).
 import { api } from '../daemon/client.ts';
 import { ring } from '../sessions/bell.ts';
-import { layout } from '../sessions/groups.ts';
 import type { Session, SessionInfo } from '../sessions/store.ts';
 import { asStatus, type Card, type Status } from './model.ts';
 
@@ -24,9 +23,7 @@ export const cardOf = (info: SessionInfo): Card => ({
 // The tab's glyph, its title and `.archived` follow `s.card` (tab.ts).
 export function applyCard(s: Session, card: Card): void {
   const before = s.card.val.status;
-  s.card.val = card;
-  // In or out of the strip and its groups.
-  if ((before === 'archived') !== (card.status === 'archived')) layout();
+  s.card.val = card; // an archived one leaves the strip and its groups
   if (before !== 'needs_input' && card.status === 'needs_input') ring(s);
   cardsChanged();
 }

@@ -1,6 +1,7 @@
 // The page: the dialogs, the tab bar, the workspace under it and the drop
 // glow. Features find their parts by id once this is mounted.
 import van from 'vanjs-core';
+import { grouping, TabStrip } from '../sessions/groups.ts';
 import { noTab } from '../sessions/store.ts';
 import { Gate } from './gate.ts';
 import { type Icon, icons } from './icons.ts';
@@ -88,7 +89,7 @@ function NewCard(): HTMLElement {
 }
 
 // A ghost icon button in the tab bar.
-const barButton = (icon: Icon, props: Record<string, string>) =>
+const barButton = (icon: Icon, props: Record<string, string | (() => string)>) =>
   button({ type: 'button', class: 'btn', 'data-variant': 'ghost', 'data-size': 'icon-sm', ...props }, icon());
 
 // The tab bar spans the page: a tab owns the sidebar, terminal and file pane under it.
@@ -102,13 +103,14 @@ function TabBar(): HTMLElement {
       id: 'explorer-btn',
       'aria-pressed': 'false',
     }),
-    div({ id: 'tabs', role: 'tablist', 'aria-label': 'Terminals' }),
+    TabStrip(),
     barButton(icons.plus, { 'aria-label': 'New terminal', title: 'New terminal', 'data-new-session': '' }),
     barButton(icons.group, {
       'aria-label': 'Group tabs by repo or tag',
       title: 'Group tabs',
       id: 'tab-group-btn',
-      'aria-pressed': 'false',
+      // Grouping is on: the button stays lit.
+      'aria-pressed': () => String(grouping.val !== 'none'),
     }),
     barButton(icons.settings, { class: 'btn settings-btn', 'aria-label': 'Settings', id: 'settings-btn' }),
   );

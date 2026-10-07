@@ -9,8 +9,7 @@ import { api } from '../daemon/client.ts';
 import { loadedPane } from '../files/open.ts';
 import { go, onPlace } from '../nav/router.ts';
 import { clearBell, updateBadge } from './bell.ts';
-import { layout, newTabGroup, shownSessions, stepTab } from './groups.ts';
-import { tabOf } from './tab.ts';
+import { newTabGroup, scrollToTab, shownSessions, stepTab } from './groups.ts';
 import { orderTabs, setName } from './tabs.ts';
 import { adoptTag } from './tags.ts';
 import { openSession } from './terminal.ts';
@@ -154,11 +153,12 @@ export function activate(s: Session | null): void {
   if (s) {
     s.unread.val = false;
     if (!document.hidden) clearBell(s);
-    tabOf(s).scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    // Its terminal shows once VanJS applies `active`, in a microtask queued
-    // before this one: fit and focus it then.
+    // Its terminal (and a new tab) shows once VanJS applies the states, in a
+    // microtask queued before this one: scroll to its tab, fit and focus it
+    // then.
     queueMicrotask(() => {
       if (active.val !== s) return;
+      scrollToTab(s);
       sendSize(s);
       s.term.focus();
     });
@@ -200,8 +200,7 @@ export function removeSession(s: Session): void {
   s.leaving.val = true;
   const i = store.sessions.indexOf(s);
   const sessions = store.sessions.filter((t) => t !== s);
-  setSessions(sessions);
-  layout(); // drops its copies, and a group it was alone in
+  setSessions(sessions); // its copies, and a group it was alone in, go too
   if (store.active === s) {
     active.val = null;
     // The next shown tab after it, else the last shown one before it.

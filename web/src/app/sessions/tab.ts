@@ -6,7 +6,6 @@ import van from 'vanjs-core';
 import { STATUS_NAMES } from '../board/glyph.ts';
 import type { Card } from '../board/model.ts';
 import { glyph, icons } from '../ui/icons.ts';
-import { scoped } from '../ui/keyed.ts';
 import { tagBar } from './labels.ts';
 import { active, closeSession, pick, type Session } from './store.ts';
 import { openTagMenu } from './tags.ts';
@@ -17,7 +16,6 @@ const statusTitle = (card: Card): string =>
   card.note ? `${STATUS_NAMES[card.status]}: ${card.note}` : STATUS_NAMES[card.status];
 
 const tabSessions = new WeakMap<Element, Session>(); // a tab or copy → its session
-const tabs = new WeakMap<Session, HTMLElement>(); // a session → its tab
 
 export function Tab(s: Session, opts: { group?: string; copy?: boolean } = {}): HTMLElement {
   // Only a change of status redraws the glyph (a new note doesn't).
@@ -84,17 +82,6 @@ export function Tab(s: Session, opts: { group?: string; copy?: boolean } = {}): 
     t.removeEventListener('transitionend', grown);
     if (active.val === s) t.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   });
-  return t;
-}
-
-// A session's tab, made on first use. The grouped strip (groups.ts) moves
-// these same nodes into its groups. Its derives go once it leaves the page.
-export function tabOf(s: Session): HTMLElement {
-  let t = tabs.get(s);
-  if (!t) {
-    t = scoped(() => Tab(s));
-    tabs.set(s, t);
-  }
   return t;
 }
 

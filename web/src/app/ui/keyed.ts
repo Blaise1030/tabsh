@@ -4,7 +4,7 @@ import van from 'vanjs-core';
 
 // What keyed() needs of a parent element.
 // biome-ignore lint/suspicious/noExplicitAny: nodes and refs are Elements or a test's fakes
-export type ParentLike = { insertBefore(node: any, ref: any): unknown; firstElementChild: any };
+type Parent = { insertBefore(node: any, ref: any): unknown; firstElementChild: any };
 
 // Makes a node with `make` in a VanJS binding scope, so the derives made
 // for it (its bindings' too) belong to it: VanJS drops them once the node
@@ -30,7 +30,7 @@ export function scoped<N extends Element>(make: () => N): N {
 // the states it reads change. Call `keyed` once per long-lived parent; the
 // parent holds only the list (or trailing extras).
 export function keyed<T>(
-  parent: ParentLike,
+  parent: Parent,
   items: () => T[],
   key: (t: T) => string,
   render: (t: T) => Element,

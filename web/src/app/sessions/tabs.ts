@@ -1,12 +1,10 @@
 // The tab strip: tab names, sideways wheel scrolling, edge fades, and
 // dragging tabs into a new order.
 import { api } from '../daemon/client.ts';
-import { keyed } from '../ui/keyed.ts';
 import { updateBadge } from './bell.ts';
-import { canMove, layout, moveToGroup, sessionOf } from './groups.ts';
+import { canMove, moveToGroup, sessionOf, settleTabs } from './groups.ts';
 import { dropIndex, inOrder } from './order.ts';
-import { type Session, sessionList, setSessions, store } from './store.ts';
-import { tabOf } from './tab.ts';
+import { type Session, setSessions, store } from './store.ts';
 
 const strip = () => document.getElementById('tabs') as HTMLElement;
 
@@ -31,7 +29,6 @@ export function orderTabs(ids: string[]): void {
   const sorted = inOrder(store.sessions, ids);
   if (sorted.every((s, i) => s === store.sessions[i])) return;
   setSessions(sorted);
-  layout();
 }
 
 // Slides each tab from where it was drawn (`before`) to where it now is.
@@ -123,7 +120,7 @@ function initDrag(el: HTMLElement): void {
       }
       const s = sessionOf(tab);
       if (s && to !== from) moveToGroup(s, from, to);
-      layout(); // under its group's label: the new one, or back to its own
+      settleTabs(); // under its group's label: the new one, or back to its own
     };
     addEventListener('pointermove', move);
     addEventListener('pointerup', up);
@@ -133,33 +130,15 @@ function initDrag(el: HTMLElement): void {
 
 // A closed tab collapses, then goes (the timeout covers reduced motion,
 // where no transition runs); the fades are checked once it's gone.
-const collapse = (node: Element): Promise<void> =>
+export const collapse = (node: Element): Promise<void> =>
   new Promise<void>((done) => {
     node.addEventListener('transitionend', (e) => (e as TransitionEvent).propertyName === 'max-width' && done());
     setTimeout(done, 300);
   }).then(() => void setTimeout(updateFades));
 
 export function initTabStrip(): void {
+  // The strip itself (groups.ts's TabStrip) draws the tabs from state.
   const el = strip();
-  // The strip holds the tabs, in order. Grouped, groups.ts lays it out
-  // instead (until groups are components): the list still makes each tab
-  // and runs its exit, but leaves placing them to it.
-  const grouped = () => !!el.querySelector(':scope > .tab-group-box');
-  const parent = {
-    get firstElementChild() {
-      return grouped() ? null : el.firstElementChild;
-    },
-    insertBefore(node: Element, ref: Element | null) {
-      if (!grouped()) el.insertBefore(node, ref);
-    },
-  };
-  keyed(
-    parent,
-    () => sessionList.val,
-    (s) => s.id,
-    tabOf,
-    { exit: collapse },
-  );
   // Let a vertical mouse wheel scroll the tab strip sideways when it overflows.
   el.addEventListener(
     'wheel',

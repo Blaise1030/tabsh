@@ -113,7 +113,7 @@ html.themed {
    groups). */
 .tab-group-box {
   /* Shrinks with the strip, down to its label and its tabs at their
-     narrowest (counted by layout() as --label and --tabs). */
+     narrowest (measured by groups.ts as --label and --tabs). */
   position: relative; display: flex; flex: 0 1 auto; align-items: center; gap: .375rem;
   min-width: calc(var(--label, 0px) + var(--tabs, 0) * (var(--tab-min) + .375rem));
   margin-left: .625rem;

@@ -7,33 +7,44 @@
 // walk the shown tabs in strip order. Archived cards' tabs stay out of the
 // strip and its groups. Dragged into another tag's group (or
 // onto its label), a tab trades the tag it was dragged by for that one.
+import van, { type State } from 'vanjs-core';
+import type { TabGrouping } from '../settings/schema.ts';
 import { current, onApply } from '../settings/settings.ts';
-import { el } from '../ui/dom.ts';
-import { scoped } from '../ui/keyed.ts';
+import { keyed } from '../ui/keyed.ts';
 import { type Group, groupTabs, joinGroup, moveTag, parseCollapsed, tagColor } from './labels.ts';
-import { onActivate, type Session, store } from './store.ts';
-import { sessionOfTab, Tab, tabOf } from './tab.ts';
-import { updateFades } from './tabs.ts';
+import { active, type Session, store } from './store.ts';
+import { sessionOfTab, Tab } from './tab.ts';
+import { collapse, updateFades } from './tabs.ts';
 import { labelsOf, rootOf, setTags } from './tags.ts';
 
+const { button, div, i, small, span } = van.tags;
+
 const COLLAPSED_KEY = 'tabsh.collapsed';
-const collapsed = new Set<string>(); // group keys
-const boxes = new Map<string, HTMLElement>(); // group key → its box: label, then tabs
-const mirrors = new Map<string, HTMLElement[]>(); // session id → its copies
+
+function loadCollapsed(): ReadonlySet<string> {
+  try {
+    return parseCollapsed(JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? '[]'));
+  } catch {
+    return new Set();
+  }
+}
+
+// The collapsed groups' keys, kept in this browser.
+export const collapsed: State<ReadonlySet<string>> = van.state(loadCollapsed());
+// Applied, not saved, so the palette's preview regroups the strip too.
+export const grouping: State<TabGrouping> = van.state(current.applied.tabGrouping);
+// Bumped to put every tab back in its place, after a drag moved some by hand.
+const settle = van.state(0);
 let activeGroup: string | null = null; // the group the active tab was picked in
 
 const strip = () => document.getElementById('tabs') as HTMLElement;
-const groupButton = () => document.getElementById('tab-group-btn') as HTMLButtonElement;
 
-function saveCollapsed(): void {
+function toggleCollapsed(key: string): void {
+  const next = new Set(collapsed.val);
+  if (!next.delete(key)) next.add(key);
+  collapsed.val = next;
   try {
-    localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...collapsed]));
-  } catch {}
-}
-
-function loadCollapsed(): void {
-  try {
-    for (const k of parseCollapsed(JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? '[]'))) collapsed.add(k);
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next]));
   } catch {}
 }
 
@@ -41,141 +52,185 @@ function loadCollapsed(): void {
 // tab (picked on the board).
 const onStrip = (s: Session): boolean => s.card.val.status !== 'archived' || s === store.active;
 
-// Applied, not saved, so the palette's preview regroups the strip too.
+// The strip's groups as the states have them now.
 const groups = (): Group[] =>
   groupTabs(
     store.sessions.filter(onStrip).map((s) => ({ id: s.id, labels: labelsOf(s) })),
-    current.applied.tabGrouping,
+    grouping.val,
   );
 
-// The group the active tab counts as in: the one it was picked in, else its
-// first.
-function currentGroup(all: Group[]): string | null {
-  const id = store.active?.id;
-  if (!id) return null;
-  if (all.some((g) => g.key === activeGroup && g.ids.includes(id))) return activeGroup;
-  return all.find((g) => g.ids.includes(id))?.key ?? null;
+// A tab's place in a group: its first place is the tab, later ones copies.
+interface Place {
+  key: string;
+  s: Session;
+  copy: boolean;
+}
+interface Box {
+  group: Group;
+  places: Place[];
+}
+// What the strip shows: a box per group, and the tabs in no group (all of
+// them while not grouping; archived ones, hidden, after the groups).
+interface Layout {
+  boxes: Box[];
+  rest: Session[];
 }
 
-function toggleCollapsed(key: string): void {
-  if (!collapsed.delete(key)) collapsed.add(key);
-  saveCollapsed();
-  layout();
+function layoutNow(): Layout {
+  const all = groups();
+  if (!all.length) return { boxes: [], rest: store.sessions };
+  const byId = new Map(store.sessions.map((s) => [s.id, s]));
+  const seen = new Set<string>();
+  const boxes = all.map((group) => ({
+    group,
+    places: group.ids.map((id) => {
+      const copy = seen.has(id);
+      seen.add(id);
+      return { key: `${group.key}/${id}${copy ? '/copy' : ''}`, s: byId.get(id) as Session, copy };
+    }),
+  }));
+  return { boxes, rest: store.sessions.filter((s) => !onStrip(s)) };
+}
+
+const sessionsOf = (l: Layout): Session[] => [...l.boxes.flatMap((b) => b.places.map((p) => p.s)), ...l.rest];
+const sameLayout = (a: Layout, b: Layout): boolean => {
+  const [x, y] = [sessionsOf(a), sessionsOf(b)];
+  return (
+    x.length === y.length &&
+    x.every((s, i) => s === y[i]) &&
+    JSON.stringify(a.boxes.map((box) => box.group)) === JSON.stringify(b.boxes.map((box) => box.group))
+  );
+};
+
+// The strip's layout as a state, replaced only when it changes: a rename or
+// a status change doesn't move a tab (one being dragged stays under the
+// pointer).
+function layoutState(): State<Layout> {
+  let last: Layout | undefined;
+  return van.derive(() => {
+    const next = layoutNow();
+    if (last && sameLayout(last, next)) return last;
+    last = next;
+    return next;
+  });
+}
+
+// A tab (or copy) taken off the strip collapses when its session closed,
+// and goes at once when it only changed group or the strip regrouped. Its
+// `closed` flag, not a state: the list's derive calls this.
+const exitTab = (node: Element): Promise<void> | undefined => (sessionOfTab(node)?.closed ? collapse(node) : undefined);
+
+// A tab with no group, hidden while it is an archived card's (unless active).
+function LoneTab(s: Session): HTMLElement {
+  const t = Tab(s);
+  van.derive(() => {
+    t.hidden = !onStrip(s);
+  });
+  return t;
 }
 
 // A group's box: its label (a Basecoat badge with its color's dot, its name,
 // and its tab count while collapsed), then its tabs, underlined in its color
-// while open.
-function boxOf(g: Group): HTMLElement {
-  let box = boxes.get(g.key);
-  if (!box) {
-    const label = el(
-      'button',
-      { type: 'button', className: 'badge tab-group' },
-      el('i'),
-      el('span', { className: 'tab-group-name' }),
-      el('small'),
-    );
-    label.dataset.variant = 'secondary';
-    label.onclick = () => toggleCollapsed(g.key);
-    box = el('div', { className: 'tab-group-box', role: 'presentation' }, label);
-    box.dataset.group = g.key;
-    boxes.set(g.key, box);
-  }
-  const label = box.firstElementChild as HTMLElement;
+// while open. Collapsed, it shows only the active tab.
+function GroupBox(g: Group, all: State<Layout>): HTMLElement {
+  const key = g.key;
   const name = g.value ?? (g.kind === 'repo' ? 'No repo' : 'Untagged');
-  const shut = collapsed.has(g.key);
-  (label.querySelector('.tab-group-name') as HTMLElement).textContent = name;
-  (label.querySelector('small') as HTMLElement).textContent = shut ? String(g.ids.length) : '';
-  label.title = `${shut ? 'Expand' : 'Collapse'} ${name}`;
-  label.setAttribute('aria-expanded', String(!shut));
+  const shut = () => collapsed.val.has(key);
+  const mine = () => all.val.boxes.find((b) => b.group.key === key);
+  const label = button(
+    {
+      type: 'button',
+      class: 'badge tab-group',
+      'data-variant': 'secondary',
+      title: () => `${shut() ? 'Expand' : 'Collapse'} ${name}`,
+      'aria-expanded': () => String(!shut()),
+      onclick: () => toggleCollapsed(key),
+    },
+    i(),
+    span({ class: 'tab-group-name' }, name),
+    small(() => (shut() ? String(mine()?.group.ids.length ?? 0) : '')),
+  );
+  const box = div({
+    class: () => (shut() ? 'tab-group-box collapsed' : 'tab-group-box'),
+    role: 'presentation',
+    'data-group': key,
+  });
   box.style.setProperty('--group', g.value ? tagColor(g.value) : 'var(--muted-foreground)');
-  box.classList.toggle('collapsed', shut);
+  type Item = Place | 'label';
+  keyed<Item>(
+    box,
+    () => {
+      settle.val;
+      return ['label', ...(mine()?.places ?? [])];
+    },
+    (p) => (p === 'label' ? 'label' : p.key),
+    (p) => {
+      if (p === 'label') return label;
+      const t = Tab(p.s, { group: key, copy: p.copy });
+      van.derive(() => {
+        t.hidden = shut() && active.val !== p.s;
+      });
+      return t;
+    },
+    { exit: exitTab },
+  );
+  // Its narrowest: the label, and its shown tabs at their minimum width,
+  // measured once the update is drawn.
+  van.derive(() => {
+    mine();
+    shut();
+    active.val;
+    requestAnimationFrame(() => {
+      box.style.setProperty('--label', `${label.offsetWidth}px`);
+      box.style.setProperty('--tabs', String(box.querySelectorAll(':scope > .tab:not([hidden]):not(.leaving)').length));
+    });
+  });
   return box;
 }
 
-// A closing tab, still shrinking (its class may not be drawn yet).
-const leaving = (t: Element): boolean => !!sessionOfTab(t)?.leaving.val;
-
-// Puts `nodes` in `parent` in order, moving only what is out of place and
-// leaving closing tabs where they are, to finish shrinking.
-function place(parent: HTMLElement, nodes: HTMLElement[]): void {
-  let at = parent.firstElementChild;
-  for (const node of nodes) {
-    while (at && leaving(at)) at = at.nextElementSibling;
-    if (node === at) at = at.nextElementSibling;
-    else parent.insertBefore(node, at);
-  }
+// The tab strip: the tabs in order, or a box per group holding its label
+// and tabs, then the archived cards' tabs, hidden.
+export function TabStrip(): HTMLElement {
+  const all = layoutState();
+  const el = div({ id: 'tabs', role: 'tablist', 'aria-label': 'Terminals' });
+  type Item = { tab: Session } | { box: Group };
+  keyed<Item>(
+    el,
+    () => {
+      settle.val;
+      const { boxes, rest } = all.val;
+      return [...boxes.map((b) => ({ box: b.group })), ...rest.map((s) => ({ tab: s }))];
+    },
+    (it) => ('box' in it ? `group:${it.box.key}` : `tab:${it.tab.id}`),
+    (it) => ('box' in it ? GroupBox(it.box, all) : LoneTab(it.tab)),
+    { exit: (node) => (node.matches('.tab') ? exitTab(node) : undefined) },
+  );
+  van.derive(() => {
+    all.val;
+    requestAnimationFrame(updateFades);
+  });
+  return el;
 }
 
-// Lays the strip out: the tabs in order, or a box per group holding its
-// label and tabs, with collapsed groups showing only the active tab.
-export function layout(): void {
-  const all = groups();
-  const top: HTMLElement[] = []; // the strip's children
-  const inside = new Map<HTMLElement, HTMLElement[]>(); // box → its children
-  const places = new Map<string, number>(); // session id → places so far
-  const byId = new Map(store.sessions.map((s) => [s.id, s]));
-  // Ungrouped, every tab sits on the strip itself; grouped, those in no
-  // group (archived) wait hidden after the groups.
-  for (const s of store.sessions)
-    if (!all.length || !onStrip(s)) {
-      const t = tabOf(s);
-      t.hidden = !onStrip(s);
-      delete t.dataset.group;
-      if (!all.length) top.push(t);
-    }
-  for (const g of all) {
-    const box = boxOf(g);
-    const want = [box.firstElementChild as HTMLElement];
-    top.push(box);
-    inside.set(box, want);
-    for (const id of g.ids) {
-      const s = byId.get(id) as Session;
-      const n = places.get(id) ?? 0;
-      places.set(id, n + 1);
-      let t = tabOf(s);
-      if (n) {
-        // Its copy for this group, acting for it (a click picks it here);
-        // its derives go once it's dropped.
-        const list = mirrors.get(id) ?? [];
-        mirrors.set(id, list);
-        list[n - 1] ??= scoped(() => Tab(s, { copy: true }));
-        t = list[n - 1];
-      }
-      t.dataset.group = g.key;
-      t.hidden = collapsed.has(g.key) && s !== store.active;
-      want.push(t);
-    }
-  }
-  if (all.length) top.push(...store.sessions.filter((s) => !onStrip(s)).map(tabOf));
-  place(strip(), top);
-  for (const [box, want] of inside) {
-    place(box, want);
-    // Its narrowest: the label, and its shown tabs at their minimum width.
-    box.style.setProperty('--label', `${want[0].offsetWidth}px`);
-    box.style.setProperty('--tabs', String(want.filter((t) => !t.hidden).length - 1));
-  }
-  // Drop copies and boxes nothing uses any more.
-  for (const [id, list] of mirrors) {
-    const keep = Math.max(0, (places.get(id) ?? 0) - 1);
-    for (const m of list.splice(keep)) m.remove();
-    if (!list.length) mirrors.delete(id);
-  }
-  const live = new Set(all.map((g) => g.key));
-  for (const [key, box] of boxes)
-    if (!live.has(key)) {
-      box.remove();
-      boxes.delete(key);
-    }
-  groupButton().setAttribute('aria-pressed', String(current.applied.tabGrouping !== 'none'));
-  updateFades();
+// Puts every tab back in its place in the layout (a drag moved it by hand).
+export function settleTabs(): void {
+  settle.val = settle.val + 1;
 }
 
 // The session a tab on the strip (or one of its copies) stands for.
 export function sessionOf(t: HTMLElement): Session | undefined {
   const s = sessionOfTab(t);
   return s && store.sessions.includes(s) ? s : undefined;
+}
+
+// Brings the active tab into view: its place in the group it was picked in,
+// else the tab itself.
+export function scrollToTab(s: Session): void {
+  const places = [...strip().querySelectorAll<HTMLElement>('.tab')].filter((t) => sessionOfTab(t) === s);
+  const t =
+    places.find((t) => (t.dataset.group ?? null) === activeGroup) ??
+    places.find((t) => !t.classList.contains('mirror'));
+  t?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 
 // Whether a tab dragged out of group `from` may land in group `to`: by tag
@@ -191,14 +246,31 @@ export function moveToGroup(s: Session, from: string | null, to: string | null):
   setTags(s, moveTag(labelsOf(s).tags, joinGroup(from).tag, joinGroup(to).tag));
 }
 
+// The group the active tab counts as in: the one it was picked in, else its
+// first.
+function currentGroup(all: Group[]): string | null {
+  const id = store.active?.id;
+  if (!id) return null;
+  if (all.some((g) => g.key === activeGroup && g.ids.includes(id))) return activeGroup;
+  return all.find((g) => g.ids.includes(id))?.key ?? null;
+}
+
+// Every shown place on the strip, in strip order: hidden ones (an archived
+// card's, a collapsed group's other than the active tab) left out. Read from
+// the states, so it is current before the strip is redrawn.
+function shownPlaces(): { s: Session; group: string | null }[] {
+  const { boxes, rest } = layoutNow();
+  if (!boxes.length) return rest.filter(onStrip).map((s) => ({ s, group: null }));
+  return boxes.flatMap(({ group, places }) =>
+    places
+      .filter((p) => !collapsed.val.has(group.key) || p.s === store.active)
+      .map((p) => ({ s: p.s, group: group.key })),
+  );
+}
+
 // The tabs showing on the strip, each once, in strip order.
 export function shownSessions(): Session[] {
-  const out: Session[] = [];
-  for (const t of strip().querySelectorAll<HTMLElement>('.tab:not([hidden]):not(.leaving)')) {
-    const s = sessionOf(t);
-    if (s && !out.includes(s)) out.push(s);
-  }
-  return out;
+  return [...new Set(shownPlaces().map((p) => p.s))];
 }
 
 // The tab `step` places along the strip from the active tab's place, past
@@ -206,10 +278,7 @@ export function shownSessions(): Session[] {
 // counts as picked in the group it is reached in.
 export function stepTab(step: 1 | -1): Session | null {
   const from = currentGroup(groups());
-  const places = [...strip().querySelectorAll<HTMLElement>('.tab:not([hidden]):not(.leaving)')].flatMap((t) => {
-    const s = sessionOf(t);
-    return s ? [{ s, group: t.dataset.group ?? null }] : [];
-  });
+  const places = shownPlaces();
   const n = places.length;
   let i = places.findIndex((p) => p.s === store.active && p.group === from);
   if (i < 0) i = places.findIndex((p) => p.s === store.active);
@@ -234,7 +303,6 @@ export function newTabGroup(): { cwd: string | null; tag: string | null } {
 }
 
 export function initTabGroups(): void {
-  loadCollapsed();
   // A click picks a tab in the group it was clicked in.
   strip().addEventListener(
     'click',
@@ -244,6 +312,7 @@ export function initTabGroups(): void {
     },
     true,
   );
-  onActivate(layout);
-  onApply(layout);
+  onApply((s) => {
+    grouping.val = s.tabGrouping;
+  });
 }
