@@ -14,10 +14,10 @@ import { openAbout } from '../ui/about.ts';
 import { isMac } from '../ui/dom.ts';
 import { CHECK, type PaletteItem, pages } from './pages.ts';
 
-const palette = document.getElementById('palette') as HTMLDialogElement;
-const paletteCmd = document.getElementById('palette-command') as HTMLElement & { refresh?: () => void };
-const paletteInput = document.getElementById('palette-input') as HTMLInputElement;
-const paletteMenu = document.getElementById('palette-menu') as HTMLElement;
+const paletteEl = () => document.getElementById('palette') as HTMLDialogElement;
+const paletteCmd = () => document.getElementById('palette-command') as HTMLElement & { refresh?: () => void };
+const paletteInput = () => document.getElementById('palette-input') as HTMLInputElement;
+const paletteMenu = () => document.getElementById('palette-menu') as HTMLElement;
 let page = 'root';
 let recording: KeyId | null = null; // the keybinding the next key press sets
 const itemsById = new Map<string, PaletteItem>();
@@ -40,12 +40,12 @@ function showPage(name: string): void {
   page = name;
   recording = null;
   const { placeholder, groups } = palettePages()[name]();
-  paletteInput.value = '';
-  paletteInput.placeholder = name === 'root' ? placeholder : `${placeholder}  (Esc to go back)`;
+  paletteInput().value = '';
+  paletteInput().placeholder = name === 'root' ? placeholder : `${placeholder}  (Esc to go back)`;
   itemsById.clear();
   let n = 0;
   // Every string here is the app's own (labels, hints, theme colours).
-  paletteMenu.innerHTML = groups
+  paletteMenu().innerHTML = groups
     .map(
       (g, gi) => `
     <div role="group" aria-labelledby="pg-${gi}">
@@ -74,29 +74,29 @@ function showPage(name: string): void {
     </div>`,
     )
     .join('');
-  paletteCmd.refresh?.();
+  paletteCmd().refresh?.();
   // Start on the current choice rather than the first entry.
-  const chosen = paletteMenu.querySelector('[data-checked="true"]');
+  const chosen = paletteMenu().querySelector('[data-checked="true"]');
   if (chosen) {
     chosen.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
     chosen.scrollIntoView({ block: 'nearest' });
   }
   if (name === 'root') applySettings(current.saved);
-  paletteInput.focus();
+  paletteInput().focus();
   updatePaletteFades();
 }
 
 function startRecording(id: KeyId): void {
   recording = id;
-  paletteInput.value = '';
-  paletteInput.placeholder = 'Press the new shortcut…  (Esc to cancel)';
-  paletteInput.focus();
+  paletteInput().value = '';
+  paletteInput().placeholder = 'Press the new shortcut…  (Esc to cancel)';
+  paletteInput().focus();
 }
 
 // While recording, every key press is the palette's: Esc cancels, a lone
 // modifier waits for the rest, and anything else is saved or explained.
 function recordKey(e: KeyboardEvent): void {
-  if (!recording || !palette.open) return;
+  if (!recording || !paletteEl().open) return;
   e.preventDefault(); // also stops Escape from closing the dialog
   e.stopImmediatePropagation(); // capture phase: keep it from the palette's own keys and the terminal
   if (e.key === 'Escape' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
@@ -107,7 +107,7 @@ function recordKey(e: KeyboardEvent): void {
   if (!combo) return;
   const problem = comboProblem(combo, recording, current.saved, isMac);
   if (problem) {
-    paletteInput.placeholder = `${problem}. Try another  (Esc to cancel)`;
+    paletteInput().placeholder = `${problem}. Try another  (Esc to cancel)`;
     return;
   }
   const id = recording;
@@ -117,20 +117,20 @@ function recordKey(e: KeyboardEvent): void {
 
 // Fade whichever end of the list has items scrolled out of view.
 function updatePaletteFades(): void {
-  const end = paletteMenu.scrollHeight - paletteMenu.clientHeight;
-  paletteMenu.classList.toggle('fade-top', paletteMenu.scrollTop > 1);
-  paletteMenu.classList.toggle('fade-bottom', paletteMenu.scrollTop < end - 1);
+  const end = paletteMenu().scrollHeight - paletteMenu().clientHeight;
+  paletteMenu().classList.toggle('fade-top', paletteMenu().scrollTop > 1);
+  paletteMenu().classList.toggle('fade-bottom', paletteMenu().scrollTop < end - 1);
 }
 
 // The palette step's half: open on `at`, or closed. It never navigates.
 function showPalette(at: string | null): void {
   if (!at) {
-    if (palette.open) palette.close();
+    if (paletteEl().open) paletteEl().close();
     return;
   }
-  if (!palette.open) {
+  if (!paletteEl().open) {
     (document.getElementById('about') as HTMLDialogElement).close();
-    palette.showModal();
+    paletteEl().showModal();
     setPreviewing(true);
   } else if (page === at) return;
   showPage(at);
@@ -138,15 +138,15 @@ function showPalette(at: string | null): void {
 
 // Opening the palette is a push; when it is already open, it closes.
 export function openPalette(at: string = 'root'): void {
-  if (palette.open) palette.close();
+  if (paletteEl().open) paletteEl().close();
   else go({ palette: at });
 }
 
 // The group button and its keybinding: the palette straight on its grouping
 // page, closed again when it is already there.
 export function openGroupPalette(): void {
-  if (palette.open) {
-    if (page === 'tabGrouping') palette.close();
+  if (paletteEl().open) {
+    if (page === 'tabGrouping') paletteEl().close();
     else go({ palette: 'tabGrouping' }, 'replace');
     return;
   }
@@ -154,25 +154,25 @@ export function openGroupPalette(): void {
 }
 
 export function initPalette(): void {
-  paletteMenu.addEventListener('scroll', updatePaletteFades, { passive: true });
+  paletteMenu().addEventListener('scroll', updatePaletteFades, { passive: true });
   // Filtering hides items after this handler's turn; measure once it has.
-  paletteInput.addEventListener('input', () => requestAnimationFrame(updatePaletteFades));
-  new ResizeObserver(updatePaletteFades).observe(paletteMenu);
+  paletteInput().addEventListener('input', () => requestAnimationFrame(updatePaletteFades));
+  new ResizeObserver(updatePaletteFades).observe(paletteMenu());
 
   // Live preview: whatever setting is highlighted (keyboard or mouse) is shown,
   // or for typing sounds, heard once per highlight.
   let previewed: PaletteItem | undefined;
   new MutationObserver(() => {
-    const item = itemsById.get(paletteMenu.querySelector('[role="menuitem"].active')?.id ?? '');
-    if (palette.open && item?.key) applySettings({ ...current.saved, [item.key]: item.value } as Settings);
-    if (palette.open && item?.key === 'typingSound' && item !== previewed) previewSound(String(item.value));
-    if (palette.open && item?.preview) item.preview();
+    const item = itemsById.get(paletteMenu().querySelector('[role="menuitem"].active')?.id ?? '');
+    if (paletteEl().open && item?.key) applySettings({ ...current.saved, [item.key]: item.value } as Settings);
+    if (paletteEl().open && item?.key === 'typingSound' && item !== previewed) previewSound(String(item.value));
+    if (paletteEl().open && item?.preview) item.preview();
     previewed = item;
-  }).observe(paletteMenu, { subtree: true, attributes: true, attributeFilter: ['class'] });
+  }).observe(paletteMenu(), { subtree: true, attributes: true, attributeFilter: ['class'] });
 
   // Runs before Basecoat's own click handler, which then closes the dialog
   // unless the item is marked data-keep-command-open.
-  paletteMenu.addEventListener('click', (e) => {
+  paletteMenu().addEventListener('click', (e) => {
     const el = (e.target as Element).closest('[role="menuitem"]');
     const item = el && el.getAttribute('aria-hidden') !== 'true' ? itemsById.get(el.id) : undefined;
     if (!item) return;
@@ -182,8 +182,8 @@ export function initPalette(): void {
     else item.run?.();
   });
 
-  paletteInput.addEventListener('keydown', (e) => {
-    const toRoot = e.key === 'Escape' || (e.key === 'Backspace' && !paletteInput.value);
+  paletteInput().addEventListener('keydown', (e) => {
+    const toRoot = e.key === 'Escape' || (e.key === 'Backspace' && !paletteInput().value);
     if (toRoot && page !== 'root') {
       e.preventDefault(); // also stops Escape from closing the dialog
       go({ palette: 'root' }, 'replace');
@@ -193,7 +193,7 @@ export function initPalette(): void {
   // Closing without picking reverts any preview. A close the place didn't
   // ask for (Esc, the backdrop, an item) takes the palette out of it: Back
   // over the entry that opened it, else a replace, so no step reopens it.
-  palette.addEventListener('close', () => {
+  paletteEl().addEventListener('close', () => {
     recording = null;
     setPreviewing(false);
     applySettings(current.saved);
@@ -211,8 +211,8 @@ export function initPalette(): void {
   });
 
   // Clicking the backdrop closes it.
-  palette.addEventListener('click', (e) => {
-    if (e.target === palette) palette.close();
+  paletteEl().addEventListener('click', (e) => {
+    if (e.target === paletteEl()) paletteEl().close();
   });
 
   // Added first, so a key being recorded never reaches the listeners below.
@@ -233,7 +233,7 @@ export function initPalette(): void {
   window.addEventListener(
     'keydown',
     (e) => {
-      if (palette.open) return;
+      if (paletteEl().open) return;
       const step = matchesKey(e, current.saved.keyNextTab) ? 1 : matchesKey(e, current.saved.keyPrevTab) ? -1 : 0;
       if (!step) return;
       e.preventDefault();
@@ -247,7 +247,7 @@ export function initPalette(): void {
   window.addEventListener(
     'keydown',
     (e) => {
-      if (palette.open) return;
+      if (paletteEl().open) return;
       if (!matchesKey(e, current.saved.keyGroupTabs)) return;
       e.preventDefault();
       e.stopPropagation(); // capture phase: keep it away from the terminal

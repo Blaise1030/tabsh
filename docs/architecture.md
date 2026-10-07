@@ -57,10 +57,11 @@ it in `state::router()`, and add its routes to `every_route_is_guarded`.
 | `board/` | `model.ts` (statuses, columns, grouping, drop order, no DOM), `glyph.ts`, `status.ts` (a tab's card: glyph, archived tabs hidden (re-laying out the strip), bell on needs input), `events.ts` (the board events socket), `view.ts` (the board, drag and drop incl. onto Archive, an Archive button on Completed cards, ⌘B; until the `boardOnboarded` setting is true, a setup screen instead of columns, whose button opens a Claude Code card that runs `tabsh setup`), `new-card.ts` (the New card dialog, with recent agent commands; the board stays open) |
 | `sound/` | `packs.ts` (samples), `typing.ts` (key listeners) |
 | `palette/` | `pages.ts` (what the palette offers), `palette.ts` (dialog, preview, shortcuts, the grouping page the group button and its keybinding open) |
-| `ui/` | `dom.ts` (`el`, `isMac`), `icons.ts` (every icon, as SVG tags), `keyed.ts` (lists by key), `divider.ts`, `about.ts`, `drop.ts` and `drop-paths.ts` |
+| `ui/` | `dom.ts` (`el`, `isMac`), `icons.ts` (every icon, as SVG tags), `keyed.ts` (lists by key), `app.ts` (the page shell), `gate.ts` (the connection gate's screens, from `daemon/client.ts`'s `gateMode`), `divider.ts`, `about.ts`, `drop.ts` and `drop-paths.ts` |
 
-The page's CSS is in `web/src/styles/app.css`. The markup is in
-`web/src/pages/app/index.astro`.
+The page's CSS is in `web/src/styles/app.css`. `web/src/pages/app/index.astro`'s
+body is one mount point, `#app`; `main.ts` mounts `ui/app.ts`'s `App()` into it
+first, so the markup comes from components.
 
 **Rules**
 - **One-way dependencies between features:**

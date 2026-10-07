@@ -252,6 +252,14 @@ mod tests {
         assert_eq!(res.headers()[header::REFERRER_POLICY], "no-referrer");
     }
 
+    /// The body is one mount point: the markup comes from script.
+    #[test]
+    fn app_body_is_one_mount_point() {
+        let body = APP_HTML.split("<body").nth(1).expect("the page has a body");
+        assert!(body.contains(r#"id="app""#), "no mount point");
+        assert!(!body.contains(r#"id="tabs""#), "the body still has markup");
+    }
+
     #[test]
     fn app_page_scripts_are_embedded() {
         use crate::web::assets;

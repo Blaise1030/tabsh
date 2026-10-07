@@ -1,6 +1,7 @@
 // The app page's startup: pair with the daemon, wire the features
 // together, then restore the tabs.
 
+import van from 'vanjs-core';
 import { initBoardEvents } from './board/events.ts';
 import { initNewCard } from './board/new-card.ts';
 import { initBoard } from './board/view.ts';
@@ -21,8 +22,11 @@ import { FONTS, fontStack, prefersLight, THEMES } from './settings/catalog.ts';
 import { applySettings, current, loadSettings, onApply, terminalOptions } from './settings/settings.ts';
 import { initTypingSound } from './sound/typing.ts';
 import { initAbout } from './ui/about.ts';
+import { App } from './ui/app.ts';
 import { initDivider } from './ui/divider.ts';
 import { initDrop } from './ui/drop.ts';
+
+van.add(document.getElementById('app') as HTMLElement, ...App());
 
 // The pairing link puts the token in the fragment; take it and clear it
 // before anything talks to the daemon.
