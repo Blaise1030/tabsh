@@ -76,7 +76,7 @@ The page's CSS is in `web/src/styles/app.css`. The markup is in
   the DOM when imported: `links.ts`, `files/api.ts`, `daemon/parse.ts`,
   `settings/catalog.ts`, `keys.ts`, `schema.ts`, `sessions/bell-scan.ts`,
   `sessions/labels.ts`, `sessions/order.ts`,
-  `explorer/listing.ts`, `explorer/changes.ts`, `ui/drop-paths.ts`. Their tests sit beside them as `*.test.ts`.
+  `explorer/listing.ts`, `explorer/changes.ts`, `ui/drop-paths.ts`, `nav/place.ts`. Their tests sit beside them as `*.test.ts`.
 - **The editor stays lazy:** `files/pane.ts` and `editor.ts` (CodeMirror,
   `marked`) are only reached through `import()`. The daemon test
   `entry_script_does_not_bundle_the_editor` fails if the page's first load
