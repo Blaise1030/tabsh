@@ -1,6 +1,7 @@
 // The page: the dialogs, the tab bar, the workspace under it and the drop
 // glow. Features find their parts by id once this is mounted.
 import van from 'vanjs-core';
+import { Board, shown } from '../board/view.ts';
 import { grouping, TabStrip } from '../sessions/groups.ts';
 import { noTab } from '../sessions/store.ts';
 import { Gate } from './gate.ts';
@@ -96,7 +97,12 @@ const barButton = (icon: Icon, props: Record<string, string | (() => string)>) =
 function TabBar(): HTMLElement {
   return div(
     { class: 'tabbar' },
-    barButton(icons.board, { 'aria-label': 'Board', title: 'Board', id: 'board-btn', 'aria-pressed': 'false' }),
+    barButton(icons.board, {
+      'aria-label': 'Board',
+      title: 'Board',
+      id: 'board-btn',
+      'aria-pressed': () => String(shown.val),
+    }),
     barButton(icons.explorer, {
       'aria-label': 'Toggle file explorer',
       title: 'Toggle file explorer',
@@ -129,9 +135,9 @@ function Workspace(): HTMLElement {
     div({ id: 'explorer-divider', hidden: true }),
     div(
       { id: 'main' },
-      section({ id: 'board', hidden: true, 'aria-label': 'Board' }),
+      Board(),
       div(
-        { id: 'terms' },
+        { id: 'terms', hidden: () => shown.val },
         div(
           { class: 'empty', id: 'empty', hidden: () => !noTab.val },
           p('No terminals open.'),

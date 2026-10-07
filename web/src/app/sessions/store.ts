@@ -4,7 +4,7 @@ import type { FitAddon as Fit } from '@xterm/addon-fit';
 import type { Terminal as XTerm } from '@xterm/xterm';
 import van, { type State } from 'vanjs-core';
 import type { Card } from '../board/model.ts';
-import { applyCard, cardOf, cardsChanged } from '../board/status.ts';
+import { applyCard, cardOf } from '../board/status.ts';
 import { api } from '../daemon/client.ts';
 import { loadedPane } from '../files/open.ts';
 import { go, onPlace } from '../nav/router.ts';
@@ -208,7 +208,6 @@ export function removeSession(s: Session): void {
     const next = rest.find((t) => sessions.indexOf(t) >= i) ?? rest.at(-1);
     go({ tab: (next ?? sessions[Math.min(i, sessions.length - 1)])?.id ?? null }, 'replace');
   } else updateBadge();
-  cardsChanged();
 }
 
 // The tab step: a tab the URL names that isn't open (closed, or never was)

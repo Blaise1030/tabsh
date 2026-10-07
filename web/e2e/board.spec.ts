@@ -5,7 +5,7 @@
 // colours its tab; dragging moves it on; a name with markup stays text.
 import type { Page } from '@playwright/test';
 import type { Daemon } from './daemon.ts';
-import { expect, newTab, openApp, setOnboarded, test, typeInTerminal } from './fixture.ts';
+import { cdInTerminal, expect, newTab, openApp, setOnboarded, test, typeInTerminal } from './fixture.ts';
 
 const card = (page: Page, name: string) => page.locator('.board-card').filter({ hasText: name });
 const col = (page: Page, status: string) => page.locator(`.board-col[data-status="${status}"]`);
@@ -99,6 +99,20 @@ test('a card name with markup is shown as text', async ({ page, daemon }) => {
   await page.locator('#board-btn').click();
   await expect(card(page, '<b>bold</b>').locator('.card-title')).toHaveText('<b>bold</b>');
   await expect(page.locator('.board-card b')).toHaveCount(0);
+});
+
+// The open board follows its cards: a terminal renamed while it's shown
+// renames its card at once, not at the next 30 s refresh.
+test('a card follows its terminal while the board is open', async ({ page, daemon, project }) => {
+  await openApp(page, daemon);
+  await cdInTerminal(page, project, 'Ready');
+  await typeInTerminal(page, "sleep 2; printf '\\033]0;Renamed later\\007'");
+  await page.keyboard.press('Enter');
+  await page.locator('#board-btn').click();
+  const renamed = col(page, 'backlog').locator('.board-card').filter({ hasText: 'Renamed later' });
+  await expect(renamed.locator('.card-title')).toHaveText('Renamed later', { timeout: 10_000 });
+  await expect(page.locator('#board')).toBeVisible();
+  await expect(renamed.locator('.card-meta').last()).toHaveText('now'); // its time in status
 });
 
 test("an archived card's tab leaves the strip, grouped or not", async ({ page, daemon, project }) => {

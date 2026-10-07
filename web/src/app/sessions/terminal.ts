@@ -2,7 +2,7 @@
 // session, and the socket to its shell. The strip draws its tab from the
 // session (tab.ts).
 import van from 'vanjs-core';
-import { cardOf, cardsChanged } from '../board/status.ts';
+import { cardOf } from '../board/status.ts';
 import { socketUrl } from '../daemon/client.ts';
 import { linkProvider } from '../links/provider.ts';
 import { current, terminalOptions } from '../settings/settings.ts';
@@ -74,7 +74,6 @@ export function openSession(info: SessionInfo): Session {
   };
   setSessions([...store.sessions, s]);
   labelTab(s);
-  cardsChanged();
 
   // Replayed scrollback holds queries programs sent long ago (e.g. OSC 11,
   // "what's your background colour?"); xterm answers them as it parses, and
