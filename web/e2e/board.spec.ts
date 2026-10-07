@@ -103,10 +103,9 @@ test("an archived card's tab leaves the strip, grouped or not", async ({ page, d
   await openApp(page, daemon);
   await page.locator('#board-btn').click();
   await col(page, 'backlog').locator('header .btn').click();
-  await page.locator('#new-card input[name="name"]').fill('Old work');
-  await page.locator('#new-card input[name="cwd"]').fill(project);
-  await page.locator('#new-card button[type="submit"]').click();
+  await newCard(page, 'Old work', project);
   await expect(oldTab).toBeVisible();
+  await page.locator('#board-btn').click(); // the board stays open after a new card
   await newTab(page); // another tab is active: an active archived tab stays shown
 
   const list = await page.request.get(`${daemon.baseUrl}/api/sessions`, {
