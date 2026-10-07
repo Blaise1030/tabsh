@@ -1,5 +1,6 @@
 //! The file pane's API: describing, previewing and saving a path printed in a terminal.
 
+mod folders;
 mod kind;
 mod read;
 mod resolve;
@@ -16,6 +17,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
+use folders::{FOLDER_LIMIT, matching_folders};
 use kind::raw_content_type;
 use read::{
     RAW_LIMIT_BYTES, TEXT_LIMIT_BYTES, file_error, not_a_regular_file, open_regular,
@@ -35,6 +37,7 @@ pub(crate) fn routes() -> Router<AppState> {
             "/api/files",
             get(file_info).put(save.layer(DefaultBodyLimit::max(4 * TEXT_LIMIT_BYTES as usize))),
         )
+        .route("/api/files/folders", get(file_folders))
         .route("/api/files/raw", get(file_raw))
         .route("/api/files/root", get(file_root))
         .route("/api/files/tree", get(file_tree))
@@ -44,6 +47,11 @@ pub(crate) fn routes() -> Router<AppState> {
 #[derive(Deserialize)]
 struct FileQuery {
     session: Option<String>,
+    path: String,
+}
+
+#[derive(Deserialize)]
+struct FoldersQuery {
     path: String,
 }
 
@@ -151,6 +159,23 @@ async fn file_tree(State(st): State<AppState>, Query(q): Query<TreeQuery>) -> Re
     .await;
     match listed {
         Ok(tree) => Json(tree).into_response(),
+        Err(e) => internal_error(e).into_response(),
+    }
+}
+
+/// The folders that complete a typed path, for the New card dialog's folder
+/// search. Only their paths, never what's in them; and the home folder, so the
+/// page can show and expand `~`.
+async fn file_folders(Query(q): Query<FoldersQuery>) -> Response {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
+    let found = {
+        let home = PathBuf::from(&home);
+        tokio::task::spawn_blocking(move || matching_folders(&home, &q.path, FOLDER_LIMIT)).await
+    };
+    match found {
+        Ok(folders) => {
+            Json(serde_json::json!({ "home": home, "folders": folders })).into_response()
+        }
         Err(e) => internal_error(e).into_response(),
     }
 }
@@ -317,6 +342,28 @@ mod tests {
         let body = to_bytes(res.into_body(), usize::MAX).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert!(json["root"].is_string());
+    }
+
+    #[tokio::test]
+    async fn folders_lists_the_subfolders_that_complete_a_path() {
+        let dir = scratch();
+        std::fs::create_dir_all(dir.join("code/tabsh")).unwrap();
+        let req = Request::builder()
+            .uri(format!("/api/files/folders?path={}/code/ta", dir.display()))
+            .header("Host", "127.0.0.1:7681")
+            .header("Origin", "https://tabsh.cc")
+            .header("Authorization", "Bearer t0k3n")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let res = router(test_state()).oneshot(req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            json["folders"],
+            serde_json::json!([dir.join("code/tabsh").to_str().unwrap()])
+        );
+        assert_eq!(json["home"], std::env::var("HOME").unwrap());
     }
 
     #[tokio::test]
