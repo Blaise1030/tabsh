@@ -46,7 +46,7 @@ browser's Back button leaves the app and a reload forgets where you were
 type Place = {
   tab: string | null;         // session id
   view: 'terms' | 'board';
-  file: string | null;        // the active tab's file, as the pane requested it
+  file: string | null;        // the active tab's file, as the absolute path the daemon resolved
   line: number | null;        // 1-based
   explorer: boolean;
   palette: string | null;     // open palette page id
@@ -54,7 +54,20 @@ type Place = {
 fromQuery(q: URLSearchParams): Partial<Place>    // strict: unknown or bad values dropped
 toQuery(p: Place, keep: URLSearchParams): string // keeps ?daemon=, leaves defaults out
 merge(from: Place, patch: Partial<Place>): Place // what go(patch) navigates to
+fileAction(from: Place, to: Place): 'keep' | 'adopt' | 'open' | 'close'
 ```
+
+**The file when the tab changes.** Each tab keeps its own file, so a
+place whose `tab` differs from the current one and has no `file` means
+"whatever that tab shows" (`adopt`): the router fills in that tab's file
+with a replace, and never closes it. With the same tab, no `file` means
+close it. `merge` drops `file` and `line` when `patch.tab` changes and
+`patch` has no `file`.
+
+**Resolved paths.** A terminal link gives a path relative to the shell's
+cwd, which changes. Once a file loads, the URL's `file` is replaced with the
+absolute path the daemon resolved, so a reload after a `cd` reopens the same
+file.
 
 Examples:
 
@@ -92,6 +105,13 @@ limit (`file` 4096 characters, others 128).
 **Closing the palette** with Esc or an outside click: if the current entry
 is the one that opened it, `navigation.back()`; otherwise replace with
 `palette: null`. Back never brings back a palette you already dismissed.
+
+**Moving from inside the palette** (an item that opens the board, the
+explorer, closes a file…): `go()` with a push while the current entry is
+the one that opened the palette turns into a replace with `palette: null`.
+The palette's entry becomes the destination, so Back goes to where you were
+before the palette, never back into it. Every push clears `palette` unless
+the patch sets it.
 
 ## The router
 
@@ -145,13 +165,13 @@ Cancel:
 **Changes from the daemon:** when the active tab is closed elsewhere,
 `removeSession` calls `go({ tab: neighbour }, 'replace')`.
 
-**Links:**
-- Tabs, board cards, the board button and explorer rows become
-  `<a href="?…">`; the `navigate` event handles them.
-- One click listener turns ⌘-, Ctrl-, Shift- and middle-clicks on those
-  links into a normal `go()`, so no second app opens.
-- Everything else (keybindings, drag and drop, terminal links, palette
-  commands, `/` search) calls `go()`.
+**Triggers:** every interaction that moves you calls `go()`: tab and
+card clicks, the board button, explorer rows, keybindings, drag and drop,
+terminal links, palette commands, `/` search. No element becomes an
+`<a href>` (amended while planning): tabs and board cards are draggable,
+middle-click on a tab already closes it, and explorer rows are drawn by
+`@pierre/trees`. So modifier clicks need no special handling, and no click
+can open a second copy of the app.
 
 **Startup:** `main.ts` still waits for the daemon and `sync()`, then calls
 `startRouter({ tab: savedActive(), … })` instead of its final `activate()`.
@@ -160,9 +180,15 @@ back with a replace. `go()` calls made before then are queued.
 
 ## Keybindings and palette
 
-- New settings `keyBack` (default ⌃-) and `keyForward` (default ⌃⇧-) in
-  `settings/keys.ts`, rebindable and listed in the palette's keybinding
-  pages.
+- New settings `keyBack` and `keyForward` in `settings/keys.ts`,
+  rebindable and listed in the palette's keybinding pages. ⌃- can't be a
+  default (amended while planning): `comboProblem` keeps Ctrl+key without
+  Shift for the shell, and ⌃- is readline's undo. Presets, first is the
+  default:
+  - Mac: Back `ctrl+shift+Minus`, `meta+BracketLeft`; Forward
+    `ctrl+shift+Equal`, `meta+BracketRight`.
+  - Others: Back `alt+shift+ArrowLeft`, `ctrl+alt+shift+ArrowLeft`;
+    Forward `alt+shift+ArrowRight`, `ctrl+alt+shift+ArrowRight`.
 - Caught in the capture phase like ⌘B, so they work from the terminal and
   the editor; they call `navigation.back()` / `forward()` and do nothing
   when `canGoBack` / `canGoForward` is false.
@@ -202,8 +228,8 @@ left out; `?daemon=` kept; bad input dropped (unknown `view` / `palette`,
    Forward still works.
 6. Close the active tab from another client, Back to it: a shown tab, and
    the URL fixed.
-7. ⌃- with the terminal focused goes back.
-8. ⌘-click a tab: same page, no new browser tab.
+7. The Back keybinding with the terminal focused goes back.
+8. A tab switch, then a `cd` and a reload: the same file reopens (resolved path).
 
 The existing `board`, `explorer*` and `tab-groups` specs pass unchanged;
 a failure there points to a call site that still moves state directly.
