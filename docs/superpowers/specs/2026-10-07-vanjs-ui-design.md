@@ -79,8 +79,10 @@ no feature imports it. `nav/` imports neither `van` nor any feature.
 - A component is a function returning a node: `Card(s)`, `Column(status)`.
   Static values pass as values; reactive ones as a `State` or a
   `() => value`, which VanJS binds.
-- **States are replaced, never mutated.** A list state gets a new array;
-  a session change replaces the session object. VanJS only sees `.val =`.
+- **States are replaced, never mutated.** A list state gets a new array.
+  A session object holds live resources (xterm, its socket) and is never
+  replaced; its changing fields (name, card, bell, unread, tags, repo)
+  are each a state, assigned whole. VanJS only sees `.val =`.
 - Attributes go in one object at creation: `class`, `data-*`, `aria-*`,
   `onclick`. No `dataset` or `setAttribute` after the fact.
 - **User text is a child string or an attribute value**, which VanJS
@@ -152,8 +154,10 @@ coherent, with `el()` left for the pane and dialogs.
 ## Security
 
 Unchanged invariants, now enforced by construction where possible:
-- No `innerHTML` in `web/src/app` after cleanup. A test greps the
-  source, alongside `entry_script_does_not_bundle_the_editor`.
+- No `innerHTML`, `outerHTML` or `insertAdjacentHTML` in `web/src/app`
+  after cleanup. A `node --test` test (`ui/no-markup.test.ts`) greps the
+  source; the built bundle can't be grepped, since CodeMirror and the
+  tree library use `innerHTML` themselves.
 - Preview sandboxes unchanged: HTML in `sandbox="allow-scripts
   allow-popups"`, Markdown and SVG in `sandbox=""`, images and PDFs from
   `blob:` URLs.
@@ -185,6 +189,8 @@ No component snapshot tests and no DOM test library.
 - All checks pass: `cargo fmt --check`, `cargo clippy --all-targets
   --locked -- -D warnings`, `cargo test --locked`; in `web/`
   `npm run check`, `lint`, `test`, `build`, `test:e2e`.
-- The first-load bundle grows by at most about 2 KB gzipped.
+- The first load (the page HTML plus its entry script, gzipped) grows by
+  at most 2.5 KB: VanJS is about 1.8 KB, and the icons move from the
+  HTML into the script.
 - `docs/architecture.md` documents the component conventions, `ui/icons.ts`,
   `ui/keyed.ts`, `ui/app.ts` and the state rule.
