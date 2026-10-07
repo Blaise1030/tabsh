@@ -47,6 +47,11 @@ export function here(): Place {
   return current;
 }
 
+// Whether the current entry is the one a push opened the palette on.
+export function isPaletteEntry(): boolean {
+  return paletteEntryKey !== null && navigation.currentEntry?.key === paletteEntryKey;
+}
+
 // A navigation's promises reject when it is refused or overtaken; that is
 // not an error here.
 function quiet(r: NavigationResult): Promise<unknown> {
@@ -61,11 +66,13 @@ export function go(patch: Partial<Place>, how: How = 'push'): void {
     queue.push(patch);
     return;
   }
-  if (how === 'push' && current.palette && navigation.currentEntry?.key === paletteEntryKey) how = 'replace';
+  // A push still closes the palette; from the palette's own entry it
+  // replaces that entry, so Back goes to before the palette.
   const to = merge(current, patch, how);
+  const history = how === 'push' && current.palette && isPaletteEntry() ? 'replace' : how;
   const url = urlFor(to);
   if (url === location.pathname + location.search) return;
-  quiet(navigation.navigate(url, { history: how, info: { to } satisfies Info }));
+  quiet(navigation.navigate(url, { history, info: { to } satisfies Info }));
 }
 
 export function back(): void {

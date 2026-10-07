@@ -305,3 +305,65 @@ test("settings from the daemon don't move you", async ({ page, daemon }) => {
   await expect(page.locator('#explorer')).toBeVisible();
   expect(new URL(page.url()).searchParams.get('explorer')).toBe('1');
 });
+
+// The palette: opening it is a push, its pages replace, and closing it never
+// leaves a step that reopens it.
+const paletteOpen = (page: Page) => page.locator('#palette').evaluate((d) => (d as HTMLDialogElement).open);
+const urlPalette = (page: Page) => new URL(page.url()).searchParams.get('palette');
+
+test('Back closes the palette', async ({ page, daemon }) => {
+  await openApp(page, daemon);
+  await onTab(page, 0);
+  await page.locator('#settings-btn').click();
+  await expect.poll(() => paletteOpen(page)).toBe(true);
+  await expect.poll(() => urlPalette(page)).toBe('root');
+  await page.goBack();
+  await expect.poll(() => paletteOpen(page)).toBe(false);
+  expect(urlPalette(page)).toBeNull();
+});
+
+test('Esc leaves no dead step', async ({ page, daemon }) => {
+  await openApp(page, daemon);
+  const a = await onTab(page, 0);
+  await newTab(page);
+  await onTab(page, 1);
+  await page.locator('#settings-btn').click();
+  await expect.poll(() => paletteOpen(page)).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect.poll(() => paletteOpen(page)).toBe(false);
+  await expect.poll(() => urlPalette(page)).toBeNull();
+  await page.goBack();
+  await onTab(page, 0);
+  expect(urlTab(page)).toBe(a);
+  expect(await paletteOpen(page)).toBe(false);
+});
+
+test("a palette action replaces the palette's step", async ({ page, daemon }) => {
+  await setOnboarded(page, daemon, true);
+  await openApp(page, daemon);
+  await onTab(page, 0);
+  await page.locator('#settings-btn').click();
+  await expect.poll(() => paletteOpen(page)).toBe(true);
+  await page.locator('#palette-input').fill('toggle board');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#board')).toBeVisible();
+  await expect.poll(() => paletteOpen(page)).toBe(false);
+  await expect.poll(() => urlPalette(page)).toBeNull();
+  await page.goBack();
+  await expect(page.locator('#board')).toBeHidden();
+  expect(await paletteOpen(page)).toBe(false);
+  expect(urlPalette(page)).toBeNull();
+});
+
+test('a reload reopens the palette page', async ({ page, daemon }) => {
+  await openApp(page, daemon);
+  await onTab(page, 0);
+  await page.locator('#settings-btn').click();
+  await page.locator('#palette [role="menuitem"][data-filter="Theme…"]').click();
+  await expect(page.locator('#palette-input')).toHaveAttribute('placeholder', /Search themes/);
+  await expect.poll(() => urlPalette(page)).toBe('theme');
+  await page.reload();
+  await expect.poll(() => paletteOpen(page)).toBe(true);
+  await expect(page.locator('#palette-input')).toHaveAttribute('placeholder', /Search themes/);
+  expect(urlPalette(page)).toBe('theme');
+});
