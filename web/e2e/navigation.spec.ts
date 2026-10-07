@@ -247,3 +247,34 @@ test('steps an overtaken Back never ran still run', async ({ page, daemon, proje
   expect(urlFile(page)).toBe(`${project}/README.md`);
   await expect(page.locator('#pane .pane-head')).toContainText('README.md');
 });
+
+test('a tab switch overtaken mid-load is still undone', async ({ page, daemon, project }) => {
+  await openApp(page, daemon);
+  const a = await onTab(page, 0);
+  await newTab(page);
+  const b = await onTab(page, 1);
+  // B shows README, then back on A, with no file.
+  await page.evaluate((u) => navigation.navigate(u).finished, `?tab=${b}&file=${encodeURIComponent(`${project}/README.md`)}`);
+  await expect(page.locator('#pane .pane-head')).toContainText('README.md');
+  await tabs(page).nth(0).click();
+  await onTab(page, 0);
+  await expect(pane(page)).toBeHidden();
+
+  // To B with another file, and Back to A before that file loads.
+  await page.evaluate(
+    async (u) => {
+      await navigation.navigate(u).committed;
+      await navigation.back().finished.catch(() => {});
+    },
+    `?tab=${b}&file=${encodeURIComponent(`${project}/src/main.rs`)}`,
+  );
+  await expect(tabs(page).nth(0)).toHaveAttribute('aria-selected', 'true');
+  expect(urlTab(page)).toBe(a);
+  expect(urlFile(page)).toBeNull();
+  await expect(pane(page)).toBeHidden();
+
+  // B kept README, and a switch to it puts README in the URL.
+  await tabs(page).nth(1).click();
+  await expect.poll(() => urlFile(page)).toBe(`${project}/README.md`);
+  await expect(page.locator('#pane .pane-head')).toContainText('README.md');
+});

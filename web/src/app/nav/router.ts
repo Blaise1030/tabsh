@@ -19,6 +19,9 @@ type Info = { to: Place; initial?: boolean };
 // never finished.
 let current: Place = HOME;
 let applied: Place = HOME;
+// The tab step ran but the file step didn't finish: `applied`'s file is the
+// previous tab's, so the next navigation works the file out again.
+let fileStale = false;
 const steps = new Map<Step, Apply>();
 const guards: ((to: Place, from: Place) => boolean)[] = [];
 // go() calls made before startRouter(); folded under its fallback and URL.
@@ -79,13 +82,17 @@ function placeOf(q: URLSearchParams): Place {
   return merge({ ...HOME, tab: current.tab }, fromQuery(q), 'replace');
 }
 
-// `applied` with `step`'s part taken from `to`. The file is the tab's, so a
-// tab counts as applied only with its file: one overtaken in between leaves
-// the next navigation to work out the file again.
-function withStep(p: Place, to: Place, step: Step, run: Step[]): Place {
-  if (step === 'tab' && run.includes('file')) return p;
-  if (step === 'file') return { ...p, tab: to.tab, file: to.file, line: to.line };
+// `applied` with `step`'s part taken from `to`.
+function withStep(p: Place, to: Place, step: Step): Place {
+  if (step === 'file') return { ...p, file: to.file, line: to.line };
   return { ...p, [step]: to[step] };
+}
+
+// What a navigation moves from. With a stale file, no tab and no file: the
+// file step then adopts or opens, never closes the wrong tab's file, and the
+// guard doesn't ask about it.
+function appliedFrom(): Place {
+  return fileStale ? { ...applied, tab: null, file: null, line: null } : applied;
 }
 
 function onNavigate(e: NavigateEvent): void {
@@ -95,7 +102,7 @@ function onNavigate(e: NavigateEvent): void {
   const info = e.info as Info | undefined;
   const to = info?.to ?? placeOf(dest.searchParams);
   const initial = !!info?.initial;
-  if (!initial && guards.some((guard) => !guard(to, applied))) {
+  if (!initial && guards.some((guard) => !guard(to, appliedFrom()))) {
     if (e.cancelable) {
       e.preventDefault();
       return;
@@ -112,13 +119,20 @@ function onNavigate(e: NavigateEvent): void {
   e.intercept({
     handler: async () => {
       const before = current;
-      const from = applied;
+      const from = appliedFrom();
       current = to;
       if (e.navigationType === 'push' && !before.palette && to.palette) {
         paletteEntryKey = navigation.currentEntry?.key ?? null;
       }
-      const due = changed(from, to);
-      const run = initial ? STEPS.filter((s) => s === 'tab' || due.includes(s)) : due;
+      // The tab step always runs at startup; after it, the file step always
+      // does (the file is the tab's), as it does after one left unfinished.
+      const due = changed(applied, to);
+      const run = STEPS.filter(
+        (s) =>
+          due.includes(s) ||
+          (s === 'tab' && initial) ||
+          (s === 'file' && (fileStale || initial || due.includes('tab'))),
+      );
       const patch: Partial<Place> = {};
       for (const step of run) {
         if (e.signal.aborted) break;
@@ -129,7 +143,11 @@ function onNavigate(e: NavigateEvent): void {
           console.error(err);
         }
         // A step overtaken while it ran (a file still loading) dropped its result.
-        if (!e.signal.aborted) applied = withStep(applied, to, step, run);
+        if (!e.signal.aborted) {
+          applied = withStep(applied, to, step);
+          if (step === 'tab') fileStale = run.includes('file');
+          if (step === 'file') fileStale = false;
+        }
       }
       if (!e.signal.aborted && Object.keys(patch).length) fixes = { patch, signal: e.signal };
     },
