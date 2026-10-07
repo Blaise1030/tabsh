@@ -25,6 +25,8 @@ export interface Settings {
   keySearchFiles: string;
   keyGroupTabs: string;
   keyToggleBoard: string;
+  keyBack: string;
+  keyForward: string;
   agentCommands: string[]; // most recent first, at most 8
   boardOnboarded: boolean; // the board's setup screen was dealt with (set up or skipped)
 }
@@ -47,6 +49,8 @@ export function defaults(isMac: boolean): Settings {
     keySearchFiles: keys.keySearchFiles.presets[0],
     keyGroupTabs: keys.keyGroupTabs.presets[0],
     keyToggleBoard: keys.keyToggleBoard.presets[0],
+    keyBack: keys.keyBack.presets[0],
+    keyForward: keys.keyForward.presets[0],
     agentCommands: ['claude {prompt}'],
     boardOnboarded: false,
   };
@@ -68,6 +72,8 @@ export function cleanSettings(stored: Record<string, unknown>, isMac: boolean): 
     keySearchFiles: '',
     keyGroupTabs: '',
     keyToggleBoard: '',
+    keyBack: '',
+    keyForward: '',
   };
   const key = (id: KeyId) => {
     const want = str(stored[id]);
@@ -100,6 +106,8 @@ export function cleanSettings(stored: Record<string, unknown>, isMac: boolean): 
     keySearchFiles: key('keySearchFiles'),
     keyGroupTabs: key('keyGroupTabs'),
     keyToggleBoard: key('keyToggleBoard'),
+    keyBack: key('keyBack'),
+    keyForward: key('keyForward'),
     agentCommands: (() => {
       const list = Array.isArray(stored.agentCommands)
         ? [...new Set(stored.agentCommands.filter((c): c is string => typeof c === 'string' && !!c.trim()))].slice(0, 8)

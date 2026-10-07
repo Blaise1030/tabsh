@@ -22,6 +22,9 @@ export const ICONS = {
     '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M8 7v7"/><path d="M12 7v4"/><path d="M16 7v9"/></svg>',
   explorer:
     '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>',
+  back: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>',
+  forward:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>',
   info: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>',
 };
 
@@ -42,6 +45,7 @@ export interface PaletteItem {
   run?: () => void;
   preview?: () => void;
   checked?: boolean;
+  disabled?: boolean; // greyed out and not selectable
 }
 export interface PalettePage {
   placeholder: string;
@@ -61,6 +65,10 @@ export function pages(ctx: {
   toggleExplorer(): void;
   toggleBoard(): void;
   searchFiles(): void;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  goBack(): void;
+  goForward(): void;
 }): Record<string, () => PalettePage> {
   const { saved } = current;
   return {
@@ -121,6 +129,27 @@ export function pages(ctx: {
               hint: GROUPINGS[saved.tabGrouping],
               keywords: 'tags repos projects collapse filter',
               go: 'tabGrouping',
+            },
+          ],
+        },
+        {
+          heading: 'Navigate',
+          items: [
+            {
+              label: 'Go back',
+              icon: ICONS.back,
+              hint: keyLabel(saved.keyBack, isMac),
+              keywords: KEYBINDINGS.keyBack.keywords,
+              disabled: !ctx.canGoBack,
+              run: ctx.canGoBack ? ctx.goBack : undefined,
+            },
+            {
+              label: 'Go forward',
+              icon: ICONS.forward,
+              hint: keyLabel(saved.keyForward, isMac),
+              keywords: KEYBINDINGS.keyForward.keywords,
+              disabled: !ctx.canGoForward,
+              run: ctx.canGoForward ? ctx.goForward : undefined,
             },
           ],
         },

@@ -367,3 +367,60 @@ test('a reload reopens the palette page', async ({ page, daemon }) => {
   await expect(page.locator('#palette-input')).toHaveAttribute('placeholder', /Search themes/);
   expect(urlPalette(page)).toBe('theme');
 });
+
+// Back and Forward keys and palette entries.
+const backKey = process.platform === 'darwin' ? 'Control+Shift+Minus' : 'Alt+Shift+ArrowLeft';
+
+test('the Back key works from the terminal', async ({ page, daemon }) => {
+  await openApp(page, daemon);
+  const a = await onTab(page, 0);
+  await newTab(page);
+  await onTab(page, 1);
+  await page.locator('.term.active').click();
+  await page.keyboard.press(backKey);
+  await onTab(page, 0);
+  expect(urlTab(page)).toBe(a);
+});
+
+test('the Back key does nothing behind a dialog', async ({ page, daemon }) => {
+  await setOnboarded(page, daemon, true);
+  await openApp(page, daemon);
+  await onTab(page, 0);
+  await newTab(page);
+  const b = await onTab(page, 1);
+  await page.locator('#board-btn').click();
+  await page.locator('.board-col[data-status="backlog"] header .btn').click();
+  const dialog = page.locator('#new-card');
+  await expect(dialog).toHaveAttribute('open', '');
+  await page.keyboard.press(backKey);
+  await page.waitForTimeout(300);
+  await expect(dialog).toHaveAttribute('open', '');
+  expect(urlTab(page)).toBe(b);
+});
+
+test('the palette offers Go back', async ({ page, daemon }) => {
+  await openApp(page, daemon);
+  const a = await onTab(page, 0);
+  await newTab(page);
+  await onTab(page, 1);
+  await page.locator('#settings-btn').click();
+  await expect.poll(() => paletteOpen(page)).toBe(true);
+  await page.locator('#palette-input').fill('go back');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => paletteOpen(page)).toBe(false);
+  await onTab(page, 0);
+  expect(urlTab(page)).toBe(a);
+});
+
+test('a stale URL is fixed', async ({ page, daemon }) => {
+  await openApp(page, daemon);
+  await onTab(page, 0);
+  const app = page.url().split('?')[0];
+  await page.goto(`${app}?tab=nope&file=../../nope&line=abc&view=grid`);
+  await expect(page.locator('#tabs .tab:not(.mirror)[aria-selected="true"]')).toBeVisible();
+  await expect.poll(() => urlTab(page)).not.toBe('nope');
+  const q = new URL(page.url()).searchParams;
+  expect(q.get('tab')).toBeTruthy();
+  for (const k of ['file', 'line', 'view']) expect(q.has(k)).toBe(false);
+  await expect(page.locator('#file-pane')).toBeHidden();
+});

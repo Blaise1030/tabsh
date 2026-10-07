@@ -4,7 +4,7 @@
 import { toggleBoard } from '../board/view.ts';
 import { searchFiles, toggleExplorer } from '../explorer/explorer.ts';
 import { loadedPane } from '../files/open.ts';
-import { back, go, here, isPaletteEntry, onPlace } from '../nav/router.ts';
+import { back, backPastPalette, forward, go, here, isLeavingPalette, isPaletteEntry, onPlace } from '../nav/router.ts';
 import { cycleTab, store } from '../sessions/store.ts';
 import { comboFromEvent, comboProblem, type KeyId, keyLabel, matchesKey } from '../settings/keys.ts';
 import type { Settings } from '../settings/schema.ts';
@@ -31,6 +31,10 @@ function palettePages(): ReturnType<typeof pages> {
     toggleExplorer,
     toggleBoard: () => toggleBoard(),
     searchFiles,
+    canGoBack: navigation.canGoBack,
+    canGoForward: navigation.canGoForward,
+    goBack: backPastPalette,
+    goForward: forward,
   });
 }
 
@@ -61,7 +65,8 @@ function showPage(name: string): void {
                 .join('')}</span>`
             : '';
           return `<div role="menuitem" id="${id}" data-filter="${item.label}" data-keywords="${item.keywords ?? ''}"
-                     ${item.go || item.record ? 'data-keep-command-open' : ''} ${checked ? 'data-checked="true"' : ''}>
+                     ${item.disabled ? 'aria-disabled="true"' : ''}
+                     ${item.go || item.record || item.disabled ? 'data-keep-command-open' : ''} ${checked ? 'data-checked="true"' : ''}>
           ${item.icon ?? swatch}<span>${item.label}</span>
           ${item.hint ? `<span data-shortcut>${item.hint}</span>` : ''}
           ${item.key || item.checked ? `<span data-indicator>${CHECK}</span>` : ''}
@@ -195,7 +200,7 @@ export function initPalette(): void {
     setPreviewing(false);
     applySettings(current.saved);
     store.active?.term.focus();
-    if (!here().palette) return;
+    if (!here().palette || isLeavingPalette()) return;
     if (isPaletteEntry()) back();
     else go({ palette: null }, 'replace');
   });
@@ -249,6 +254,25 @@ export function initPalette(): void {
       e.preventDefault();
       e.stopPropagation(); // capture phase: keep it away from the terminal
       openGroupPalette();
+    },
+    true,
+  );
+
+  // The back and forward keybindings walk the history, unless a dialog
+  // other than the palette has the page.
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      const step = matchesKey(e, current.saved.keyBack)
+        ? 'back'
+        : matchesKey(e, current.saved.keyForward)
+          ? 'forward'
+          : '';
+      if (!step || document.querySelector('dialog[open]:not(#palette)')) return;
+      e.preventDefault();
+      e.stopPropagation(); // capture phase: keep it away from the terminal
+      if (step === 'back') backPastPalette();
+      else forward();
     },
     true,
   );

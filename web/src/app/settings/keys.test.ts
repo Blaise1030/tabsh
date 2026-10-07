@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { comboFromEvent, comboProblem, keybindings, keyLabel, matchesKey } from './keys.ts';
+import { comboFromEvent, comboProblem, type KeyId, keybindings, keyLabel, matchesKey } from './keys.ts';
+import { defaults } from './schema.ts';
 
 test('keyLabel', () => {
   assert.equal(keyLabel('meta+KeyK', true), '⌘K');
@@ -54,6 +55,8 @@ test('comboProblem allows only combos the shell and browser leave free', () => {
     keySearchFiles: 'meta+shift+KeyF',
     keyGroupTabs: 'meta+shift+KeyY',
     keyToggleBoard: 'meta+KeyB',
+    keyBack: 'ctrl+shift+Minus',
+    keyForward: 'ctrl+shift+Equal',
   };
   const ok = (combo: string, isMac = true) => comboProblem(combo, 'keyPalette', saved, isMac) === null;
   assert.ok(ok('meta+KeyY'));
@@ -87,6 +90,8 @@ test('every preset passes comboProblem', () => {
       keySearchFiles: '',
       keyGroupTabs: '',
       keyToggleBoard: '',
+      keyBack: '',
+      keyForward: '',
     };
     for (const id of Object.keys(k) as (keyof typeof k)[]) {
       for (const combo of k[id].presets) assert.equal(comboProblem(combo, id, saved, mac), null, combo);
@@ -120,6 +125,22 @@ test('grouping tabs has a default combo that no other action shares', () => {
     assert.equal(first, mac ? 'meta+shift+KeyY' : 'ctrl+shift+KeyY');
     for (const [id, other] of Object.entries(k)) {
       if (id !== 'keyGroupTabs') assert.ok(!other.presets.includes(first), id);
+    }
+  }
+});
+test('back and forward presets are valid', () => {
+  assert.deepEqual(keybindings(true).keyBack.presets, ['ctrl+shift+Minus', 'meta+BracketLeft']);
+  assert.deepEqual(keybindings(true).keyForward.presets, ['ctrl+shift+Equal', 'meta+BracketRight']);
+  assert.deepEqual(keybindings(false).keyBack.presets, ['alt+shift+ArrowLeft', 'ctrl+alt+shift+ArrowLeft']);
+  assert.deepEqual(keybindings(false).keyForward.presets, ['alt+shift+ArrowRight', 'ctrl+alt+shift+ArrowRight']);
+  for (const mac of [true, false]) {
+    const k = keybindings(mac);
+    const saved = defaults(mac);
+    for (const id of ['keyBack', 'keyForward'] as const) {
+      for (const combo of k[id].presets) {
+        const other = Object.keys(k).find((o) => o !== id && saved[o as KeyId] === combo);
+        assert.equal(comboProblem(combo, id, saved, mac), other ? `Already used by ${k[other as KeyId].name}` : null);
+      }
     }
   }
 });

@@ -25,6 +25,7 @@ interface NavigateEvent extends Event {
 }
 interface Navigation extends EventTarget {
   readonly currentEntry: NavigationHistoryEntry | null;
+  entries(): NavigationHistoryEntry[];
   readonly canGoBack: boolean;
   readonly canGoForward: boolean;
   readonly transition: { readonly finished: Promise<void> } | null; // a navigation still running

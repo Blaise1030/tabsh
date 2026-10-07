@@ -30,6 +30,7 @@ let started = false;
 // The entry a push opened the palette on: leaving the palette from it
 // replaces that entry, so Back doesn't land on a closed palette.
 let paletteEntryKey: string | null = null;
+let leaving = false;
 // Sent once the navigation that asked for them has finished.
 let fixes: { patch: Partial<Place>; signal: AbortSignal } | null = null;
 let refusedKey: string | null = null;
@@ -79,6 +80,25 @@ export function back(): void {
   if (navigation.canGoBack) quiet(navigation.back());
 }
 
+// Back from the palette's own entry: past the entry the palette opened on,
+// to the place before it (plain Back would only close the palette).
+export function backPastPalette(): void {
+  const at = navigation.currentEntry?.index ?? -1;
+  const before = at >= 2 && isPaletteEntry() ? navigation.entries()[at - 2] : undefined;
+  if (!before) {
+    back();
+    return;
+  }
+  leaving = true;
+  quiet(navigation.traverseTo(before.key));
+}
+
+// A traversal off the palette's entry is on its way: the palette's close
+// must not start another navigation over it.
+export function isLeavingPalette(): boolean {
+  return leaving;
+}
+
 export function forward(): void {
   if (navigation.canGoForward) quiet(navigation.forward());
 }
@@ -103,6 +123,7 @@ function appliedFrom(): Place {
 }
 
 function onNavigate(e: NavigateEvent): void {
+  leaving = false;
   if (!e.canIntercept || e.hashChange || e.downloadRequest !== null || e.navigationType === 'reload') return;
   const dest = new URL(e.destination.url);
   if (dest.origin !== location.origin || dest.pathname !== location.pathname) return;

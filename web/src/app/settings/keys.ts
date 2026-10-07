@@ -12,7 +12,9 @@ export type KeyId =
   | 'keyToggleExplorer'
   | 'keySearchFiles'
   | 'keyGroupTabs'
-  | 'keyToggleBoard';
+  | 'keyToggleBoard'
+  | 'keyBack'
+  | 'keyForward';
 export interface Keybinding {
   name: string;
   keywords: string;
@@ -67,6 +69,19 @@ export function keybindings(isMac: boolean): Record<KeyId, Keybinding> {
       name: 'Toggle board',
       keywords: 'kanban cards tasks overview status',
       presets: isMac ? ['meta+KeyB', 'meta+shift+KeyB'] : ['ctrl+shift+KeyB', 'alt+shift+KeyB'],
+    },
+    // ⌃- is readline's undo, so the Mac default is ⌃⇧-.
+    keyBack: {
+      name: 'Go back',
+      keywords: 'history previous last navigate',
+      presets: isMac ? ['ctrl+shift+Minus', 'meta+BracketLeft'] : ['alt+shift+ArrowLeft', 'ctrl+alt+shift+ArrowLeft'],
+    },
+    keyForward: {
+      name: 'Go forward',
+      keywords: 'history next navigate',
+      presets: isMac
+        ? ['ctrl+shift+Equal', 'meta+BracketRight']
+        : ['alt+shift+ArrowRight', 'ctrl+alt+shift+ArrowRight'],
     },
   };
 }

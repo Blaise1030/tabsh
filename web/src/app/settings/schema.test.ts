@@ -76,3 +76,12 @@ test('the board shows its setup screen until it is marked as onboarded', () => {
   assert.equal(cleanSettings({ boardOnboarded: true }, true).boardOnboarded, true);
   assert.equal(cleanSettings({ boardOnboarded: 'yes' }, true).boardOnboarded, false);
 });
+test('cleanSettings fills keyBack and keyForward', () => {
+  assert.equal(cleanSettings({}, true).keyBack, 'ctrl+shift+Minus');
+  assert.equal(cleanSettings({}, true).keyForward, 'ctrl+shift+Equal');
+  assert.equal(cleanSettings({}, false).keyBack, 'alt+shift+ArrowLeft');
+  // A stored combo another action holds gives way to a free preset.
+  const s = cleanSettings({ keyBack: 'meta+KeyK' }, true);
+  assert.notEqual(s.keyBack, s.keyPalette);
+  assert.equal(s.keyBack, 'ctrl+shift+Minus');
+});
