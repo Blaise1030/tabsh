@@ -1,6 +1,6 @@
 # Declarative UI with VanJS
 
-Status: design agreed in chat, 2026-10-07; written spec under review. Builds on the URL navigation design
+Status: approved design, 2026-10-07. Builds on the URL navigation design
 (`2026-10-07-url-navigation-design.md`) and starts after it merges.
 
 ## Intent
