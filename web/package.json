@@ -34,7 +34,8 @@
     "codemirror": "^6.0.2",
     "marked": "^18.0.14",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "vanjs-core": "^1.6.1"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
