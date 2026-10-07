@@ -1,11 +1,14 @@
-// New card: an optional title, a folder (recent ones offered), the first
-// prompt and the agent command to start on it (recent ones offered). The
-// board stays open. Made from Backlog's +, the card waits there and its agent
+// New card: a folder (recent ones offered), the first prompt, the agent
+// command to start on it (recent ones offered) and optional tags. The board
+// stays open. Made from Backlog's +, the card waits there and its agent
 // starts when it's dragged to In progress; from any other column's +, it goes
 // to In progress and its agent starts at once (a running agent's hooks would
-// put it there anyway). With no title the card takes its terminal's title.
+// put it there anyway). The card is titled by its prompt until its terminal
+// gives it a title.
 import { ApiError } from '../daemon/client.ts';
+import { parseTagList } from '../sessions/labels.ts';
 import { openTab, type Session, store } from '../sessions/store.ts';
+import { labelsOf, setTags } from '../sessions/tags.ts';
 import { current, saveSetting } from '../settings/settings.ts';
 import { el } from '../ui/dom.ts';
 import { DEFAULT_COMMAND, recentFolders, rememberCommand, type Status } from './model.ts';
@@ -48,13 +51,13 @@ export function initNewCard(): void {
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const data = new FormData(form);
-    const name = String(data.get('name') ?? '').trim();
     const cwd = expandHome(String(data.get('cwd') ?? '').trim());
     const prompt = String(data.get('prompt') ?? '').trim();
     const command = String(data.get('command') ?? '').trim() || DEFAULT_COMMAND;
+    const tags = parseTagList(String(data.get('tags') ?? ''));
     let s: Session;
     try {
-      s = await openTab({ ...(name && { name }), ...(cwd && { cwd }), prompt, command }, false);
+      s = await openTab({ ...(cwd && { cwd }), prompt, command }, false);
     } catch (err) {
       // The daemon answers 400 for a folder that isn't there.
       const badFolder = err instanceof ApiError && err.status === 400 && cwd;
@@ -62,6 +65,8 @@ export function initNewCard(): void {
       error.hidden = false;
       return;
     }
+    // Added to the tag of the group it opened in, if any.
+    if (tags.length) setTags(s, [...new Set([...labelsOf(s).tags, ...tags])]);
     dialog().close();
     // The next card offers it first.
     saveSetting('agentCommands', rememberCommand(current.saved.agentCommands, command));
