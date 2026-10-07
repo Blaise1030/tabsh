@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.1.9
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.8...v0.1.9)
+
+### Features
+
+- **board:** A card made outside Backlog starts its agent at once ([3028063](https://github.com/Blaise1030/tabsh/commit/3028063))
+
+### Fixes
+
+- **app:** Dropping a board card no longer types its id into the terminal ([28e7cdf](https://github.com/Blaise1030/tabsh/commit/28e7cdf))
+
 ## v0.1.8
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.7...v0.1.8)
