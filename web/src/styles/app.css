@@ -109,11 +109,12 @@ html.themed {
      narrowest (counted by layout() as --label and --tabs). */
   position: relative; display: flex; flex: 0 1 auto; align-items: center; gap: .375rem;
   min-width: calc(var(--label, 0px) + var(--tabs, 0) * (var(--tab-min) + .375rem));
-  padding-bottom: 4px; margin-left: .625rem;
+  margin-left: .625rem;
 }
 .tab-group-box:first-child { margin-left: 0; }
 .tab-group-box::after {
-  content: ""; position: absolute; left: .25rem; right: .25rem; bottom: 0; height: 2px;
+  /* In the strip's bottom padding, so the line takes no height of its own. */
+  content: ""; position: absolute; left: .25rem; right: .25rem; bottom: -3px; height: 2px;
   border-radius: 1px; background: var(--group);
 }
 .tab-group-box.collapsed::after { display: none; }
