@@ -1,8 +1,10 @@
 // The board, end to end (the agent is `true`, so the real `claude` never
 // starts; the launch line is covered by the daemon's tests): a new card waits
 // in Backlog with the board still open, and dragging it to In progress starts
-// its agent; a status set through the daemon's API (as `tabsh status` does) moves it and
+// its agent; one made from another column starts at once; a status set through the daemon's API (as `tabsh status` does) moves it and
 // colours its tab; dragging moves it on; a name with markup stays text.
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import type { Daemon } from './daemon.ts';
 import { expect, newTab, openApp, test, typeInTerminal } from './fixture.ts';
@@ -10,12 +12,13 @@ import { expect, newTab, openApp, test, typeInTerminal } from './fixture.ts';
 const card = (page: Page, name: string) => page.locator('.board-card').filter({ hasText: name });
 const col = (page: Page, status: string) => page.locator(`.board-col[data-status="${status}"]`);
 
-// Fills in and submits the New card dialog, with an agent that exits at once.
-async function newCard(page: Page, name: string, cwd: string): Promise<void> {
+// Fills in and submits the New card dialog, by default with an agent that
+// exits at once.
+async function newCard(page: Page, name: string, cwd: string, prompt = 'Go', command = 'true'): Promise<void> {
   await page.locator('#new-card input[name="name"]').fill(name);
   await page.locator('#new-card input[name="cwd"]').fill(cwd);
-  await page.locator('#new-card textarea[name="prompt"]').fill('Go');
-  await page.locator('#new-card input[name="command"]').fill('true');
+  await page.locator('#new-card textarea[name="prompt"]').fill(prompt);
+  await page.locator('#new-card input[name="command"]').fill(command);
   await page.locator('#new-card button[type="submit"]').click();
 }
 
@@ -81,6 +84,17 @@ test('cards move through the board', async ({ page, daemon, project }) => {
   await expect(toggle).toContainText('Archive 1');
   await toggle.click();
   await expect(page.locator('.board-col.archive .board-card').filter({ hasText: 'Fix login' })).toBeVisible();
+});
+
+test("a card made from another column's + starts its agent at once", async ({ page, daemon, project }) => {
+  const mark = join(project, 'launched');
+  await openApp(page, daemon);
+  await page.locator('#board-btn').click();
+  await col(page, 'needs_input').locator('header .btn').click();
+  // The agent `touch`es the prompt, so the file shows it ran.
+  await newCard(page, 'Right away', project, mark, 'touch');
+  await expect(col(page, 'in_progress').locator('.board-card').filter({ hasText: 'Right away' })).toBeVisible();
+  await expect.poll(() => existsSync(mark), { timeout: 10_000 }).toBe(true);
 });
 
 test('a completed card has an Archive button', async ({ page, daemon, project }) => {

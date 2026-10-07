@@ -1,8 +1,9 @@
 // New card: an optional title, a folder (recent ones offered), the first
 // prompt and the agent command to start on it (recent ones offered). The
-// card waits in Backlog, and the board stays open: its agent starts when
-// it's dragged to In progress (or made from that column's +). With no title
-// the card takes its terminal's title.
+// board stays open. Made from Backlog's +, the card waits there and its agent
+// starts when it's dragged to In progress; from any other column's +, it goes
+// to In progress and its agent starts at once (a running agent's hooks would
+// put it there anyway). With no title the card takes its terminal's title.
 import { ApiError } from '../daemon/client.ts';
 import { openTab, type Session, store } from '../sessions/store.ts';
 import { current, saveSetting } from '../settings/settings.ts';
@@ -64,7 +65,7 @@ export function initNewCard(): void {
     dialog().close();
     // The next card offers it first.
     saveSetting('agentCommands', rememberCommand(current.saved.agentCommands, command));
-    if (column !== 'backlog') await setStatus(s, column).catch(() => {});
+    if (column !== 'backlog') await setStatus(s, 'in_progress').catch(() => {});
   });
   setNewCard(openNewCard);
 }
