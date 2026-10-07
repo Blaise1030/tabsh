@@ -123,6 +123,9 @@ async fn set_status(
         .map_err(internal_error)?
         .ok_or(StatusCode::NOT_FOUND)?;
     drop(db);
+    if apply && rules::launches(&body.status, source) {
+        crate::sessions::launch(&st, &id);
+    }
     if apply {
         let _ = st.events.send(BoardEvent {
             id: info.id.clone(),

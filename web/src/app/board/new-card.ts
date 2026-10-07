@@ -1,14 +1,15 @@
-// New card: a title, a folder (recent ones offered), an optional first
-// prompt and the agent command to start on it (recent ones offered). With a
-// prompt the terminal starts that agent and the card is In progress; without
-// one it's a plain shell in the column it came from.
+// New card: an optional title, a folder (recent ones offered), the first
+// prompt and the agent command to start on it (recent ones offered). The
+// card waits in Backlog, and the board stays open: its agent starts when
+// it's dragged to In progress (or made from that column's +). With no title
+// the card takes its terminal's title.
 import { ApiError } from '../daemon/client.ts';
-import { openTab, store } from '../sessions/store.ts';
+import { openTab, type Session, store } from '../sessions/store.ts';
 import { current, saveSetting } from '../settings/settings.ts';
 import { el } from '../ui/dom.ts';
 import { DEFAULT_COMMAND, recentFolders, rememberCommand, type Status } from './model.ts';
 import { setStatus } from './status.ts';
-import { setNewCard, toggleBoard } from './view.ts';
+import { setNewCard } from './view.ts';
 
 const dialog = () => document.getElementById('new-card') as HTMLDialogElement;
 let column: Status = 'backlog';
@@ -50,8 +51,9 @@ export function initNewCard(): void {
     const cwd = expandHome(String(data.get('cwd') ?? '').trim());
     const prompt = String(data.get('prompt') ?? '').trim();
     const command = String(data.get('command') ?? '').trim() || DEFAULT_COMMAND;
+    let s: Session;
     try {
-      await openTab({ name, ...(cwd && { cwd }), ...(prompt && { prompt, command }) });
+      s = await openTab({ ...(name && { name }), ...(cwd && { cwd }), prompt, command }, false);
     } catch (err) {
       // The daemon answers 400 for a folder that isn't there.
       const badFolder = err instanceof ApiError && err.status === 400 && cwd;
@@ -60,13 +62,9 @@ export function initNewCard(): void {
       return;
     }
     dialog().close();
-    if (prompt) {
-      // The next card offers it first.
-      saveSetting('agentCommands', rememberCommand(current.saved.agentCommands, command));
-    }
-    const s = store.active;
-    if (s && !prompt && column !== 'backlog') await setStatus(s, column).catch(() => {});
-    toggleBoard(false);
+    // The next card offers it first.
+    saveSetting('agentCommands', rememberCommand(current.saved.agentCommands, command));
+    if (column !== 'backlog') await setStatus(s, column).catch(() => {});
   });
   setNewCard(openNewCard);
 }

@@ -61,29 +61,30 @@ export const savedActive = (): string | null => {
 };
 
 // Opens a tab with `body`'s options in the active tab's group: grouped by
-// tag, it gets that group's tag.
-export async function openTab(body?: {
-  cwd?: string;
-  name?: string;
-  prompt?: string;
-  command?: string;
-}): Promise<void> {
+// tag, it gets that group's tag. It becomes the active tab unless `focus` is
+// false.
+export async function openTab(
+  body?: { cwd?: string; name?: string; prompt?: string; command?: string },
+  focus = true,
+): Promise<Session> {
   const { tag } = newTabGroup();
   const info = (await api<SessionInfo>('POST', '', body)) as SessionInfo;
   if (tag) adoptTag(info.id, tag);
-  activate(openSession(info));
+  const s = openSession(info);
+  if (focus) activate(s);
+  return s;
 }
 
 // Opens a new tab; grouped by repo, its shell starts in the active group's
 // repo (or the home directory, when that repo's folder is gone).
-export function newSession(): Promise<void> {
+export async function newSession(): Promise<void> {
   const { cwd } = newTabGroup();
-  return cwd ? openTab({ cwd }).catch(() => openTab()) : openTab();
+  await (cwd ? openTab({ cwd }).catch(() => openTab()) : openTab());
 }
 
 // Opens a new tab whose shell starts in `cwd`.
-export function newTabAt(cwd: string): Promise<void> {
-  return openTab({ cwd }).catch(console.error);
+export async function newTabAt(cwd: string): Promise<void> {
+  await openTab({ cwd }).catch(console.error);
 }
 
 // Bring the tab list in line with the server: picks up tabs opened or

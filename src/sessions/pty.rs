@@ -87,19 +87,19 @@ pub(super) fn get_or_spawn(st: &AppState, id: &str) -> Result<Option<Arc<Session
         .lock()
         .unwrap()
         .query_row(
-            "SELECT cwd, scrollback, pending_input, pending_prompt FROM sessions WHERE id = ?1",
+            "SELECT cwd, scrollback, status, pending_prompt FROM sessions WHERE id = ?1",
             params![id],
             |r| {
                 Ok((
                     r.get::<_, Option<String>>(0)?,
                     r.get::<_, Vec<u8>>(1)?,
-                    r.get::<_, Option<String>>(2)?,
+                    r.get::<_, String>(2)?,
                     r.get::<_, Option<String>>(3)?,
                 ))
             },
         )
         .optional()?;
-    let Some((cwd, scrollback, pending, prompt)) = row else {
+    let Some((cwd, scrollback, status, prompt)) = row else {
         return Ok(None);
     };
     let session = spawn_session(
@@ -109,19 +109,37 @@ pub(super) fn get_or_spawn(st: &AppState, id: &str) -> Result<Option<Arc<Session
         scrollback,
         prompt.as_deref(),
     )?;
-    // The PTY buffers it until the shell reads its first line, so this is
-    // safe to send before the prompt is drawn.
-    if let Some(line) = pending {
-        if let Err(e) = st.db.lock().unwrap().execute(
-            "UPDATE sessions SET pending_input = NULL, pending_prompt = NULL WHERE id = ?1",
-            params![id],
-        ) {
-            eprintln!("failed to clear pending input of {id}: {e}");
-        }
-        let _ = session.input.send(Bytes::from(line));
+    // A card still in Backlog waits for its drag to In progress.
+    if status == "in_progress" {
+        type_launch_line(st, id, &session);
     }
     live.insert(id.to_owned(), session.clone());
     Ok(Some(session))
+}
+
+/// Types a card's pending launch line into its shell, once. The PTY buffers
+/// it until the shell reads its first line, so this is safe to send before
+/// the prompt is drawn.
+pub(super) fn type_launch_line(st: &AppState, id: &str, session: &Session) {
+    let db = st.db.lock().unwrap();
+    let line = db
+        .query_row(
+            "SELECT pending_input FROM sessions WHERE id = ?1",
+            params![id],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .ok()
+        .flatten()
+        .flatten();
+    let Some(line) = line else { return };
+    if let Err(e) = db.execute(
+        "UPDATE sessions SET pending_input = NULL, pending_prompt = NULL WHERE id = ?1",
+        params![id],
+    ) {
+        eprintln!("failed to clear pending input of {id}: {e}");
+    }
+    let _ = session.input.send(Bytes::from(line));
 }
 
 fn spawn_session(
@@ -244,5 +262,45 @@ mod tests {
         let p = "it's $(x) `y`\n\"z\"";
         let env = shell_env(&st, "abc-1", Some(p));
         assert!(env.contains(&("TABSH_PROMPT", p.into())));
+    }
+
+    fn pending(st: &AppState, id: &str) -> Option<String> {
+        st.db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT pending_input FROM sessions WHERE id = ?1",
+                [id],
+                |r| r.get(0),
+            )
+            .unwrap()
+    }
+
+    #[test]
+    fn a_backlog_shell_keeps_its_launch_line_until_the_card_is_in_progress() {
+        let st = test_state();
+        let id = crate::sessions::store::insert_card(
+            &st.db.lock().unwrap(),
+            &crate::sessions::store::NewCard {
+                pending: Some("true\r"),
+                prompt: Some("go"),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .id;
+        let session = get_or_spawn(&st, &id).unwrap().unwrap();
+        assert_eq!(pending(&st, &id).as_deref(), Some("true\r"));
+        st.db
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE sessions SET status = 'in_progress' WHERE id = ?1",
+                [&id],
+            )
+            .unwrap();
+        crate::sessions::launch(&st, &id);
+        assert_eq!(pending(&st, &id), None, "typed once");
+        let _ = session.killer.lock().unwrap().kill();
     }
 }

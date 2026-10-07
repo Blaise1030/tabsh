@@ -56,12 +56,14 @@ import '../../styles/app.css';
     <form method="dialog" id="new-card-form">
       <header><h2 id="new-card-title">New card</h2></header>
       <section class="new-card-fields">
-        <label class="label">Title <input class="input" name="name" required maxlength="100" autocomplete="off"></label>
-        <label class="label">Folder <input class="input" name="cwd" list="new-card-folders" placeholder="~/code/app" autocomplete="off" spellcheck="false"></label>
+        <label class="label"><span>Title <span class="mark">(optional)</span></span>
+          <input class="input" name="name" maxlength="100" autocomplete="off"></label>
+        <label class="label"><span>Folder</span>
+          <input class="input" name="cwd" list="new-card-folders" placeholder="~/code/app" autocomplete="off" spellcheck="false"></label>
         <datalist id="new-card-folders"></datalist>
-        <label class="label">First prompt <span class="mark">(optional, starts the agent)</span>
-          <textarea class="textarea" name="prompt" rows="3"></textarea></label>
-        <label class="label">Agent <span class="mark">({'{prompt}'} is replaced by the prompt)</span>
+        <label class="label"><span>First prompt</span>
+          <textarea class="textarea" name="prompt" rows="3" required></textarea></label>
+        <label class="label"><span>Agent <span class="mark">({'{prompt}'} is replaced by the prompt)</span></span>
           <input class="input" name="command" list="new-card-commands" autocomplete="off" spellcheck="false"></label>
         <datalist id="new-card-commands"></datalist>
         <p class="new-card-error" hidden></p>

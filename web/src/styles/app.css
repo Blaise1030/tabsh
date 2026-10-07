@@ -367,5 +367,6 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .archive .board-card { margin-top: .5rem; cursor: default; }
 
 .new-card-fields { display: flex; flex-direction: column; gap: .75rem; }
-.new-card-fields .label { display: flex; flex-direction: column; gap: .375rem; }
+.new-card-fields .label { display: flex; flex-direction: column; align-items: stretch; gap: .375rem; text-align: left; }
+.new-card-fields .mark { color: var(--muted-foreground); font-weight: 400; }
 .new-card-error { color: var(--destructive, #ef4444); font-size: .8125rem; margin: 0; }

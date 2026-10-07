@@ -17,6 +17,12 @@ pub(crate) fn applies(current: &str, source: Source, unless: Option<&str>) -> bo
     }
 }
 
+/// A card dragged to In progress starts its agent (when it has one waiting);
+/// hooks only report on an agent that's already running.
+pub(crate) fn launches(status: &str, source: Source) -> bool {
+    source == Source::User && status == "in_progress"
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -37,5 +43,12 @@ mod tests {
         assert!(!applies("completed", Source::Hook, Some("completed")));
         assert!(applies("in_progress", Source::Hook, Some("completed")));
         assert!(applies("completed", Source::Hook, None));
+    }
+
+    #[test]
+    fn only_a_drag_to_in_progress_launches() {
+        assert!(launches("in_progress", Source::User));
+        assert!(!launches("in_progress", Source::Hook));
+        assert!(!launches("needs_input", Source::User));
     }
 }

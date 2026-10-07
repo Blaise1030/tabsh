@@ -95,7 +95,7 @@ pub(crate) struct NewCard<'a> {
     /// `None`: the next free "Terminal N".
     pub(crate) name: Option<&'a str>,
     pub(crate) status: &'a str,
-    /// Typed into the shell once it starts.
+    /// Typed into the shell once the card is In progress and it runs.
     pub(crate) pending: Option<&'a str>,
     /// Handed to that shell as `TABSH_PROMPT`.
     pub(crate) prompt: Option<&'a str>,

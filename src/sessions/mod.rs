@@ -71,6 +71,15 @@ pub(crate) fn exists(st: &AppState, id: &str) -> bool {
             .is_ok_and(|row| row.is_some())
 }
 
+/// Starts a card's agent: types its pending launch line into its running
+/// shell, once. A shell that isn't running yet types it when it starts.
+pub(crate) fn launch(st: &AppState, id: &str) {
+    let live = st.live.lock().unwrap();
+    if let Some(session) = live.get(id) {
+        pty::type_launch_line(st, id, session);
+    }
+}
+
 /// Running shells and all sessions, for the About dialog.
 pub(crate) fn counts(st: &AppState) -> rusqlite::Result<(usize, i64)> {
     let running = st.live.lock().unwrap().len();
@@ -194,11 +203,8 @@ async fn create_session(
     let card = store::NewCard {
         cwd: body.cwd.as_deref(),
         name: name.as_deref(),
-        status: if pending.is_some() {
-            "in_progress"
-        } else {
-            "backlog"
-        },
+        // Its agent starts when the card is dragged to In progress.
+        status: "backlog",
         pending: pending.as_deref(),
         prompt: prompt.as_deref(),
         pinned: name.is_some(),
@@ -317,7 +323,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_card_with_a_prompt_starts_its_agent_and_is_in_progress() {
+    async fn a_card_with_a_prompt_waits_in_backlog_with_its_agent_pending() {
         let st = test_state();
         let (code, body) = create(
             &st,
@@ -327,7 +333,7 @@ mod tests {
         assert_eq!(code, StatusCode::OK);
         assert_eq!(
             (body["name"].as_str(), body["status"].as_str()),
-            (Some("Fix login"), Some("in_progress"))
+            (Some("Fix login"), Some("backlog"))
         );
         assert_eq!(
             pending(&st, &body["id"]).as_deref(),

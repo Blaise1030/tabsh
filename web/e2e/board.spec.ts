@@ -1,12 +1,22 @@
-// The board, end to end (no prompt, so the real `claude` never starts; the
-// prompt path is covered by the daemon's tests): a new card lands in Backlog;
-// a status set through the daemon's API (as `tabsh status` does) moves it and
+// The board, end to end (the agent is `true`, so the real `claude` never
+// starts; the launch line is covered by the daemon's tests): a new card waits
+// in Backlog with the board still open, and dragging it to In progress starts
+// its agent; a status set through the daemon's API (as `tabsh status` does) moves it and
 // colours its tab; dragging moves it on; a name with markup stays text.
 import type { Page } from '@playwright/test';
 import { expect, newTab, openApp, test, typeInTerminal } from './fixture.ts';
 
 const card = (page: Page, name: string) => page.locator('.board-card').filter({ hasText: name });
 const col = (page: Page, status: string) => page.locator(`.board-col[data-status="${status}"]`);
+
+// Fills in and submits the New card dialog, with an agent that exits at once.
+async function newCard(page: Page, name: string, cwd: string): Promise<void> {
+  await page.locator('#new-card input[name="name"]').fill(name);
+  await page.locator('#new-card input[name="cwd"]').fill(cwd);
+  await page.locator('#new-card textarea[name="prompt"]').fill('Go');
+  await page.locator('#new-card input[name="command"]').fill('true');
+  await page.locator('#new-card button[type="submit"]').click();
+}
 
 // The daemon is shared by the worker's later specs, some of which count tabs:
 // leave it with no sessions.
@@ -22,13 +32,15 @@ test('cards move through the board', async ({ page, daemon, project }) => {
   await openApp(page, daemon);
   await page.locator('#board-btn').click();
   await col(page, 'backlog').locator('header .btn').click();
-  await page.locator('#new-card input[name="name"]').fill('Fix login');
-  await page.locator('#new-card input[name="cwd"]').fill(project);
-  await page.locator('#new-card button[type="submit"]').click();
+  await newCard(page, 'Fix login', project);
 
-  // Back on the terminal; the board shows the card in Backlog.
-  await page.locator('#board-btn').click();
+  // Still on the board, with the card waiting in Backlog and its tab not
+  // selected.
   await expect(col(page, 'backlog').locator('.board-card').filter({ hasText: 'Fix login' })).toBeVisible();
+  await expect(page.locator('#tabs .tab:has-text("Fix login")')).toHaveAttribute('aria-selected', 'false');
+
+  await card(page, 'Fix login').dragTo(col(page, 'in_progress').locator('.board-cards'));
+  await expect(col(page, 'in_progress').locator('.board-card').filter({ hasText: 'Fix login' })).toBeVisible();
 
   const id = await card(page, 'Fix login').getAttribute('data-id');
   const res = await page.request.patch(`${daemon.baseUrl}/api/sessions/${id}/status`, {
@@ -60,10 +72,7 @@ test('a completed card has an Archive button', async ({ page, daemon, project })
   await openApp(page, daemon);
   await page.locator('#board-btn').click();
   await col(page, 'backlog').locator('header .btn').click();
-  await page.locator('#new-card input[name="name"]').fill('Ship it');
-  await page.locator('#new-card input[name="cwd"]').fill(project);
-  await page.locator('#new-card button[type="submit"]').click();
-  await page.locator('#board-btn').click();
+  await newCard(page, 'Ship it', project);
   const id = await card(page, 'Ship it').getAttribute('data-id');
   await page.request.patch(`${daemon.baseUrl}/api/sessions/${id}/status`, {
     headers: { Authorization: `Bearer ${daemon.token}` },
