@@ -424,3 +424,55 @@ test('a stale URL is fixed', async ({ page, daemon }) => {
   for (const k of ['file', 'line', 'view']) expect(q.has(k)).toBe(false);
   await expect(page.locator('#file-pane')).toBeHidden();
 });
+
+test('the Back key closes the palette and stays on the tab', async ({ page, daemon }) => {
+  await openApp(page, daemon);
+  await onTab(page, 0);
+  await newTab(page);
+  const b = await onTab(page, 1);
+  await page.locator('#settings-btn').click();
+  await expect.poll(() => paletteOpen(page)).toBe(true);
+  await page.keyboard.press(backKey);
+  await expect.poll(() => paletteOpen(page)).toBe(false);
+  expect(urlTab(page)).toBe(b);
+  expect(urlPalette(page)).toBeNull();
+});
+
+test("Back after a palette action goes to the place before it, not past it", async ({ page, daemon }) => {
+  await openApp(page, daemon);
+  await onTab(page, 0);
+  await newTab(page);
+  const b = await onTab(page, 1);
+  await page.locator('#settings-btn').click();
+  await expect.poll(() => paletteOpen(page)).toBe(true);
+  await page.locator('#palette-input').fill('toggle file explorer');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => paletteOpen(page)).toBe(false);
+  await expect(page.locator('#explorer')).toBeVisible();
+  await page.locator('.term.active').click();
+  await page.keyboard.press(backKey);
+  await expect(page.locator('#explorer')).toBeHidden();
+  expect(urlTab(page)).toBe(b);
+});
+
+test('a refused Go back leaves the palette openable', async ({ page, daemon, project }) => {
+  await openApp(page, daemon);
+  await cdInTerminal(page, project, 'in-project');
+  await openLink(page, 'src/main.rs', 'src/main.rs');
+  await expect.poll(() => urlFile(page)).toBe(`${project}/src/main.rs`);
+  await page.locator('#pane .cm-content').click();
+  await page.keyboard.press('ControlOrMeta+E');
+  await page.keyboard.press('End');
+  await page.keyboard.type('// edited');
+  await expect(page.locator('#pane .pane-dot')).toBeVisible();
+
+  await page.locator('#settings-btn').click();
+  await expect.poll(() => paletteOpen(page)).toBe(true);
+  page.once('dialog', (d) => void d.dismiss());
+  await page.locator('#palette-input').fill('go back');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => paletteOpen(page)).toBe(false);
+  await expect.poll(() => urlPalette(page)).toBeNull();
+  await page.locator('#settings-btn').click();
+  await expect.poll(() => paletteOpen(page)).toBe(true);
+});

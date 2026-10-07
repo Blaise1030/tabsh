@@ -80,17 +80,30 @@ export function back(): void {
   if (navigation.canGoBack) quiet(navigation.back());
 }
 
+// The palette's "Go back" / "Go forward" items: a traversal started as the
+// palette closes. The close must not start a navigation over it (`leaving`).
+// If the traversal is refused or fails, the palette is already shut, so the
+// place drops it too.
+function leavePalette(r: NavigationResult): void {
+  leaving = true;
+  r.committed.catch(() => {});
+  r.finished.catch(() => {
+    leaving = false;
+    if (current.palette) go({ palette: null }, 'replace');
+  });
+}
+
 // Back from the palette's own entry: past the entry the palette opened on,
 // to the place before it (plain Back would only close the palette).
 export function backPastPalette(): void {
   const at = navigation.currentEntry?.index ?? -1;
-  const before = at >= 2 && isPaletteEntry() ? navigation.entries()[at - 2] : undefined;
-  if (!before) {
-    back();
-    return;
-  }
-  leaving = true;
-  quiet(navigation.traverseTo(before.key));
+  const before = at >= 2 && current.palette && isPaletteEntry() ? navigation.entries()[at - 2] : undefined;
+  if (before) leavePalette(navigation.traverseTo(before.key));
+  else if (navigation.canGoBack) leavePalette(navigation.back());
+}
+
+export function forwardFromPalette(): void {
+  if (navigation.canGoForward) leavePalette(navigation.forward());
 }
 
 // A traversal off the palette's entry is on its way: the palette's close

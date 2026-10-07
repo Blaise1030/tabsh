@@ -4,7 +4,17 @@
 import { toggleBoard } from '../board/view.ts';
 import { searchFiles, toggleExplorer } from '../explorer/explorer.ts';
 import { loadedPane } from '../files/open.ts';
-import { back, backPastPalette, forward, go, here, isLeavingPalette, isPaletteEntry, onPlace } from '../nav/router.ts';
+import {
+  back,
+  backPastPalette,
+  forward,
+  forwardFromPalette,
+  go,
+  here,
+  isLeavingPalette,
+  isPaletteEntry,
+  onPlace,
+} from '../nav/router.ts';
 import { cycleTab, store } from '../sessions/store.ts';
 import { comboFromEvent, comboProblem, type KeyId, keyLabel, matchesKey } from '../settings/keys.ts';
 import type { Settings } from '../settings/schema.ts';
@@ -34,7 +44,7 @@ function palettePages(): ReturnType<typeof pages> {
     canGoBack: navigation.canGoBack,
     canGoForward: navigation.canGoForward,
     goBack: backPastPalette,
-    goForward: forward,
+    goForward: forwardFromPalette,
   });
 }
 
@@ -271,7 +281,7 @@ export function initPalette(): void {
       if (!step || document.querySelector('dialog[open]:not(#palette)')) return;
       e.preventDefault();
       e.stopPropagation(); // capture phase: keep it away from the terminal
-      if (step === 'back') backPastPalette();
+      if (step === 'back') back();
       else forward();
     },
     true,
