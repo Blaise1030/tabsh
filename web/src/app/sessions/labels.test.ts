@@ -4,6 +4,7 @@ import {
   cleanTag,
   groupTabs,
   joinGroup,
+  moveTag,
   parseCollapsed,
   parseTags,
   repoName,
@@ -107,4 +108,12 @@ test('a new tab joins a group through its tag or its repo, and the unlabelled gr
   assert.deepEqual(joinGroup('repo:tabsh'), { tag: null, repo: 'tabsh' });
   assert.deepEqual(joinGroup('tag:'), { tag: null, repo: null });
   assert.deepEqual(joinGroup(null), { tag: null, repo: null });
+});
+
+test('a tab dragged between tag groups trades the tag it was dragged by for the target', () => {
+  assert.deepEqual(moveTag(['red'], 'red', 'blue'), ['blue']);
+  assert.deepEqual(moveTag(['red', 'blue'], 'blue', 'green'), ['red', 'green']);
+  assert.deepEqual(moveTag(['red', 'blue'], 'red', 'blue'), ['blue']); // already there: once
+  assert.deepEqual(moveTag([], null, 'red'), ['red']); // out of the untagged group
+  assert.deepEqual(moveTag(['red', 'blue'], 'red', null), ['blue']); // into it: loses only that tag
 });

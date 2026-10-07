@@ -101,3 +101,11 @@ export function joinGroup(key: string | null): { tag: string | null; repo: strin
   const m = key?.match(/^(repo|tag):(.+)$/);
   return { tag: m?.[1] === 'tag' ? m[2] : null, repo: m?.[1] === 'repo' ? m[2] : null };
 }
+
+// A tab's tags once it is dragged from the group of tag `from` into that of
+// `to` (null for the untagged group): `to` takes `from`'s place, so the tab
+// keeps its other tags and their order.
+export function moveTag(tags: string[], from: string | null, to: string | null): string[] {
+  const swapped = from && tags.includes(from) ? tags.map((t) => (t === from ? to : t)) : [...tags, to];
+  return [...new Set(swapped.filter((t): t is string => !!t))];
+}

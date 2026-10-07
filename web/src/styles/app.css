@@ -87,6 +87,10 @@ html.themed {
 .tab.leaving { pointer-events: none; }
 /* A tab being dragged rides above the others and follows the pointer. */
 .tab.dragging { z-index: 1; cursor: grabbing; background: var(--muted); box-shadow: 0 2px 8px rgb(0 0 0 / .25); }
+/* Over a group's label, it lets the label's highlight show through. */
+.tab.dragging.over-label { opacity: .55; }
+/* Over a group it can't join (another repo's): it goes back when let go. */
+.tab.dragging.no-drop { cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) { .tab { transition: none; } }
 .tab:hover { background: color-mix(in srgb, transparent 50%, var(--muted)); color: var(--foreground); }
 /* The selected tab is a flat muted fill, no border or shadow. */
@@ -128,6 +132,8 @@ html.themed {
   background: color-mix(in srgb, var(--group) 22%, transparent);
 }
 .badge.tab-group:hover { background: color-mix(in srgb, var(--group) 34%, transparent); }
+/* A dragged tab over a label joins that group when let go. */
+.badge.tab-group.drop-target { box-shadow: 0 0 0 2px var(--group); }
 .badge.tab-group i { width: .5rem; height: .5rem; border-radius: 999px; background: var(--group); }
 .badge.tab-group small { font-size: inherit; font-weight: 400; color: var(--muted-foreground); }
 .badge.tab-group small:empty { display: none; }

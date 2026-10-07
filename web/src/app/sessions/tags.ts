@@ -20,7 +20,7 @@ function storedTags(): Record<string, string[]> {
   }
 }
 
-function setTags(s: Session, list: string[]): void {
+export function setTags(s: Session, list: string[]): void {
   const tags = storedTags();
   if (list.length) tags[s.id] = list;
   else delete tags[s.id];

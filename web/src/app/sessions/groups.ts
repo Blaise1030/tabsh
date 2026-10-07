@@ -4,13 +4,14 @@
 // others hold copies (`.mirror`) that act for it. Clicking a
 // label collapses its group (kept in this browser) to all but the active
 // tab, a new tab joins the active tab's group, and the next/previous tab keys
-// walk the shown tabs in strip order.
+// walk the shown tabs in strip order. Dragged into another tag's group (or
+// onto its label), a tab trades the tag it was dragged by for that one.
 import { current, onApply } from '../settings/settings.ts';
 import { el } from '../ui/dom.ts';
-import { type Group, groupTabs, joinGroup, parseCollapsed, tagColor } from './labels.ts';
+import { type Group, groupTabs, joinGroup, moveTag, parseCollapsed, tagColor } from './labels.ts';
 import { activate, closeSession, onActivate, type Session, store } from './store.ts';
 import { updateFades } from './tabs.ts';
-import { labelsOf, rootOf } from './tags.ts';
+import { labelsOf, rootOf, setTags } from './tags.ts';
 
 const COLLAPSED_KEY = 'tabsh.collapsed';
 const collapsed = new Set<string>(); // group keys
@@ -72,6 +73,7 @@ function boxOf(g: Group): HTMLElement {
     label.dataset.variant = 'secondary';
     label.onclick = () => toggleCollapsed(g.key);
     box = el('div', { className: 'tab-group-box', role: 'presentation' }, label);
+    box.dataset.group = g.key;
     boxes.set(g.key, box);
   }
   const label = box.firstElementChild as HTMLElement;
@@ -124,6 +126,7 @@ function watch(s: Session): void {
     queueMicrotask(() => {
       queued = false;
       for (const [i, old] of (mirrors.get(s.id) ?? []).entries()) {
+        if (old.classList.contains('dragging')) continue; // caught up by the next change
         const fresh = copyOf(s);
         fresh.dataset.group = old.dataset.group;
         fresh.hidden = old.hidden;
@@ -199,11 +202,28 @@ export function layout(): void {
   updateFades();
 }
 
+// The session a tab on the strip (or one of its copies) stands for.
+export const sessionOf = (t: HTMLElement): Session | undefined =>
+  store.sessions.find((s) => s.tab === t || mirrors.get(s.id)?.includes(t));
+
+// Whether a tab dragged out of group `from` may land in group `to`: by tag
+// yes; by repo only in its own, since its group is where its shell is.
+export const canMove = (from: string | null, to: string | null): boolean =>
+  from === to || current.applied.tabGrouping === 'tag';
+
+// Moves a tab dragged out of group `from` into group `to`: it trades the tag
+// it was dragged by for the target's, and counts as picked there.
+export function moveToGroup(s: Session, from: string | null, to: string | null): void {
+  if (from === to || !canMove(from, to)) return;
+  if (s === store.active) activeGroup = to;
+  setTags(s, moveTag(labelsOf(s).tags, joinGroup(from).tag, joinGroup(to).tag));
+}
+
 // The tabs showing on the strip, each once, in strip order.
 export function shownSessions(): Session[] {
   const out: Session[] = [];
   for (const t of strip().querySelectorAll<HTMLElement>('.tab:not([hidden]):not(.leaving)')) {
-    const s = store.sessions.find((s) => s.tab === t || mirrors.get(s.id)?.includes(t));
+    const s = sessionOf(t);
     if (s && !out.includes(s)) out.push(s);
   }
   return out;
@@ -215,7 +235,7 @@ export function shownSessions(): Session[] {
 export function stepTab(step: 1 | -1): Session | null {
   const from = currentGroup(groups());
   const places = [...strip().querySelectorAll<HTMLElement>('.tab:not([hidden]):not(.leaving)')].flatMap((t) => {
-    const s = store.sessions.find((s) => s.tab === t || mirrors.get(s.id)?.includes(t));
+    const s = sessionOf(t);
     return s ? [{ s, group: t.dataset.group ?? null }] : [];
   });
   const n = places.length;

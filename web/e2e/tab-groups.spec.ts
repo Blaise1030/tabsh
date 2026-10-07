@@ -2,11 +2,12 @@
 // on its grouping page, which previews each choice; by tag, each tag gets a
 // label followed by its tabs, a tab with two tags shows under both, a
 // label's click collapses its group (kept across a reload), the tab keys
-// skip collapsed groups, and a new tab joins the active tab's group; by
-// repo, a new tab starts in the active tab's repo. The daemon (and so the
+// skip collapsed groups, a new tab joins the active tab's group, and a tab
+// dragged into another tag's group trades tags; by repo, a new tab starts in
+// the active tab's repo, and a tab dragged to another repo goes back. The daemon (and so the
 // grouping setting) is shared by the worker, so each test puts grouping back
 // to none, and earlier specs' tabs, all untagged, sit in "Untagged".
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { cdInTerminal, expect, newTab, openApp, test, typeInTerminal } from './fixture.ts';
 
 const tab = (page: Page, name: string) => page.locator('#tabs .tab:not(.mirror)').filter({ hasText: name });
@@ -48,6 +49,30 @@ async function tagTab(page: Page, name: string, ...tags: string[]): Promise<void
   }
   await page.keyboard.press('Escape');
   await expect(menu).toBeHidden();
+}
+
+// Drag `from` with the mouse and let it go over `to`, read again once the
+// drag has started (the strip shifts as the tab leaves its place). `during`
+// runs with the tab held over `to`. Earlier specs' tabs can overflow the
+// strip, so both are scrolled into view first.
+async function drag(page: Page, from: Locator, to: Locator, during?: () => Promise<void>): Promise<void> {
+  await to.scrollIntoViewIfNeeded();
+  await from.scrollIntoViewIfNeeded();
+  const centre = async (l: Locator) => {
+    const b = await l.boundingBox();
+    if (!b) throw new Error('not on screen');
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  };
+  const a = await centre(from);
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  await page.mouse.move(a.x + 12, a.y, { steps: 3 });
+  for (let i = 0; i < 2; i++) {
+    const b = await centre(to);
+    await page.mouse.move(b.x, b.y, { steps: 10 });
+  }
+  await during?.();
+  await page.mouse.up();
 }
 
 // Pick a grouping from the group button's palette page.
@@ -148,4 +173,60 @@ test("by repo, a new tab starts in the active tab's repo", async ({ page, daemon
   await newTab(page);
   await expect.poll(alphas, { timeout: 10_000 }).toBe(before + 2);
   await expect(chip(page, 'alpha')).toBeVisible();
+});
+
+test("a tab dragged into another tag's group trades tags; a copy moves only its place", async ({ page, daemon }) => {
+  test.slow(); // three tabs and four drags
+  await openApp(page, daemon);
+  for (const name of ['red-1', 'blue-1', 'both']) {
+    await newTab(page);
+    await nameTab(page, name);
+  }
+  await tagTab(page, 'red-1', 'red');
+  await tagTab(page, 'blue-1', 'blue');
+  await tagTab(page, 'both', 'red', 'blue');
+  await groupBy(page, 'By tag');
+  expect(await inGroup(page, 'tag:red')).toEqual(['red-1', 'both']);
+
+  await test.step('onto a label', async () => {
+    await drag(page, tab(page, 'red-1'), chip(page, 'blue'));
+    await expect.poll(() => inGroup(page, 'tag:red')).toEqual(['both']);
+    expect(await inGroup(page, 'tag:blue')).toContain('red-1');
+  });
+
+  await test.step("among another group's tabs", async () => {
+    await drag(page, tab(page, 'blue-1'), tab(page, 'both'));
+    await expect.poll(() => inGroup(page, 'tag:red')).toContain('blue-1');
+    expect(await inGroup(page, 'tag:blue')).not.toContain('blue-1');
+  });
+
+  await test.step('a copy onto "Untagged" takes off only the tag it was under', async () => {
+    const copy = page.locator('#tabs .tab.mirror[data-group="tag:blue"]').filter({ hasText: 'both' });
+    await drag(page, copy, chip(page, 'Untagged'));
+    await expect.poll(() => inGroup(page, 'tag:blue')).not.toContain('both');
+    expect(await inGroup(page, 'tag:red')).toContain('both');
+  });
+});
+
+test('by repo, a tab dragged to another repo shows it cannot go, and goes back', async ({ page, daemon, twins }) => {
+  test.slow(); // two shells to move and their repos to read
+  await openApp(page, daemon);
+  await newTab(page);
+  await cdInTerminal(page, twins.alpha, 'in-alpha-drag');
+  await newTab(page);
+  await cdInTerminal(page, twins.beta, 'in-beta-drag');
+  await groupBy(page, 'By repo');
+  const alphaTab = tab(page, 'in-alpha-drag');
+  // Each tab's repo is read when it activates.
+  await alphaTab.click();
+  await tab(page, 'in-beta-drag').click();
+  await expect(alphaTab).toHaveAttribute('data-group', 'repo:alpha', { timeout: 10_000 });
+  await expect(tab(page, 'in-beta-drag')).toHaveAttribute('data-group', 'repo:beta', { timeout: 10_000 });
+
+  await drag(page, alphaTab, chip(page, 'beta'), async () => {
+    await expect(alphaTab).toHaveClass(/no-drop/);
+  });
+  await expect(alphaTab).not.toHaveClass(/dragging/);
+  await expect(alphaTab).toHaveAttribute('data-group', 'repo:alpha');
+  await expect(page.locator('.tab-group-box[data-group="repo:alpha"] .tab').filter({ hasText: 'in-alpha-drag' })).toHaveCount(1);
 });
