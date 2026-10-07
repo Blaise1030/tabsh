@@ -1,7 +1,7 @@
 # Declarative UI with VanJS
 
 Status: approved design, 2026-10-07. Builds on the URL navigation design
-(`2026-10-07-url-navigation-design.md`) and starts after it merges.
+(`2026-10-07-url-navigation-design.md`) and chains from its branch.
 
 ## Intent
 
@@ -120,7 +120,7 @@ initialises, so, as `palette.ts` does today, the palette calls
 
 ## Order of work
 
-One branch off `main` after navigation merges. Each commit leaves the app
+One branch, stacked on the navigation branch (`feat/url-navigation`); its PR targets that branch and moves to `main` once navigation merges. Each commit leaves the app
 working and the e2e suite green.
 
 1. **Foundation:** `vanjs-core`, `ui/icons.ts`, `ui/keyed.ts` with its
