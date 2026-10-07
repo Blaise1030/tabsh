@@ -33,6 +33,12 @@ export function parseTagList(raw: string): string[] {
   return [...new Set(raw.split(',').map(cleanTag))].filter((t): t is string => !!t);
 }
 
+// The picked tags with what was typed added after them: each tag in it (a
+// pasted list may hold several), skipping ones already picked.
+export function addTag(picked: string[], raw: string): string[] {
+  return [...new Set([...picked, ...parseTagList(raw)])];
+}
+
 // The stored tags (session id → its tags), dropping anything that isn't a
 // tag and repeats. A single string (one tag per tab, as first stored) is read
 // as a list of one.

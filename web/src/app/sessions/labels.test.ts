@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  addTag,
   cleanTag,
   groupTabs,
   joinGroup,
@@ -36,6 +37,13 @@ test('a typed tag is trimmed and capped, and blank means none', () => {
 test('a typed tag list is split on commas, without blanks or repeats', () => {
   assert.deepEqual(parseTagList(' bug, ui ,,bug, '), ['bug', 'ui']);
   assert.deepEqual(parseTagList('   '), []);
+});
+
+test('a typed tag joins the picked ones once, and a pasted list adds each', () => {
+  assert.deepEqual(addTag(['bug'], ' ui '), ['bug', 'ui']);
+  assert.deepEqual(addTag(['bug'], 'bug'), ['bug']);
+  assert.deepEqual(addTag(['bug'], 'ui, bug,,docs'), ['bug', 'ui', 'docs']);
+  assert.deepEqual(addTag(['bug'], '  '), ['bug']);
 });
 
 test('stored tags keep only string tags, once each, and read one tag as a list', () => {

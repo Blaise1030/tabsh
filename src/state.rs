@@ -80,6 +80,7 @@ mod tests {
             (Method::GET, "/api/files?session=x&path=a"),
             (Method::HEAD, "/api/files?session=x&path=a"),
             (Method::PUT, "/api/files"),
+            (Method::GET, "/api/files/folders?path=/a"),
             (Method::GET, "/api/files/raw?path=/a"),
             (Method::GET, "/api/files/root?session=x"),
             (Method::GET, "/api/files/tree?session=x"),

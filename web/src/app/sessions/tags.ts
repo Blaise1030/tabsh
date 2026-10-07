@@ -20,6 +20,12 @@ function storedTags(): Record<string, string[]> {
   }
 }
 
+// Told when a tab's tags change, e.g. to redraw the board.
+const tagsChanged: (() => void)[] = [];
+export const onTagsChange = (fn: () => void): void => {
+  tagsChanged.push(fn);
+};
+
 export function setTags(s: Session, list: string[]): void {
   const tags = storedTags();
   if (list.length) tags[s.id] = list;
@@ -28,6 +34,17 @@ export function setTags(s: Session, list: string[]): void {
     localStorage.setItem(TAGS_KEY, JSON.stringify(tags));
   } catch {}
   render(s);
+  for (const fn of tagsChanged) fn();
+}
+
+// Every tag some tab has, sorted.
+export const usedTags = (): string[] => [...new Set(Object.values(storedTags()).flat())].sort();
+
+// A tag as a badge tinted in its color, after a dot of it.
+export function tagBadge(tag: string, ...kids: HTMLElement[]): HTMLElement {
+  const b = el('span', { className: 'badge tag-badge' }, el('i'), el('span', { textContent: tag }), ...kids);
+  b.style.setProperty('--tag', tagColor(tag));
+  return b;
 }
 
 export const labelsOf = (s: Session): Labels => ({ repo: repos.get(s.id) ?? null, tags: storedTags()[s.id] ?? [] });
@@ -97,9 +114,8 @@ function tagMenu(s: Session): HTMLElement {
   const list = el('div', { className: 'menu-list' });
   const fill = () => {
     const mine = storedTags()[s.id] ?? [];
-    const used = [...new Set(Object.values(storedTags()).flat())].sort();
     list.replaceChildren(
-      ...used.map((tag) =>
+      ...usedTags().map((tag) =>
         checkRow('tag', tag, mine.includes(tag), (on) => setTags(s, toggleTag(storedTags()[s.id] ?? [], tag, on))),
       ),
     );
