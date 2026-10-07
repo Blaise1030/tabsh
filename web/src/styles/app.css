@@ -117,10 +117,10 @@ html.themed {
   border-radius: 1px; background: var(--group);
 }
 .tab-group-box.collapsed::after { display: none; }
-/* Its label is Basecoat's badge, tinted in the group's color, as tall as a
-   tab and with a tab's corners. */
+/* Its label is Basecoat's badge, tinted in the group's color, with a tab's
+   height, corners and text size. */
 .badge.tab-group {
-  height: 1.75rem; padding-inline: .625rem; border-radius: .375rem;
+  height: 1.75rem; padding-inline: .625rem; border-radius: .375rem; font-size: .875rem;
   cursor: pointer; color: var(--foreground);
   background: color-mix(in srgb, var(--group) 22%, transparent);
 }
