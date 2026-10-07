@@ -20,7 +20,7 @@ export function initBoardEvents(): void {
     const ev = JSON.parse(e.data) as BoardEvent;
     if (ev.resync) return void sync().catch(() => {});
     const s = store.sessions.find((x) => x.id === ev.id);
-    if (s) applyCard(s, { ...s.card, status: asStatus(ev.status), statusAt: ev.status_at, note: ev.note });
+    if (s) applyCard(s, { ...s.card.val, status: asStatus(ev.status), statusAt: ev.status_at, note: ev.note });
   };
   ws.onclose = () => setTimeout(initBoardEvents, 1000);
 }

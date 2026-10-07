@@ -50,25 +50,27 @@ const FOLDER =
   '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>';
 
 function cardEl(s: Session, now: number): HTMLElement {
+  const name = s.name.val;
+  const c = s.card.val;
   const top = el(
     'div',
     { className: 'card-top' },
-    el('span', { className: 'card-title', textContent: s.name }),
-    glyph(s.card.status),
+    el('span', { className: 'card-title', textContent: name }),
+    glyph(c.status),
   );
   const folder = el('div', { className: 'card-meta' });
   folder.innerHTML = FOLDER; // static icon
-  folder.append(el('span', { textContent: shortPath(s.card.cwd) || '~' }));
+  folder.append(el('span', { textContent: shortPath(c.cwd) || '~' }));
   const kids: HTMLElement[] = [top, folder];
-  if (s.card.note) kids.push(el('div', { className: 'card-note', textContent: s.card.note }));
-  kids.push(el('div', { className: 'card-meta', textContent: since(s.card.statusAt, now) }));
+  if (c.note) kids.push(el('div', { className: 'card-note', textContent: c.note }));
+  kids.push(el('div', { className: 'card-meta', textContent: since(c.statusAt, now) }));
   const card = el('article', { className: 'board-card', draggable: true, tabIndex: 0 }, ...kids);
   card.dataset.id = s.id;
   card.onclick = () => {
     go({ view: 'terms', tab: s.id });
   };
   card.onkeydown = (e) => e.target === card && e.key === 'Enter' && card.click();
-  if (s.card.status === 'completed') {
+  if (c.status === 'completed') {
     const arch = el('button', { type: 'button', className: 'btn', textContent: 'Archive' });
     arch.dataset.variant = 'ghost';
     arch.dataset.size = 'sm';
@@ -104,13 +106,16 @@ function clearDropMarks(): void {
   for (const x of board().querySelectorAll('.drop-before, .drop-end')) x.classList.remove('drop-before', 'drop-end');
 }
 
+// The tabs as the board's model takes them: each with its card.
+const cards = () => store.sessions.map((s) => ({ s, id: s.id, card: s.card.val }));
+
 async function move(id: string, status: Status, beforeId: string | null): Promise<void> {
   const s = store.sessions.find((x) => x.id === id);
   if (!s) return;
-  const ids = dropOrder(store.sessions, id, status, beforeId);
+  const ids = dropOrder(cards(), id, status, beforeId);
   orderTabs(ids);
   api('PUT', '/order', { ids }).catch(() => {});
-  if (s.card.status !== status) await setStatus(s, status).catch(console.error);
+  if (s.card.val.status !== status) await setStatus(s, status).catch(console.error);
   else render();
 }
 
@@ -263,10 +268,11 @@ export function render(): void {
     return;
   }
   const now = Math.floor(Date.now() / 1000);
-  const g = group(store.sessions);
+  const g = group(cards());
+  const of = (status: Status) => g[status].map((x) => x.s);
   board().replaceChildren(
-    ...COLUMNS.map(({ status, name }) => column(status, name, g[status], now)),
-    archive(g.archived, now),
+    ...COLUMNS.map(({ status, name }) => column(status, name, of(status), now)),
+    archive(of('archived'), now),
   );
 }
 

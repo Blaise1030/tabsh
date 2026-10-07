@@ -4,7 +4,6 @@ import { api } from '../daemon/client.ts';
 import { ring } from '../sessions/bell.ts';
 import { layout } from '../sessions/groups.ts';
 import type { Session, SessionInfo } from '../sessions/store.ts';
-import { glyphSvg, STATUS_NAMES } from './glyph.ts';
 import { asStatus, type Card, type Status } from './model.ts';
 
 const listeners: (() => void)[] = [];
@@ -22,19 +21,13 @@ export const cardOf = (info: SessionInfo): Card => ({
   cwd: info.cwd ?? null,
 });
 
+// The tab's glyph, its title and `.archived` follow `s.card` (tab.ts).
 export function applyCard(s: Session, card: Card): void {
-  const before = s.card?.status;
-  s.card = card;
-  const glyph = s.tab.querySelector('.tab-status') as HTMLElement;
-  if (glyph.dataset.status !== card.status) {
-    glyph.dataset.status = card.status;
-    glyph.innerHTML = glyphSvg(card.status); // static markup from glyph.ts
-  }
-  glyph.title = card.note ? `${STATUS_NAMES[card.status]}: ${card.note}` : STATUS_NAMES[card.status];
-  s.tab.classList.toggle('archived', card.status === 'archived');
+  const before = s.card.val.status;
+  s.card.val = card;
   // In or out of the strip and its groups.
-  if (before !== undefined && (before === 'archived') !== (card.status === 'archived')) layout();
-  if (before && before !== 'needs_input' && card.status === 'needs_input') ring(s);
+  if ((before === 'archived') !== (card.status === 'archived')) layout();
+  if (before !== 'needs_input' && card.status === 'needs_input') ring(s);
   cardsChanged();
 }
 

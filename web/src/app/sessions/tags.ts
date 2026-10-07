@@ -4,11 +4,10 @@
 import { daemonFetch } from '../daemon/client.ts';
 import { el } from '../ui/dom.ts';
 import { layout } from './groups.ts';
-import { cleanTag, type Labels, parseTags, repoName, tagBar, tagColor, toggleTag } from './labels.ts';
+import { cleanTag, type Labels, parseTags, repoName, tagColor, toggleTag } from './labels.ts';
 import { onActivate, type Session, store } from './store.ts';
 
 const TAGS_KEY = 'tabsh.tags';
-const repos = new Map<string, string>(); // session id → repo label
 const roots = new Map<string, string>(); // session id → project root
 let menu: HTMLElement | null = null;
 
@@ -30,13 +29,11 @@ export function setTags(s: Session, list: string[]): void {
   render(s);
 }
 
-export const labelsOf = (s: Session): Labels => ({ repo: repos.get(s.id) ?? null, tags: storedTags()[s.id] ?? [] });
+export const labelsOf = (s: Session): Labels => ({ repo: s.repo.val, tags: s.tags.val });
 
-// A tagged tab shows a bar in its tags' colors.
+// Its tags, as stored, reach its tab (and its groups).
 function render(s: Session): void {
-  const { tags } = labelsOf(s);
-  s.tab.classList.toggle('tagged', tags.length > 0);
-  if (tags.length) s.tab.style.setProperty('--tag', tagBar(tags));
+  s.tags.val = storedTags()[s.id] ?? [];
   layout();
 }
 
@@ -50,9 +47,9 @@ async function refreshRepo(s: Session): Promise<void> {
     const { root } = (await res.json()) as { root: string };
     const name = repoName(root);
     roots.set(s.id, root);
-    if (repos.get(s.id) === name) return;
-    repos.set(s.id, name);
-    render(s);
+    if (s.repo.val === name) return;
+    s.repo.val = name;
+    layout();
   } catch {}
 }
 
@@ -126,12 +123,13 @@ export function adoptTag(id: string, tag: string): void {
   } catch {}
 }
 
-// Gives a new tab its labels and its menu.
+// A tab's right-click menu, at (x, y).
+export function openTagMenu(s: Session, x: number, y: number): void {
+  showMenu(tagMenu(s), x, y);
+}
+
+// Gives a new tab its labels.
 export function labelTab(s: Session): void {
-  s.tab.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-    showMenu(tagMenu(s), e.clientX, e.clientY);
-  });
   render(s);
   void refreshRepo(s);
 }

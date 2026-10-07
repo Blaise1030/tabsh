@@ -10,7 +10,8 @@
 import { current, onApply } from '../settings/settings.ts';
 import { el } from '../ui/dom.ts';
 import { type Group, groupTabs, joinGroup, moveTag, parseCollapsed, tagColor } from './labels.ts';
-import { closeSession, onActivate, pick, type Session, store } from './store.ts';
+import { onActivate, type Session, store } from './store.ts';
+import { sessionOfTab, Tab, tabOf } from './tab.ts';
 import { updateFades } from './tabs.ts';
 import { labelsOf, rootOf, setTags } from './tags.ts';
 
@@ -18,7 +19,6 @@ const COLLAPSED_KEY = 'tabsh.collapsed';
 const collapsed = new Set<string>(); // group keys
 const boxes = new Map<string, HTMLElement>(); // group key → its box: label, then tabs
 const mirrors = new Map<string, HTMLElement[]>(); // session id → its copies
-const watched = new WeakSet<HTMLElement>(); // tabs whose changes reach their copies
 let activeGroup: string | null = null; // the group the active tab was picked in
 
 const strip = () => document.getElementById('tabs') as HTMLElement;
@@ -38,7 +38,7 @@ function loadCollapsed(): void {
 
 // Archived cards stay off the strip, in no group, unless one is the active
 // tab (picked on the board).
-const onStrip = (s: Session): boolean => s.card.status !== 'archived' || s === store.active;
+const onStrip = (s: Session): boolean => s.card.val.status !== 'archived' || s === store.active;
 
 // Applied, not saved, so the palette's preview regroups the strip too.
 const groups = (): Group[] =>
@@ -93,59 +93,18 @@ function boxOf(g: Group): HTMLElement {
   return box;
 }
 
+// A closing tab, still shrinking (its class may not be drawn yet).
+const leaving = (t: Element): boolean => !!sessionOfTab(t)?.leaving.val;
+
 // Puts `nodes` in `parent` in order, moving only what is out of place and
 // leaving closing tabs where they are, to finish shrinking.
 function place(parent: HTMLElement, nodes: HTMLElement[]): void {
   let at = parent.firstElementChild;
   for (const node of nodes) {
-    while (at?.classList.contains('leaving')) at = at.nextElementSibling;
+    while (at && leaving(at)) at = at.nextElementSibling;
     if (node === at) at = at.nextElementSibling;
     else parent.insertBefore(node, at);
   }
-}
-
-// A copy of a tab for another of its groups, acting as the tab: a click
-// picks it (in the copy's group, set by the strip's listener), its close
-// button or a middle-click closes it, and a right-click opens its tag menu.
-function copyOf(s: Session): HTMLElement {
-  const m = s.tab.cloneNode(true) as HTMLElement;
-  m.classList.add('mirror');
-  m.classList.remove('entering', 'leaving', 'dragging');
-  m.onclick = (e) => ((e.target as Element).closest('button') ? closeSession(s) : pick(s));
-  m.onauxclick = (e) => e.button === 1 && closeSession(s);
-  m.oncontextmenu = (e) => {
-    e.preventDefault();
-    s.tab.dispatchEvent(new MouseEvent('contextmenu', e));
-  };
-  return m;
-}
-
-// Copies follow their tab: a rename, the selection, a bell or new tags.
-function watch(s: Session): void {
-  if (watched.has(s.tab)) return;
-  watched.add(s.tab);
-  let queued = false;
-  new MutationObserver(() => {
-    if (queued) return;
-    queued = true;
-    queueMicrotask(() => {
-      queued = false;
-      for (const [i, old] of (mirrors.get(s.id) ?? []).entries()) {
-        if (old.classList.contains('dragging')) continue; // caught up by the next change
-        const fresh = copyOf(s);
-        fresh.dataset.group = old.dataset.group;
-        fresh.hidden = old.hidden;
-        old.replaceWith(fresh);
-        (mirrors.get(s.id) as HTMLElement[])[i] = fresh;
-      }
-    });
-  }).observe(s.tab, {
-    attributes: true,
-    attributeFilter: ['class', 'aria-selected', 'title', 'style'],
-    childList: true,
-    subtree: true,
-    characterData: true,
-  });
 }
 
 // Lays the strip out: the tabs in order, or a box per group holding its
@@ -160,9 +119,10 @@ export function layout(): void {
   // group (archived) wait hidden after the groups.
   for (const s of store.sessions)
     if (!all.length || !onStrip(s)) {
-      s.tab.hidden = !onStrip(s);
-      delete s.tab.dataset.group;
-      if (!all.length) top.push(s.tab);
+      const t = tabOf(s);
+      t.hidden = !onStrip(s);
+      delete t.dataset.group;
+      if (!all.length) top.push(t);
     }
   for (const g of all) {
     const box = boxOf(g);
@@ -173,20 +133,20 @@ export function layout(): void {
       const s = byId.get(id) as Session;
       const n = places.get(id) ?? 0;
       places.set(id, n + 1);
-      let t = s.tab;
+      let t = tabOf(s);
       if (n) {
+        // Its copy for this group, acting for it (a click picks it here).
         const list = mirrors.get(id) ?? [];
         mirrors.set(id, list);
-        list[n - 1] ??= copyOf(s);
+        list[n - 1] ??= Tab(s, { copy: true });
         t = list[n - 1];
-        watch(s);
       }
       t.dataset.group = g.key;
       t.hidden = collapsed.has(g.key) && s !== store.active;
       want.push(t);
     }
   }
-  if (all.length) top.push(...store.sessions.filter((s) => !onStrip(s)).map((s) => s.tab));
+  if (all.length) top.push(...store.sessions.filter((s) => !onStrip(s)).map(tabOf));
   place(strip(), top);
   for (const [box, want] of inside) {
     place(box, want);
@@ -211,8 +171,10 @@ export function layout(): void {
 }
 
 // The session a tab on the strip (or one of its copies) stands for.
-export const sessionOf = (t: HTMLElement): Session | undefined =>
-  store.sessions.find((s) => s.tab === t || mirrors.get(s.id)?.includes(t));
+export function sessionOf(t: HTMLElement): Session | undefined {
+  const s = sessionOfTab(t);
+  return s && store.sessions.includes(s) ? s : undefined;
+}
 
 // Whether a tab dragged out of group `from` may land in group `to`: by tag
 // yes; by repo only in its own, since its group is where its shell is.

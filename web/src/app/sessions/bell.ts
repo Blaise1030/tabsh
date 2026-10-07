@@ -15,26 +15,41 @@ const FAVICON = faviconSvg(false);
 const FAVICON_BELL = faviconSvg(true);
 const favicon = () => document.getElementById('favicon') as HTMLLinkElement;
 
+const rings = new WeakMap<Session, number>(); // a session → its latest ring or clear
+
 export function ring(s: Session): void {
   if (s === store.active && !document.hidden && document.hasFocus()) return;
-  s.bell = true;
-  s.tab.classList.remove('bell');
-  void s.tab.offsetWidth; // restart the pulse on repeated bells
-  s.tab.classList.add('bell');
+  const n = (rings.get(s) ?? 0) + 1;
+  rings.set(s, n);
+  if (s.bell.val && !document.hidden) {
+    // A repeated bell restarts the pulse: off for a drawn frame, then on
+    // (unless it was cleared, or rang again, meanwhile).
+    s.bell.val = false;
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        if (rings.get(s) !== n) return;
+        s.bell.val = true;
+        updateBadge();
+      }),
+    );
+    return;
+  }
+  s.bell.val = true;
   updateBadge();
 }
 
 export function clearBell(s: Session | null): void {
-  if (!s?.bell) return;
-  s.bell = false;
-  s.tab.classList.remove('bell');
+  if (!s) return;
+  rings.set(s, (rings.get(s) ?? 0) + 1);
+  if (!s.bell.val) return;
+  s.bell.val = false;
   updateBadge();
 }
 
 export function updateBadge(): void {
-  const ringing = store.sessions.filter((x) => x.bell).length;
+  const ringing = store.sessions.filter((x) => x.bell.val).length;
   favicon().href = ringing ? FAVICON_BELL : FAVICON;
-  const name = store.active?.name ?? 'tabsh';
+  const name = store.active?.name.val ?? 'tabsh';
   document.title = ringing ? `🔔 ${name}` : name;
 }
 

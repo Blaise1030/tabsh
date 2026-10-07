@@ -18,7 +18,7 @@ let column: Status = 'backlog';
 // it's expanded with the home folder seen in other cards' paths.
 function expandHome(p: string): string {
   if (!p.startsWith('~')) return p;
-  const home = store.sessions.map((s) => s.card.cwd?.match(/^\/(Users|home)\/[^/]+/)?.[0]).find(Boolean);
+  const home = store.sessions.map((s) => s.card.val.cwd?.match(/^\/(Users|home)\/[^/]+/)?.[0]).find(Boolean);
   return home ? home + p.slice(1) : p;
 }
 
@@ -27,7 +27,7 @@ export function openNewCard(status: Status): void {
   const form = document.getElementById('new-card-form') as HTMLFormElement;
   form.reset();
   (form.querySelector('.new-card-error') as HTMLElement).hidden = true;
-  const folders = recentFolders(store.sessions);
+  const folders = recentFolders(store.sessions.map((s) => ({ card: s.card.val })));
   (document.getElementById('new-card-folders') as HTMLDataListElement).replaceChildren(
     ...folders.map((f) => el('option', { value: f })),
   );

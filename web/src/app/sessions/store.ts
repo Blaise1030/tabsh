@@ -2,6 +2,7 @@
 // tab this browser has selected is kept locally.
 import type { FitAddon as Fit } from '@xterm/addon-fit';
 import type { Terminal as XTerm } from '@xterm/xterm';
+import van, { type State } from 'vanjs-core';
 import type { Card } from '../board/model.ts';
 import { applyCard, cardOf, cardsChanged } from '../board/status.ts';
 import { api } from '../daemon/client.ts';
@@ -9,25 +10,33 @@ import { loadedPane } from '../files/open.ts';
 import { go, onPlace } from '../nav/router.ts';
 import { clearBell, updateBadge } from './bell.ts';
 import { layout, newTabGroup, shownSessions, stepTab } from './groups.ts';
-import { orderTabs, setName, updateFades } from './tabs.ts';
-import { adoptTag, labelsOf, setTags } from './tags.ts';
+import { tabOf } from './tab.ts';
+import { orderTabs, setName } from './tabs.ts';
+import { adoptTag } from './tags.ts';
 import { openSession } from './terminal.ts';
 
+// A tab's session holds live resources (xterm, the socket) and is never
+// replaced; what its tab shows is in states, each assigned whole.
 export interface Session {
   id: string;
-  name: string;
+  name: State<string>;
   term: XTerm;
   fit: Fit;
   el: HTMLDivElement;
-  tab: HTMLElement;
   ws: WebSocket | null;
   closed: boolean;
   replaying: boolean;
   // xterm is still parsing the replay: its answers to queries in it go nowhere.
   parsingReplay: boolean;
   esc: number;
-  bell: boolean;
-  card: Card;
+  bell: State<boolean>;
+  // Output arrived while another tab was active.
+  unread: State<boolean>;
+  card: State<Card>;
+  tags: State<string[]>;
+  repo: State<string | null>;
+  // Closed: its tab collapses, then goes.
+  leaving: State<boolean>;
   // A name the user chose: the shell's title doesn't replace it.
   pinned: boolean;
 }
@@ -47,7 +56,21 @@ export function onActivate(fn: () => void): void {
   activateListeners.push(fn);
 }
 
-export const store: { sessions: Session[]; active: Session | null } = { sessions: [], active: null };
+// The open tabs in strip order, replaced on open, close and reorder; and the
+// active one, which only the router's tab step sets (through activate).
+export const sessionList: State<Session[]> = van.state([]);
+export const active: State<Session | null> = van.state(null);
+export const store: { readonly sessions: Session[]; readonly active: Session | null } = {
+  get sessions() {
+    return sessionList.val;
+  },
+  get active() {
+    return active.val;
+  },
+};
+export function setSessions(next: Session[]): void {
+  sessionList.val = next;
+}
 
 const ACTIVE_KEY = 'tabsh.active';
 const rememberActive = () => {
@@ -74,8 +97,6 @@ export async function openTab(
   const info = (await api<SessionInfo>('POST', '', body)) as SessionInfo;
   if (tag) adoptTag(info.id, tag);
   const s = openSession(info);
-  // A sync may have opened it before the tag was stored: label it again.
-  if (tag) setTags(s, labelsOf(s).tags);
   if (focus) go({ tab: s.id });
   return s;
 }
@@ -123,23 +144,20 @@ export function sendSize(s: Session): void {
 
 // Only the router's tab step calls this; everything else calls go().
 export function activate(s: Session | null): void {
-  const prev = store.active;
-  if (prev) {
-    prev.el.classList.remove('active');
-    prev.tab.setAttribute('aria-selected', 'false');
-  }
-  store.active = s;
+  active.val = s;
   loadedPane()?.show(s?.id ?? null);
-  (document.getElementById('empty') as HTMLElement).hidden = !!s;
   updateBadge();
   if (s) {
-    s.el.classList.add('active');
-    s.tab.setAttribute('aria-selected', 'true');
-    s.tab.classList.remove('unread');
+    s.unread.val = false;
     if (!document.hidden) clearBell(s);
-    s.tab.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    sendSize(s);
-    s.term.focus();
+    tabOf(s).scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    // Its terminal shows once VanJS applies `active`, in a microtask queued
+    // before this one: fit and focus it then.
+    queueMicrotask(() => {
+      if (active.val !== s) return;
+      sendSize(s);
+      s.term.focus();
+    });
   }
   rememberActive();
   for (const fn of activateListeners) fn();
@@ -174,21 +192,14 @@ export function removeSession(s: Session): void {
   s.ws?.close();
   s.term.dispose();
   s.el.remove();
-  // Collapse the tab, then drop it (the timeout covers reduced motion,
-  // where no transition runs).
-  s.tab.classList.add('leaving');
-  const drop = () => {
-    s.tab.remove();
-    updateFades();
-  };
-  s.tab.addEventListener('transitionend', (e) => e.propertyName === 'max-width' && drop());
-  setTimeout(drop, 300);
-  const { sessions } = store;
-  const i = sessions.indexOf(s);
-  sessions.splice(i, 1);
+  // Its tab collapses, then goes (the strip's exit).
+  s.leaving.val = true;
+  const i = store.sessions.indexOf(s);
+  const sessions = store.sessions.filter((t) => t !== s);
+  setSessions(sessions);
   layout(); // drops its copies, and a group it was alone in
   if (store.active === s) {
-    store.active = null;
+    active.val = null;
     // The next shown tab after it, else the last shown one before it.
     const rest = shownSessions();
     const next = rest.find((t) => sessions.indexOf(t) >= i) ?? rest.at(-1);

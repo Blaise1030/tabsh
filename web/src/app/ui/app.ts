@@ -1,11 +1,12 @@
 // The page: the dialogs, the tab bar, the workspace under it and the drop
 // glow. Features find their parts by id once this is mounted.
 import van from 'vanjs-core';
+import { active } from '../sessions/store.ts';
 import { Gate } from './gate.ts';
 import { type Icon, icons } from './icons.ts';
 
-const { aside, button, datalist, dialog, div, footer, form, h2, header, i, input, label, p, section, span } = van.tags;
-const { table, tbody, template, textarea } = van.tags;
+const { aside, button, datalist, dialog, div, footer, form, h2, header, input, label, p, section, span } = van.tags;
+const { table, tbody, textarea } = van.tags;
 
 function Palette(): HTMLElement {
   const search = input({
@@ -130,7 +131,7 @@ function Workspace(): HTMLElement {
       div(
         { id: 'terms' },
         div(
-          { class: 'empty', id: 'empty', hidden: true },
+          { class: 'empty', id: 'empty', hidden: () => !!active.val },
           p('No terminals open.'),
           button({ type: 'button', class: 'btn', 'data-new-session': '' }, 'New terminal'),
         ),
@@ -142,37 +143,6 @@ function Workspace(): HTMLElement {
   );
 }
 
-// What a new tab is cloned from.
-function TabTemplate(): HTMLElement {
-  const t = template({ id: 'tab-template' });
-  t.content.append(
-    div(
-      { class: 'tab', role: 'tab', 'aria-selected': 'false' },
-      i({ class: 'tab-status', 'aria-hidden': 'true' }),
-      span({ class: 'tab-name' }),
-      button(
-        {
-          type: 'button',
-          class: 'btn',
-          'data-variant': 'ghost',
-          'data-size': 'icon-xs',
-          'aria-label': 'Close terminal',
-        },
-        icons.close(),
-      ),
-    ),
-  );
-  return t;
-}
-
 export function App(): HTMLElement[] {
-  return [
-    Palette(),
-    About(),
-    NewCard(),
-    TabBar(),
-    Workspace(),
-    div({ id: 'drop-glow', 'aria-hidden': 'true' }),
-    TabTemplate(),
-  ];
+  return [Palette(), About(), NewCard(), TabBar(), Workspace(), div({ id: 'drop-glow', 'aria-hidden': 'true' })];
 }
