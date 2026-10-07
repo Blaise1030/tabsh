@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.1.11
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.10...v0.1.11)
+
+### Features
+
+- **board:** Search the new card's folder, and pick its tags as chips ([dbc13d6](https://github.com/Blaise1030/tabsh/commit/dbc13d6))
+- **board:** Pick a new card's tags from a list, or create one ([3b68c80](https://github.com/Blaise1030/tabsh/commit/3b68c80))
+
 ## v0.1.10
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.9...v0.1.10)
