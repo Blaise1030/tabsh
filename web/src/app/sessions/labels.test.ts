@@ -6,6 +6,7 @@ import {
   joinGroup,
   moveTag,
   parseCollapsed,
+  parseTagList,
   parseTags,
   repoName,
   TAG_COLORS,
@@ -30,6 +31,11 @@ test('a typed tag is trimmed and capped, and blank means none', () => {
   assert.equal(cleanTag('  deploy '), 'deploy');
   assert.equal(cleanTag('   '), null);
   assert.equal(cleanTag('x'.repeat(40))?.length, 24);
+});
+
+test('a typed tag list is split on commas, without blanks or repeats', () => {
+  assert.deepEqual(parseTagList(' bug, ui ,,bug, '), ['bug', 'ui']);
+  assert.deepEqual(parseTagList('   '), []);
 });
 
 test('stored tags keep only string tags, once each, and read one tag as a list', () => {

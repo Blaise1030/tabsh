@@ -54,6 +54,31 @@ pub(crate) fn launch_line(command: &str) -> String {
 
 const PROMPT_ARG: &str = "\"$TABSH_PROMPT\"";
 
+/// A card's title made from its prompt: the first line with text, its
+/// whitespace collapsed and control characters dropped, cut at
+/// `PROMPT_TITLE_CHARS` with an ellipsis. `None` when nothing is left.
+pub(crate) fn prompt_title(prompt: &str) -> Option<String> {
+    let line = prompt
+        .lines()
+        .map(|l| {
+            l.chars()
+                .map(|c| if c.is_whitespace() { ' ' } else { c })
+                .filter(|c| !c.is_control())
+                .collect::<String>()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .find(|l| !l.is_empty())?;
+    if line.chars().count() <= PROMPT_TITLE_CHARS {
+        return Some(line);
+    }
+    let cut: String = line.chars().take(PROMPT_TITLE_CHARS - 1).collect();
+    Some(format!("{}…", cut.trim_end()))
+}
+
+const PROMPT_TITLE_CHARS: usize = 60;
+
 /// A card's status changed; sent to every open page.
 #[derive(Serialize, Clone, Debug)]
 pub(crate) struct BoardEvent {
@@ -339,6 +364,18 @@ mod tests {
             launch_line("a {prompt} b {prompt}"),
             "a \"$TABSH_PROMPT\" b \"$TABSH_PROMPT\"\r"
         );
+    }
+
+    #[test]
+    fn a_prompt_title_is_its_first_line_cut_short() {
+        assert_eq!(
+            prompt_title("\n  Fix the\tlogin   bug\nthen tests").as_deref(),
+            Some("Fix the login bug")
+        );
+        assert_eq!(prompt_title(" \n\u{1b}\n").as_deref(), None);
+        let long = prompt_title(&"word ".repeat(40)).unwrap();
+        assert_eq!(long.chars().count(), 60);
+        assert!(long.ends_with("word…"), "{long}");
     }
 
     #[test]

@@ -200,6 +200,10 @@ async fn create_session(
                 .unwrap_or(crate::board::DEFAULT_COMMAND),
         )
     });
+    // Without a name, a card is titled by its prompt; the title isn't
+    // pinned, so the agent's terminal title can replace it.
+    let pinned = name.is_some();
+    let name = name.or_else(|| prompt.as_deref().and_then(crate::board::prompt_title));
     let card = store::NewCard {
         cwd: body.cwd.as_deref(),
         name: name.as_deref(),
@@ -207,7 +211,7 @@ async fn create_session(
         status: "backlog",
         pending: pending.as_deref(),
         prompt: prompt.as_deref(),
-        pinned: name.is_some(),
+        pinned,
     };
     let db = st.db.lock().unwrap();
     store::insert_card(&db, &card)
@@ -399,6 +403,14 @@ mod tests {
         assert!(!pinned(), "a shell title does not pin");
         rename(serde_json::json!({"name": "Mine"})).await.unwrap();
         assert!(pinned());
+    }
+
+    #[tokio::test]
+    async fn a_card_without_a_name_is_titled_by_its_prompt_unpinned() {
+        let st = test_state();
+        let (_, body) = create(&st, serde_json::json!({"prompt": "Fix login\nmore"})).await;
+        assert_eq!(body["name"], "Fix login");
+        assert_eq!(body["pinned"], false);
     }
 
     #[tokio::test]
