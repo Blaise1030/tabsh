@@ -53,6 +53,7 @@ test('comboProblem allows only combos the shell and browser leave free', () => {
     keyToggleExplorer: 'meta+shift+KeyE',
     keySearchFiles: 'meta+shift+KeyF',
     keyGroupTabs: 'meta+shift+KeyY',
+    keyToggleBoard: 'meta+KeyB',
   };
   const ok = (combo: string, isMac = true) => comboProblem(combo, 'keyPalette', saved, isMac) === null;
   assert.ok(ok('meta+KeyY'));
@@ -85,6 +86,7 @@ test('every preset passes comboProblem', () => {
       keyToggleExplorer: '',
       keySearchFiles: '',
       keyGroupTabs: '',
+      keyToggleBoard: '',
     };
     for (const id of Object.keys(k) as (keyof typeof k)[]) {
       for (const combo of k[id].presets) assert.equal(comboProblem(combo, id, saved, mac), null, combo);

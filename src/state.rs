@@ -1,6 +1,6 @@
 //! The daemon's shared state, and the router that puts every route behind the guard.
 
-use crate::{files, sessions, settings, upload, web};
+use crate::{board, files, sessions, settings, upload, web};
 use axum::{Router, middleware};
 use rusqlite::Connection;
 use sessions::Session;
@@ -22,6 +22,10 @@ pub(crate) struct AppState {
     pub(crate) origins: Arc<[String]>,
     /// The hosted UI, pointed at this daemon, without the token.
     pub(crate) app_url: Option<Arc<str>>,
+    /// This daemon's own address, given to shells as `TABSH_URL`.
+    pub(crate) self_url: Arc<str>,
+    /// Card status changes, for `/api/board/events`.
+    pub(crate) events: tokio::sync::broadcast::Sender<crate::board::BoardEvent>,
 }
 
 /// Builds the app router with all routes and the guard middleware applied.
@@ -29,6 +33,7 @@ pub(crate) fn router(state: AppState) -> Router {
     Router::new()
         .merge(web::routes())
         .merge(sessions::routes())
+        .merge(board::routes())
         .merge(files::routes())
         .merge(settings::routes())
         .merge(upload::routes())
@@ -66,6 +71,8 @@ mod tests {
             (Method::PUT, "/api/sessions/order"),
             (Method::PATCH, "/api/sessions/x"),
             (Method::DELETE, "/api/sessions/x"),
+            (Method::PATCH, "/api/sessions/x/status"),
+            (Method::GET, "/api/board/events"),
             (Method::GET, "/api/settings"),
             (Method::PUT, "/api/settings"),
             (Method::GET, "/api/about"),

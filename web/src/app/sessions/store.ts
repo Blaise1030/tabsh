@@ -2,6 +2,8 @@
 // tab this browser has selected is kept locally.
 import type { FitAddon as Fit } from '@xterm/addon-fit';
 import type { Terminal as XTerm } from '@xterm/xterm';
+import type { Card } from '../board/model.ts';
+import { applyCard, cardOf, cardsChanged } from '../board/status.ts';
 import { api } from '../daemon/client.ts';
 import { loadedPane } from '../files/open.ts';
 import { clearBell, updateBadge } from './bell.ts';
@@ -22,10 +24,18 @@ export interface Session {
   replaying: boolean;
   esc: number;
   bell: boolean;
+  card: Card;
+  // A name the user chose: the shell's title doesn't replace it.
+  pinned: boolean;
 }
 export interface SessionInfo {
   id: string;
   name: string;
+  status: string;
+  status_at: number;
+  note: string | null;
+  cwd: string | null;
+  pinned: boolean;
 }
 
 const activateListeners: (() => void)[] = [];
@@ -51,24 +61,30 @@ export const savedActive = (): string | null => {
 };
 
 // Opens a tab with `body`'s options in the active tab's group: grouped by
-// tag, it gets that group's tag.
-async function openTab(body?: { cwd: string }): Promise<void> {
+// tag, it gets that group's tag. It becomes the active tab unless `focus` is
+// false.
+export async function openTab(
+  body?: { cwd?: string; name?: string; prompt?: string; command?: string },
+  focus = true,
+): Promise<Session> {
   const { tag } = newTabGroup();
   const info = (await api<SessionInfo>('POST', '', body)) as SessionInfo;
   if (tag) adoptTag(info.id, tag);
-  activate(openSession(info));
+  const s = openSession(info);
+  if (focus) activate(s);
+  return s;
 }
 
 // Opens a new tab; grouped by repo, its shell starts in the active group's
 // repo (or the home directory, when that repo's folder is gone).
-export function newSession(): Promise<void> {
+export async function newSession(): Promise<void> {
   const { cwd } = newTabGroup();
-  return cwd ? openTab({ cwd }).catch(() => openTab()) : openTab();
+  await (cwd ? openTab({ cwd }).catch(() => openTab()) : openTab());
 }
 
 // Opens a new tab whose shell starts in `cwd`.
-export function newTabAt(cwd: string): Promise<void> {
-  return openTab({ cwd }).catch(console.error);
+export async function newTabAt(cwd: string): Promise<void> {
+  await openTab({ cwd }).catch(console.error);
 }
 
 // Bring the tab list in line with the server: picks up tabs opened or
@@ -82,8 +98,11 @@ export async function sync(): Promise<void> {
   for (const s of store.sessions.filter((s) => asked.has(s) && !ids.has(s.id))) removeSession(s);
   for (const info of list) {
     const s = store.sessions.find((s) => s.id === info.id);
-    if (s) setName(s, info.name, false);
-    else openSession(info);
+    if (s) {
+      s.pinned = info.pinned;
+      setName(s, info.name, false);
+      applyCard(s, cardOf(info));
+    } else openSession(info);
   }
   orderTabs(list.map((s) => s.id));
   if (!store.active && store.sessions.length) activate(shownSessions()[0] ?? store.sessions[0]);
@@ -162,4 +181,5 @@ export function removeSession(s: Session): void {
     const next = rest.find((t) => sessions.indexOf(t) >= i) ?? rest.at(-1);
     activate(next ?? sessions[Math.min(i, sessions.length - 1)] ?? null);
   } else updateBadge();
+  cardsChanged();
 }

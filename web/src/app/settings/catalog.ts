@@ -314,6 +314,34 @@ export const THEMES: Record<string, Theme> = {
       ),
     },
   },
+  // VS Code's built-in Monokai.
+  monokai: {
+    name: 'Monokai',
+    colors: {
+      background: '#272822',
+      foreground: '#f8f8f2',
+      cursor: '#f8f8f0',
+      selectionBackground: '#49483e',
+      ...ansi(
+        '#333333',
+        '#c4265e',
+        '#86b42b',
+        '#b3b42b',
+        '#6a7ec8',
+        '#8c6bc8',
+        '#56adbc',
+        '#e3e3dd',
+        '#666666',
+        '#f92672',
+        '#a6e22e',
+        '#e2e22e',
+        '#819aff',
+        '#ae81ff',
+        '#66d9ef',
+        '#f8f8f2',
+      ),
+    },
+  },
   'solarized-dark': {
     name: 'Solarized Dark',
     colors: {

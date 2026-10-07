@@ -4,7 +4,8 @@
 // others hold copies (`.mirror`) that act for it. Clicking a
 // label collapses its group (kept in this browser) to all but the active
 // tab, a new tab joins the active tab's group, and the next/previous tab keys
-// walk the shown tabs in strip order. Dragged into another tag's group (or
+// walk the shown tabs in strip order. Archived cards' tabs stay out of the
+// strip and its groups. Dragged into another tag's group (or
 // onto its label), a tab trades the tag it was dragged by for that one.
 import { current, onApply } from '../settings/settings.ts';
 import { el } from '../ui/dom.ts';
@@ -35,10 +36,14 @@ function loadCollapsed(): void {
   } catch {}
 }
 
+// Archived cards stay off the strip, in no group, unless one is the active
+// tab (picked on the board).
+const onStrip = (s: Session): boolean => s.card.status !== 'archived' || s === store.active;
+
 // Applied, not saved, so the palette's preview regroups the strip too.
 const groups = (): Group[] =>
   groupTabs(
-    store.sessions.map((s) => ({ id: s.id, labels: labelsOf(s) })),
+    store.sessions.filter(onStrip).map((s) => ({ id: s.id, labels: labelsOf(s) })),
     current.applied.tabGrouping,
   );
 
@@ -151,11 +156,13 @@ export function layout(): void {
   const inside = new Map<HTMLElement, HTMLElement[]>(); // box → its children
   const places = new Map<string, number>(); // session id → places so far
   const byId = new Map(store.sessions.map((s) => [s.id, s]));
-  if (!all.length)
-    for (const s of store.sessions) {
-      s.tab.hidden = false;
+  // Ungrouped, every tab sits on the strip itself; grouped, those in no
+  // group (archived) wait hidden after the groups.
+  for (const s of store.sessions)
+    if (!all.length || !onStrip(s)) {
+      s.tab.hidden = !onStrip(s);
       delete s.tab.dataset.group;
-      top.push(s.tab);
+      if (!all.length) top.push(s.tab);
     }
   for (const g of all) {
     const box = boxOf(g);
@@ -179,6 +186,7 @@ export function layout(): void {
       want.push(t);
     }
   }
+  if (all.length) top.push(...store.sessions.filter((s) => !onStrip(s)).map((s) => s.tab));
   place(strip(), top);
   for (const [box, want] of inside) {
     place(box, want);

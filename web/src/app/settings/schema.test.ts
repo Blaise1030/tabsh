@@ -65,3 +65,14 @@ test('tab grouping is none, repo or tag, and none by default', () => {
   assert.equal(cleanSettings({ tabGrouping: 'repo' }, true).tabGrouping, 'repo');
   assert.equal(cleanSettings({ tabGrouping: 'folder' }, true).tabGrouping, 'none');
 });
+
+test('agent commands are kept as a short list of strings', () => {
+  assert.deepEqual(defaults(true).agentCommands, ['claude {prompt}']);
+  assert.deepEqual(cleanSettings({ agentCommands: ['codex', 3, '', 'codex'] }, true).agentCommands, ['codex']);
+  assert.deepEqual(cleanSettings({ agentCommands: 'nope' }, true).agentCommands, ['claude {prompt}']);
+});
+test('the board shows its setup screen until it is marked as onboarded', () => {
+  assert.equal(defaults(true).boardOnboarded, false);
+  assert.equal(cleanSettings({ boardOnboarded: true }, true).boardOnboarded, true);
+  assert.equal(cleanSettings({ boardOnboarded: 'yes' }, true).boardOnboarded, false);
+});

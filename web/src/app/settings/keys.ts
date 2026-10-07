@@ -11,7 +11,8 @@ export type KeyId =
   | 'keyPrevTab'
   | 'keyToggleExplorer'
   | 'keySearchFiles'
-  | 'keyGroupTabs';
+  | 'keyGroupTabs'
+  | 'keyToggleBoard';
 export interface Keybinding {
   name: string;
   keywords: string;
@@ -61,6 +62,11 @@ export function keybindings(isMac: boolean): Record<KeyId, Keybinding> {
       name: 'Group tabs',
       keywords: 'group filter tags repos projects collapse',
       presets: isMac ? ['meta+shift+KeyY', 'ctrl+shift+KeyY'] : ['ctrl+shift+KeyY', 'alt+shift+KeyY'],
+    },
+    keyToggleBoard: {
+      name: 'Toggle board',
+      keywords: 'kanban cards tasks overview status',
+      presets: isMac ? ['meta+KeyB', 'meta+shift+KeyB'] : ['ctrl+shift+KeyB', 'alt+shift+KeyB'],
     },
   };
 }

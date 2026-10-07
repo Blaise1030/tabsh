@@ -56,6 +56,25 @@ pub(super) fn process_cwd(_pid: u32) -> Option<String> {
     None
 }
 
+/// What every shell gets in its environment: hooks and `tabsh status` read
+/// `TABSH_SESSION_ID` to know which card they belong to. A new card's first
+/// prompt rides along as `TABSH_PROMPT` (the typed line only names it).
+pub(super) fn shell_env(
+    st: &AppState,
+    id: &str,
+    prompt: Option<&str>,
+) -> Vec<(&'static str, String)> {
+    let mut env = vec![
+        ("TERM", "xterm-256color".into()),
+        ("TABSH_SESSION_ID", id.into()),
+        ("TABSH_URL", st.self_url.to_string()),
+    ];
+    if let Some(p) = prompt {
+        env.push(("TABSH_PROMPT", p.into()));
+    }
+    env
+}
+
 /// Return the running shell for `id`, starting it (in its saved cwd, with its
 /// saved scrollback) if the session exists but isn't running yet.
 pub(super) fn get_or_spawn(st: &AppState, id: &str) -> Result<Option<Arc<Session>>, BoxError> {
@@ -68,17 +87,59 @@ pub(super) fn get_or_spawn(st: &AppState, id: &str) -> Result<Option<Arc<Session
         .lock()
         .unwrap()
         .query_row(
-            "SELECT cwd, scrollback FROM sessions WHERE id = ?1",
+            "SELECT cwd, scrollback, status, pending_prompt FROM sessions WHERE id = ?1",
             params![id],
-            |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, Vec<u8>>(1)?)),
+            |r| {
+                Ok((
+                    r.get::<_, Option<String>>(0)?,
+                    r.get::<_, Vec<u8>>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, Option<String>>(3)?,
+                ))
+            },
         )
         .optional()?;
-    let Some((cwd, scrollback)) = row else {
+    let Some((cwd, scrollback, status, prompt)) = row else {
         return Ok(None);
     };
-    let session = spawn_session(st.clone(), id.to_owned(), cwd, scrollback)?;
+    let session = spawn_session(
+        st.clone(),
+        id.to_owned(),
+        cwd,
+        scrollback,
+        prompt.as_deref(),
+    )?;
+    // A card still in Backlog waits for its drag to In progress.
+    if status == "in_progress" {
+        type_launch_line(st, id, &session);
+    }
     live.insert(id.to_owned(), session.clone());
     Ok(Some(session))
+}
+
+/// Types a card's pending launch line into its shell, once. The PTY buffers
+/// it until the shell reads its first line, so this is safe to send before
+/// the prompt is drawn.
+pub(super) fn type_launch_line(st: &AppState, id: &str, session: &Session) {
+    let db = st.db.lock().unwrap();
+    let line = db
+        .query_row(
+            "SELECT pending_input FROM sessions WHERE id = ?1",
+            params![id],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .ok()
+        .flatten()
+        .flatten();
+    let Some(line) = line else { return };
+    if let Err(e) = db.execute(
+        "UPDATE sessions SET pending_input = NULL, pending_prompt = NULL WHERE id = ?1",
+        params![id],
+    ) {
+        eprintln!("failed to clear pending input of {id}: {e}");
+    }
+    let _ = session.input.send(Bytes::from(line));
 }
 
 fn spawn_session(
@@ -86,6 +147,7 @@ fn spawn_session(
     id: String,
     cwd: Option<String>,
     saved: Vec<u8>,
+    prompt: Option<&str>,
 ) -> Result<Arc<Session>, BoxError> {
     let pair = native_pty_system().openpty(PtySize {
         rows: 24,
@@ -97,7 +159,9 @@ fn spawn_session(
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
     let mut cmd = CommandBuilder::new(shell);
     cmd.arg("-l");
-    cmd.env("TERM", "xterm-256color");
+    for (k, v) in shell_env(&st, &id, prompt) {
+        cmd.env(k, v);
+    }
     let dir = cwd
         .filter(|d| std::path::Path::new(d).is_dir())
         .map(Into::into)
@@ -175,4 +239,68 @@ fn spawn_session(
     });
 
     Ok(session)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::test_state;
+
+    #[test]
+    fn shells_know_their_card_and_the_daemon() {
+        let st = test_state();
+        let env = shell_env(&st, "abc-1", None);
+        assert!(!env.iter().any(|(k, _)| *k == "TABSH_PROMPT"));
+        assert!(env.contains(&("TERM", "xterm-256color".into())));
+        assert!(env.contains(&("TABSH_SESSION_ID", "abc-1".into())));
+        assert!(env.contains(&("TABSH_URL", "http://127.0.0.1:7681".into())));
+    }
+
+    #[test]
+    fn a_pending_prompt_reaches_the_shell_verbatim() {
+        let st = test_state();
+        let p = "it's $(x) `y`\n\"z\"";
+        let env = shell_env(&st, "abc-1", Some(p));
+        assert!(env.contains(&("TABSH_PROMPT", p.into())));
+    }
+
+    fn pending(st: &AppState, id: &str) -> Option<String> {
+        st.db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT pending_input FROM sessions WHERE id = ?1",
+                [id],
+                |r| r.get(0),
+            )
+            .unwrap()
+    }
+
+    #[test]
+    fn a_backlog_shell_keeps_its_launch_line_until_the_card_is_in_progress() {
+        let st = test_state();
+        let id = crate::sessions::store::insert_card(
+            &st.db.lock().unwrap(),
+            &crate::sessions::store::NewCard {
+                pending: Some("true\r"),
+                prompt: Some("go"),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .id;
+        let session = get_or_spawn(&st, &id).unwrap().unwrap();
+        assert_eq!(pending(&st, &id).as_deref(), Some("true\r"));
+        st.db
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE sessions SET status = 'in_progress' WHERE id = ?1",
+                [&id],
+            )
+            .unwrap();
+        crate::sessions::launch(&st, &id);
+        assert_eq!(pending(&st, &id), None, "typed once");
+        let _ = session.killer.lock().unwrap().kill();
+    }
 }

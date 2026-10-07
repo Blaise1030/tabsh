@@ -24,6 +24,9 @@ export interface Settings {
   keyToggleExplorer: string;
   keySearchFiles: string;
   keyGroupTabs: string;
+  keyToggleBoard: string;
+  agentCommands: string[]; // most recent first, at most 8
+  boardOnboarded: boolean; // the board's setup screen was dealt with (set up or skipped)
 }
 
 export function defaults(isMac: boolean): Settings {
@@ -43,6 +46,9 @@ export function defaults(isMac: boolean): Settings {
     keyToggleExplorer: keys.keyToggleExplorer.presets[0],
     keySearchFiles: keys.keySearchFiles.presets[0],
     keyGroupTabs: keys.keyGroupTabs.presets[0],
+    keyToggleBoard: keys.keyToggleBoard.presets[0],
+    agentCommands: ['claude {prompt}'],
+    boardOnboarded: false,
   };
 }
 
@@ -61,6 +67,7 @@ export function cleanSettings(stored: Record<string, unknown>, isMac: boolean): 
     keyToggleExplorer: '',
     keySearchFiles: '',
     keyGroupTabs: '',
+    keyToggleBoard: '',
   };
   const key = (id: KeyId) => {
     const want = str(stored[id]);
@@ -92,5 +99,13 @@ export function cleanSettings(stored: Record<string, unknown>, isMac: boolean): 
     keyToggleExplorer: key('keyToggleExplorer'),
     keySearchFiles: key('keySearchFiles'),
     keyGroupTabs: key('keyGroupTabs'),
+    keyToggleBoard: key('keyToggleBoard'),
+    agentCommands: (() => {
+      const list = Array.isArray(stored.agentCommands)
+        ? [...new Set(stored.agentCommands.filter((c): c is string => typeof c === 'string' && !!c.trim()))].slice(0, 8)
+        : [];
+      return list.length ? list : d.agentCommands;
+    })(),
+    boardOnboarded: stored.boardOnboarded === true,
   };
 }

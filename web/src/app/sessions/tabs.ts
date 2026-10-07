@@ -14,7 +14,7 @@ export function setName(s: Session, name: string, save = true): void {
   s.name = name;
   label.textContent = s.tab.title = name;
   if (s === store.active) updateBadge();
-  if (save) api('PATCH', `/${s.id}`, { name }).catch(() => {});
+  if (save) api('PATCH', `/${s.id}`, { name, auto: true }).catch(() => {});
 }
 
 // Fade whichever edge has tabs hidden beyond it.

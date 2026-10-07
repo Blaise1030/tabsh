@@ -18,6 +18,7 @@ use portable_pty::{ChildKiller, MasterPty};
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::{collections::VecDeque, path::PathBuf, sync::Mutex, time::Duration};
+#[cfg(test)]
 use store::insert_session;
 use tokio::sync::broadcast;
 
@@ -70,6 +71,15 @@ pub(crate) fn exists(st: &AppState, id: &str) -> bool {
             .is_ok_and(|row| row.is_some())
 }
 
+/// Starts a card's agent: types its pending launch line into its running
+/// shell, once. A shell that isn't running yet types it when it starts.
+pub(crate) fn launch(st: &AppState, id: &str) {
+    let live = st.live.lock().unwrap();
+    if let Some(session) = live.get(id) {
+        pty::type_launch_line(st, id, session);
+    }
+}
+
 /// Running shells and all sessions, for the About dialog.
 pub(crate) fn counts(st: &AppState) -> rusqlite::Result<(usize, i64)> {
     let running = st.live.lock().unwrap().len();
@@ -115,15 +125,24 @@ struct Output {
     dirty: bool,
 }
 
-#[derive(Serialize)]
-struct SessionInfo {
-    id: String,
-    name: String,
+#[derive(Serialize, Clone, Debug)]
+pub(crate) struct SessionInfo {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) status: String,
+    pub(crate) status_at: i64,
+    pub(crate) note: Option<String>,
+    pub(crate) cwd: Option<String>,
+    /// A name the user chose: shell titles don't replace it.
+    pub(crate) pinned: bool,
 }
 
 #[derive(Deserialize)]
 struct Rename {
     name: String,
+    /// The name came from the shell's title, not the user: it doesn't pin.
+    #[serde(default)]
+    auto: bool,
 }
 
 #[derive(Deserialize)]
@@ -134,20 +153,21 @@ struct Order {
 #[derive(Deserialize, Default)]
 struct NewSession {
     cwd: Option<String>,
+    name: Option<String>,
+    prompt: Option<String>,
+    command: Option<String>,
 }
 
 async fn list_sessions(State(st): State<AppState>) -> Result<Json<Vec<SessionInfo>>, StatusCode> {
     let db = st.db.lock().unwrap();
     let mut stmt = db
-        .prepare("SELECT id, name FROM sessions ORDER BY position")
+        .prepare(&format!(
+            "SELECT {} FROM sessions ORDER BY position",
+            store::INFO_COLUMNS
+        ))
         .map_err(internal_error)?;
     let rows = stmt
-        .query_map([], |r| {
-            Ok(SessionInfo {
-                id: r.get(0)?,
-                name: r.get(1)?,
-            })
-        })
+        .query_map([], store::info_row)
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
         .map_err(internal_error)?;
     Ok(Json(rows))
@@ -157,15 +177,42 @@ async fn create_session(
     State(st): State<AppState>,
     body: Option<Json<NewSession>>,
 ) -> Result<Json<SessionInfo>, StatusCode> {
-    let cwd = body.as_ref().and_then(|b| b.cwd.as_deref());
-    if let Some(cwd_path) = cwd
+    let body = body.map(|Json(b)| b).unwrap_or_default();
+    if let Some(cwd_path) = body.cwd.as_deref()
         && !std::path::Path::new(cwd_path).is_dir()
     {
         return Err(StatusCode::BAD_REQUEST);
     }
-
+    let name: Option<String> = body
+        .name
+        .map(|n| n.trim().chars().take(100).collect::<String>())
+        .filter(|n| !n.is_empty());
+    let prompt: Option<String> = body
+        .prompt
+        .as_deref()
+        .map(|p| p.replace('\0', ""))
+        .map(|p| p.trim().to_owned())
+        .filter(|p| !p.is_empty());
+    let pending = prompt.as_ref().map(|_| {
+        crate::board::launch_line(
+            body.command
+                .as_deref()
+                .unwrap_or(crate::board::DEFAULT_COMMAND),
+        )
+    });
+    let card = store::NewCard {
+        cwd: body.cwd.as_deref(),
+        name: name.as_deref(),
+        // Its agent starts when the card is dragged to In progress.
+        status: "backlog",
+        pending: pending.as_deref(),
+        prompt: prompt.as_deref(),
+        pinned: name.is_some(),
+    };
     let db = st.db.lock().unwrap();
-    insert_session(&db, cwd).map(Json).map_err(internal_error)
+    store::insert_card(&db, &card)
+        .map(Json)
+        .map_err(internal_error)
 }
 
 async fn rename_session(
@@ -178,8 +225,8 @@ async fn rename_session(
         return StatusCode::BAD_REQUEST;
     }
     match st.db.lock().unwrap().execute(
-        "UPDATE sessions SET name = ?1 WHERE id = ?2",
-        params![name, id],
+        "UPDATE sessions SET name = ?1, pinned = pinned OR ?2 WHERE id = ?3",
+        params![name, !body.auto, id],
     ) {
         Ok(0) => StatusCode::NOT_FOUND,
         Ok(_) => StatusCode::NO_CONTENT,
@@ -229,5 +276,138 @@ mod tests {
         let info = insert_session(&st.db.lock().unwrap(), Some("/tmp")).unwrap();
         assert_eq!(cwd(&st, &info.id), Some(PathBuf::from("/tmp")));
         assert_eq!(cwd(&st, "missing"), None);
+    }
+
+    use axum::http::{Method, Request};
+    use tower::ServiceExt;
+
+    async fn create(st: &AppState, body: serde_json::Value) -> (StatusCode, serde_json::Value) {
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/api/sessions")
+            .header("Host", "127.0.0.1:7681")
+            .header("Authorization", "Bearer t0k3n")
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(body.to_string()))
+            .unwrap();
+        let res = crate::state::router(st.clone()).oneshot(req).await.unwrap();
+        let code = res.status();
+        let bytes = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        (code, serde_json::from_slice(&bytes).unwrap_or_default())
+    }
+
+    fn pending(st: &AppState, id: &serde_json::Value) -> Option<String> {
+        st.db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT pending_input FROM sessions WHERE id = ?1",
+                [id.as_str().unwrap()],
+                |r| r.get(0),
+            )
+            .unwrap()
+    }
+
+    fn prompt(st: &AppState, id: &serde_json::Value) -> Option<String> {
+        st.db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT pending_prompt FROM sessions WHERE id = ?1",
+                [id.as_str().unwrap()],
+                |r| r.get(0),
+            )
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_card_with_a_prompt_waits_in_backlog_with_its_agent_pending() {
+        let st = test_state();
+        let (code, body) = create(
+            &st,
+            serde_json::json!({"cwd": "/tmp", "name": " Fix login ", "prompt": "fix it"}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK);
+        assert_eq!(
+            (body["name"].as_str(), body["status"].as_str()),
+            (Some("Fix login"), Some("backlog"))
+        );
+        assert_eq!(
+            pending(&st, &body["id"]).as_deref(),
+            Some("claude \"$TABSH_PROMPT\"\r")
+        );
+        assert_eq!(prompt(&st, &body["id"]).as_deref(), Some("fix it"));
+        let (_, body) = create(
+            &st,
+            serde_json::json!({"prompt": "hi", "command": "gemini -i {prompt}"}),
+        )
+        .await;
+        assert_eq!(
+            pending(&st, &body["id"]).as_deref(),
+            Some("gemini -i \"$TABSH_PROMPT\"\r")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_long_nasty_prompt_is_stored_verbatim_and_the_typed_line_stays_short() {
+        let st = test_state();
+        let nasty = "it's $(rm -rf ~) `x` \"q\"\nsecond line\n".repeat(150);
+        assert!(nasty.len() > 5000);
+        let (code, body) =
+            create(&st, serde_json::json!({"prompt": format!("  {nasty}\0  ")})).await;
+        assert_eq!(code, StatusCode::OK);
+        assert_eq!(prompt(&st, &body["id"]).as_deref(), Some(nasty.trim()));
+        let line = pending(&st, &body["id"]).unwrap();
+        assert_eq!(line, "claude \"$TABSH_PROMPT\"\r");
+        assert!(line.len() < 100);
+    }
+
+    #[tokio::test]
+    async fn a_named_card_is_pinned_and_a_user_rename_pins() {
+        let st = test_state();
+        let (_, named) = create(&st, serde_json::json!({"name": "Fix login"})).await;
+        assert_eq!(named["pinned"], true);
+        let (_, plain) = create(&st, serde_json::json!({})).await;
+        assert_eq!(plain["pinned"], false);
+        let id = plain["id"].as_str().unwrap();
+        let rename = |body: serde_json::Value| {
+            let req = Request::builder()
+                .method(Method::PATCH)
+                .uri(format!("/api/sessions/{id}"))
+                .header("Host", "127.0.0.1:7681")
+                .header("Authorization", "Bearer t0k3n")
+                .header("Content-Type", "application/json")
+                .body(axum::body::Body::from(body.to_string()))
+                .unwrap();
+            crate::state::router(st.clone()).oneshot(req)
+        };
+        let pinned = || -> bool {
+            st.db
+                .lock()
+                .unwrap()
+                .query_row("SELECT pinned FROM sessions WHERE id = ?1", [id], |r| {
+                    r.get(0)
+                })
+                .unwrap()
+        };
+        rename(serde_json::json!({"name": "~/code", "auto": true}))
+            .await
+            .unwrap();
+        assert!(!pinned(), "a shell title does not pin");
+        rename(serde_json::json!({"name": "Mine"})).await.unwrap();
+        assert!(pinned());
+    }
+
+    #[tokio::test]
+    async fn a_card_without_a_prompt_is_a_backlog_shell() {
+        let st = test_state();
+        let (_, body) = create(&st, serde_json::json!({"name": "Docs", "prompt": "   "})).await;
+        assert_eq!(body["status"], "backlog");
+        assert_eq!(pending(&st, &body["id"]), None);
+        let (_, body) = create(&st, serde_json::json!({})).await;
+        assert_eq!(body["name"], "Terminal 1");
     }
 }

@@ -1,5 +1,6 @@
 // A tab's terminal: xterm with right-click copy/paste and links, its tab
 // element, and the socket to its shell.
+import { applyCard, cardOf } from '../board/status.ts';
 import { socketUrl } from '../daemon/client.ts';
 import { linkProvider } from '../links/provider.ts';
 import { current, terminalOptions } from '../settings/settings.ts';
@@ -20,7 +21,8 @@ import { labelTab } from './tags.ts';
 
 const enc = new TextEncoder();
 
-export function openSession({ id, name }: SessionInfo): Session {
+export function openSession(info: SessionInfo): Session {
+  const { id, name } = info;
   const el = document.createElement('div');
   el.className = 'term';
   document.getElementById('terms')?.append(el);
@@ -66,10 +68,25 @@ export function openSession({ id, name }: SessionInfo): Session {
     if (s === store.active) tab.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   });
 
-  const s: Session = { id, name, term, fit, el, tab, ws: null, closed: false, replaying: false, esc: 0, bell: false };
+  const s: Session = {
+    id,
+    name,
+    term,
+    fit,
+    el,
+    tab,
+    ws: null,
+    closed: false,
+    replaying: false,
+    esc: 0,
+    bell: false,
+    card: cardOf(info),
+    pinned: info.pinned,
+  };
   store.sessions.push(s);
   setName(s, name, false);
   labelTab(s);
+  applyCard(s, s.card);
   tab.onclick = () => activate(s);
   tab.onauxclick = (e) => e.button === 1 && closeSession(s); // middle-click closes
   (tab.querySelector('button') as HTMLButtonElement).onclick = (e) => {
@@ -78,7 +95,7 @@ export function openSession({ id, name }: SessionInfo): Session {
   };
 
   term.onData((d) => s.ws?.readyState === WebSocket.OPEN && s.ws.send(enc.encode(d)));
-  term.onTitleChange((t) => t && setName(s, t));
+  term.onTitleChange((t) => t && !s.pinned && setName(s, t));
   connect(s);
   return s;
 }

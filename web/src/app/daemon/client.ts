@@ -9,13 +9,23 @@ export function daemonFetch(path: string, init: RequestInit = {}): Promise<Respo
   return fetch(DAEMON + path, { ...init, headers });
 }
 
+// A failed request; `status` is the HTTP status.
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
 export async function api<T>(method: string, path: string, body?: unknown): Promise<T | null> {
   const res = await daemonFetch(`/api/sessions${path}`, {
     method,
     headers: body ? { 'Content-Type': 'application/json' } : {},
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) throw new Error(`${method} ${path}: ${res.status}`);
+  if (!res.ok) throw new ApiError(`${method} ${path}: ${res.status}`, res.status);
   return res.status === 204 ? null : res.json();
 }
 
@@ -68,4 +78,11 @@ export function initGate(): void {
       wake();
     } else input.setAttribute('aria-invalid', 'true');
   });
+}
+
+// The socket telling the page when a card's status changes.
+export function boardEventsUrl(): string {
+  const token = getToken();
+  const auth = token ? `?token=${token}` : '';
+  return `${DAEMON.replace(/^http/, 'ws')}/api/board/events${auth}`;
 }

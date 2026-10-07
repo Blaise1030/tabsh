@@ -1,4 +1,6 @@
 mod auth;
+mod board;
+mod cli;
 mod error;
 mod files;
 mod sessions;
@@ -17,8 +19,16 @@ use std::{
 use sessions::{FLUSH_INTERVAL, SHUTTING_DOWN, flush, open_db};
 use state::{AppState, router};
 
+fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(code) = cli::run(&args) {
+        std::process::exit(code);
+    }
+    daemon();
+}
+
 #[tokio::main]
-async fn main() {
+async fn daemon() {
     let port = std::env::args()
         .nth(1)
         .or_else(|| std::env::var("PORT").ok())
@@ -62,6 +72,7 @@ async fn main() {
         };
         format!("{origin}/app/{daemon}").into()
     });
+    let self_url = self_url(&host, &port);
     let state = AppState {
         db: Arc::new(Mutex::new(db)),
         live: Default::default(),
@@ -70,6 +81,8 @@ async fn main() {
         token: token.into(),
         origins: origins.into(),
         app_url,
+        self_url: self_url.into(),
+        events: tokio::sync::broadcast::channel(256).0,
     };
 
     let flusher = state.clone();
@@ -122,5 +135,33 @@ async fn shutdown_signal() {
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {}
         _ = term.recv() => {}
+    }
+}
+
+/// Where shells (and `tabsh status`) reach the daemon: loopback when it
+/// listens on every interface, and IPv6 literals in brackets.
+fn self_url(host: &str, port: &str) -> String {
+    let host = match host {
+        "0.0.0.0" | "::" => "127.0.0.1",
+        h => h,
+    };
+    if host.contains(':') && !host.starts_with('[') {
+        format!("http://[{host}]:{port}")
+    } else {
+        format!("http://{host}:{port}")
+    }
+}
+
+#[cfg(test)]
+mod self_url_tests {
+    use super::self_url;
+
+    #[test]
+    fn shells_reach_the_daemon_on_loopback() {
+        assert_eq!(self_url("127.0.0.1", "7681"), "http://127.0.0.1:7681");
+        assert_eq!(self_url("0.0.0.0", "7681"), "http://127.0.0.1:7681");
+        assert_eq!(self_url("::", "7681"), "http://127.0.0.1:7681");
+        assert_eq!(self_url("::1", "7681"), "http://[::1]:7681");
+        assert_eq!(self_url("example.test", "1"), "http://example.test:1");
     }
 }
