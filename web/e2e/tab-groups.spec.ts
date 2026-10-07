@@ -21,8 +21,11 @@ const inGroup = (page: Page, key: string) =>
     .locator(`#tabs .tab[data-group="${key}"]:not([hidden])`)
     .evaluateAll((tabs) => tabs.map((t) => t.querySelector('.tab-name')?.textContent));
 
-// Name the active tab through the shell, the one DOM effect of output.
+// Name the active tab through the shell, the one DOM effect of output. It
+// waits for the shell's prompt first: a ^C while a login shell is still
+// starting can end it.
 async function nameTab(page: Page, name: string): Promise<void> {
+  await expect(page.locator('.term.active .xterm-rows')).not.toHaveText(/^\s*$/, { timeout: 10_000 });
   await expect(async () => {
     await typeInTerminal(page, '\u0003');
     await typeInTerminal(page, `printf '\\033]0;${name}\\007'`);
@@ -62,6 +65,7 @@ test.afterEach(async ({ page }) => {
 });
 
 test('by tag, each tag labels its tabs, collapsing hides them, and tab keys skip them', async ({ page, daemon }) => {
+  test.slow(); // five tabs, a reload and six steps: more than the default 30s on a busy machine
   const button = page.locator('#tab-group-btn');
   await openApp(page, daemon);
   for (const name of ['one', 'two', 'three', 'four']) {
