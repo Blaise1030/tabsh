@@ -58,8 +58,9 @@ html.themed {
   --tab-min: 6.5rem;
   display: flex; align-items: center; gap: .375rem; min-width: 0; overflow-x: auto; scrollbar-width: none;
   /* Room for focus rings, which the scroll container would otherwise
-     clip, including after scrollIntoView. */
-  padding: 3px; scroll-padding-inline: 3px;
+     clip, including after scrollIntoView, and below the tabs for a group's
+     underline (the same above, so the strip stays centred). */
+  padding: 5px 3px; scroll-padding-inline: 3px;
   --fade-l: 0px; --fade-r: 0px;
   mask-image: linear-gradient(to right, transparent, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent);
   transition: --fade-l .2s ease, --fade-r .2s ease;
@@ -113,8 +114,9 @@ html.themed {
 }
 .tab-group-box:first-child { margin-left: 0; }
 .tab-group-box::after {
-  /* In the strip's bottom padding, so the line takes no height of its own. */
-  content: ""; position: absolute; left: .25rem; right: .25rem; bottom: -3px; height: 2px;
+  /* In the strip's bottom padding, a little below the tabs, so the line
+     takes no height of its own. */
+  content: ""; position: absolute; left: .25rem; right: .25rem; bottom: -5px; height: 2px;
   border-radius: 1px; background: var(--group);
 }
 .tab-group-box.collapsed::after { display: none; }
