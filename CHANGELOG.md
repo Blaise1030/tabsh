@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.1.7
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.6...v0.1.7)
+
+### Features
+
+- **app:** Keep the tab filter across reloads and inside new tabs and tab keys ([06e3c9d](https://github.com/Blaise1030/tabsh/commit/06e3c9d))
+- **app:** Switch the tab filter from the palette ([ac0f22f](https://github.com/Blaise1030/tabsh/commit/ac0f22f))
+- **app:** Group tabs by repo or tag instead of filtering them ([4d01ee1](https://github.com/Blaise1030/tabsh/commit/4d01ee1))
+- **app:** Group labels as Basecoat badges, underlined like Chrome's groups ([c48c064](https://github.com/Blaise1030/tabsh/commit/c48c064))
+- **app:** Drag tabs between tag groups ([10529d5](https://github.com/Blaise1030/tabsh/commit/10529d5))
+
+### Fixes
+
+- **app:** Keep a tab opened while a sync is on its way ([8674208](https://github.com/Blaise1030/tabsh/commit/8674208))
+
 ## v0.1.6
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.5...v0.1.6)
