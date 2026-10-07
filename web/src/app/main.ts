@@ -7,6 +7,7 @@ import { initExplorer } from './explorer/explorer.ts';
 import { initFilePane, loadedPane, restoreFiles } from './files/open.ts';
 import { initPalette } from './palette/palette.ts';
 import { initBell } from './sessions/bell.ts';
+import { initTabGroups } from './sessions/groups.ts';
 import { activate, newSession, newTabAt, savedActive, sendSize, store, sync } from './sessions/store.ts';
 import { initTabStrip } from './sessions/tabs.ts';
 import { initTabLabels } from './sessions/tags.ts';
@@ -59,6 +60,7 @@ addEventListener('beforeunload', (e) => {
 initBell();
 initTabStrip();
 initTabLabels();
+initTabGroups();
 initExplorer();
 initTypingSound();
 initPalette();

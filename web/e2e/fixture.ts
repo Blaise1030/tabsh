@@ -87,7 +87,7 @@ export async function openApp(page: Page, daemon: Daemon): Promise<void> {
 // terminal" and waits for one MORE tab, so the helper stays honest however
 // many tabs are already open.
 export async function newTab(page: Page): Promise<void> {
-  const tabs = page.locator('#tabs .tab');
+  const tabs = page.locator('#tabs .tab:not(.mirror)');
   const before = await tabs.count();
   // Scoped to the tabbar: the empty state has a second new-terminal button.
   await page.locator('.tabbar [data-new-session]').click();
@@ -111,6 +111,6 @@ export async function cdInTerminal(page: Page, dir: string, mark: string): Promi
     await typeInTerminal(page, '\u0003');
     await typeInTerminal(page, `cd '${dir}' && printf '\\033]0;${mark}\\007'`);
     await page.keyboard.press('Enter');
-    await expect(page.locator('#tabs .tab[aria-selected="true"] span')).toHaveText(mark, { timeout: 2_000 });
+    await expect(page.locator('#tabs .tab:not(.mirror)[aria-selected="true"] span')).toHaveText(mark, { timeout: 2_000 });
   }).toPass({ timeout: 10_000 });
 }

@@ -5,6 +5,10 @@ import { comboProblem, type KeyId, keybindings } from './keys.ts';
 // The explorer sidebar's width, in px.
 export const EXPLORER_WIDTH = { min: 200, max: 640, default: 260 };
 
+// How the tab strip groups tabs: not at all, by repo, or by tag.
+export const TAB_GROUPINGS = ['none', 'repo', 'tag'] as const;
+export type TabGrouping = (typeof TAB_GROUPINGS)[number];
+
 export interface Settings {
   theme: string;
   font: string;
@@ -13,12 +17,13 @@ export interface Settings {
   paneWidth: number;
   explorerOpen: boolean;
   explorerWidth: number; // px
+  tabGrouping: TabGrouping;
   keyPalette: string;
   keyNextTab: string;
   keyPrevTab: string;
   keyToggleExplorer: string;
   keySearchFiles: string;
-  keyFilterTabs: string;
+  keyGroupTabs: string;
 }
 
 export function defaults(isMac: boolean): Settings {
@@ -31,12 +36,13 @@ export function defaults(isMac: boolean): Settings {
     paneWidth: 0.5,
     explorerOpen: false,
     explorerWidth: EXPLORER_WIDTH.default,
+    tabGrouping: 'none',
     keyPalette: keys.keyPalette.presets[0],
     keyNextTab: keys.keyNextTab.presets[0],
     keyPrevTab: keys.keyPrevTab.presets[0],
     keyToggleExplorer: keys.keyToggleExplorer.presets[0],
     keySearchFiles: keys.keySearchFiles.presets[0],
-    keyFilterTabs: keys.keyFilterTabs.presets[0],
+    keyGroupTabs: keys.keyGroupTabs.presets[0],
   };
 }
 
@@ -54,7 +60,7 @@ export function cleanSettings(stored: Record<string, unknown>, isMac: boolean): 
     keyPrevTab: '',
     keyToggleExplorer: '',
     keySearchFiles: '',
-    keyFilterTabs: '',
+    keyGroupTabs: '',
   };
   const key = (id: KeyId) => {
     const want = str(stored[id]);
@@ -79,11 +85,12 @@ export function cleanSettings(stored: Record<string, unknown>, isMac: boolean): 
       stored.explorerWidth <= EXPLORER_WIDTH.max
         ? stored.explorerWidth
         : d.explorerWidth,
+    tabGrouping: TAB_GROUPINGS.find((g) => g === stored.tabGrouping) ?? d.tabGrouping,
     keyPalette: key('keyPalette'),
     keyNextTab: key('keyNextTab'),
     keyPrevTab: key('keyPrevTab'),
     keyToggleExplorer: key('keyToggleExplorer'),
     keySearchFiles: key('keySearchFiles'),
-    keyFilterTabs: key('keyFilterTabs'),
+    keyGroupTabs: key('keyGroupTabs'),
   };
 }

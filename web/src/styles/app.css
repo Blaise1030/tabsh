@@ -23,8 +23,8 @@ html.themed {
   --card-foreground: var(--term-fg);
 }
 
-/* The filter and settings buttons sit together at the bar's right end. */
-#tab-filter-btn { margin-left: auto; }
+/* The group and settings buttons sit together at the bar's right end. */
+#tab-group-btn { margin-left: auto; }
 /* Near the top of the screen at Tailwind's max-w-xl width; tall enough to show
    long lists. The menu fills what's left instead of Basecoat's fixed 18rem. */
 .command-dialog > .command { top: 10%; max-width: min(36rem, 100% - 2rem); max-height: min(75%, 44rem); }
@@ -97,15 +97,23 @@ html.themed {
   content: ""; position: absolute; left: .4375rem; top: 50%; width: 3px; height: 1rem;
   transform: translateY(-50%); border-radius: 2px; background: var(--tag);
 }
-/* The filter button shows how many repos and tags are checked. */
-#tab-filter-btn { position: relative; flex-shrink: 0; }
-#tab-filter-btn[aria-pressed="true"] { color: var(--foreground); background: var(--muted); }
-#tab-filter-btn .filter-count:empty { display: none; }
-#tab-filter-btn .filter-count {
-  position: absolute; top: -2px; right: -2px; min-width: .875rem; height: .875rem; padding: 0 2px;
-  border-radius: 999px; background: var(--primary); color: var(--primary-foreground, var(--background));
-  font-size: .5625rem; font-weight: 600; line-height: .875rem; text-align: center;
+/* Grouping is on: the button stays lit. */
+#tab-group-btn { flex-shrink: 0; }
+#tab-group-btn[aria-pressed="true"] { color: var(--foreground); background: var(--muted); }
+/* A group's label: a pill in its color's tint, before its tabs; a gap sets
+   each group apart from the one before. Collapsed, it shows its tab count. */
+.tab-group {
+  display: flex; flex-shrink: 0; align-items: center; gap: .375rem; height: 1.5rem; padding: 0 .5rem;
+  margin-left: .5rem; border: 0; border-radius: 999px; cursor: pointer; white-space: nowrap;
+  font: inherit; font-size: .75rem; font-weight: 600; color: var(--foreground);
+  background: color-mix(in srgb, var(--group) 22%, transparent);
 }
+.tab-group:first-child { margin-left: 0; }
+.tab-group:hover { background: color-mix(in srgb, var(--group) 34%, transparent); }
+.tab-group i { width: .5rem; height: .5rem; border-radius: 999px; background: var(--group); }
+.tab-group small { font-size: .6875rem; font-weight: 500; color: var(--muted-foreground); }
+.tab-group small:empty { display: none; }
+.tab-group[aria-expanded="false"] { opacity: .8; }
 .row-menu.tab-menu { position: fixed; z-index: 50; min-width: 16rem; }
 .row-menu.tab-menu [role="menuitem"] { display: flex; align-items: center; gap: .5rem; }
 /* Basecoat's input, set off from the tags listed under it. */

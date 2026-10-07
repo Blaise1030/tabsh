@@ -2,12 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   cleanTag,
-  filterKey,
-  filterOptions,
-  isSingleFilter,
-  matches,
-  newTabLabels,
-  parseChecked,
+  groupTabs,
+  joinGroup,
+  parseCollapsed,
   parseTags,
   repoName,
   TAG_COLORS,
@@ -57,55 +54,57 @@ test("a tab's bar is its tag's color, or its tags' colors stacked", () => {
   );
 });
 
-test('the filter offers each repo and tag once, with its tab count', () => {
-  const opts = filterOptions([
-    { repo: 'tabsh', tags: ['deploy', 'debug'] },
-    { repo: 'tabsh', tags: [] },
-    { repo: 'web', tags: ['deploy'] },
-  ]);
-  assert.deepEqual(
-    opts.map((o) => [filterKey(o.filter), o.count]),
+test('not grouping gives no groups', () => {
+  assert.deepEqual(groupTabs([{ id: 'a', labels: { repo: 'x', tags: [] } }], 'none'), []);
+});
+
+test('by repo, groups follow the strip order and unknown repos come last', () => {
+  const groups = groupTabs(
     [
-      ['repo:tabsh', 2],
-      ['repo:web', 1],
-      ['tag:debug', 1],
-      ['tag:deploy', 2],
+      { id: 'a', labels: { repo: 'web', tags: [] } },
+      { id: 'b', labels: { repo: null, tags: [] } },
+      { id: 'c', labels: { repo: 'tabsh', tags: ['x'] } },
+      { id: 'd', labels: { repo: 'web', tags: [] } },
+    ],
+    'repo',
+  );
+  assert.deepEqual(
+    groups.map((g) => [g.key, g.value, g.ids]),
+    [
+      ['repo:web', 'web', ['a', 'd']],
+      ['repo:tabsh', 'tabsh', ['c']],
+      ['repo:', null, ['b']],
     ],
   );
 });
 
-test('the palette marks an item current only when it is the one filter checked, or none for all tabs', () => {
-  assert.ok(isSingleFilter(new Set(), null));
-  assert.ok(!isSingleFilter(new Set(['repo:tabsh']), null));
-  assert.ok(isSingleFilter(new Set(['repo:tabsh']), 'repo:tabsh'));
-  assert.ok(!isSingleFilter(new Set(['repo:tabsh', 'tag:deploy']), 'repo:tabsh'));
-  assert.ok(!isSingleFilter(new Set(['tag:deploy']), 'repo:tabsh'));
+test('by tag, a tab sits in each of its tags, and untagged tabs come last', () => {
+  const groups = groupTabs(
+    [
+      { id: 'a', labels: { repo: 'web', tags: ['deploy', 'debug'] } },
+      { id: 'b', labels: { repo: 'web', tags: [] } },
+      { id: 'c', labels: { repo: null, tags: ['debug'] } },
+    ],
+    'tag',
+  );
+  assert.deepEqual(
+    groups.map((g) => [g.key, g.ids]),
+    [
+      ['tag:deploy', ['a']],
+      ['tag:debug', ['a', 'c']],
+      ['tag:', ['b']],
+    ],
+  );
 });
 
-test('a tab shows when nothing is checked, or when any checked filter fits it', () => {
-  const labels = { repo: 'tabsh', tags: ['deploy', 'debug'] };
-  assert.ok(matches(new Set(), labels));
-  assert.ok(matches(new Set(['repo:tabsh']), labels));
-  assert.ok(matches(new Set(['repo:other', 'tag:debug']), labels));
-  assert.ok(!matches(new Set(['repo:other']), labels));
-  assert.ok(!matches(new Set(['tag:deploy']), { repo: 'tabsh', tags: [] }));
+test('the stored collapsed groups keep only group keys', () => {
+  assert.deepEqual([...parseCollapsed(['tag:work', 'repo:', 'other', 3])], ['tag:work', 'repo:']);
+  assert.deepEqual([...parseCollapsed(null)], []);
 });
 
-test('the stored filter keeps only repo and tag keys', () => {
-  assert.deepEqual([...parseChecked(['repo:tabsh', 'tag:deploy', 'tag:', 'other', 3])], ['repo:tabsh', 'tag:deploy']);
-  assert.deepEqual([...parseChecked(null)], []);
-  assert.deepEqual([...parseChecked({ a: 1 })], []);
-});
-
-test('a new tab takes every checked tag and a checked repo, preferring the active one', () => {
-  assert.deepEqual(newTabLabels(new Set(), 'tabsh'), { repo: null, tags: [] });
-  assert.deepEqual(newTabLabels(new Set(['tag:deploy', 'tag:debug']), 'tabsh'), {
-    repo: null,
-    tags: ['deploy', 'debug'],
-  });
-  assert.deepEqual(newTabLabels(new Set(['repo:web', 'repo:tabsh']), 'tabsh'), { repo: 'tabsh', tags: [] });
-  assert.deepEqual(newTabLabels(new Set(['repo:web', 'repo:tabsh', 'tag:x']), 'other'), {
-    repo: 'web',
-    tags: ['x'],
-  });
+test('a new tab joins a group through its tag or its repo, and the unlabelled group asks nothing', () => {
+  assert.deepEqual(joinGroup('tag:work'), { tag: 'work', repo: null });
+  assert.deepEqual(joinGroup('repo:tabsh'), { tag: null, repo: 'tabsh' });
+  assert.deepEqual(joinGroup('tag:'), { tag: null, repo: null });
+  assert.deepEqual(joinGroup(null), { tag: null, repo: null });
 });

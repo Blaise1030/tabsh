@@ -53,8 +53,15 @@ test('searching files defaults to its own combo', () => {
     'alt+shift+KeyF',
   );
 });
-test('filtering tabs defaults to its own combo', () => {
-  assert.equal(defaults(true).keyFilterTabs, 'meta+shift+KeyY');
-  assert.equal(defaults(false).keyFilterTabs, 'ctrl+shift+KeyY');
-  assert.equal(cleanSettings({ keyFilterTabs: 'alt+shift+KeyY' }, false).keyFilterTabs, 'alt+shift+KeyY');
+test('grouping tabs defaults to its own combo', () => {
+  assert.equal(defaults(true).keyGroupTabs, 'meta+shift+KeyY');
+  assert.equal(defaults(false).keyGroupTabs, 'ctrl+shift+KeyY');
+  assert.equal(cleanSettings({ keyGroupTabs: 'alt+shift+KeyY' }, false).keyGroupTabs, 'alt+shift+KeyY');
+});
+
+test('tab grouping is none, repo or tag, and none by default', () => {
+  assert.equal(defaults(true).tabGrouping, 'none');
+  assert.equal(cleanSettings({ tabGrouping: 'tag' }, true).tabGrouping, 'tag');
+  assert.equal(cleanSettings({ tabGrouping: 'repo' }, true).tabGrouping, 'repo');
+  assert.equal(cleanSettings({ tabGrouping: 'folder' }, true).tabGrouping, 'none');
 });

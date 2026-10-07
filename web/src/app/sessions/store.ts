@@ -5,8 +5,9 @@ import type { Terminal as XTerm } from '@xterm/xterm';
 import { api } from '../daemon/client.ts';
 import { loadedPane } from '../files/open.ts';
 import { clearBell, updateBadge } from './bell.ts';
+import { layout, newTabGroup, shownSessions, stepTab } from './groups.ts';
 import { orderTabs, setName, updateFades } from './tabs.ts';
-import { adoptTags, newTabFilter } from './tags.ts';
+import { adoptTag } from './tags.ts';
 import { openSession } from './terminal.ts';
 
 export interface Session {
@@ -49,19 +50,19 @@ export const savedActive = (): string | null => {
   }
 };
 
-// Opens a tab with `body`'s options, joining the tab filter: it gets the
-// checked tags, so it shows under them.
+// Opens a tab with `body`'s options in the active tab's group: grouped by
+// tag, it gets that group's tag.
 async function openTab(body?: { cwd: string }): Promise<void> {
-  const { tags } = newTabFilter();
+  const { tag } = newTabGroup();
   const info = (await api<SessionInfo>('POST', '', body)) as SessionInfo;
-  adoptTags(info.id, tags);
+  if (tag) adoptTag(info.id, tag);
   activate(openSession(info));
 }
 
-// Opens a new tab; under a repo filter its shell starts in that repo (or the
-// home directory, when that repo's folder is gone).
+// Opens a new tab; grouped by repo, its shell starts in the active group's
+// repo (or the home directory, when that repo's folder is gone).
 export function newSession(): Promise<void> {
-  const { cwd } = newTabFilter();
+  const { cwd } = newTabGroup();
   return cwd ? openTab({ cwd }).catch(() => openTab()) : openTab();
 }
 
@@ -69,9 +70,6 @@ export function newSession(): Promise<void> {
 export function newTabAt(cwd: string): Promise<void> {
   return openTab({ cwd }).catch(console.error);
 }
-
-// The tabs the strip shows: those under the tab filter, and the active one.
-const shown = (): Session[] => store.sessions.filter((s) => s === store.active || !s.tab.hidden);
 
 // Bring the tab list in line with the server: picks up tabs opened or
 // closed from another browser, and drops ones whose shell is gone.
@@ -85,7 +83,7 @@ export async function sync(): Promise<void> {
     else openSession(info);
   }
   orderTabs(list.map((s) => s.id));
-  if (!store.active && store.sessions.length) activate(shown()[0] ?? store.sessions[0]);
+  if (!store.active && store.sessions.length) activate(shownSessions()[0] ?? store.sessions[0]);
 }
 
 export function sendSize(s: Session): void {
@@ -119,13 +117,11 @@ export function activate(s: Session | null): void {
   for (const fn of activateListeners) fn();
 }
 
-// The next/previous tab keybindings cycle through the shown tabs, wrapping at
-// the ends.
+// The next/previous tab keybindings walk the shown tabs along the strip,
+// wrapping at the ends.
 export function cycleTab(step: 1 | -1): void {
-  const sessions = shown();
-  if (!sessions.length) return;
-  const i = sessions.indexOf(store.active as Session);
-  activate(sessions[(i + step + sessions.length) % sessions.length]);
+  const next = stepTab(step);
+  if (next) activate(next);
 }
 
 export async function closeSession(s: Session): Promise<void> {
@@ -155,10 +151,11 @@ export function removeSession(s: Session): void {
   const { sessions } = store;
   const i = sessions.indexOf(s);
   sessions.splice(i, 1);
+  layout(); // drops its copies, and a group it was alone in
   if (store.active === s) {
     store.active = null;
     // The next shown tab after it, else the last shown one before it.
-    const rest = shown();
+    const rest = shownSessions();
     const next = rest.find((t) => sessions.indexOf(t) >= i) ?? rest.at(-1);
     activate(next ?? sessions[Math.min(i, sessions.length - 1)] ?? null);
   } else updateBadge();

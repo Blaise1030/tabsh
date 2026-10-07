@@ -2,6 +2,7 @@
 // dragging tabs into a new order.
 import { api } from '../daemon/client.ts';
 import { updateBadge } from './bell.ts';
+import { layout } from './groups.ts';
 import { dropIndex, inOrder } from './order.ts';
 import { type Session, store } from './store.ts';
 
@@ -30,7 +31,7 @@ export function orderTabs(ids: string[]): void {
   const sorted = inOrder(store.sessions, ids);
   if (sorted.every((s, i) => s === store.sessions[i])) return;
   store.sessions.splice(0, store.sessions.length, ...sorted);
-  for (const s of sorted) strip().append(s.tab);
+  layout();
 }
 
 // Slides each tab from where it was drawn (`before`) to where it now is.
@@ -48,7 +49,7 @@ function initDrag(el: HTMLElement): void {
   el.addEventListener('pointerdown', (down) => {
     const target = down.target as HTMLElement;
     const tab = target.closest<HTMLElement>('.tab');
-    if (down.button !== 0 || !tab || target.closest('button')) return;
+    if (down.button !== 0 || !tab || tab.classList.contains('mirror') || target.closest('button')) return;
     const grab = down.clientX - tab.getBoundingClientRect().left;
     let dragging = false;
     const move = (e: PointerEvent) => {
@@ -86,6 +87,7 @@ function initDrag(el: HTMLElement): void {
         .map((t) => store.sessions.find((s) => s.tab === t)?.id)
         .filter((id): id is string => !!id);
       store.sessions.splice(0, store.sessions.length, ...inOrder(store.sessions, ids));
+      layout(); // back under its group's label, wherever it was dropped
       api('PUT', '/order', { ids }).catch(() => {});
     };
     addEventListener('pointermove', move);

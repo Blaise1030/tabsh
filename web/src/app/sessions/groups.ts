@@ -1,0 +1,239 @@
+// Tab groups: with the tabGrouping setting on, the strip shows a label per
+// repo or per tag, each followed by its tabs. By tag, a tab with several tags
+// shows in each of their groups: its first place holds the tab itself, the
+// others hold copies (`.mirror`) that act for it. Clicking a
+// label collapses its group (kept in this browser) to all but the active
+// tab, a new tab joins the active tab's group, and the next/previous tab keys
+// walk the shown tabs in strip order.
+import { current, onApply } from '../settings/settings.ts';
+import { el } from '../ui/dom.ts';
+import { type Group, groupTabs, joinGroup, parseCollapsed, tagColor } from './labels.ts';
+import { activate, closeSession, onActivate, type Session, store } from './store.ts';
+import { updateFades } from './tabs.ts';
+import { labelsOf, rootOf } from './tags.ts';
+
+const COLLAPSED_KEY = 'tabsh.collapsed';
+const collapsed = new Set<string>(); // group keys
+const chips = new Map<string, HTMLElement>(); // group key → its label
+const mirrors = new Map<string, HTMLElement[]>(); // session id → its copies
+const watched = new WeakSet<HTMLElement>(); // tabs whose changes reach their copies
+let activeGroup: string | null = null; // the group the active tab was picked in
+
+const strip = () => document.getElementById('tabs') as HTMLElement;
+const groupButton = () => document.getElementById('tab-group-btn') as HTMLButtonElement;
+
+function saveCollapsed(): void {
+  try {
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...collapsed]));
+  } catch {}
+}
+
+function loadCollapsed(): void {
+  try {
+    for (const k of parseCollapsed(JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? '[]'))) collapsed.add(k);
+  } catch {}
+}
+
+// Applied, not saved, so the palette's preview regroups the strip too.
+const groups = (): Group[] =>
+  groupTabs(
+    store.sessions.map((s) => ({ id: s.id, labels: labelsOf(s) })),
+    current.applied.tabGrouping,
+  );
+
+// The group the active tab counts as in: the one it was picked in, else its
+// first.
+function currentGroup(all: Group[]): string | null {
+  const id = store.active?.id;
+  if (!id) return null;
+  if (all.some((g) => g.key === activeGroup && g.ids.includes(id))) return activeGroup;
+  return all.find((g) => g.ids.includes(id))?.key ?? null;
+}
+
+function toggleCollapsed(key: string): void {
+  if (!collapsed.delete(key)) collapsed.add(key);
+  saveCollapsed();
+  layout();
+}
+
+// A group's label: its color's dot, its name, and its tab count while
+// collapsed.
+function chip(g: Group): HTMLElement {
+  let c = chips.get(g.key);
+  if (!c) {
+    c = el(
+      'button',
+      { type: 'button', className: 'tab-group' },
+      el('i'),
+      el('span', { className: 'tab-group-name' }),
+      el('small'),
+    );
+    c.onclick = () => toggleCollapsed(g.key);
+    chips.set(g.key, c);
+  }
+  const name = g.value ?? (g.kind === 'repo' ? 'No repo' : 'Untagged');
+  const shut = collapsed.has(g.key);
+  (c.querySelector('.tab-group-name') as HTMLElement).textContent = name;
+  (c.querySelector('small') as HTMLElement).textContent = shut ? String(g.ids.length) : '';
+  c.style.setProperty('--group', g.value ? tagColor(g.value) : 'var(--muted-foreground)');
+  c.title = `${shut ? 'Expand' : 'Collapse'} ${name}`;
+  c.setAttribute('aria-expanded', String(!shut));
+  return c;
+}
+
+// A copy of a tab for another of its groups, acting as the tab: a click
+// picks it (in the copy's group, set by the strip's listener), its close
+// button or a middle-click closes it, and a right-click opens its tag menu.
+function copyOf(s: Session): HTMLElement {
+  const m = s.tab.cloneNode(true) as HTMLElement;
+  m.classList.add('mirror');
+  m.classList.remove('entering', 'leaving', 'dragging');
+  m.onclick = (e) => ((e.target as Element).closest('button') ? closeSession(s) : activate(s));
+  m.onauxclick = (e) => e.button === 1 && closeSession(s);
+  m.oncontextmenu = (e) => {
+    e.preventDefault();
+    s.tab.dispatchEvent(new MouseEvent('contextmenu', e));
+  };
+  return m;
+}
+
+// Copies follow their tab: a rename, the selection, a bell or new tags.
+function watch(s: Session): void {
+  if (watched.has(s.tab)) return;
+  watched.add(s.tab);
+  let queued = false;
+  new MutationObserver(() => {
+    if (queued) return;
+    queued = true;
+    queueMicrotask(() => {
+      queued = false;
+      for (const [i, old] of (mirrors.get(s.id) ?? []).entries()) {
+        const fresh = copyOf(s);
+        fresh.dataset.group = old.dataset.group;
+        fresh.hidden = old.hidden;
+        old.replaceWith(fresh);
+        (mirrors.get(s.id) as HTMLElement[])[i] = fresh;
+      }
+    });
+  }).observe(s.tab, {
+    attributes: true,
+    attributeFilter: ['class', 'aria-selected', 'title', 'style'],
+    childList: true,
+    subtree: true,
+    characterData: true,
+  });
+}
+
+// Lays the strip out: the tabs in order, or each group's label and tabs,
+// with collapsed groups showing only the active tab. Closing tabs are left
+// where they are, to finish shrinking.
+export function layout(): void {
+  const all = groups();
+  const want: HTMLElement[] = [];
+  const places = new Map<string, number>(); // session id → places so far
+  const byId = new Map(store.sessions.map((s) => [s.id, s]));
+  if (!all.length)
+    for (const s of store.sessions) {
+      s.tab.hidden = false;
+      delete s.tab.dataset.group;
+      want.push(s.tab);
+    }
+  for (const g of all) {
+    want.push(chip(g));
+    for (const id of g.ids) {
+      const s = byId.get(id) as Session;
+      const n = places.get(id) ?? 0;
+      places.set(id, n + 1);
+      let t = s.tab;
+      if (n) {
+        const list = mirrors.get(id) ?? [];
+        mirrors.set(id, list);
+        list[n - 1] ??= copyOf(s);
+        t = list[n - 1];
+        watch(s);
+      }
+      t.dataset.group = g.key;
+      t.hidden = collapsed.has(g.key) && s !== store.active;
+      want.push(t);
+    }
+  }
+  // Drop copies and labels nothing uses any more.
+  for (const [id, list] of mirrors) {
+    const keep = Math.max(0, (places.get(id) ?? 0) - 1);
+    for (const m of list.splice(keep)) m.remove();
+    if (!list.length) mirrors.delete(id);
+  }
+  const live = new Set(all.map((g) => g.key));
+  for (const [key, c] of chips)
+    if (!live.has(key)) {
+      c.remove();
+      chips.delete(key);
+    }
+  // Move only what is out of place.
+  const box = strip();
+  let at = box.firstElementChild;
+  for (const node of want) {
+    while (at?.classList.contains('leaving')) at = at.nextElementSibling;
+    if (node === at) at = at.nextElementSibling;
+    else box.insertBefore(node, at);
+  }
+  groupButton().setAttribute('aria-pressed', String(current.applied.tabGrouping !== 'none'));
+  updateFades();
+}
+
+// The tabs showing on the strip, each once, in strip order.
+export function shownSessions(): Session[] {
+  const out: Session[] = [];
+  for (const t of strip().querySelectorAll<HTMLElement>('.tab:not([hidden]):not(.leaving)')) {
+    const s = store.sessions.find((s) => s.tab === t || mirrors.get(s.id)?.includes(t));
+    if (s && !out.includes(s)) out.push(s);
+  }
+  return out;
+}
+
+// The tab `step` places along the strip from the active tab's place, past
+// the active tab's other places and hidden tabs, wrapping at the ends; it
+// counts as picked in the group it is reached in.
+export function stepTab(step: 1 | -1): Session | null {
+  const from = currentGroup(groups());
+  const places = [...strip().querySelectorAll<HTMLElement>('.tab:not([hidden]):not(.leaving)')].flatMap((t) => {
+    const s = store.sessions.find((s) => s.tab === t || mirrors.get(s.id)?.includes(t));
+    return s ? [{ s, group: t.dataset.group ?? null }] : [];
+  });
+  const n = places.length;
+  let i = places.findIndex((p) => p.s === store.active && p.group === from);
+  if (i < 0) i = places.findIndex((p) => p.s === store.active);
+  for (let k = 1; k <= n; k++) {
+    const p = places[(((i + step * k) % n) + n) % n];
+    if (p.s !== store.active) {
+      activeGroup = p.group;
+      return p.s;
+    }
+  }
+  return null;
+}
+
+// What a new tab needs to join the active tab's group: that group's tag, or
+// the folder to start in for its repo. It then counts as picked there.
+export function newTabGroup(): { cwd: string | null; tag: string | null } {
+  const key = currentGroup(groups());
+  const { tag, repo } = joinGroup(key);
+  const same = repo ? [store.active, ...store.sessions].find((s) => s && labelsOf(s).repo === repo) : undefined;
+  activeGroup = key;
+  return { cwd: same ? rootOf(same) : null, tag };
+}
+
+export function initTabGroups(): void {
+  loadCollapsed();
+  // A click picks a tab in the group it was clicked in.
+  strip().addEventListener(
+    'click',
+    (e) => {
+      const t = (e.target as Element).closest<HTMLElement>('.tab');
+      if (t) activeGroup = t.dataset.group ?? null;
+    },
+    true,
+  );
+  onActivate(layout);
+  onApply(layout);
+}
