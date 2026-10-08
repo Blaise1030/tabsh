@@ -41,6 +41,7 @@ export const icons: Record<
   | 'sound'
   | 'keybinding'
   | 'boardPage'
+  | 'agent'
   | 'info'
   | 'back'
   | 'forward'
@@ -188,6 +189,7 @@ export const icons: Record<
   ),
   back: draw(({ path, svg }) => svg({ ...LUCIDE }, path({ d: 'm12 19-7-7 7-7' }), path({ d: 'M19 12H5' }))),
   forward: draw(({ path, svg }) => svg({ ...LUCIDE }, path({ d: 'M5 12h14' }), path({ d: 'm12 5 7 7-7 7' }))),
+  agent: draw(({ path, svg }) => svg({ ...LUCIDE }, path({ d: 'm4 17 6-6-6-6' }), path({ d: 'M12 19h8' }))),
   info: draw(({ circle, path, svg }) =>
     svg({ ...LUCIDE }, circle({ cx: '12', cy: '12', r: '10' }), path({ d: 'M12 16v-4' }), path({ d: 'M12 8h.01' })),
   ),

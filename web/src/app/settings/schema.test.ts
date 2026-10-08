@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { cleanSettings, defaults, EXPLORER_WIDTH } from './schema.ts';
+import { cleanSettings, DEFAULT_PROVIDERS, defaults, EXPLORER_WIDTH, providerNameProblem } from './schema.ts';
 
 test('cleanSettings keeps valid values and drops unknown ones', () => {
   const d = defaults(true);
@@ -67,9 +67,8 @@ test('tab grouping is none, repo or tag, and none by default', () => {
 });
 
 test('agent commands are kept as a short list of strings', () => {
-  assert.deepEqual(defaults(true).agentCommands, ['claude {prompt}']);
-  assert.deepEqual(cleanSettings({ agentCommands: ['codex', 3, '', 'codex'] }, true).agentCommands, ['codex']);
-  assert.deepEqual(cleanSettings({ agentCommands: 'nope' }, true).agentCommands, ['claude {prompt}']);
+  assert.deepEqual(defaults(true).providers, DEFAULT_PROVIDERS);
+  assert.equal(defaults(true).agentProvider, 'Claude Code');
 });
 test('the board shows its setup screen until it is marked as onboarded', () => {
   assert.equal(defaults(true).boardOnboarded, false);
@@ -84,4 +83,41 @@ test('cleanSettings fills keyBack and keyForward', () => {
   const s = cleanSettings({ keyBack: 'meta+KeyK' }, true);
   assert.notEqual(s.keyBack, s.keyPalette);
   assert.equal(s.keyBack, 'ctrl+shift+Minus');
+});
+test('providers are cleaned: named, with a command, names unique', () => {
+  const s = cleanSettings(
+    {
+      providers: [
+        { name: ' Mine ', command: ' my-agent {prompt} ', resume: 'my-agent -r {session}' },
+        { name: 'Mine', command: 'other' },
+        { name: '', command: 'x' },
+        { name: 'No command', command: '  ' },
+        'junk',
+        { name: 'Bare', command: 'bare', resume: 3 },
+      ],
+      agentProvider: 'Bare',
+    },
+    true,
+  );
+  assert.deepEqual(s.providers, [
+    { name: 'Mine', command: 'my-agent {prompt}', resume: 'my-agent -r {session}' },
+    { name: 'Bare', command: 'bare', resume: '' },
+  ]);
+  assert.equal(s.agentProvider, 'Bare');
+  assert.equal(cleanSettings({ agentProvider: 'Gone' }, true).agentProvider, 'Claude Code');
+  assert.deepEqual(cleanSettings({ providers: [] }, true).providers, DEFAULT_PROVIDERS);
+});
+test('recent agent commands from before providers become providers', () => {
+  const s = cleanSettings({ agentCommands: ['aider {prompt}', 'claude {prompt}', 3, 'aider {prompt}'] }, true);
+  assert.deepEqual(s.providers, [
+    ...DEFAULT_PROVIDERS,
+    { name: 'aider {prompt}', command: 'aider {prompt}', resume: '' },
+  ]);
+  assert.equal(Object.hasOwn(s, 'agentCommands'), false);
+});
+test('a provider name must be there and unique', () => {
+  assert.equal(providerNameProblem(DEFAULT_PROVIDERS, -1, 'Aider'), null);
+  assert.equal(providerNameProblem(DEFAULT_PROVIDERS, 0, ' Claude Code '), null, 'its own name');
+  assert.equal(providerNameProblem(DEFAULT_PROVIDERS, -1, 'Codex'), 'Another provider has that name');
+  assert.equal(providerNameProblem(DEFAULT_PROVIDERS, 1, '  '), 'A provider needs a name');
 });
