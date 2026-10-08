@@ -12,7 +12,11 @@ import { labelTab } from './tags.ts';
 
 const enc = new TextEncoder();
 
+// Opens `info`'s tab, once: a session already open is returned as it is (a
+// sync and the POST that made the session can both bring it).
 export function openSession(info: SessionInfo): Session {
+  const known = store.sessions.find((x) => x.id === info.id);
+  if (known) return known;
   const { id, name } = info;
   const el = document.createElement('div');
   el.className = 'term';

@@ -10,7 +10,7 @@ import { go, onPlace } from '../nav/router.ts';
 import { clearBell, updateBadge } from './bell.ts';
 import { layout, newTabGroup, shownSessions, stepTab } from './groups.ts';
 import { orderTabs, setName, updateFades } from './tabs.ts';
-import { adoptTag } from './tags.ts';
+import { adoptTag, labelsOf, setTags } from './tags.ts';
 import { openSession } from './terminal.ts';
 
 export interface Session {
@@ -74,6 +74,8 @@ export async function openTab(
   const info = (await api<SessionInfo>('POST', '', body)) as SessionInfo;
   if (tag) adoptTag(info.id, tag);
   const s = openSession(info);
+  // A sync may have opened it before the tag was stored: label it again.
+  if (tag) setTags(s, labelsOf(s).tags);
   if (focus) go({ tab: s.id });
   return s;
 }

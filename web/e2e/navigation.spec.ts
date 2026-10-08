@@ -565,3 +565,23 @@ test('closing the explorer from the tree gives the keyboard back to the terminal
     await expect.poll(() => inActiveTerm(page), { message: close }).toBe(true);
   }
 });
+
+// A sync (here the window's `focus`) that lists a new session before the
+// POST that made it has answered must not open it a second time.
+test('a session listed by a sync before its POST answers opens once', async ({ page, daemon }) => {
+  let slowed = false;
+  await page.route('**/api/sessions', async (route) => {
+    if (route.request().method() !== 'POST' || slowed) return route.continue();
+    slowed = true;
+    const res = await route.fetch();
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await new Promise((r) => setTimeout(r, 1500));
+    await route.fulfill({ response: res });
+  });
+  await page.goto(`${daemon.baseUrl}/app/#token=${daemon.token}`);
+  await expect(tabs(page).first()).toBeVisible();
+  await page.waitForTimeout(2500);
+  await expect(tabs(page)).toHaveCount(1);
+  await expect(page.locator('.term')).toHaveCount(1);
+  await expect(page.locator('.term.active')).toHaveCount(1);
+});
