@@ -1,9 +1,11 @@
 // The About dialog: version, shell, state path, uptime and session counts.
+import van, { type State } from 'vanjs-core';
 import { daemonFetch } from '../daemon/client.ts';
 import { store } from '../sessions/store.ts';
 import { keyLabel } from '../settings/keys.ts';
 import { current } from '../settings/settings.ts';
 import { isMac } from './dom.ts';
+import { keyed } from './keyed.ts';
 
 interface About {
   version: string;
@@ -14,7 +16,42 @@ interface About {
   sessions_total: number;
 }
 
-const about = () => document.getElementById('about') as HTMLDialogElement;
+const { button, dialog, div, footer, h2, header, p, section, table, tbody, td, th, tr } = van.tags;
+
+type Row = [string, string];
+
+// The rows shown: filled by openAbout, before it shows the dialog.
+const rows: State<Row[]> = van.state([]);
+let about: HTMLDialogElement;
+
+// The About dialog lives as long as the page.
+export function About(): HTMLDialogElement {
+  const list = tbody({ id: 'about-list' });
+  about = dialog(
+    { id: 'about', class: 'dialog', 'aria-labelledby': 'about-title', 'aria-describedby': 'about-desc' },
+    div(
+      header(
+        h2({ id: 'about-title' }, 'tabsh'),
+        p({ id: 'about-desc' }, 'Terminals in your browser, served by a small Rust daemon.'),
+      ),
+      section(table({ class: 'table about-table' }, list)),
+      footer(button({ type: 'button', class: 'btn', onclick: () => about.close() }, 'Close')),
+    ),
+  );
+  // A row is its label and value: a changed value is a new row.
+  keyed(
+    list,
+    () => rows.val,
+    ([k, v]) => `${k}\0${v}`,
+    ([k, v]) => tr(th({ scope: 'row' }, k), td(v)),
+  );
+  about.addEventListener('close', () => store.active?.term.focus());
+  // Clicking the backdrop closes it, and so does the Close button.
+  about.addEventListener('click', (e) => {
+    if (e.target === about) about.close();
+  });
+  return about;
+}
 
 export async function openAbout(): Promise<void> {
   const info: About | null = await daemonFetch('/api/about')
@@ -28,7 +65,7 @@ export async function openAbout(): Promise<void> {
         ? `${Math.floor(up / 60)}m`
         : `${Math.floor(up / 3600)}h ${Math.floor((up % 3600) / 60)}m`;
   const { saved } = current;
-  const rows = info
+  rows.val = info
     ? [
         ['Version', info.version],
         ['Shell', info.shell],
@@ -40,27 +77,5 @@ export async function openAbout(): Promise<void> {
         ['Built with', 'Rust · axum · xterm.js · Basecoat'],
       ]
     : [['Status', 'Could not reach the tabsh daemon.']];
-  (document.getElementById('about-list') as HTMLElement).replaceChildren(
-    ...rows.map(([k, v]) => {
-      const tr = document.createElement('tr');
-      const th = document.createElement('th');
-      const td = document.createElement('td');
-      th.scope = 'row';
-      th.textContent = k;
-      td.textContent = v;
-      tr.append(th, td);
-      return tr;
-    }),
-  );
-  about().showModal();
-}
-
-export function initAbout(): void {
-  const dialog = about();
-  dialog.addEventListener('close', () => store.active?.term.focus());
-  // Clicking the backdrop closes it, and so does the Close button.
-  dialog.addEventListener('click', (e) => {
-    if (e.target === dialog) dialog.close();
-  });
-  dialog.querySelector('footer button')?.addEventListener('click', () => dialog.close());
+  about.showModal();
 }

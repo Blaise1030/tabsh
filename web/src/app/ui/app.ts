@@ -1,17 +1,18 @@
 // The page: the dialogs, the tab bar, the workspace under it and the drop
 // glow. Features find their parts by id once this is mounted.
 import van from 'vanjs-core';
+import { NewCard } from '../board/new-card.ts';
 import { Board, shown } from '../board/view.ts';
 import { open as explorerOpen } from '../explorer/explorer.ts';
 import { Sidebar } from '../explorer/sidebar.ts';
 import { paneShown } from '../files/open.ts';
 import { grouping, TabStrip } from '../sessions/groups.ts';
 import { noTab } from '../sessions/store.ts';
+import { About } from './about.ts';
 import { Gate } from './gate.ts';
 import { type Icon, icons } from './icons.ts';
 
-const { aside, button, datalist, dialog, div, footer, form, h2, header, input, label, p, section, span } = van.tags;
-const { table, tbody, textarea } = van.tags;
+const { aside, button, dialog, div, header, input, p } = van.tags;
 
 function Palette(): HTMLElement {
   const search = input({
@@ -32,62 +33,6 @@ function Palette(): HTMLElement {
       { class: 'command', id: 'palette-command' },
       header(icons.search(), search),
       div({ role: 'menu', id: 'palette-menu', 'aria-orientation': 'vertical', 'data-empty': 'No results found.' }),
-    ),
-  );
-}
-
-function About(): HTMLElement {
-  return dialog(
-    { id: 'about', class: 'dialog', 'aria-labelledby': 'about-title', 'aria-describedby': 'about-desc' },
-    div(
-      header(
-        h2({ id: 'about-title' }, 'tabsh'),
-        p({ id: 'about-desc' }, 'Terminals in your browser, served by a small Rust daemon.'),
-      ),
-      section(table({ class: 'table about-table' }, tbody({ id: 'about-list' }))),
-      footer(button({ type: 'button', class: 'btn' }, 'Close')),
-    ),
-  );
-}
-
-const field = (text: string, hint: string | null, control: HTMLElement) =>
-  label({ class: 'label' }, span(hint ? [`${text} `, span({ class: 'mark' }, hint)] : text), control);
-
-function NewCard(): HTMLElement {
-  return dialog(
-    { id: 'new-card', class: 'dialog', 'aria-labelledby': 'new-card-title' },
-    form(
-      { method: 'dialog', id: 'new-card-form' },
-      header(h2({ id: 'new-card-title' }, 'New card')),
-      section(
-        { class: 'new-card-fields' },
-        field('Title', '(optional)', input({ class: 'input', name: 'name', maxlength: '100', autocomplete: 'off' })),
-        field(
-          'Folder',
-          null,
-          input({
-            class: 'input',
-            name: 'cwd',
-            list: 'new-card-folders',
-            placeholder: '~/code/app',
-            autocomplete: 'off',
-            spellcheck: false,
-          }),
-        ),
-        datalist({ id: 'new-card-folders' }),
-        field('First prompt', null, textarea({ class: 'textarea', name: 'prompt', rows: 3, required: true })),
-        field(
-          'Agent',
-          '({prompt} is replaced by the prompt)',
-          input({ class: 'input', name: 'command', list: 'new-card-commands', autocomplete: 'off', spellcheck: false }),
-        ),
-        datalist({ id: 'new-card-commands' }),
-        p({ class: 'new-card-error', hidden: true }),
-      ),
-      footer(
-        button({ type: 'button', class: 'btn', 'data-variant': 'outline', value: 'cancel' }, 'Cancel'),
-        button({ type: 'submit', class: 'btn' }, 'Create'),
-      ),
     ),
   );
 }
