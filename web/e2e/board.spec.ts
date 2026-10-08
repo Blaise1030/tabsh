@@ -285,7 +285,16 @@ test('a hook moving a card to Needs input or Completed notifies; a move on the b
       close() {}
     }
     (window as unknown as { Notification: unknown }).Notification = Stub;
+    // And the chimes, counted by the oscillators they start.
+    const w = window as unknown as { oscillators: number };
+    w.oscillators = 0;
+    const make = AudioContext.prototype.createOscillator;
+    AudioContext.prototype.createOscillator = function (this: AudioContext) {
+      w.oscillators++;
+      return make.call(this);
+    };
   });
+  const oscillators = () => page.evaluate(() => (window as unknown as { oscillators: number }).oscillators);
   const notes = () => page.evaluate(() => (window as unknown as { notes: string[][] }).notes);
   const hook = async (id: string | null, data: object) =>
     page.request.patch(`${daemon.baseUrl}/api/sessions/${id}/status`, {
@@ -300,6 +309,7 @@ test('a hook moving a card to Needs input or Completed notifies; a move on the b
 
   await hook(id, { status: 'needs_input', note: 'Claude needs your permission' });
   await expect.poll(notes).toEqual([['Notify me', 'Needs your input: Claude needs your permission']]);
+  expect(await oscillators()).toBeGreaterThan(0); // it chimed
   await hook(id, { status: 'in_progress' }); // not one that notifies
   await hook(id, { status: 'completed' });
   await expect.poll(notes).toHaveLength(2);
@@ -309,8 +319,10 @@ test('a hook moving a card to Needs input or Completed notifies; a move on the b
   await card(page, 'Notify me').locator('.card-move').click();
   await page.locator('.move-menu [data-popover][aria-hidden="false"] [role^="menuitem"]').filter({ hasText: 'Needs input' }).click();
   await expect(col(page, 'needs_input').locator('.board-card').filter({ hasText: 'Notify me' })).toBeVisible();
+  const chimed = await oscillators();
   await page.waitForTimeout(300);
   expect(await notes()).toHaveLength(2);
+  expect(await oscillators()).toBe(chimed);
 });
 
 test('dragging a card does not light the file drop', async ({ page, daemon, project }) => {

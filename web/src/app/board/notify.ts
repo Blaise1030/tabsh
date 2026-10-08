@@ -1,10 +1,14 @@
 // Desktop notifications when an agent moves a card to Needs input or
 // Completed (a hook's change, heard on the board events socket). A move made
 // on the board doesn't notify, nor does one for the terminal on screen in a
-// focused window. Clicking one shows that card's terminal. The browser asks
-// for permission on the first click in the page (it won't ask unprompted).
+// focused window. Each plays a chime (sound/chime.ts; the notification itself
+// is silent, so the system's sound doesn't double it), even where
+// notifications aren't allowed. Clicking one shows that card's terminal. The
+// browser asks for permission on the first click in the page (it won't ask
+// unprompted).
 import { go } from '../nav/router.ts';
 import { type Session, store } from '../sessions/store.ts';
+import { playChime } from '../sound/chime.ts';
 import type { Status } from './model.ts';
 import { drawer, shown } from './view.ts';
 
@@ -17,9 +21,15 @@ const onScreen = (s: Session) => document.hasFocus() && store.active === s && (!
 
 export function notifyStatus(s: Session, status: Status, note: string | null): void {
   const says = SAYS[status];
-  if (!says || !supported() || Notification.permission !== 'granted' || onScreen(s)) return;
+  if (!says || onScreen(s)) return;
+  playChime(status);
+  if (!supported() || Notification.permission !== 'granted') return;
   // One per card: a newer one replaces it.
-  const n = new Notification(s.name.val, { body: note ? `${says}: ${note}` : says, tag: `tabsh-card-${s.id}` });
+  const n = new Notification(s.name.val, {
+    body: note ? `${says}: ${note}` : says,
+    tag: `tabsh-card-${s.id}`,
+    silent: true,
+  });
   n.onclick = () => {
     window.focus();
     go(shown.val ? { tab: s.id, drawer: true } : { tab: s.id });
