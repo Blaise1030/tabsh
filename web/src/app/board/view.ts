@@ -73,8 +73,8 @@ const resized = new ResizeObserver(() => {
 
 // A card: its session's name, status, folder, note and time in status. Its
 // title and note are clamped to two lines, with Show more when either is cut
-// off. In the Archive it isn't dragged; its menu offers Restore.
-function Card(s: Session, archived = false): HTMLElement {
+// off.
+function Card(s: Session): HTMLElement {
   // Only a change of status redraws the glyph (a new note doesn't).
   const status = van.derive(() => s.card.val.status);
   const note = van.derive(() => s.card.val.note);
@@ -83,7 +83,7 @@ function Card(s: Session, archived = false): HTMLElement {
   const card: HTMLElement = article(
     {
       class: 'board-card',
-      draggable: !archived,
+      draggable: true,
       tabindex: '0',
       'data-id': s.id,
       onclick: () => go({ tab: s.id, drawer: true }),
@@ -254,43 +254,6 @@ function Column(status: Status, name: string, columns: State<Columns>): HTMLElem
   return col;
 }
 
-// Archived cards, collapsed under a toggle; a card dropped here is archived.
-function Archive(columns: State<Columns>): HTMLElement {
-  const open = van.state(false);
-  // `display: contents`: the cards sit in the column, after the toggle.
-  const list = div({ class: 'archive-cards' });
-  keyed(
-    list,
-    () => (open.val ? columns.val.archived : []),
-    (s) => s.id,
-    (s) => Card(s, true),
-  );
-  const col: HTMLElement = section(
-    {
-      class: 'board-col archive',
-      'data-status': 'archived',
-      ondragover: (e: DragEvent) => {
-        e.preventDefault();
-        clearDropMarks();
-        col.classList.add('drop-end');
-      },
-      ondragleave: (e: DragEvent) => !col.contains(e.relatedTarget as Node) && clearDropMarks(),
-      ondrop: (e: DragEvent) => {
-        e.preventDefault();
-        endDrag();
-        const id = e.dataTransfer?.getData(CARD_DRAG);
-        if (id) void move(id, 'archived', null);
-      },
-    },
-    button(
-      { type: 'button', class: 'archive-toggle', onclick: () => (open.val = !open.val) },
-      () => `Archive ${columns.val.archived.length} ${open.val ? '▾' : '▸'}`,
-    ),
-    list,
-  );
-  return col;
-}
-
 // Until the board is onboarded (the `boardOnboarded` setting), it shows this
 // instead of its columns: one button opens a Claude Code card that wires its
 // own hooks through `tabsh setup`, the other skips it. Either one marks the
@@ -349,8 +312,12 @@ function Onboarding(): HTMLElement {
   );
 }
 
-// The board's parts: its setup screen, or its columns and the Archive.
-const PARTS = [...COLUMNS.map((c) => c.status), 'archived'];
+// The board's columns: the stages, then Archived (reached from a card's menu
+// or by a drop, never by a new card).
+const BOARD_COLUMNS: typeof COLUMNS = [...COLUMNS, { status: 'archived', name: 'Archived' }];
+
+// The board's parts: its setup screen, or its columns.
+const PARTS = BOARD_COLUMNS.map((c) => c.status);
 
 export function Board(): HTMLElement {
   const sessions = van.derive((): Columns => {
@@ -376,8 +343,7 @@ export function Board(): HTMLElement {
     (part) => part,
     (part) => {
       if (part === 'onboarding') return Onboarding();
-      if (part === 'archived') return Archive(sessions);
-      const c = COLUMNS.find((x) => x.status === part) as (typeof COLUMNS)[number];
+      const c = BOARD_COLUMNS.find((x) => x.status === part) as (typeof COLUMNS)[number];
       return Column(c.status, c.name, sessions);
     },
   );
