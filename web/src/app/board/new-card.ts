@@ -1,4 +1,5 @@
-// New card, laid out like Linear's New issue: the folder (searched as it's
+// New card, laid out like Linear's New issue. Clicking the backdrop closes
+// it. The folder (searched as it's
 // typed, recent ones offered first; see folder-picker.ts) and the agent
 // provider (set up in the palette; the last one used first) as chips at the
 // top, the first prompt as the body, then the column it goes in and optional
@@ -454,6 +455,10 @@ export function NewCard(): HTMLDialogElement {
       id: 'new-card',
       class: () => `dialog new-card${big.val ? ' big' : ''}${dragging.val ? ' dragging' : ''}`,
       'aria-labelledby': 'new-card-title',
+      // The dialog is the overlay; a click on it, not on the form, is the backdrop.
+      onclick: (e: MouseEvent) => {
+        if (e.target === e.currentTarget) (e.currentTarget as HTMLDialogElement).close();
+      },
       onclose: () => {
         dragging.val = false;
         clearImages();

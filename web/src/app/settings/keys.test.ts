@@ -55,6 +55,7 @@ test('comboProblem allows only combos the shell and browser leave free', () => {
     keySearchFiles: 'meta+shift+KeyF',
     keyGroupTabs: 'meta+shift+KeyY',
     keyToggleBoard: 'meta+KeyB',
+    keyNewCard: 'meta+shift+KeyC',
     keyBack: 'ctrl+shift+Minus',
     keyForward: 'ctrl+shift+Equal',
   };
@@ -90,6 +91,7 @@ test('every preset passes comboProblem', () => {
       keySearchFiles: '',
       keyGroupTabs: '',
       keyToggleBoard: '',
+      keyNewCard: '',
       keyBack: '',
       keyForward: '',
     };
@@ -125,6 +127,16 @@ test('grouping tabs has a default combo that no other action shares', () => {
     assert.equal(first, mac ? 'meta+shift+KeyY' : 'ctrl+shift+KeyY');
     for (const [id, other] of Object.entries(k)) {
       if (id !== 'keyGroupTabs') assert.ok(!other.presets.includes(first), id);
+    }
+  }
+});
+test('a new card has a default combo that no other action shares', () => {
+  for (const mac of [true, false]) {
+    const k = keybindings(mac);
+    const [first] = k.keyNewCard.presets;
+    assert.equal(first, mac ? 'meta+shift+KeyC' : 'alt+shift+KeyN');
+    for (const [id, other] of Object.entries(k)) {
+      if (id !== 'keyNewCard') assert.ok(!other.presets.includes(first), id);
     }
   }
 });

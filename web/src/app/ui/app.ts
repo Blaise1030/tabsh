@@ -82,7 +82,7 @@ function TabBar(): HTMLElement {
 function DrawerBar(): HTMLElement {
   return header(
     { class: 'drawer-bar', hidden: () => !drawer.val },
-    barButton(icons.arrowLeftToLine, {
+    barButton(icons.arrowRightToLine, {
       'aria-label': 'Close drawer',
       title: 'Close drawer',
       id: 'drawer-close',

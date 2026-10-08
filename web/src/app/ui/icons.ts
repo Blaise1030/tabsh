@@ -53,7 +53,7 @@ export const icons: Record<
   | 'boardOnboarding'
   | 'arrowUpRight'
   | 'expand'
-  | 'arrowLeftToLine'
+  | 'arrowRightToLine'
   | 'chevronDown'
   | 'trash'
   | 'more'
@@ -74,8 +74,8 @@ export const icons: Record<
   explorer: draw(({ path, rect, svg }) =>
     svg({ ...LUCIDE }, rect({ width: '18', height: '18', x: '3', y: '3', rx: '2' }), path({ d: 'M9 3v18' })),
   ),
-  arrowLeftToLine: draw(({ path, svg }) =>
-    svg({ ...LUCIDE }, path({ d: 'M3 19V5' }), path({ d: 'm13 6-6 6 6 6' }), path({ d: 'M7 12h14' })),
+  arrowRightToLine: draw(({ path, svg }) =>
+    svg({ ...LUCIDE }, path({ d: 'M17 12H3' }), path({ d: 'm11 18 6-6-6-6' }), path({ d: 'M21 5v14' })),
   ),
   plus: draw(({ path, svg }) => svg({ ...LUCIDE }, path({ d: 'M5 12h14' }), path({ d: 'M12 5v14' }))),
   group: draw(({ path, rect, svg }) =>

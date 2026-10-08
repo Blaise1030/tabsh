@@ -317,6 +317,24 @@ type Columns = Record<Status, Session[]>;
 
 const ADDABLE: Status[] = ['backlog', 'in_progress'];
 
+function newCardButton(status: Status, name: string): HTMLButtonElement {
+  const btn = button(
+    {
+      type: 'button',
+      class: 'btn',
+      'data-variant': 'ghost',
+      'data-size': 'icon-xs',
+      title: `New card in ${name}`,
+      'aria-label': `New card in ${name}`,
+      onclick: () => newCard(status),
+    },
+    icons.plus(),
+  );
+  // The shortcut opens Backlog's dialog; In progress is only its own button.
+  if (status === 'backlog') keyHint(btn, `New card in ${name}`, 'keyNewCard');
+  return btn;
+}
+
 function Column(status: Status, name: string, columns: State<Columns>): HTMLElement {
   const list = div({ class: 'board-cards' });
   keyed(
@@ -351,20 +369,7 @@ function Column(status: Status, name: string, columns: State<Columns>): HTMLElem
       span({ class: 'col-count' }, () => String(columns.val[status].length)),
       // New cards start in Backlog or In progress; the others are reached by
       // moving a card.
-      ADDABLE.includes(status)
-        ? button(
-            {
-              type: 'button',
-              class: 'btn',
-              'data-variant': 'ghost',
-              'data-size': 'icon-xs',
-              title: `New card in ${name}`,
-              'aria-label': `New card in ${name}`,
-              onclick: () => newCard(status),
-            },
-            '+',
-          )
-        : '',
+      ADDABLE.includes(status) ? newCardButton(status, name) : '',
     ),
     list,
   );
@@ -504,6 +509,16 @@ export function initBoard(): void {
       e.preventDefault();
       e.stopPropagation(); // capture phase: keep it away from the terminal
       toggleBoard();
+    },
+    true,
+  );
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if (!matchesKey(e, current.saved.keyNewCard) || document.querySelector('dialog[open]')) return;
+      e.preventDefault();
+      e.stopPropagation(); // capture phase: keep it away from the terminal
+      newCard('backlog');
     },
     true,
   );
