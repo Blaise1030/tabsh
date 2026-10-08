@@ -101,6 +101,13 @@ pub(crate) struct NewCard<'a> {
     pub(crate) prompt: Option<&'a str>,
     /// The name was chosen by the user: shell titles don't replace it.
     pub(crate) pinned: bool,
+    /// How its agent's conversation is reopened after a restart, with
+    /// `{session}` for the id its hooks report.
+    pub(crate) resume: Option<&'a str>,
+    /// The agent's conversation, when tabsh chose it (`{session}` in the
+    /// startup command), and the line that resumes it.
+    pub(crate) agent_session: Option<&'a str>,
+    pub(crate) resume_input: Option<&'a str>,
 }
 
 impl Default for NewCard<'_> {
@@ -112,6 +119,9 @@ impl Default for NewCard<'_> {
             pending: None,
             prompt: None,
             pinned: false,
+            resume: None,
+            agent_session: None,
+            resume_input: None,
         }
     }
 }
@@ -152,9 +162,22 @@ pub(crate) fn insert_card(db: &Connection, card: &NewCard) -> rusqlite::Result<S
         }
     };
     db.execute(
-        "INSERT INTO sessions (id, name, position, cwd, status, status_at, pending_input, pending_prompt, pinned)
-         VALUES (?1, ?2, (SELECT COALESCE(MAX(position), 0) + 1 FROM sessions), ?3, ?4, unixepoch(), ?5, ?6, ?7)",
-        params![id, name, card.cwd, card.status, card.pending, card.prompt, card.pinned],
+        "INSERT INTO sessions (id, name, position, cwd, status, status_at, pending_input, pending_prompt, pinned,
+                               resume_command, agent_session, resume_input)
+         VALUES (?1, ?2, (SELECT COALESCE(MAX(position), 0) + 1 FROM sessions), ?3, ?4, unixepoch(), ?5, ?6, ?7,
+                 ?8, ?9, ?10)",
+        params![
+            id,
+            name,
+            card.cwd,
+            card.status,
+            card.pending,
+            card.prompt,
+            card.pinned,
+            card.resume,
+            card.agent_session,
+            card.resume_input
+        ],
     )?;
     Ok(info(db, &id)?.expect("just inserted"))
 }
@@ -236,6 +259,9 @@ mod tests {
                 pending: Some("claude 'x'\r"),
                 prompt: None,
                 pinned: false,
+                resume: None,
+                agent_session: None,
+                resume_input: None,
             },
         )
         .unwrap();

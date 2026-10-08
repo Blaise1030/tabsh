@@ -31,6 +31,7 @@ export const icons: Record<
   | 'explorer'
   | 'plus'
   | 'group'
+  | 'listFilter'
   | 'settings'
   | 'search'
   | 'close'
@@ -41,6 +42,7 @@ export const icons: Record<
   | 'sound'
   | 'keybinding'
   | 'boardPage'
+  | 'agent'
   | 'info'
   | 'back'
   | 'forward'
@@ -51,11 +53,14 @@ export const icons: Record<
   | 'boardOnboarding'
   | 'arrowUpRight'
   | 'expand'
+  | 'arrowRightToLine'
   | 'chevronDown'
   | 'trash'
   | 'more'
   | 'tag'
-  | 'chevronRight',
+  | 'chevronRight'
+  | 'paperclip'
+  | 'shrink',
   Icon
 > = {
   board: draw(({ path, rect, svg }) =>
@@ -69,6 +74,9 @@ export const icons: Record<
   explorer: draw(({ path, rect, svg }) =>
     svg({ ...LUCIDE }, rect({ width: '18', height: '18', x: '3', y: '3', rx: '2' }), path({ d: 'M9 3v18' })),
   ),
+  arrowRightToLine: draw(({ path, svg }) =>
+    svg({ ...LUCIDE }, path({ d: 'M17 12H3' }), path({ d: 'm11 18 6-6-6-6' }), path({ d: 'M21 5v14' })),
+  ),
   plus: draw(({ path, svg }) => svg({ ...LUCIDE }, path({ d: 'M5 12h14' }), path({ d: 'M12 5v14' }))),
   group: draw(({ path, rect, svg }) =>
     svg(
@@ -80,6 +88,9 @@ export const icons: Record<
       rect({ width: '7', height: '5', x: '7', y: '7', rx: '1' }),
       rect({ width: '7', height: '5', x: '10', y: '12', rx: '1' }),
     ),
+  ),
+  listFilter: draw(({ path, svg }) =>
+    svg({ ...LUCIDE }, path({ d: 'M2 5h20' }), path({ d: 'M6 12h12' }), path({ d: 'M9 19h6' })),
   ),
   settings: draw(({ circle, path, svg }) =>
     svg(
@@ -127,6 +138,27 @@ export const icons: Record<
       path({ d: 'M9 21H3v-6' }),
       path({ d: 'm21 3-7 7' }),
       path({ d: 'm3 21 7-7' }),
+    ),
+  ),
+  shrink: draw(({ path, svg }) =>
+    svg(
+      { ...LUCIDE },
+      path({ d: 'm15 15 6 6' }),
+      path({ d: 'm15 9 6-6' }),
+      path({ d: 'M21 16v5h-5' }),
+      path({ d: 'M21 8V3h-5' }),
+      path({ d: 'M3 16v5h5' }),
+      path({ d: 'm3 21 6-6' }),
+      path({ d: 'M3 8V3h5' }),
+      path({ d: 'M9 9 3 3' }),
+    ),
+  ),
+  paperclip: draw(({ path, svg }) =>
+    svg(
+      { ...LUCIDE },
+      path({
+        d: 'm16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551',
+      }),
     ),
   ),
   close: draw(({ path, svg }) => svg({ ...LUCIDE }, path({ d: 'M18 6 6 18' }), path({ d: 'm6 6 12 12' }))),
@@ -188,6 +220,7 @@ export const icons: Record<
   ),
   back: draw(({ path, svg }) => svg({ ...LUCIDE }, path({ d: 'm12 19-7-7 7-7' }), path({ d: 'M19 12H5' }))),
   forward: draw(({ path, svg }) => svg({ ...LUCIDE }, path({ d: 'M5 12h14' }), path({ d: 'm12 5 7 7-7 7' }))),
+  agent: draw(({ path, svg }) => svg({ ...LUCIDE }, path({ d: 'm4 17 6-6-6-6' }), path({ d: 'M12 19h8' }))),
   info: draw(({ circle, path, svg }) =>
     svg({ ...LUCIDE }, circle({ cx: '12', cy: '12', r: '10' }), path({ d: 'M12 16v-4' }), path({ d: 'M12 8h.01' })),
   ),
@@ -275,7 +308,7 @@ export const icons: Record<
 const GLYPH = { viewBox: '0 0 14 14', width: '14', height: '14', 'aria-hidden': 'true' };
 
 // Linear-style status glyphs, drawn in currentColor (needs input is coloured
-// by CSS).
+// by CSS). Needs input is Lucide's circle-question-mark.
 export const glyph = (status: Status): SVGSVGElement => drawGlyph(status) as SVGSVGElement;
 
 function drawGlyph(status: Status): Element {
@@ -289,7 +322,20 @@ function drawGlyph(status: Status): Element {
     case 'in_progress':
       return svg(GLYPH, ring(), path({ d: 'M7 3.5a3.5 3.5 0 0 1 0 7z', fill: 'currentColor' }));
     case 'needs_input':
-      return svg(GLYPH, disc());
+      return svg(
+        {
+          ...GLYPH,
+          viewBox: '0 0 24 24',
+          fill: 'none',
+          stroke: 'currentColor',
+          'stroke-width': '2',
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+        },
+        circle({ cx: '12', cy: '12', r: '10' }),
+        path({ d: 'M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3' }),
+        path({ d: 'M12 17h.01' }),
+      );
     case 'completed':
       return svg(
         GLYPH,

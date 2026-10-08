@@ -4,7 +4,7 @@
 export type Status = 'backlog' | 'in_progress' | 'needs_input' | 'completed' | 'archived';
 export const STATUSES: Status[] = ['backlog', 'in_progress', 'needs_input', 'completed', 'archived'];
 
-// The board's columns; Archive is a collapsed extra at the end.
+// The stages a card moves through; the board shows Archived after them.
 export const COLUMNS: { status: Status; name: string }[] = [
   { status: 'backlog', name: 'Backlog' },
   { status: 'in_progress', name: 'In progress' },
@@ -44,9 +44,42 @@ export function shortPath(p: string | null): string {
 }
 
 // The folders cards are in, most recently moved card first, without repeats.
-export function recentFolders(items: { card: Card }[], limit = 8): string[] {
+export function foldersOf(items: { card: Card }[]): string[] {
   const sorted = [...items].sort((a, b) => b.card.statusAt - a.card.statusAt);
-  return [...new Set(sorted.map((x) => x.card.cwd).filter((c): c is string => !!c))].slice(0, limit);
+  return [...new Set(sorted.map((x) => x.card.cwd).filter((c): c is string => !!c))];
+}
+
+// The folders offered when making a card: the same list, capped.
+export function recentFolders(items: { card: Card }[], limit = 8): string[] {
+  return foldersOf(items).slice(0, limit);
+}
+
+// What the board is narrowed to. Nothing checked means every card.
+export interface BoardFilter {
+  tags: string[];
+  folders: string[];
+}
+
+// A card stays when it is in any checked folder (if a folder is checked) and
+// has any checked tag (if a tag is checked).
+export function matchesFilter(item: { card: Card; tags: string[] }, filter: BoardFilter): boolean {
+  if (filter.folders.length > 0 && !filter.folders.includes(item.card.cwd ?? '')) return false;
+  if (filter.tags.length > 0 && !filter.tags.some((t) => item.tags.includes(t))) return false;
+  return true;
+}
+
+// Tags in use, in the order they first show up.
+export function tagsInUse(items: { tags: string[] }[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const { tags } of items) {
+    for (const tag of tags) {
+      if (seen.has(tag)) continue;
+      seen.add(tag);
+      out.push(tag);
+    }
+  }
+  return out;
 }
 
 // The whole tab order after dropping `movedId` into `status`'s column:
@@ -76,9 +109,9 @@ export const DEFAULT_COMMAND = 'claude {prompt}';
 export const SETUP_PROMPT =
   'Run `tabsh setup` and follow the guide it prints, so your hooks keep your card on the tabsh board current.';
 
-// The agent commands offered in New card: the one just used first.
-export function rememberCommand(list: string[], command: string): string[] {
-  const c = command.trim();
-  if (!c) return list;
-  return [c, ...list.filter((x) => x !== c)].slice(0, 8);
+// A card's first prompt with its attached images: their saved paths, one per
+// line after the prompt, which agents like Claude Code read as images. The
+// prompt's first line stays the card's title.
+export function withImages(prompt: string, paths: string[]): string {
+  return paths.length ? `${prompt}\n\n${paths.join('\n')}` : prompt;
 }

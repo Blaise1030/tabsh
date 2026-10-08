@@ -1,21 +1,21 @@
 // The command palette (Basecoat command-dialog): settings with live
-// preview, recording a keybinding, the keybindings that open it and switch
-// tabs, and the settings button.
+// preview, recording a keybinding, editing a text (agent providers), the
+// keybindings that open it and switch tabs, and the settings button.
 import van from 'vanjs-core';
 import { toggleBoard } from '../board/view.ts';
 import { searchFiles, toggleExplorer } from '../explorer/explorer.ts';
 import { loadedPane } from '../files/open.ts';
 import { back, backPastPalette, forward, go, here, isLeavingPalette, isPaletteEntry, onPlace } from '../nav/router.ts';
 import { cycleTab, store } from '../sessions/store.ts';
-import { comboFromEvent, comboProblem, type KeyId, keyLabel, matchesKey } from '../settings/keys.ts';
+import { comboFromEvent, comboProblem, type KeyId, matchesKey } from '../settings/keys.ts';
 import type { Settings } from '../settings/schema.ts';
-import { applySettings, current, saveSetting, setPreviewing } from '../settings/settings.ts';
+import { applySettings, current, keyHint, saveSetting, setPreviewing } from '../settings/settings.ts';
 import { previewSound } from '../sound/packs.ts';
 import { openAbout } from '../ui/about.ts';
 import { isMac } from '../ui/dom.ts';
 import { icons } from '../ui/icons.ts';
 import { keyed } from '../ui/keyed.ts';
-import { type PaletteItem, pages } from './pages.ts';
+import { type PaletteItem, pages, type TextEdit } from './pages.ts';
 
 const { div, i, span } = van.tags;
 
@@ -26,6 +26,7 @@ const paletteMenu = () => document.getElementById('palette-menu') as HTMLElement
 // The page shown, or null while closed. Only the palette step assigns it.
 export const page = van.state<string | null>(null);
 let recording: KeyId | null = null; // the keybinding the next key press sets
+let editing: TextEdit | null = null; // the text the input holds instead of a search
 const itemsById = new Map<string, PaletteItem>();
 
 function palettePages(): ReturnType<typeof pages> {
@@ -56,6 +57,8 @@ let renders = 0;
 function showPage(name: string): void {
   page.val = name;
   recording = null;
+  editing = null;
+  paletteMenu().hidden = false;
   const { placeholder, groups } = palettePages()[name]();
   paletteInput().value = '';
   paletteInput().placeholder = name === 'root' ? placeholder : `${placeholder}  (Esc to go back)`;
@@ -81,7 +84,7 @@ function PaletteRow({ id, item }: MenuGroup['items'][number]): HTMLElement {
     'data-keywords': item.keywords ?? '',
   };
   if (item.disabled) props['aria-disabled'] = 'true';
-  if (item.go || item.record || item.disabled) props['data-keep-command-open'] = '';
+  if (item.go || item.record || item.edit || item.disabled) props['data-keep-command-open'] = '';
   if ((item.key && current.saved[item.key] === item.value) || item.checked) props['data-checked'] = 'true';
   const { swatch } = item;
   return div(
@@ -128,6 +131,38 @@ function startRecording(id: KeyId): void {
   paletteInput().value = '';
   paletteInput().placeholder = 'Press the new shortcut…  (Esc to cancel)';
   paletteInput().focus();
+}
+
+// The input holds the text being edited, the menu out of the way.
+function startEditing(edit: TextEdit): void {
+  editing = edit;
+  paletteMenu().hidden = true;
+  paletteInput().value = edit.value;
+  paletteInput().placeholder = edit.placeholder;
+  paletteInput().focus();
+  paletteInput().select();
+}
+
+// While editing, Enter saves and Esc goes back to the page.
+function editKey(e: KeyboardEvent): void {
+  if (!editing || !paletteEl().open || e.target !== paletteInput()) return;
+  if (e.key !== 'Enter' && e.key !== 'Escape') return;
+  e.preventDefault(); // also stops Escape from closing the dialog
+  e.stopImmediatePropagation(); // capture phase: keep Enter from picking a menu item
+  const at = page.val ?? 'root';
+  if (e.key === 'Escape') {
+    showPage(at);
+    return;
+  }
+  const result = editing.save(paletteInput().value);
+  if ('problem' in result) {
+    paletteInput().placeholder = `${result.problem}  (Esc to cancel)`;
+    if (!paletteInput().value.trim()) paletteInput().value = '';
+    return;
+  }
+  // The same page again is redrawn in place, with the saved value.
+  if (result.next === at) showPage(at);
+  else go({ palette: result.next }, 'replace');
 }
 
 // While recording, every key press is the palette's: Esc cancels, a lone
@@ -226,17 +261,25 @@ export function initPalette(): void {
     const el = (e.target as Element).closest('[role="menuitem"]');
     const item = el && el.getAttribute('aria-hidden') !== 'true' ? itemsById.get(el.id) : undefined;
     if (!item) return;
-    if (item.go) go({ palette: item.go }, 'replace');
-    else if (item.record) startRecording(item.record);
+    if (item.go) {
+      item.run?.();
+      go({ palette: item.go }, 'replace');
+    } else if (item.record) startRecording(item.record);
+    else if (item.edit) startEditing(item.edit);
     else if (item.key) saveSetting(item.key, item.value as never);
     else item.run?.();
   });
 
   paletteInput().addEventListener('keydown', (e) => {
-    const toRoot = e.key === 'Escape' || (e.key === 'Backspace' && !paletteInput().value);
-    if (toRoot && page.val !== 'root') {
+    if (editing) return;
+    // Esc, or Backspace in an empty field, returns to the page that opened
+    // this one (a provider's page to the providers list). On the root page
+    // Esc still closes the dialog.
+    const back = e.key === 'Escape' || (e.key === 'Backspace' && !paletteInput().value);
+    const at = page.val;
+    if (back && at && at !== 'root') {
       e.preventDefault(); // also stops Escape from closing the dialog
-      go({ palette: 'root' }, 'replace');
+      go({ palette: at.startsWith('provider:') ? 'providers' : 'root' }, 'replace');
     }
   });
 
@@ -245,6 +288,7 @@ export function initPalette(): void {
   // over the entry that opened it, else a replace, so no step reopens it.
   paletteEl().addEventListener('close', () => {
     recording = null;
+    editing = null;
     setPreviewing(false);
     applySettings(current.saved);
     store.active?.term.focus();
@@ -267,6 +311,7 @@ export function initPalette(): void {
 
   // Added first, so a key being recorded never reaches the listeners below.
   window.addEventListener('keydown', recordKey, true);
+  window.addEventListener('keydown', editKey, true);
   window.addEventListener(
     'keydown',
     (e) => {
@@ -326,12 +371,11 @@ export function initPalette(): void {
   );
 
   const settingsBtn = document.getElementById('settings-btn') as HTMLButtonElement;
-  // Set on hover so it always shows the current keybinding.
-  settingsBtn.addEventListener('pointerenter', () => {
-    settingsBtn.title = `Settings (${keyLabel(current.saved.keyPalette, isMac)})`;
-  });
+  keyHint(settingsBtn, 'Settings', 'keyPalette');
   settingsBtn.onclick = () => openPalette();
 
   // The group button beside it opens the palette on the grouping page.
-  (document.getElementById('tab-group-btn') as HTMLButtonElement).onclick = openGroupPalette;
+  const groupBtn = document.getElementById('tab-group-btn') as HTMLButtonElement;
+  keyHint(groupBtn, 'Group tabs', 'keyGroupTabs');
+  groupBtn.onclick = openGroupPalette;
 }

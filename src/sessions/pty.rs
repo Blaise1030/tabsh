@@ -87,7 +87,8 @@ pub(super) fn get_or_spawn(st: &AppState, id: &str) -> Result<Option<Arc<Session
         .lock()
         .unwrap()
         .query_row(
-            "SELECT cwd, scrollback, status, pending_prompt FROM sessions WHERE id = ?1",
+            "SELECT cwd, scrollback, status, pending_prompt, pending_input, resume_input
+             FROM sessions WHERE id = ?1",
             params![id],
             |r| {
                 Ok((
@@ -95,11 +96,13 @@ pub(super) fn get_or_spawn(st: &AppState, id: &str) -> Result<Option<Arc<Session
                     r.get::<_, Vec<u8>>(1)?,
                     r.get::<_, String>(2)?,
                     r.get::<_, Option<String>>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                    r.get::<_, Option<String>>(5)?,
                 ))
             },
         )
         .optional()?;
-    let Some((cwd, scrollback, status, prompt)) = row else {
+    let Some((cwd, scrollback, status, prompt, pending, resume)) = row else {
         return Ok(None);
     };
     let session = spawn_session(
@@ -109,12 +112,36 @@ pub(super) fn get_or_spawn(st: &AppState, id: &str) -> Result<Option<Arc<Session
         scrollback,
         prompt.as_deref(),
     )?;
-    // A card still in Backlog waits for its drag to In progress.
-    if status == "in_progress" {
-        type_launch_line(st, id, &session);
+    match startup_input(&status, pending.is_some(), resume) {
+        Startup::Launch => type_launch_line(st, id, &session),
+        Startup::Resume(line) => {
+            let _ = session.input.send(Bytes::from(line));
+        }
+        Startup::Nothing => {}
     }
     live.insert(id.to_owned(), session.clone());
     Ok(Some(session))
+}
+
+#[derive(Debug, PartialEq)]
+enum Startup {
+    /// The card's agent hasn't started yet: type its launch line.
+    Launch,
+    /// tabsh restarted under a running agent: reopen its conversation.
+    Resume(String),
+    Nothing,
+}
+
+/// What a session's fresh shell is sent first. A card still in Backlog
+/// waits for its drag to In progress; an archived one stays put.
+fn startup_input(status: &str, pending: bool, resume: Option<String>) -> Startup {
+    match (status, resume) {
+        ("in_progress", _) if pending => Startup::Launch,
+        ("in_progress" | "needs_input" | "completed", Some(line)) if !pending => {
+            Startup::Resume(line)
+        }
+        _ => Startup::Nothing,
+    }
 }
 
 /// Types a card's pending launch line into its shell, once. The PTY buffers
@@ -302,5 +329,70 @@ mod tests {
         crate::sessions::launch(&st, &id);
         assert_eq!(pending(&st, &id), None, "typed once");
         let _ = session.killer.lock().unwrap().kill();
+    }
+
+    #[test]
+    fn a_restart_resumes_the_agent_of_an_active_card_only() {
+        let line = || Some("claude --resume s-1\r".to_owned());
+        for status in ["in_progress", "needs_input", "completed"] {
+            assert_eq!(
+                startup_input(status, false, line()),
+                Startup::Resume("claude --resume s-1\r".into())
+            );
+        }
+        assert_eq!(startup_input("backlog", false, line()), Startup::Nothing);
+        assert_eq!(startup_input("archived", false, line()), Startup::Nothing);
+        assert_eq!(startup_input("in_progress", false, None), Startup::Nothing);
+        assert_eq!(
+            startup_input("in_progress", true, line()),
+            Startup::Launch,
+            "an agent that never started is launched, not resumed"
+        );
+        assert_eq!(startup_input("backlog", true, None), Startup::Nothing);
+    }
+
+    #[test]
+    fn a_restored_shell_types_its_resume_line() {
+        let st = test_state();
+        let id = crate::sessions::store::insert_card(
+            &st.db.lock().unwrap(),
+            &crate::sessions::store::NewCard {
+                status: "needs_input",
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .id;
+        st.db
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE sessions SET resume_input = 'true tabsh-resume-test\r' WHERE id = ?1",
+                [&id],
+            )
+            .unwrap();
+        let session = get_or_spawn(&st, &id).unwrap().unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let ran = loop {
+            let out: Vec<u8> = session
+                .output
+                .lock()
+                .unwrap()
+                .scrollback
+                .iter()
+                .copied()
+                .collect();
+            // The terminal echoes what's typed even before a slow login
+            // shell draws its prompt.
+            if String::from_utf8_lossy(&out).contains("tabsh-resume-test") {
+                break true;
+            }
+            if std::time::Instant::now() > deadline {
+                break false;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        };
+        let _ = session.killer.lock().unwrap().kill();
+        assert!(ran, "the resume line was typed into the fresh shell");
     }
 }

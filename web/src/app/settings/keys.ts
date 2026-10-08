@@ -13,6 +13,7 @@ export type KeyId =
   | 'keySearchFiles'
   | 'keyGroupTabs'
   | 'keyToggleBoard'
+  | 'keyNewCard'
   | 'keyBack'
   | 'keyForward';
 export interface Keybinding {
@@ -69,6 +70,12 @@ export function keybindings(isMac: boolean): Record<KeyId, Keybinding> {
       name: 'Toggle board',
       keywords: 'kanban cards tasks overview status',
       presets: isMac ? ['meta+KeyB', 'meta+shift+KeyB'] : ['ctrl+shift+KeyB', 'alt+shift+KeyB'],
+    },
+    // ⌘N and ⌘⇧N belong to the browser; ⌃⇧N is the terminal's on other systems.
+    keyNewCard: {
+      name: 'New card',
+      keywords: 'create add kanban board issue prompt',
+      presets: isMac ? ['meta+shift+KeyC', 'ctrl+shift+KeyN'] : ['alt+shift+KeyN', 'ctrl+shift+KeyO'],
     },
     // ⌃- is readline's undo, so the Mac default is ⌃⇧-.
     keyBack: {

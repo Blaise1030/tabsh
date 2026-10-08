@@ -4,7 +4,7 @@
 import van from 'vanjs-core';
 import { DrawerMoveButton } from '../board/move-menu.ts';
 import { NewCard } from '../board/new-card.ts';
-import { Board, drawer, shown } from '../board/view.ts';
+import { Board, drawer, FilterButton, shown } from '../board/view.ts';
 import { open as explorerOpen, toggleExplorer } from '../explorer/explorer.ts';
 import { Sidebar } from '../explorer/sidebar.ts';
 import { paneShown } from '../files/open.ts';
@@ -45,7 +45,8 @@ const barButton = (icon: Icon, props: Record<string, string | (() => string) | (
   button({ type: 'button', class: 'btn', 'data-variant': 'ghost', 'data-size': 'icon-sm', ...props }, icon());
 
 // The tab bar spans the page: a tab owns the sidebar, terminal and file pane
-// under it. On the board it keeps only the Board and Settings buttons.
+// under it. On the board it keeps the Board button, Filter (once onboarded)
+// and Settings.
 function TabBar(): HTMLElement {
   return div(
     { class: () => (shown.val ? 'tabbar on-board' : 'tabbar') },
@@ -70,15 +71,23 @@ function TabBar(): HTMLElement {
       // Grouping is on: the button stays lit.
       'aria-pressed': () => String(grouping.val !== 'none'),
     }),
+    FilterButton(),
     barButton(icons.settings, { class: 'btn settings-btn', 'aria-label': 'Settings', id: 'settings-btn' }),
   );
 }
 
-// The drawer's own bar, standing in for the tab bar's: the file explorer,
-// the card's name and status, the full terminal view, and close.
+// The drawer's own bar, standing in for the tab bar's: close (in front of
+// the sidebar), the file explorer, the card's name and status, and the full
+// terminal view.
 function DrawerBar(): HTMLElement {
   return header(
     { class: 'drawer-bar', hidden: () => !drawer.val },
+    barButton(icons.arrowRightToLine, {
+      'aria-label': 'Close drawer',
+      title: 'Close drawer',
+      id: 'drawer-close',
+      onclick: () => go({ drawer: false }),
+    }),
     barButton(icons.explorer, {
       'aria-label': 'Toggle file explorer',
       title: 'Toggle file explorer',
@@ -92,12 +101,6 @@ function DrawerBar(): HTMLElement {
       title: 'Open in terminals',
       id: 'drawer-expand',
       onclick: () => go({ view: 'terms' }),
-    }),
-    barButton(icons.close, {
-      'aria-label': 'Close drawer',
-      title: 'Close drawer',
-      id: 'drawer-close',
-      onclick: () => go({ drawer: false }),
     }),
   );
 }
@@ -132,7 +135,11 @@ function Stage(): HTMLElement {
     Board(),
     div({ id: 'drawer-divider', hidden: () => !drawer.val }),
     div(
-      { id: 'frame', class: () => (drawer.val ? 'in-drawer' : ''), hidden: () => shown.val && !drawer.val },
+      {
+        id: 'frame',
+        class: () => (drawer.val ? 'in-drawer' : ''),
+        hidden: () => shown.val && !drawer.val,
+      },
       DrawerBar(),
       Workspace(),
     ),

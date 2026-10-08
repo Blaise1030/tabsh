@@ -1,6 +1,7 @@
-// The card menu's Tags submenu: its "Tags ›" row opens a panel beside the
-// menu listing every tag in use, checked when the card has it, and a field
-// making a new one. Toggling keeps the panel open. Basecoat's dropdown has no
+// The tags panel: every tag in use, checked when picked, and a field making
+// a new one; toggling keeps it open. The card menu's Tags submenu shows it
+// for a card (its "Tags ›" row opens it beside the menu), and New card's Tags
+// chip for the card being made (`TagsPanel`). Basecoat's dropdown has no
 // submenus, so the panel is the card menu's own: fixed beside the row (the
 // popover scales and clips, so it can't hold it), and kept out of Basecoat's
 // [role="menu"], whose clicks close the dropdown.
@@ -11,7 +12,7 @@ import type { Session } from '../sessions/store.ts';
 import { setTags, usedTags } from '../sessions/tags.ts';
 import { icons } from '../ui/icons.ts';
 
-const { div, i, input, span } = van.tags;
+const { div, i, input, label, span } = van.tags;
 
 export interface TagsSubmenu {
   row: HTMLElement; // in the menu
@@ -20,17 +21,27 @@ export interface TagsSubmenu {
   close(): void;
 }
 
-export function TagsSubmenu(s: () => Session | null): TagsSubmenu {
+export interface TagsPanel {
+  panel: HTMLElement;
+  field: HTMLInputElement; // making a new tag
+  open(focus: boolean): void;
+  close(): void;
+}
+
+// The panel for the tags `get` reads and `set` writes; `back` hears Escape
+// (and ←, with `left`), for its opener to close it and take focus back.
+export function TagsPanel(
+  get: () => string[],
+  set: (tags: string[]) => void,
+  back: () => void,
+  left = false,
+): TagsPanel {
   const shown: State<boolean> = van.state(false);
   // The tags offered: those in use when it opened, and any made since.
   const offered: State<string[]> = van.state([]);
-  const has = (tag: string) => s()?.tags.val.includes(tag) ?? false;
-  const set = (tags: string[]) => {
-    const session = s();
-    if (session) setTags(session, tags);
-  };
+  const has = (tag: string) => get().includes(tag);
 
-  const items = (): HTMLElement[] => [...panel.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"], input')];
+  const items = (): HTMLElement[] => [...panel.querySelectorAll<HTMLElement>('input')];
   const field = input({
     class: 'input',
     placeholder: 'New tag…',
@@ -41,7 +52,7 @@ export function TagsSubmenu(s: () => Session | null): TagsSubmenu {
     onkeydown: (e: KeyboardEvent) => {
       if (e.key !== 'Enter' || e.isComposing) return;
       e.preventDefault();
-      const added = addTag(s()?.tags.val ?? [], field.value);
+      const added = addTag(get(), field.value);
       set(added);
       offered.val = [...new Set([...offered.val, ...added])].sort();
       field.value = '';
@@ -58,10 +69,9 @@ export function TagsSubmenu(s: () => Session | null): TagsSubmenu {
         e.stopPropagation(); // Basecoat's dropdown would take these keys
         const all = items();
         const at = all.indexOf(document.activeElement as HTMLElement);
-        if (e.key === 'Escape' || (e.key === 'ArrowLeft' && document.activeElement !== field)) {
+        if (e.key === 'Escape' || (left && e.key === 'ArrowLeft' && document.activeElement !== field)) {
           e.preventDefault();
-          close();
-          row.focus();
+          back();
           return;
         }
         if (document.activeElement === field && e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
@@ -71,31 +81,50 @@ export function TagsSubmenu(s: () => Session | null): TagsSubmenu {
         all[to]?.focus();
       },
     },
+    field,
     () =>
       div(
         { class: 'tags-submenu-list' },
         offered.val.length ? '' : div({ class: 'tags-submenu-empty' }, 'No tags yet'),
-        ...offered.val.map((tag) =>
-          div(
-            {
-              role: 'menuitemcheckbox',
-              tabindex: '-1',
-              'aria-checked': () => String(has(tag)),
-              onclick: () => set(toggleTag(s()?.tags.val ?? [], tag, !has(tag))),
-              onkeydown: (e: KeyboardEvent) => {
-                if (e.key !== 'Enter' && e.key !== ' ') return;
-                e.preventDefault();
-                (e.currentTarget as HTMLElement).click();
-              },
-            },
-            i({ class: 'tag-dot', style: `background: ${tagColor(tag)}` }),
-            span(tag),
-            () => (has(tag) ? icons.check() : span()),
-          ),
-        ),
+        ...offered.val.map((tag) => {
+          const box = input({
+            type: 'checkbox',
+            class: 'input',
+            tabindex: '-1',
+            checked: () => has(tag),
+            onchange: () => set(toggleTag(get(), tag, box.checked)),
+          });
+          return label({ class: 'label menu-check' }, box, i({ style: `background:${tagColor(tag)}` }), span(tag));
+        }),
       ),
-    field,
   );
+
+  function open(focus: boolean) {
+    if (!shown.val) offered.val = [...new Set([...usedTags(), ...get()])].sort();
+    shown.val = true;
+    // Once VanJS shows it.
+    if (focus) requestAnimationFrame(() => items()[0]?.focus());
+  }
+  function close() {
+    shown.val = false;
+  }
+  return { panel, field, open, close };
+}
+
+export function TagsSubmenu(s: () => Session | null): TagsSubmenu {
+  const tags = TagsPanel(
+    () => s()?.tags.val ?? [],
+    (next) => {
+      const session = s();
+      if (session) setTags(session, next);
+    },
+    () => {
+      close();
+      row.focus();
+    },
+    true,
+  );
+  const { panel } = tags;
 
   // Beside the row: to the right of the menu, or to its left when there's
   // no room.
@@ -114,17 +143,13 @@ export function TagsSubmenu(s: () => Session | null): TagsSubmenu {
     }
   };
   function open(focus: boolean) {
-    if (!shown.val) offered.val = [...new Set([...usedTags(), ...(s()?.tags.val ?? [])])].sort();
-    shown.val = true;
+    // Laid out once VanJS shows it: placed, then focused (queued next).
+    requestAnimationFrame(place);
+    tags.open(focus);
     row.setAttribute('aria-expanded', 'true');
-    // Laid out once VanJS shows it: place it, then focus.
-    requestAnimationFrame(() => {
-      place();
-      if (focus) items()[0]?.focus();
-    });
   }
   function close() {
-    shown.val = false;
+    tags.close();
     row.setAttribute('aria-expanded', 'false');
   }
 

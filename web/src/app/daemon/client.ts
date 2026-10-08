@@ -20,6 +20,14 @@ export class ApiError extends Error {
   }
 }
 
+// Saves a file with the daemon (browsers never reveal a dropped file's own
+// path) and returns the path of the saved copy.
+export async function uploadFile(file: File): Promise<string> {
+  const res = await daemonFetch(`/api/uploads?name=${encodeURIComponent(file.name)}`, { method: 'POST', body: file });
+  if (!res.ok) throw new ApiError(`upload ${file.name}: ${res.status}`, res.status);
+  return (await res.json()).path;
+}
+
 export async function api<T>(method: string, path: string, body?: unknown): Promise<T | null> {
   const res = await daemonFetch(`/api/sessions${path}`, {
     method,
