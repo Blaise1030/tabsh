@@ -385,6 +385,17 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .card-more:hover, .card-more:focus-visible { color: var(--foreground); outline: none; }
 .card-actions { display: flex; gap: .25rem; }
 .status-glyph { display: inline-flex; flex-shrink: 0; color: var(--muted-foreground); }
+/* A card's glyph opens its Move menu (board/move-menu.ts). */
+.card-move { all: unset; display: inline-flex; flex-shrink: 0; padding: .1875rem; margin: -.1875rem; border-radius: calc(var(--radius, .5rem) - 4px); cursor: pointer; }
+.card-move:hover, .card-move:focus-visible, .card-move[aria-expanded="true"] { background: var(--muted); }
+.drawer-move-label { display: inline-flex; align-items: center; gap: .375rem; }
+.drawer-move-label > svg { width: 14px; height: 14px; color: var(--muted-foreground); }
+.row-menu.move-menu { position: fixed; z-index: 50; }
+.move-menu [role="menuitemradio"] { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: .5rem; cursor: default; padding: .375rem .5rem; border-radius: calc(var(--radius, .5rem) - 2px); }
+.move-menu [role="menuitemradio"]:not(:disabled):hover, .move-menu [role="menuitemradio"]:focus-visible { background: var(--accent); color: var(--accent-foreground); }
+.move-menu [role="menuitemradio"]:disabled { color: var(--muted-foreground); }
+.move-menu [role="menuitemradio"] > span { flex: 1; }
+.move-menu [role="menuitemradio"] > svg { width: 14px; height: 14px; }
 .status-glyph[data-status="needs_input"] { color: var(--needs-input); }
 .board-col.archive.drop-end { box-shadow: inset 0 0 0 1px var(--muted-foreground); border-radius: var(--radius, .5rem); }
 .board-col.archive { flex: 0 0 auto; min-width: 8rem; }

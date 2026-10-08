@@ -50,7 +50,8 @@ export const icons: Record<
   | 'folder'
   | 'boardOnboarding'
   | 'arrowUpRight'
-  | 'expand',
+  | 'expand'
+  | 'chevronDown',
   Icon
 > = {
   board: draw(({ path, rect, svg }) =>
@@ -88,6 +89,7 @@ export const icons: Record<
   search: draw(({ circle, path, svg }) =>
     svg({ ...LUCIDE }, circle({ cx: '11', cy: '11', r: '8' }), path({ d: 'm21 21-4.3-4.3' })),
   ),
+  chevronDown: draw(({ path, svg }) => svg({ ...LUCIDE }, path({ d: 'm6 9 6 6 6-6' }))),
   expand: draw(({ path, svg }) =>
     svg(
       { ...LUCIDE },

@@ -139,6 +139,33 @@ test('a card opens its terminal in a drawer beside the board', async ({ page, da
   await expect(page.locator('#tabs .tab[aria-selected="true"]')).toHaveText(/In a drawer/);
 });
 
+test("a card's Move menu sets its status, on the board and in the drawer", async ({ page, daemon, project }) => {
+  const item = (name: string) => page.locator('.move-menu [role="menuitemradio"]').filter({ hasText: name });
+  await openApp(page, daemon);
+  await page.locator('#board-btn').click();
+  await col(page, 'backlog').locator('header .btn').click();
+  await newCard(page, 'Move me', project);
+
+  await card(page, 'Move me').locator('.card-move').click();
+  await expect(item('Backlog')).toBeDisabled();
+  await item('Completed').click();
+  await expect(page.locator('.move-menu')).toHaveCount(0);
+  await expect(col(page, 'completed').locator('.board-card').filter({ hasText: 'Move me' })).toBeVisible();
+  await expect(page.locator('#board')).toBeVisible(); // the click didn't open the card
+
+  // Escape closes it without a move.
+  await card(page, 'Move me').locator('.card-move').click();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.move-menu')).toHaveCount(0);
+
+  await card(page, 'Move me').click();
+  await expect(page.locator('.drawer-move')).toContainText('Completed');
+  await page.locator('.drawer-move').click();
+  await item('Archive').click();
+  await expect(col(page, 'completed').locator('.board-card')).toHaveCount(0);
+  await expect(page.locator('.archive-toggle')).toContainText('Archive 1');
+});
+
 test('dragging a card does not light the file drop', async ({ page, daemon, project }) => {
   await openApp(page, daemon);
   await page.locator('#board-btn').click();

@@ -2,6 +2,7 @@
 // (or both: the workspace in a drawer beside the board), and the drop glow.
 // Features find their parts by id once this is mounted.
 import van from 'vanjs-core';
+import { DrawerMoveButton } from '../board/move-menu.ts';
 import { NewCard } from '../board/new-card.ts';
 import { Board, drawer, shown } from '../board/view.ts';
 import { open as explorerOpen, toggleExplorer } from '../explorer/explorer.ts';
@@ -79,6 +80,7 @@ function DrawerBar(): HTMLElement {
   return header(
     { class: 'drawer-bar', hidden: () => !drawer.val },
     span({ class: 'drawer-title' }, () => active.val?.name.val ?? ''),
+    DrawerMoveButton(() => active.val),
     barButton(icons.explorer, {
       'aria-label': 'Toggle file explorer',
       title: 'Toggle file explorer',

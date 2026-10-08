@@ -12,6 +12,7 @@ import { current, onSaved, saveSetting } from '../settings/settings.ts';
 import { glyph, icons } from '../ui/icons.ts';
 import { keyed } from '../ui/keyed.ts';
 import { COLUMNS, DEFAULT_COMMAND, dropOrder, group, SETUP_PROMPT, type Status, shortPath, since } from './model.ts';
+import { CardMoveButton } from './move-menu.ts';
 import { setStatus } from './status.ts';
 
 const { a, article, button, div, h2, header, i, p, section, span } = van.tags;
@@ -114,7 +115,7 @@ function Card(s: Session, archived = false): HTMLElement {
     div(
       { class: 'card-top' },
       span({ class: 'card-title' }, () => s.name.val),
-      statusGlyph(() => status.val),
+      CardMoveButton(s, () => status.val),
     ),
     div(
       { class: 'card-meta' },

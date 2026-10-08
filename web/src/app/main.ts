@@ -3,6 +3,7 @@
 
 import van from 'vanjs-core';
 import { initBoardEvents } from './board/events.ts';
+import { initMoveMenu } from './board/move-menu.ts';
 import { initBoard } from './board/view.ts';
 import { daemonFetch, initGate, waitForDaemon } from './daemon/client.ts';
 import { LOCAL_APP, MIXED_BLOCKED } from './daemon/config.ts';
@@ -72,6 +73,7 @@ initTabLabels();
 initTabGroups();
 initExplorer();
 initBoard();
+initMoveMenu();
 initTypingSound();
 initPalette();
 initDivider();
