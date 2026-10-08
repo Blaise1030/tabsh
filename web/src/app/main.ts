@@ -21,7 +21,7 @@ import { FONTS, fontStack, prefersLight, THEMES } from './settings/catalog.ts';
 import { applySettings, current, loadSettings, onApply, terminalOptions } from './settings/settings.ts';
 import { initTypingSound } from './sound/typing.ts';
 import { App } from './ui/app.ts';
-import { initDivider } from './ui/divider.ts';
+import { initDivider, initDrawerDivider } from './ui/divider.ts';
 import { initDrop } from './ui/drop.ts';
 
 van.add(document.getElementById('app') as HTMLElement, ...App());
@@ -75,6 +75,7 @@ initBoard();
 initTypingSound();
 initPalette();
 initDivider();
+initDrawerDivider();
 initDrop();
 
 // Applied settings restyle every terminal and the file pane (theme and font).

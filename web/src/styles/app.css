@@ -175,8 +175,22 @@ html.themed {
 
 /* Under the full-width tab bar: the sidebar, the terminals, and a tab's file
    pane (web/src/app/files/pane.ts) beside them. */
+#stage { flex: 1; min-height: 0; display: flex; }
+#stage.dragging { user-select: none; cursor: col-resize; }
+#stage.dragging iframe { pointer-events: none; }
+#frame { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+#frame[hidden] { display: none; }
+/* Beside the board: a share of the page set by its divider (drawerWidth). */
+#frame.in-drawer { flex: 0 0 calc(var(--drawer-width, .5) * 100%); }
+/* Too narrow to share: the drawer covers the board. */
+@media (max-width: 799px) {
+  #frame.in-drawer { flex-basis: 100%; }
+  #stage:has(#frame.in-drawer) :is(#board, #drawer-divider) { display: none; }
+}
+.drawer-bar { display: flex; align-items: center; gap: .375rem; padding: .125rem .5rem; border-bottom: 1px solid var(--border); }
+.drawer-bar[hidden] { display: none; }
+.drawer-title { flex: 1; min-width: 0; font-size: .8125rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #workspace { flex: 1; min-height: 0; display: flex; position: relative; }
-#workspace[hidden] { display: none; }
 #main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 #terms { flex: 1; min-width: 0; min-height: 0; position: relative; }
 #explorer {
@@ -230,18 +244,22 @@ file-tree-container {
 /* The dividers beside the sidebar and the file pane draw no line, so the page
    reads as one canvas. A short pill in the middle marks the drag handle, and
    darkens while it is hovered or dragged. */
-#explorer-divider, #pane-divider { flex: 0 0 1px; position: relative; touch-action: none; }
+#explorer-divider, #pane-divider, #drawer-divider { flex: 0 0 1px; position: relative; touch-action: none; }
+/* The drawer is a separate surface from the board: its divider is a line. */
+#drawer-divider { background: var(--border); }
+#drawer-divider[hidden] { display: none; }
 /* A wider grab area than the divider itself. */
-#explorer-divider::before, #pane-divider::before {
+#explorer-divider::before, #pane-divider::before, #drawer-divider::before {
   content: ''; position: absolute; inset: 0 -3px; cursor: col-resize; z-index: 6;
 }
-#explorer-divider::after, #pane-divider::after {
+#explorer-divider::after, #pane-divider::after, #drawer-divider::after {
   content: ''; position: absolute; top: 50%; left: 50%; width: 4px; height: 2rem;
   transform: translate(-50%, -50%); border-radius: 2px; background: var(--border);
   pointer-events: none; z-index: 6; transition: background .15s ease;
 }
 #explorer-divider:hover::after, #explorer-divider:active::after,
-#pane-divider:hover::after, #pane-divider:active::after { background: var(--muted-foreground); }
+#pane-divider:hover::after, #pane-divider:active::after,
+#drawer-divider:hover::after, #drawer-divider:active::after { background: var(--muted-foreground); }
 @media (max-width: 799px) {
   #explorer { position: absolute; inset: 0; z-index: 5; }
   #explorer-divider { display: none; }
@@ -345,7 +363,7 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .tab.archived:not([aria-selected="true"]) { display: none; }
 
 /* The board: Linear-style columns in the theme's own tokens. */
-#board { flex: 1; min-height: 0; display: flex; gap: .75rem; padding: .75rem; overflow-x: auto; background: var(--background); }
+#board { flex: 1; min-width: 0; min-height: 0; display: flex; gap: .75rem; padding: .75rem; overflow-x: auto; background: var(--background); }
 #board[hidden] { display: none; }
 .board-col { flex: 0 0 18rem; display: flex; flex-direction: column; min-height: 0; }
 .board-col > header { display: flex; align-items: center; gap: .5rem; padding: .25rem .25rem .5rem; font-size: .8125rem; font-weight: 500; }

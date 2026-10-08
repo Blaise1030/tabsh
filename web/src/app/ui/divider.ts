@@ -51,3 +51,45 @@ export function initDivider(): void {
   divider.title = 'Drag to resize, click to split equally';
   onApply((s) => ws.style.setProperty('--pane-width', String(s.paneWidth)));
 }
+
+// The divider between the board and its drawer: the same drag, as a share of
+// the page's width, saved as `drawerWidth`; a click halves the page.
+export function initDrawerDivider(): void {
+  const stage = document.getElementById('stage') as HTMLElement;
+  const divider = document.getElementById('drawer-divider') as HTMLElement;
+  let frac: number | null = null;
+  let startX = 0;
+  let moved = false;
+  const widthAt = (x: number) => {
+    const r = stage.getBoundingClientRect();
+    return Math.min(0.85, Math.max(0.25, (r.right - x) / r.width));
+  };
+  divider.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    divider.setPointerCapture(e.pointerId);
+    stage.classList.add('dragging');
+    startX = e.clientX;
+    moved = false;
+    frac = widthAt(e.clientX);
+  });
+  divider.addEventListener('pointermove', (e) => {
+    if (frac === null) return;
+    if (!moved && Math.abs(e.clientX - startX) < 4) return;
+    moved = true;
+    frac = widthAt(e.clientX);
+    stage.style.setProperty('--drawer-width', String(frac)); // the terminal refits through its ResizeObserver
+  });
+  const end = (e: PointerEvent) => {
+    if (frac === null) return;
+    const v = frac;
+    frac = null;
+    stage.classList.remove('dragging');
+    if (e.type === 'pointerup') saveSetting('drawerWidth', moved ? v : 0.5);
+    else applySettings(current.saved);
+  };
+  divider.addEventListener('pointerup', end);
+  divider.addEventListener('pointercancel', end);
+  divider.title = 'Drag to resize, click to split equally';
+  onApply((s) => stage.style.setProperty('--drawer-width', String(s.drawerWidth)));
+}

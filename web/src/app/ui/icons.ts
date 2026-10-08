@@ -49,7 +49,8 @@ export const icons: Record<
   | 'collapse'
   | 'folder'
   | 'boardOnboarding'
-  | 'arrowUpRight',
+  | 'arrowUpRight'
+  | 'expand',
   Icon
 > = {
   board: draw(({ path, rect, svg }) =>
@@ -86,6 +87,15 @@ export const icons: Record<
   ),
   search: draw(({ circle, path, svg }) =>
     svg({ ...LUCIDE }, circle({ cx: '11', cy: '11', r: '8' }), path({ d: 'm21 21-4.3-4.3' })),
+  ),
+  expand: draw(({ path, svg }) =>
+    svg(
+      { ...LUCIDE },
+      path({ d: 'M15 3h6v6' }),
+      path({ d: 'M9 21H3v-6' }),
+      path({ d: 'm21 3-7 7' }),
+      path({ d: 'm3 21 7-7' }),
+    ),
   ),
   close: draw(({ path, svg }) => svg({ ...LUCIDE }, path({ d: 'M18 6 6 18' }), path({ d: 'm6 6 12 12' }))),
   check: draw(({ path, svg }) => svg({ ...LUCIDE }, path({ d: 'M20 6 9 17l-5-5' }))),

@@ -100,6 +100,45 @@ test('the board hides the workspace and the tabs', async ({ page, daemon }) => {
   await expect(page.locator('#tabs')).toBeVisible();
 });
 
+test('a card opens its terminal in a drawer beside the board', async ({ page, daemon, project }) => {
+  await openApp(page, daemon);
+  await page.locator('#board-btn').click();
+  await col(page, 'backlog').locator('header .btn').click();
+  await newCard(page, 'In a drawer', project);
+  await card(page, 'In a drawer').click();
+  await expect(page.locator('#board')).toBeVisible();
+  await expect(page.locator('#frame')).toHaveClass(/in-drawer/);
+  await expect(page.locator('.drawer-title')).toHaveText('In a drawer');
+  await expect(page.locator('#terms')).toBeVisible();
+  expect(new URL(page.url()).searchParams.get('drawer')).toBe('1');
+
+  // The file explorer opens inside the drawer.
+  await page.locator('.drawer-bar').getByRole('button', { name: 'Toggle file explorer' }).click();
+  await expect(page.locator('#explorer')).toBeVisible();
+
+  // Dragging the divider resizes it.
+  const before = (await page.locator('#frame').boundingBox())?.width ?? 0;
+  const d = await page.locator('#drawer-divider').boundingBox();
+  await page.mouse.move((d?.x ?? 0) + 1, (d?.y ?? 0) + 200);
+  await page.mouse.down();
+  await page.mouse.move((d?.x ?? 0) - 150, (d?.y ?? 0) + 200, { steps: 5 });
+  await page.mouse.up();
+  expect((await page.locator('#frame').boundingBox())?.width ?? 0).toBeGreaterThan(before + 100);
+
+  // Back closes it; closing leaves the board alone.
+  await page.goBack();
+  await expect(page.locator('#explorer')).toBeHidden();
+  await page.locator('#drawer-close').click();
+  await expect(page.locator('#frame')).toBeHidden();
+  await expect(page.locator('#board')).toBeVisible();
+
+  // Expanding goes to the terminals.
+  await card(page, 'In a drawer').click();
+  await page.locator('#drawer-expand').click();
+  await expect(page.locator('#board')).toBeHidden();
+  await expect(page.locator('#tabs .tab[aria-selected="true"]')).toHaveText(/In a drawer/);
+});
+
 test('dragging a card does not light the file drop', async ({ page, daemon, project }) => {
   await openApp(page, daemon);
   await page.locator('#board-btn').click();

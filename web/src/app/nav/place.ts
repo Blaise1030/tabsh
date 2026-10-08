@@ -1,18 +1,28 @@
 export type View = 'terms' | 'board';
-export type Step = 'tab' | 'view' | 'file' | 'explorer' | 'palette';
+export type Step = 'tab' | 'view' | 'drawer' | 'file' | 'explorer' | 'palette';
 export type Place = {
   tab: string | null;
   view: View;
+  // On the board: the tab's terminal shows in a drawer beside it.
+  drawer: boolean;
   file: string | null;
   line: number | null;
   explorer: boolean;
   palette: string | null;
 };
 
-export const HOME: Place = { tab: null, view: 'terms', file: null, line: null, explorer: false, palette: null };
-export const STEPS: readonly Step[] = ['tab', 'view', 'file', 'explorer', 'palette'];
+export const HOME: Place = {
+  tab: null,
+  view: 'terms',
+  drawer: false,
+  file: null,
+  line: null,
+  explorer: false,
+  palette: null,
+};
+export const STEPS: readonly Step[] = ['tab', 'view', 'drawer', 'file', 'explorer', 'palette'];
 
-const KEYS = ['tab', 'view', 'file', 'line', 'explorer', 'palette'];
+const KEYS = ['tab', 'view', 'drawer', 'file', 'line', 'explorer', 'palette'];
 const MAX_FILE = 4096;
 const MAX_VALUE = 128;
 
@@ -23,6 +33,7 @@ export function fromQuery(q: URLSearchParams): Partial<Place> {
   if (tab && tab.length <= MAX_VALUE) out.tab = tab;
   const view = q.get('view');
   if (view === 'terms' || view === 'board') out.view = view;
+  if (view === 'board' && q.get('drawer') === '1') out.drawer = true;
   const file = q.get('file');
   if (file && file.length <= MAX_FILE) {
     out.file = file;
@@ -40,6 +51,7 @@ export function toQuery(p: Place, keep: URLSearchParams): string {
   for (const k of KEYS) q.delete(k);
   if (p.tab) q.set('tab', p.tab);
   if (p.view !== 'terms') q.set('view', p.view);
+  if (p.drawer) q.set('drawer', '1');
   if (p.file) {
     q.set('file', p.file);
     if (p.line) q.set('line', String(p.line));
@@ -53,6 +65,7 @@ export function toQuery(p: Place, keep: URLSearchParams): string {
 // A push closes the palette unless the patch sets it; a different tab drops the old tab's file.
 export function merge(from: Place, patch: Partial<Place>, how: 'push' | 'replace'): Place {
   const to = { ...from, ...patch };
+  if (to.view !== 'board') to.drawer = false;
   if (how === 'push' && patch.palette === undefined) to.palette = null;
   if (patch.tab !== undefined && patch.tab !== from.tab && patch.file === undefined) to.file = null;
   if (patch.file !== undefined && patch.line === undefined) to.line = null;
@@ -64,6 +77,7 @@ export function changed(from: Place, to: Place): Step[] {
   const out: Step[] = [];
   if (from.tab !== to.tab) out.push('tab');
   if (from.view !== to.view) out.push('view');
+  if (from.drawer !== to.drawer) out.push('drawer');
   if (from.file !== to.file || from.line !== to.line) out.push('file');
   if (from.explorer !== to.explorer) out.push('explorer');
   if (from.palette !== to.palette) out.push('palette');

@@ -19,6 +19,9 @@ const { a, article, button, div, h2, header, i, p, section, span } = van.tags;
 // Whether the board is shown (else the terminals are): set only by the
 // router's view step.
 export const shown: State<boolean> = van.state(false);
+// Whether the active tab's terminal shows in a drawer beside the board: set
+// only by the router's drawer step.
+export const drawer: State<boolean> = van.state(false);
 // Unix seconds, ticking every 30 s: keeps "time in status" fresh.
 const now = van.state(Math.floor(Date.now() / 1000));
 // Until the board is onboarded it shows its setup screen.
@@ -97,7 +100,7 @@ function Card(s: Session, archived = false): HTMLElement {
       draggable: !archived,
       tabindex: '0',
       'data-id': s.id,
-      onclick: () => go({ view: 'terms', tab: s.id }),
+      onclick: () => go({ tab: s.id, drawer: true }),
       onkeydown: (e: KeyboardEvent) => e.target === card && e.key === 'Enter' && card.click(),
       ondragstart: (e: DragEvent) => {
         e.dataTransfer?.setData(CARD_DRAG, s.id);
@@ -378,6 +381,11 @@ export function Board(): HTMLElement {
 
 export function initBoard(): void {
   onPlace('view', (to) => void showBoard(to.view === 'board'));
+  onPlace('drawer', (to) => {
+    drawer.val = to.drawer;
+    if (to.drawer) queueMicrotask(() => store.active?.term.focus()); // once VanJS shows it
+    return undefined;
+  });
   (document.getElementById('board-btn') as HTMLButtonElement).onclick = () => toggleBoard();
   window.addEventListener(
     'keydown',

@@ -1,18 +1,20 @@
-// The page: the dialogs, the tab bar, the board or the workspace under it,
-// and the drop glow. Features find their parts by id once this is mounted.
+// The page: the dialogs, the tab bar, the board or the workspace under it
+// (or both: the workspace in a drawer beside the board), and the drop glow.
+// Features find their parts by id once this is mounted.
 import van from 'vanjs-core';
 import { NewCard } from '../board/new-card.ts';
-import { Board, shown } from '../board/view.ts';
-import { open as explorerOpen } from '../explorer/explorer.ts';
+import { Board, drawer, shown } from '../board/view.ts';
+import { open as explorerOpen, toggleExplorer } from '../explorer/explorer.ts';
 import { Sidebar } from '../explorer/sidebar.ts';
 import { paneShown } from '../files/open.ts';
+import { go } from '../nav/router.ts';
 import { grouping, TabStrip } from '../sessions/groups.ts';
-import { noTab } from '../sessions/store.ts';
+import { active, noTab } from '../sessions/store.ts';
 import { About } from './about.ts';
 import { Gate } from './gate.ts';
 import { type Icon, icons } from './icons.ts';
 
-const { aside, button, dialog, div, header, input, p } = van.tags;
+const { aside, button, dialog, div, header, input, p, span } = van.tags;
 
 function Palette(): HTMLElement {
   const search = input({
@@ -38,7 +40,7 @@ function Palette(): HTMLElement {
 }
 
 // A ghost icon button in the tab bar.
-const barButton = (icon: Icon, props: Record<string, string | (() => string)>) =>
+const barButton = (icon: Icon, props: Record<string, string | (() => string) | ((e: MouseEvent) => void)>) =>
   button({ type: 'button', class: 'btn', 'data-variant': 'ghost', 'data-size': 'icon-sm', ...props }, icon());
 
 // The tab bar spans the page: a tab owns the sidebar, terminal and file pane
@@ -71,11 +73,37 @@ function TabBar(): HTMLElement {
   );
 }
 
-// The terminal layout: file sidebar, terminals and file pane. The board
-// takes its place while shown.
+// The drawer's own bar, standing in for the tab bar's: the card's name, the
+// file explorer, the full terminal view, and close.
+function DrawerBar(): HTMLElement {
+  return header(
+    { class: 'drawer-bar', hidden: () => !drawer.val },
+    span({ class: 'drawer-title' }, () => active.val?.name.val ?? ''),
+    barButton(icons.explorer, {
+      'aria-label': 'Toggle file explorer',
+      title: 'Toggle file explorer',
+      'aria-pressed': () => String(explorerOpen.val),
+      onclick: toggleExplorer,
+    }),
+    barButton(icons.expand, {
+      'aria-label': 'Open in terminals',
+      title: 'Open in terminals',
+      id: 'drawer-expand',
+      onclick: () => go({ view: 'terms' }),
+    }),
+    barButton(icons.close, {
+      'aria-label': 'Close drawer',
+      title: 'Close drawer',
+      id: 'drawer-close',
+      onclick: () => go({ drawer: false }),
+    }),
+  );
+}
+
+// The terminal layout: file sidebar, terminals and file pane.
 function Workspace(): HTMLElement {
   return div(
-    { id: 'workspace', hidden: () => shown.val },
+    { id: 'workspace' },
     ...Sidebar(),
     div(
       { id: 'main' },
@@ -94,14 +122,21 @@ function Workspace(): HTMLElement {
   );
 }
 
-export function App(): HTMLElement[] {
-  return [
-    Palette(),
-    About(),
-    NewCard(),
-    TabBar(),
+// The board and the workspace side by side: the board alone, the workspace
+// alone, or the workspace in a resizable drawer beside the board.
+function Stage(): HTMLElement {
+  return div(
+    { id: 'stage' },
     Board(),
-    Workspace(),
-    div({ id: 'drop-glow', 'aria-hidden': 'true' }),
-  ];
+    div({ id: 'drawer-divider', hidden: () => !drawer.val }),
+    div(
+      { id: 'frame', class: () => (drawer.val ? 'in-drawer' : ''), hidden: () => shown.val && !drawer.val },
+      DrawerBar(),
+      Workspace(),
+    ),
+  );
+}
+
+export function App(): HTMLElement[] {
+  return [Palette(), About(), NewCard(), TabBar(), Stage(), div({ id: 'drop-glow', 'aria-hidden': 'true' })];
 }
