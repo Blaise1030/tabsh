@@ -184,7 +184,7 @@ html.themed {
 #frame.in-drawer { flex: 0 0 calc(var(--drawer-width, .5) * 100%); position: relative; }
 #frame.in-drawer::before {
   content: ''; position: absolute; top: 0; bottom: 0; right: 100%; width: 1.5rem; z-index: 4; pointer-events: none;
-  background: linear-gradient(to right, transparent, color-mix(in srgb, var(--foreground) 7%, transparent));
+  background: linear-gradient(to left, var(--background), transparent);
 }
 /* Too narrow to share: the drawer covers the board. */
 @media (max-width: 799px) {
@@ -249,8 +249,9 @@ file-tree-container {
    reads as one canvas. A short pill in the middle marks the drag handle, and
    darkens while it is hovered or dragged. */
 #explorer-divider, #pane-divider, #drawer-divider { flex: 0 0 1px; position: relative; touch-action: none; }
-/* No line between the board and its drawer: the board fades into the
-   drawer's edge (#frame.in-drawer::before). */
+/* No line between the board and its drawer: the board's cards fade out at
+   the drawer's edge (#frame.in-drawer::before), as a file does under its
+   header. */
 #drawer-divider[hidden] { display: none; }
 /* A wider grab area than the divider itself. */
 #explorer-divider::before, #pane-divider::before, #drawer-divider::before {
