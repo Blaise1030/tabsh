@@ -7,9 +7,9 @@ import { searchFiles, toggleExplorer } from '../explorer/explorer.ts';
 import { loadedPane } from '../files/open.ts';
 import { back, backPastPalette, forward, go, here, isLeavingPalette, isPaletteEntry, onPlace } from '../nav/router.ts';
 import { cycleTab, store } from '../sessions/store.ts';
-import { comboFromEvent, comboProblem, type KeyId, keyLabel, matchesKey } from '../settings/keys.ts';
+import { comboFromEvent, comboProblem, type KeyId, matchesKey } from '../settings/keys.ts';
 import type { Settings } from '../settings/schema.ts';
-import { applySettings, current, saveSetting, setPreviewing } from '../settings/settings.ts';
+import { applySettings, current, keyHint, saveSetting, setPreviewing } from '../settings/settings.ts';
 import { previewSound } from '../sound/packs.ts';
 import { openAbout } from '../ui/about.ts';
 import { isMac } from '../ui/dom.ts';
@@ -367,12 +367,11 @@ export function initPalette(): void {
   );
 
   const settingsBtn = document.getElementById('settings-btn') as HTMLButtonElement;
-  // Set on hover so it always shows the current keybinding.
-  settingsBtn.addEventListener('pointerenter', () => {
-    settingsBtn.title = `Settings (${keyLabel(current.saved.keyPalette, isMac)})`;
-  });
+  keyHint(settingsBtn, 'Settings', 'keyPalette');
   settingsBtn.onclick = () => openPalette();
 
   // The group button beside it opens the palette on the grouping page.
-  (document.getElementById('tab-group-btn') as HTMLButtonElement).onclick = openGroupPalette;
+  const groupBtn = document.getElementById('tab-group-btn') as HTMLButtonElement;
+  keyHint(groupBtn, 'Group tabs', 'keyGroupTabs');
+  groupBtn.onclick = openGroupPalette;
 }

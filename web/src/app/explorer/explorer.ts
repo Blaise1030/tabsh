@@ -11,7 +11,7 @@ import { go, here, onPlace } from '../nav/router.ts';
 import { newTabAt, onActivate, store } from '../sessions/store.ts';
 import { matchesKey } from '../settings/keys.ts';
 import { EXPLORER_WIDTH } from '../settings/schema.ts';
-import { applySettings, current, onApply, saveSetting } from '../settings/settings.ts';
+import { applySettings, current, keyHint, onApply, saveSetting } from '../settings/settings.ts';
 import { fetchTree } from './api.ts';
 import { type Change, type Live, onMessage } from './changes.ts';
 import {
@@ -75,7 +75,9 @@ function openSearchSoon(): void {
 export function initExplorer(): void {
   mount = document.getElementById('explorer-tree') as HTMLElement;
   const divider = document.getElementById('explorer-divider') as HTMLElement;
-  (document.getElementById('explorer-btn') as HTMLButtonElement).onclick = toggleExplorer;
+  const button = document.getElementById('explorer-btn') as HTMLButtonElement;
+  button.onclick = toggleExplorer;
+  keyHint(button, 'Toggle file explorer', 'keyToggleExplorer');
   // `/` in the tree opens the search; anywhere else it is a plain key.
   mount.addEventListener(
     'keydown',

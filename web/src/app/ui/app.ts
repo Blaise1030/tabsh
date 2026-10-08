@@ -4,7 +4,7 @@
 import van from 'vanjs-core';
 import { DrawerMoveButton } from '../board/move-menu.ts';
 import { NewCard } from '../board/new-card.ts';
-import { Board, drawer, shown } from '../board/view.ts';
+import { Board, drawer, FilterButton, shown } from '../board/view.ts';
 import { open as explorerOpen, toggleExplorer } from '../explorer/explorer.ts';
 import { Sidebar } from '../explorer/sidebar.ts';
 import { paneShown } from '../files/open.ts';
@@ -45,7 +45,8 @@ const barButton = (icon: Icon, props: Record<string, string | (() => string) | (
   button({ type: 'button', class: 'btn', 'data-variant': 'ghost', 'data-size': 'icon-sm', ...props }, icon());
 
 // The tab bar spans the page: a tab owns the sidebar, terminal and file pane
-// under it. On the board it keeps only the Board and Settings buttons.
+// under it. On the board it keeps the Board button, Filter (once onboarded)
+// and Settings.
 function TabBar(): HTMLElement {
   return div(
     { class: () => (shown.val ? 'tabbar on-board' : 'tabbar') },
@@ -70,6 +71,7 @@ function TabBar(): HTMLElement {
       // Grouping is on: the button stays lit.
       'aria-pressed': () => String(grouping.val !== 'none'),
     }),
+    FilterButton(),
     barButton(icons.settings, { class: 'btn settings-btn', 'aria-label': 'Settings', id: 'settings-btn' }),
   );
 }
