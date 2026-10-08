@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { asStatus, type Card, dropOrder, group, recentFolders, rememberCommand, shortPath, since } from './model.ts';
+import { asStatus, type Card, dropOrder, group, recentFolders, shortPath, since } from './model.ts';
 
 const card = (status: Card['status'], cwd: string | null = null, statusAt = 0): Card => ({
   status,
@@ -58,14 +58,4 @@ test('dropOrder puts the card before the target, or at the end of its column', (
   assert.deepEqual(dropOrder(items, 'd', 'backlog', 'c'), ['a', 'b', 'd', 'c']);
   assert.deepEqual(dropOrder(items, 'a', 'backlog', null), ['b', 'c', 'a', 'd']);
   assert.deepEqual(dropOrder(items, 'a', 'needs_input', null), ['b', 'c', 'd', 'a']);
-});
-
-test('used agent commands move to the front, without repeats, at most 8', () => {
-  assert.deepEqual(rememberCommand(['claude {prompt}'], 'gemini -i {prompt}'), [
-    'gemini -i {prompt}',
-    'claude {prompt}',
-  ]);
-  assert.deepEqual(rememberCommand(['a', 'b'], ' b '), ['b', 'a']);
-  assert.deepEqual(rememberCommand(['a'], '   '), ['a']);
-  assert.equal(rememberCommand(['1', '2', '3', '4', '5', '6', '7', '8'], '9').length, 8);
 });

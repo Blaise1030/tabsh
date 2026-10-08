@@ -19,7 +19,8 @@ run from hooks that fire everywhere.
 | The user's task is done (you decide; not a hook) | `{tabsh} status completed --note '<one line: what you did>'` |
 
 `--hook` reads JSON on stdin and uses its `message` field as the card's note when there is one,
-so a notification hook can pass its payload straight through. `--note` sets the note explicitly.
+so a notification hook can pass its payload straight through. Its `session_id` field lets tabsh
+resume your conversation in a fresh shell after tabsh restarts, so give every hook the payload. `--note` sets the note explicitly.
 Do not use a single quote (') inside a note; escape it as needed by your shell instead.
 
 ## Steps

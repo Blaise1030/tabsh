@@ -24,11 +24,11 @@ async function boardAlone(page: Page): Promise<void> {
 }
 
 // Fills in and submits the New card dialog, by default with an agent that
-// exits at once.
+// exits at once (`command` names one of the providers `setOnboarded` sets).
 async function newCard(page: Page, prompt: string, cwd: string, command = 'true'): Promise<void> {
   await page.locator('#new-card input[name="cwd"]').fill(cwd);
   await page.locator('#new-card textarea[name="prompt"]').fill(prompt);
-  await page.locator('#new-card input[name="command"]').fill(command);
+  await page.locator('#new-card select[name="provider"]').selectOption(command);
   await page.locator('#new-card button[type="submit"]').click();
 }
 

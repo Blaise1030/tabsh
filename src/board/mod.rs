@@ -31,14 +31,7 @@ pub(crate) const DEFAULT_COMMAND: &str = "claude {prompt}";
 /// submit early) and free of control characters (which the PTY would take as
 /// keystrokes), then Enter.
 pub(crate) fn launch_line(command: &str) -> String {
-    let command: String = command
-        .chars()
-        .map(|c| if c.is_whitespace() { ' ' } else { c })
-        .filter(|c| !c.is_control())
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
+    let command = one_line(command);
     let command = if command.is_empty() {
         DEFAULT_COMMAND.to_owned()
     } else {
@@ -58,18 +51,7 @@ const PROMPT_ARG: &str = "\"$TABSH_PROMPT\"";
 /// whitespace collapsed and control characters dropped, cut at
 /// `PROMPT_TITLE_CHARS` with an ellipsis. `None` when nothing is left.
 pub(crate) fn prompt_title(prompt: &str) -> Option<String> {
-    let line = prompt
-        .lines()
-        .map(|l| {
-            l.chars()
-                .map(|c| if c.is_whitespace() { ' ' } else { c })
-                .filter(|c| !c.is_control())
-                .collect::<String>()
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ")
-        })
-        .find(|l| !l.is_empty())?;
+    let line = prompt.lines().map(one_line).find(|l| !l.is_empty())?;
     if line.chars().count() <= PROMPT_TITLE_CHARS {
         return Some(line);
     }
@@ -78,6 +60,50 @@ pub(crate) fn prompt_title(prompt: &str) -> Option<String> {
 }
 
 const PROMPT_TITLE_CHARS: usize = 60;
+
+/// A command as one line of plain words: whitespace runs (newlines too)
+/// become one space and control characters are dropped.
+pub(crate) fn one_line(command: &str) -> String {
+    command
+        .chars()
+        .map(|c| if c.is_whitespace() { ' ' } else { c })
+        .filter(|c| !c.is_control())
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// How a card made without a provider's resume command resumes a Claude
+/// Code agent run in it by hand.
+const CLAUDE_RESUME: &str = "claude --resume {session}";
+
+/// The line that reopens an agent's conversation in a fresh shell after tabsh
+/// restarts, once the agent's hooks have reported in. `template` is the
+/// card's resume command (its provider's), whose `{session}` becomes the
+/// conversation id the hook named; without one, an agent known by `agent`
+/// gets its usual command. `None` when nothing fits, and whenever `{session}`
+/// is wanted but the id isn't a plain token: the line is typed into a shell.
+pub(crate) fn resume_line(
+    template: Option<&str>,
+    agent: Option<&str>,
+    session: Option<&str>,
+) -> Option<String> {
+    let template = match template.filter(|t| !t.is_empty()) {
+        Some(t) => t,
+        None if agent == Some("claude") => CLAUDE_RESUME,
+        None => return None,
+    };
+    if !template.contains("{session}") {
+        return Some(format!("{template}\r"));
+    }
+    let session = session.filter(|s| {
+        (1..=128).contains(&s.len())
+            && s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    })?;
+    Some(format!("{}\r", template.replace("{session}", session)))
+}
 
 /// A card's status changed; sent to every open page.
 #[derive(Serialize, Clone, Debug)]
@@ -103,6 +129,10 @@ struct SetStatus {
     note: Option<String>,
     source: Option<String>,
     unless: Option<String>,
+    /// The agent the hook runs under and its conversation, so a restart can
+    /// resume it.
+    agent: Option<String>,
+    agent_session: Option<String>,
 }
 
 const NOTE_CHARS: usize = 200;
@@ -125,17 +155,34 @@ async fn set_status(
         .map(|n| n.trim().chars().take(NOTE_CHARS).collect::<String>())
         .filter(|n| !n.is_empty());
     let db = st.db.lock().unwrap();
-    let current: Option<String> = db
+    let row: Option<(String, Option<String>)> = db
         .query_row(
-            "SELECT status FROM sessions WHERE id = ?1",
+            "SELECT status, resume_command FROM sessions WHERE id = ?1",
             params![id],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .optional()
         .map_err(internal_error)?;
-    let Some(current) = current else {
+    let Some((current, template)) = row else {
         return Err(StatusCode::NOT_FOUND);
     };
+    // A hook means an agent is running in the card: a restart resumes it.
+    let resume = (source == Source::Hook)
+        .then(|| {
+            resume_line(
+                template.as_deref(),
+                body.agent.as_deref(),
+                body.agent_session.as_deref(),
+            )
+        })
+        .flatten();
+    if let Some(line) = resume {
+        db.execute(
+            "UPDATE sessions SET resume_input = ?1 WHERE id = ?2",
+            params![line, id],
+        )
+        .map_err(internal_error)?;
+    }
     let apply = rules::applies(&current, source, body.unless.as_deref());
     if apply {
         db.execute(
@@ -207,6 +254,14 @@ pub(crate) fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         (
             "pinned",
             "ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
+        ),
+        (
+            "resume_command",
+            "ALTER TABLE sessions ADD COLUMN resume_command TEXT",
+        ),
+        (
+            "resume_input",
+            "ALTER TABLE sessions ADD COLUMN resume_input TEXT",
         ),
     ] {
         if !cols.iter().any(|c| c == name) {
@@ -408,6 +463,112 @@ mod tests {
         assert_eq!(
             launch_line("\u{1b}[A\u{3}claude\u{7f} {prompt}"),
             "[Aclaude \"$TABSH_PROMPT\"\r"
+        );
+    }
+
+    #[test]
+    fn resume_line_fills_in_plain_session_ids_only() {
+        let codex = Some("codex resume {session}");
+        assert_eq!(
+            resume_line(codex, None, Some("3f1c-9a_B")).as_deref(),
+            Some("codex resume 3f1c-9a_B\r")
+        );
+        assert_eq!(resume_line(codex, None, None), None);
+        assert_eq!(resume_line(codex, None, Some("")), None);
+        assert_eq!(resume_line(codex, None, Some("a; rm -rf ~")), None);
+        assert_eq!(resume_line(codex, None, Some("a\rb")), None);
+        assert_eq!(resume_line(codex, None, Some(&"a".repeat(129))), None);
+        assert_eq!(
+            resume_line(Some("codex resume --last"), None, None).as_deref(),
+            Some("codex resume --last\r"),
+            "a command without {{session}} needs no id"
+        );
+    }
+
+    #[test]
+    fn without_a_resume_command_only_claude_code_resumes() {
+        assert_eq!(
+            resume_line(None, Some("claude"), Some("s-1")).as_deref(),
+            Some("claude --resume s-1\r")
+        );
+        assert_eq!(
+            resume_line(Some(""), Some("claude"), Some("s-1")).as_deref(),
+            Some("claude --resume s-1\r")
+        );
+        assert_eq!(resume_line(None, None, Some("s-1")), None);
+        assert_eq!(resume_line(None, Some("vim"), Some("s-1")), None);
+    }
+
+    fn resume_input(st: &AppState, id: &str) -> Option<String> {
+        st.db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT resume_input FROM sessions WHERE id = ?1",
+                [id],
+                |r| r.get(0),
+            )
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_hook_fills_in_the_cards_resume_command() {
+        let st = test_state();
+        let id = crate::sessions::store::insert_card(
+            &st.db.lock().unwrap(),
+            &crate::sessions::store::NewCard {
+                resume: Some("gemini --resume {session}"),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .id;
+        patch(
+            &st,
+            &id,
+            serde_json::json!({"status": "in_progress", "source": "user"}),
+        )
+        .await;
+        assert_eq!(resume_input(&st, &id), None, "a drag isn't the agent");
+        patch(
+            &st,
+            &id,
+            serde_json::json!({"status": "needs_input", "agent_session": "g-7"}),
+        )
+        .await;
+        assert_eq!(
+            resume_input(&st, &id).as_deref(),
+            Some("gemini --resume g-7\r")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_hook_that_names_its_conversation_makes_the_card_resumable() {
+        let st = test_state();
+        let id = new_card(&st);
+        patch(&st, &id, serde_json::json!({"status": "in_progress"})).await;
+        assert_eq!(resume_input(&st, &id), None);
+        let (code, _) = patch(
+            &st,
+            &id,
+            serde_json::json!({"status": "in_progress", "agent": "claude", "agent_session": "s-1"}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK);
+        assert_eq!(
+            resume_input(&st, &id).as_deref(),
+            Some("claude --resume s-1\r")
+        );
+        patch(
+            &st,
+            &id,
+            serde_json::json!({"status": "in_progress", "agent": "claude", "agent_session": "$(x)"}),
+        )
+        .await;
+        assert_eq!(
+            resume_input(&st, &id).as_deref(),
+            Some("claude --resume s-1\r"),
+            "an odd id is ignored, not stored"
         );
     }
 }

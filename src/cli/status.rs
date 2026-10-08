@@ -15,6 +15,9 @@ pub(super) struct Env {
     pub(super) session: Option<String>,
     pub(super) url: String,
     pub(super) token: Option<String>,
+    /// The agent whose hook this is, when it says so in the environment
+    /// (Claude Code sets `CLAUDECODE=1` for everything it runs).
+    pub(super) agent: Option<&'static str>,
 }
 
 impl Env {
@@ -32,6 +35,7 @@ impl Env {
             token: std::fs::read_to_string(token_path)
                 .ok()
                 .map(|t| t.trim().to_owned()),
+            agent: (var("CLAUDECODE").as_deref() == Some("1")).then_some("claude"),
         }
     }
 }
@@ -88,17 +92,34 @@ pub(super) fn parse(args: &[String]) -> Result<Parsed, String> {
     })
 }
 
-/// The `message` of the hook event the agent writes on stdin (Claude Code's
-/// and Gemini CLI's Notification payloads have one; other events don't).
-pub(super) fn hook_message(stdin: &mut dyn Read) -> Option<String> {
-    let mut buf = Vec::new();
-    stdin.take(64 * 1024).read_to_end(&mut buf).ok()?;
-    message_of(&buf)
+/// What tabsh uses from the hook event an agent writes on stdin (or passes
+/// as the trailing argument).
+#[derive(Default, Debug, PartialEq)]
+pub(super) struct HookEvent {
+    /// Claude Code's and Gemini CLI's Notification payloads have one; other
+    /// events don't.
+    pub(super) message: Option<String>,
+    /// The agent's conversation, which a restart resumes.
+    pub(super) session: Option<String>,
 }
 
-fn message_of(json: impl AsRef<[u8]>) -> Option<String> {
-    let v: serde_json::Value = serde_json::from_slice(json.as_ref()).ok()?;
-    v.get("message")?.as_str().map(String::from)
+pub(super) fn read_event(stdin: &mut dyn Read) -> HookEvent {
+    let mut buf = Vec::new();
+    if stdin.take(64 * 1024).read_to_end(&mut buf).is_err() {
+        return HookEvent::default();
+    }
+    event_of(&buf)
+}
+
+fn event_of(json: impl AsRef<[u8]>) -> HookEvent {
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(json.as_ref()) else {
+        return HookEvent::default();
+    };
+    let text = |k: &str| v.get(k).and_then(|x| x.as_str()).map(String::from);
+    HookEvent {
+        message: text("message"),
+        session: text("session_id"),
+    }
 }
 
 pub(super) fn run(args: &[String], env: &Env, stdin: &mut dyn Read) -> i32 {
@@ -122,16 +143,25 @@ fn set(args: &[String], env: &Env, stdin: &mut dyn Read) -> Result<(), String> {
     if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
         return Err(format!("odd TABSH_SESSION_ID '{id}'"));
     }
-    let note = p.note.or_else(|| {
-        if !p.hook {
-            return None;
-        }
-        p.payload
-            .as_deref()
-            .and_then(message_of)
-            .or_else(|| hook_message(stdin))
-    });
-    let body = serde_json::json!({ "status": p.status, "note": note, "source": "hook", "unless": p.unless }).to_string();
+    let event = match (p.hook, p.payload.as_deref()) {
+        (false, _) => HookEvent::default(),
+        (true, Some(json)) => event_of(json),
+        (true, None) => read_event(stdin),
+    };
+    let note = p.note.or(event.message);
+    let (agent, agent_session) = match (env.agent, event.session) {
+        (Some(agent), Some(session)) => (Some(agent), Some(session)),
+        _ => (None, None),
+    };
+    let body = serde_json::json!({
+        "status": p.status,
+        "note": note,
+        "source": "hook",
+        "unless": p.unless,
+        "agent": agent,
+        "agent_session": agent_session,
+    })
+    .to_string();
     match patch(&env.url, env.token.as_deref(), id, &body)? {
         200 => Ok(()),
         404 => Err("this terminal's card no longer exists".into()),
@@ -192,6 +222,7 @@ mod tests {
             session: session.map(String::from),
             url: url.into(),
             token: Some("t0k3n".into()),
+            agent: None,
         }
     }
 
@@ -266,11 +297,24 @@ mod tests {
     fn a_hook_note_comes_from_the_notification_message() {
         let stdin = br#"{"hook_event_name":"Notification","message":"Claude needs your permission to use Bash"}"#;
         assert_eq!(
-            hook_message(&mut &stdin[..]).as_deref(),
+            read_event(&mut &stdin[..]).message.as_deref(),
             Some("Claude needs your permission to use Bash")
         );
-        assert_eq!(hook_message(&mut &br#"{"prompt":"hi"}"#[..]), None);
-        assert_eq!(hook_message(&mut &b"not json"[..]), None);
+        assert_eq!(read_event(&mut &br#"{"prompt":"hi"}"#[..]).message, None);
+        assert_eq!(read_event(&mut &b"not json"[..]), HookEvent::default());
+    }
+
+    #[test]
+    fn a_hook_event_names_its_conversation() {
+        let stdin =
+            br#"{"hook_event_name":"UserPromptSubmit","session_id":"3f1c-9a","prompt":"hi"}"#;
+        assert_eq!(
+            read_event(&mut &stdin[..]),
+            HookEvent {
+                message: None,
+                session: Some("3f1c-9a".into())
+            }
+        );
     }
 
     #[test]
@@ -285,9 +329,12 @@ mod tests {
             parse(&a(&["completed", r#"{"message":"hi"}"#])).is_err(),
             "without --hook an extra positional stays an error"
         );
-        assert_eq!(message_of(r#"{"message":"hi"}"#).as_deref(), Some("hi"));
-        assert_eq!(message_of("nope"), None);
-        assert_eq!(message_of(r#"{"message":3}"#), None);
+        assert_eq!(
+            event_of(r#"{"message":"hi"}"#).message.as_deref(),
+            Some("hi")
+        );
+        assert_eq!(event_of("nope").message, None);
+        assert_eq!(event_of(r#"{"message":3}"#).message, None);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -330,5 +377,49 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(code, 1, "unknown session by hand is an error");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_claude_hook_makes_its_card_resumable() {
+        let st = test_state();
+        let id = insert_session(&st.db.lock().unwrap(), None).unwrap().id;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let app = router(st.clone());
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+        });
+        let i = id.clone();
+        let code = tokio::task::spawn_blocking(move || {
+            let e = Env {
+                agent: Some("claude"),
+                ..env(Some(&i), &url)
+            };
+            // The Stop hook: an explicit note, and the event on stdin.
+            run(
+                &args("needs_input --hook --if-not completed --note finished"),
+                &e,
+                &mut &br#"{"hook_event_name":"Stop","session_id":"s-1"}"#[..],
+            )
+        })
+        .await
+        .unwrap();
+        assert_eq!(code, 0);
+        let (note, resume): (Option<String>, Option<String>) = st
+            .db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT note, resume_input FROM sessions WHERE id = ?1",
+                [&id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(note.as_deref(), Some("finished"));
+        assert_eq!(resume.as_deref(), Some("claude --resume s-1\r"));
     }
 }

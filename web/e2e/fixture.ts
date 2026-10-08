@@ -115,13 +115,22 @@ export async function cdInTerminal(page: Page, dir: string, mark: string): Promi
   }).toPass({ timeout: 10_000 });
 }
 
-// Sets the stored `boardOnboarded` flag, keeping the other settings.
+// Agent providers for specs, each named by its command, so the real agents
+// never start.
+export const TEST_PROVIDERS = ['true', 'touch launched', 'touch dragged'].map((command) => ({
+  name: command,
+  command,
+  resume: '',
+}));
+
+// Sets the stored `boardOnboarded` flag and the test providers, keeping the
+// other settings.
 export async function setOnboarded(page: Page, daemon: Daemon, on: boolean): Promise<void> {
   const headers = { Authorization: `Bearer ${daemon.token}` };
   const now = await (await page.request.get(`${daemon.baseUrl}/api/settings`, { headers })).json();
   const res = await page.request.put(`${daemon.baseUrl}/api/settings`, {
     headers,
-    data: { ...now, boardOnboarded: on },
+    data: { ...now, boardOnboarded: on, providers: TEST_PROVIDERS },
   });
   expect(res.status()).toBe(204);
 }

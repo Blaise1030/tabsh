@@ -156,6 +156,8 @@ struct NewSession {
     name: Option<String>,
     prompt: Option<String>,
     command: Option<String>,
+    /// The agent provider's resume command, `{session}` for the conversation.
+    resume: Option<String>,
 }
 
 async fn list_sessions(State(st): State<AppState>) -> Result<Json<Vec<SessionInfo>>, StatusCode> {
@@ -204,6 +206,12 @@ async fn create_session(
     // pinned, so the agent's terminal title can replace it.
     let pinned = name.is_some();
     let name = name.or_else(|| prompt.as_deref().and_then(crate::board::prompt_title));
+    // Only a card that starts an agent has one to resume.
+    let resume = prompt
+        .as_ref()
+        .and(body.resume.as_deref())
+        .map(crate::board::one_line)
+        .filter(|r| !r.is_empty());
     let card = store::NewCard {
         cwd: body.cwd.as_deref(),
         name: name.as_deref(),
@@ -212,6 +220,7 @@ async fn create_session(
         pending: pending.as_deref(),
         prompt: prompt.as_deref(),
         pinned,
+        resume: resume.as_deref(),
     };
     let db = st.db.lock().unwrap();
     store::insert_card(&db, &card)
@@ -403,6 +412,40 @@ mod tests {
         assert!(!pinned(), "a shell title does not pin");
         rename(serde_json::json!({"name": "Mine"})).await.unwrap();
         assert!(pinned());
+    }
+
+    fn resume_command(st: &AppState, id: &serde_json::Value) -> Option<String> {
+        st.db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT resume_command FROM sessions WHERE id = ?1",
+                [id.as_str().unwrap()],
+                |r| r.get(0),
+            )
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_card_keeps_its_providers_resume_command_on_one_line() {
+        let st = test_state();
+        let (_, body) = create(
+            &st,
+            serde_json::json!({"prompt": "go", "command": "codex {prompt}", "resume": " codex\n resume\u{7} {session} "}),
+        )
+        .await;
+        assert_eq!(
+            resume_command(&st, &body["id"]).as_deref(),
+            Some("codex resume {session}")
+        );
+        let (_, body) = create(&st, serde_json::json!({"resume": "codex resume {session}"})).await;
+        assert_eq!(
+            resume_command(&st, &body["id"]),
+            None,
+            "no agent, no resume"
+        );
+        let (_, body) = create(&st, serde_json::json!({"prompt": "go", "resume": "  "})).await;
+        assert_eq!(resume_command(&st, &body["id"]), None);
     }
 
     #[tokio::test]

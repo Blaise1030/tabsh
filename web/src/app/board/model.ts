@@ -75,10 +75,3 @@ export const DEFAULT_COMMAND = 'claude {prompt}';
 // wires its own hooks by following `tabsh setup`'s guide.
 export const SETUP_PROMPT =
   'Run `tabsh setup` and follow the guide it prints, so your hooks keep your card on the tabsh board current.';
-
-// The agent commands offered in New card: the one just used first.
-export function rememberCommand(list: string[], command: string): string[] {
-  const c = command.trim();
-  if (!c) return list;
-  return [c, ...list.filter((x) => x !== c)].slice(0, 8);
-}
