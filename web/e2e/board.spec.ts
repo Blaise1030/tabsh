@@ -426,8 +426,10 @@ test('tags ticked in the Tags panel show on the card, and are offered next time'
   // The tags in use, offered to tick several.
   await chip.click();
   await expect(rows).toHaveText(['perf', 'ui']);
-  await expect(rows.first()).toBeFocused();
-  await page.keyboard.press('Enter'); // perf
+  // The field is first; arrows move onto the checkboxes.
+  await expect(field).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press(' '); // perf
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press(' '); // ui
   await expect(chip.locator('.tag-badge')).toHaveText(['perf', 'ui']);

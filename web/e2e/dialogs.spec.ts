@@ -50,7 +50,9 @@ test('New card closes when its backdrop is clicked', async ({ page, daemon }) =>
   await expect(dialog).toHaveAttribute('open', '');
   await dialog.locator('textarea[name="prompt"]').click();
   await expect(dialog).toHaveAttribute('open', '');
-  await dialog.click({ position: { x: 8, y: 8 } });
+  // The dialog element is only the overlay; its panel is positioned out of
+  // that box, so the click goes to the backdrop at the corner of the page.
+  await page.mouse.click(8, 8);
   await expect(dialog).toBeHidden();
 });
 
