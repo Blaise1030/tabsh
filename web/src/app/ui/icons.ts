@@ -31,7 +31,7 @@ export const icons: Record<
   | 'explorer'
   | 'plus'
   | 'group'
-  | 'filter'
+  | 'listFilter'
   | 'settings'
   | 'search'
   | 'close'
@@ -53,6 +53,7 @@ export const icons: Record<
   | 'boardOnboarding'
   | 'arrowUpRight'
   | 'expand'
+  | 'arrowRightToLine'
   | 'chevronDown'
   | 'trash'
   | 'more'
@@ -73,6 +74,9 @@ export const icons: Record<
   explorer: draw(({ path, rect, svg }) =>
     svg({ ...LUCIDE }, rect({ width: '18', height: '18', x: '3', y: '3', rx: '2' }), path({ d: 'M9 3v18' })),
   ),
+  arrowRightToLine: draw(({ path, svg }) =>
+    svg({ ...LUCIDE }, path({ d: 'M17 12H3' }), path({ d: 'm11 18 6-6-6-6' }), path({ d: 'M21 5v14' })),
+  ),
   plus: draw(({ path, svg }) => svg({ ...LUCIDE }, path({ d: 'M5 12h14' }), path({ d: 'M12 5v14' }))),
   group: draw(({ path, rect, svg }) =>
     svg(
@@ -85,8 +89,8 @@ export const icons: Record<
       rect({ width: '7', height: '5', x: '10', y: '12', rx: '1' }),
     ),
   ),
-  filter: draw(({ polygon, svg }) =>
-    svg({ ...LUCIDE }, polygon({ points: '22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3' })),
+  listFilter: draw(({ path, svg }) =>
+    svg({ ...LUCIDE }, path({ d: 'M2 5h20' }), path({ d: 'M6 12h12' }), path({ d: 'M9 19h6' })),
   ),
   settings: draw(({ circle, path, svg }) =>
     svg(
@@ -304,7 +308,7 @@ export const icons: Record<
 const GLYPH = { viewBox: '0 0 14 14', width: '14', height: '14', 'aria-hidden': 'true' };
 
 // Linear-style status glyphs, drawn in currentColor (needs input is coloured
-// by CSS).
+// by CSS). Needs input is Lucide's circle-question-mark.
 export const glyph = (status: Status): SVGSVGElement => drawGlyph(status) as SVGSVGElement;
 
 function drawGlyph(status: Status): Element {
@@ -318,7 +322,20 @@ function drawGlyph(status: Status): Element {
     case 'in_progress':
       return svg(GLYPH, ring(), path({ d: 'M7 3.5a3.5 3.5 0 0 1 0 7z', fill: 'currentColor' }));
     case 'needs_input':
-      return svg(GLYPH, disc());
+      return svg(
+        {
+          ...GLYPH,
+          viewBox: '0 0 24 24',
+          fill: 'none',
+          stroke: 'currentColor',
+          'stroke-width': '2',
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+        },
+        circle({ cx: '12', cy: '12', r: '10' }),
+        path({ d: 'M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3' }),
+        path({ d: 'M12 17h.01' }),
+      );
     case 'completed':
       return svg(
         GLYPH,

@@ -1,6 +1,6 @@
 // The two dialogs, end to end: New card's error is gone when it opens again,
 // and About says so when the daemon doesn't answer.
-import { expect, openApp, test } from './fixture.ts';
+import { expect, openApp, setOnboarded, test } from './fixture.ts';
 
 const PALETTE = process.platform === 'darwin' ? 'Meta+KeyK' : 'Control+Shift+KeyK';
 
@@ -28,6 +28,32 @@ test('New card: a folder that is not there shows the error, and reopening clears
   await page.locator('[aria-label="New card in Backlog"]').click();
   await expect(error).toBeHidden();
   await expect(dialog.locator('input[name="cwd"]')).toHaveValue('');
+});
+
+const newCardKey = process.platform === 'darwin' ? 'Meta+Shift+KeyC' : 'Alt+Shift+KeyN';
+
+test('the New card shortcut opens the dialog on Backlog', async ({ page, daemon }) => {
+  await setOnboarded(page, daemon, true);
+  await openApp(page, daemon);
+  await page.keyboard.press(newCardKey);
+  const dialog = page.locator('#new-card');
+  await expect(dialog).toHaveAttribute('open', '');
+  await expect(dialog.locator('button[aria-label="Column"]')).toContainText('Backlog');
+});
+
+test('New card closes when its backdrop is clicked', async ({ page, daemon }) => {
+  await setOnboarded(page, daemon, true);
+  await openApp(page, daemon);
+  await page.locator('#board-btn').click();
+  await page.locator('[aria-label="New card in Backlog"]').click();
+  const dialog = page.locator('#new-card');
+  await expect(dialog).toHaveAttribute('open', '');
+  await dialog.locator('textarea[name="prompt"]').click();
+  await expect(dialog).toHaveAttribute('open', '');
+  // The dialog element is only the overlay; its panel is positioned out of
+  // that box, so the click goes to the backdrop at the corner of the page.
+  await page.mouse.click(8, 8);
+  await expect(dialog).toBeHidden();
 });
 
 test('About says so when the daemon does not answer, and lists the rows when it does', async ({ page, daemon }) => {

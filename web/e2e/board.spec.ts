@@ -262,7 +262,7 @@ test("a card's menu has a Tags submenu: tags made and toggled there show on the 
   project,
 }) => {
   const submenu = page.locator('.tags-submenu:visible');
-  const tagRow = (tag: string) => submenu.locator('[role="menuitemcheckbox"]').filter({ hasText: tag });
+  const tagRow = (tag: string) => submenu.getByRole('checkbox', { name: tag });
   await openApp(page, daemon);
   await boardAlone(page);
   await col(page, 'backlog').locator('header .btn').click();
@@ -274,12 +274,12 @@ test("a card's menu has a Tags submenu: tags made and toggled there show on the 
   await submenu.getByRole('textbox', { name: 'New tag' }).fill('bug');
   await submenu.getByRole('textbox', { name: 'New tag' }).press('Enter');
   await expect(card(page, 'Tag from menu').locator('.tag-badge')).toHaveText(['bug']);
-  await expect(tagRow('bug')).toHaveAttribute('aria-checked', 'true');
+  await expect(tagRow('bug')).toBeChecked();
 
   // Toggling keeps it open.
   await tagRow('bug').click();
   await expect(card(page, 'Tag from menu').locator('.tag-badge')).toHaveCount(0);
-  await expect(tagRow('bug')).toHaveAttribute('aria-checked', 'false');
+  await expect(tagRow('bug')).not.toBeChecked();
   await tagRow('bug').click();
   await expect(card(page, 'Tag from menu').locator('.tag-badge')).toHaveText(['bug']);
   await expect(page.locator('#frame')).toBeHidden(); // no click opened the card
@@ -397,7 +397,7 @@ test('a long note is clamped, with Show more', async ({ page, daemon, project })
 test('tags ticked in the Tags panel show on the card, and are offered next time', async ({ page, daemon, project }) => {
   const chip = page.locator('#new-card button[aria-label="Tags"]');
   const field = page.locator('#new-card input[aria-label="New tag"]');
-  const rows = page.locator('#new-card [role="menuitemcheckbox"]');
+  const rows = page.locator('#new-card .tags-submenu .menu-check');
   await openApp(page, daemon);
   await page.locator('#board-btn').click();
   await col(page, 'backlog').locator('header .btn').click();
@@ -416,7 +416,7 @@ test('tags ticked in the Tags panel show on the card, and are offered next time'
   await expect(chip.locator('.tag-badge')).toHaveText(['bug', 'ui', 'docs']);
   await rows.filter({ hasText: 'docs' }).click(); // untick; the panel stays open
   await rows.filter({ hasText: 'bug' }).click();
-  await expect(rows.filter({ hasText: 'bug' })).toHaveAttribute('aria-checked', 'false');
+  await expect(rows.filter({ hasText: 'bug' }).locator('input')).not.toBeChecked();
   await field.fill('perf'); // typed but not entered: still counts
   await page.locator('#new-card button[type="submit"]').click();
 
@@ -426,8 +426,10 @@ test('tags ticked in the Tags panel show on the card, and are offered next time'
   // The tags in use, offered to tick several.
   await chip.click();
   await expect(rows).toHaveText(['perf', 'ui']);
-  await expect(rows.first()).toBeFocused();
-  await page.keyboard.press('Enter'); // perf
+  // The field is first; arrows move onto the checkboxes.
+  await expect(field).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press(' '); // perf
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press(' '); // ui
   await expect(chip.locator('.tag-badge')).toHaveText(['perf', 'ui']);
@@ -498,8 +500,8 @@ test("the group's tag starts as a chip, and taking it off leaves the card untagg
   const chips = page.locator('#new-card button[aria-label="Tags"] .tag-badge');
   await expect(chips).toHaveText(['deploy']);
   await page.locator('#new-card button[aria-label="Tags"]').click();
-  const deploy = page.locator('#new-card [role="menuitemcheckbox"]').filter({ hasText: 'deploy' });
-  await expect(deploy).toHaveAttribute('aria-checked', 'true');
+  const deploy = page.locator('#new-card .tags-submenu').getByRole('checkbox', { name: 'deploy' });
+  await expect(deploy).toBeChecked();
   await deploy.click();
   await expect(chips).toHaveCount(0);
   await page.locator('#new-card button[aria-label="Folder"]').click();

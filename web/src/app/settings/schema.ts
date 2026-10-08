@@ -77,6 +77,7 @@ export interface Settings {
   keySearchFiles: string;
   keyGroupTabs: string;
   keyToggleBoard: string;
+  keyNewCard: string;
   keyBack: string;
   keyForward: string;
   providers: Provider[];
@@ -103,6 +104,7 @@ export function defaults(isMac: boolean): Settings {
     keySearchFiles: keys.keySearchFiles.presets[0],
     keyGroupTabs: keys.keyGroupTabs.presets[0],
     keyToggleBoard: keys.keyToggleBoard.presets[0],
+    keyNewCard: keys.keyNewCard.presets[0],
     keyBack: keys.keyBack.presets[0],
     keyForward: keys.keyForward.presets[0],
     providers: DEFAULT_PROVIDERS,
@@ -127,6 +129,7 @@ export function cleanSettings(stored: Record<string, unknown>, isMac: boolean): 
     keySearchFiles: '',
     keyGroupTabs: '',
     keyToggleBoard: '',
+    keyNewCard: '',
     keyBack: '',
     keyForward: '',
   };
@@ -165,6 +168,7 @@ export function cleanSettings(stored: Record<string, unknown>, isMac: boolean): 
     keySearchFiles: key('keySearchFiles'),
     keyGroupTabs: key('keyGroupTabs'),
     keyToggleBoard: key('keyToggleBoard'),
+    keyNewCard: key('keyNewCard'),
     keyBack: key('keyBack'),
     keyForward: key('keyForward'),
     ...(() => {

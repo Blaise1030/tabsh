@@ -40,6 +40,8 @@ test('a provider is added and edited in the palette and offered by New card', as
     .poll(async () => (await (await page.request.get(`${daemon.baseUrl}/api/settings`, { headers })).json()).providers)
     .toContainEqual({ name: 'Aider <b>x</b>', command: 'aider --message {prompt}', resume: 'aider --restore-chat-history' });
 
+  await page.locator('#palette-input').press('Escape'); // back to the providers list
+  await expect(page.locator('#palette-input')).toHaveAttribute('placeholder', /Search providers/);
   await page.locator('#palette-input').press('Escape'); // back to the root page
   await page.locator('#palette-input').press('Escape'); // closed
   await page.locator('#board-btn').click();
