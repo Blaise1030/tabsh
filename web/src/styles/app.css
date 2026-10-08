@@ -50,6 +50,8 @@ html.themed {
 .about-table td { white-space: normal; overflow-wrap: anywhere; font-family: ui-monospace, Menlo, monospace; font-size: .8125rem; }
 
 .tabbar { display: flex; align-items: center; gap: .375rem; padding: .125rem .5rem; }
+.tabbar.on-board > :not(#board-btn, .settings-btn) { display: none; }
+.tabbar.on-board .settings-btn { margin-left: auto; }
 /* Edge fades show only where tabs are scrolled out of view; registered so
    they ease in and out instead of popping. */
 @property --fade-l { syntax: '<length>'; inherits: false; initial-value: 0px; }
@@ -174,6 +176,7 @@ html.themed {
 /* Under the full-width tab bar: the sidebar, the terminals, and a tab's file
    pane (web/src/app/files/pane.ts) beside them. */
 #workspace { flex: 1; min-height: 0; display: flex; position: relative; }
+#workspace[hidden] { display: none; }
 #main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 #terms { flex: 1; min-width: 0; min-height: 0; position: relative; }
 #explorer {

@@ -25,6 +25,9 @@ const now = van.state(Math.floor(Date.now() / 1000));
 const onboarded = van.state(current.saved.boardOnboarded);
 
 const board = () => document.getElementById('board') as HTMLElement;
+// A dragged card's data type: its own, so the page's file drop
+// (`ui/drop.ts`) neither glows for it nor pastes it into a terminal.
+export const CARD_DRAG = 'application/x-tabsh-card';
 // Set by Task 9; until then a column's + opens a plain new terminal.
 let newCard: (status: Status) => void = () => void newSession();
 export function setNewCard(fn: (status: Status) => void): void {
@@ -97,7 +100,7 @@ function Card(s: Session, archived = false): HTMLElement {
       onclick: () => go({ view: 'terms', tab: s.id }),
       onkeydown: (e: KeyboardEvent) => e.target === card && e.key === 'Enter' && card.click(),
       ondragstart: (e: DragEvent) => {
-        e.dataTransfer?.setData('text/plain', s.id);
+        e.dataTransfer?.setData(CARD_DRAG, s.id);
         card.classList.add('dragging');
       },
       ondragend: () => {
@@ -228,7 +231,7 @@ function Column(status: Status, name: string, columns: State<Columns>): HTMLElem
         e.preventDefault();
         const before = cardBefore(list, e.clientY)?.dataset.id ?? null; // while the dragged card is still marked
         endDrag();
-        const id = e.dataTransfer?.getData('text/plain');
+        const id = e.dataTransfer?.getData(CARD_DRAG);
         if (id) void move(id, status, before);
       },
     },
@@ -278,7 +281,7 @@ function Archive(columns: State<Columns>): HTMLElement {
       ondrop: (e: DragEvent) => {
         e.preventDefault();
         endDrag();
-        const id = e.dataTransfer?.getData('text/plain');
+        const id = e.dataTransfer?.getData(CARD_DRAG);
         if (id) void move(id, 'archived', null);
       },
     },

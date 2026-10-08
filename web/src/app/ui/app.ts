@@ -1,5 +1,5 @@
-// The page: the dialogs, the tab bar, the workspace under it and the drop
-// glow. Features find their parts by id once this is mounted.
+// The page: the dialogs, the tab bar, the board or the workspace under it,
+// and the drop glow. Features find their parts by id once this is mounted.
 import van from 'vanjs-core';
 import { NewCard } from '../board/new-card.ts';
 import { Board, shown } from '../board/view.ts';
@@ -41,10 +41,11 @@ function Palette(): HTMLElement {
 const barButton = (icon: Icon, props: Record<string, string | (() => string)>) =>
   button({ type: 'button', class: 'btn', 'data-variant': 'ghost', 'data-size': 'icon-sm', ...props }, icon());
 
-// The tab bar spans the page: a tab owns the sidebar, terminal and file pane under it.
+// The tab bar spans the page: a tab owns the sidebar, terminal and file pane
+// under it. On the board it keeps only the Board and Settings buttons.
 function TabBar(): HTMLElement {
   return div(
-    { class: 'tabbar' },
+    { class: () => (shown.val ? 'tabbar on-board' : 'tabbar') },
     barButton(icons.board, {
       'aria-label': 'Board',
       title: 'Board',
@@ -70,15 +71,16 @@ function TabBar(): HTMLElement {
   );
 }
 
+// The terminal layout: file sidebar, terminals and file pane. The board
+// takes its place while shown.
 function Workspace(): HTMLElement {
   return div(
-    { id: 'workspace' },
+    { id: 'workspace', hidden: () => shown.val },
     ...Sidebar(),
     div(
       { id: 'main' },
-      Board(),
       div(
-        { id: 'terms', hidden: () => shown.val },
+        { id: 'terms' },
         div(
           { class: 'empty', id: 'empty', hidden: () => !noTab.val },
           p('No terminals open.'),
@@ -93,5 +95,13 @@ function Workspace(): HTMLElement {
 }
 
 export function App(): HTMLElement[] {
-  return [Palette(), About(), NewCard(), TabBar(), Workspace(), div({ id: 'drop-glow', 'aria-hidden': 'true' })];
+  return [
+    Palette(),
+    About(),
+    NewCard(),
+    TabBar(),
+    Board(),
+    Workspace(),
+    div({ id: 'drop-glow', 'aria-hidden': 'true' }),
+  ];
 }

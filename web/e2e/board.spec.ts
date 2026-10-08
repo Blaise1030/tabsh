@@ -88,6 +88,32 @@ test('a completed card has an Archive button', async ({ page, daemon, project })
   await expect(page.locator('.archive-toggle')).toContainText('Archive 1');
 });
 
+test('the board hides the workspace and the tabs', async ({ page, daemon }) => {
+  await openApp(page, daemon);
+  await expect(page.locator('#tabs')).toBeVisible();
+  await page.locator('#board-btn').click();
+  await expect(page.locator('#board')).toBeVisible();
+  for (const id of ['#workspace', '#tabs', '#explorer-btn', '#tab-group-btn']) await expect(page.locator(id)).toBeHidden();
+  await expect(page.locator('#settings-btn')).toBeVisible();
+  await page.locator('#board-btn').click();
+  await expect(page.locator('#workspace')).toBeVisible();
+  await expect(page.locator('#tabs')).toBeVisible();
+});
+
+test('dragging a card does not light the file drop', async ({ page, daemon, project }) => {
+  await openApp(page, daemon);
+  await page.locator('#board-btn').click();
+  await col(page, 'backlog').locator('header .btn').click();
+  await newCard(page, 'Drag me', project);
+  await card(page, 'Drag me').hover();
+  await page.mouse.down();
+  const to = await col(page, 'in_progress').locator('.board-cards').boundingBox();
+  await page.mouse.move((to?.x ?? 0) + 20, (to?.y ?? 0) + 20, { steps: 5 });
+  await expect(page.locator('#drop-glow')).not.toHaveClass(/active/);
+  await page.mouse.up();
+  await expect(col(page, 'in_progress').locator('.board-card').filter({ hasText: 'Drag me' })).toBeVisible();
+});
+
 test('a long card is clamped, with Show more', async ({ page, daemon, project }) => {
   await openApp(page, daemon);
   await page.locator('#board-btn').click();
@@ -167,8 +193,8 @@ test("an archived card's tab leaves the strip, grouped or not", async ({ page, d
   await page.locator('#board-btn').click();
   await col(page, 'backlog').locator('header .btn').click();
   await newCard(page, 'Old work', project);
+  await page.locator('#board-btn').click(); // the board stays open after a new card, its tabs hidden
   await expect(oldTab).toBeVisible();
-  await page.locator('#board-btn').click(); // the board stays open after a new card
   await newTab(page); // another tab is active: an active archived tab stays shown
 
   const list = await page.request.get(`${daemon.baseUrl}/api/sessions`, {
