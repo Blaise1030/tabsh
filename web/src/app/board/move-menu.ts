@@ -2,7 +2,8 @@
 // and moves through it by keyboard): a card's ⋯ button on the board, or the
 // status's name in the drawer's bar, lists the stages to move it to (the
 // current one checked, and not picked again), its Tags (a submenu,
-// tags-submenu.ts), then Archive and Delete session.
+// tags-submenu.ts), then Archive (Restore, for an archived card) and Delete
+// session.
 // Open, its popover is fixed under the button, so a column that scrolls
 // doesn't clip it.
 import van from 'vanjs-core';
@@ -56,14 +57,11 @@ function MoveMenu(s: () => Session | null, trigger: Record<string, string>, ...f
       hr({ role: 'separator' }),
       tags.row,
       hr({ role: 'separator' }),
+      // Archive, or for an archived card, Restore (to Backlog).
       div(
-        {
-          role: 'menuitem',
-          'aria-disabled': () => String(now() === 'archived'),
-          onclick: () => moveTo('archived'),
-        },
-        statusGlyph('archived'),
-        span('Archive'),
+        { role: 'menuitem', onclick: () => moveTo(now() === 'archived' ? 'backlog' : 'archived') },
+        () => statusGlyph(now() === 'archived' ? 'backlog' : 'archived'),
+        () => span(now() === 'archived' ? 'Restore' : 'Archive'),
       ),
       div(
         {

@@ -224,9 +224,18 @@ test("a card's Move menu sets its status, on the board and in the drawer", async
   await expect(col(page, 'completed').locator('.board-card')).toHaveCount(0);
   await expect(page.locator('.archive-toggle')).toContainText('Archive 1');
 
-  // Delete session closes it: its card and its tab go.
+  // An archived card has no buttons of its own; its menu restores it.
   await page.locator('#drawer-close').click();
   await page.locator('.archive-toggle').click();
+  await expect(card(page, 'Move me').getByRole('button', { name: /Restore|Delete/ })).toHaveCount(0);
+  await card(page, 'Move me').locator('.card-move').click();
+  await item('Restore').click();
+  await expect(col(page, 'backlog').locator('.board-card').filter({ hasText: 'Move me' })).toBeVisible();
+  await card(page, 'Move me').locator('.card-move').click();
+  await item('Archive').click();
+  await expect(page.locator('.board-col.archive .board-card').filter({ hasText: 'Move me' })).toBeVisible();
+
+  // Delete session closes it: its card and its tab go.
   await card(page, 'Move me').locator('.card-move').click();
   await item('Delete session').click();
   await expect(card(page, 'Move me')).toHaveCount(0);

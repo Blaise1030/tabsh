@@ -5,7 +5,7 @@
 import van, { type State } from 'vanjs-core';
 import { api } from '../daemon/client.ts';
 import { go, onPlace } from '../nav/router.ts';
-import { closeSession, newSession, openTab, type Session, sendSize, sessionList, store } from '../sessions/store.ts';
+import { newSession, openTab, type Session, sendSize, sessionList, store } from '../sessions/store.ts';
 import { orderTabs } from '../sessions/tabs.ts';
 import { tagBadge } from '../sessions/tags.ts';
 import { matchesKey } from '../settings/keys.ts';
@@ -64,23 +64,6 @@ const statusGlyph = (status: Status | (() => Status)) =>
     typeof status === 'function' ? () => glyph(status()) : glyph(status),
   );
 
-// A small ghost button that keeps its click from opening the card.
-const cardButton = (text: string, act: () => void) =>
-  button(
-    {
-      type: 'button',
-      class: 'btn',
-      'data-variant': 'ghost',
-      'data-size': 'sm',
-      onclick: (e: MouseEvent) => {
-        e.stopPropagation();
-        act();
-      },
-      onkeydown: (e: KeyboardEvent) => e.stopPropagation(), // Enter/Space on the button must not open the card
-    },
-    text,
-  );
-
 // Each card's check for a cut-off title or note, run again whenever the
 // board's size changes (shown, hidden, the window resized).
 const measures = new WeakMap<Element, () => void>();
@@ -90,7 +73,7 @@ const resized = new ResizeObserver(() => {
 
 // A card: its session's name, status, folder, note and time in status. Its
 // title and note are clamped to two lines, with Show more when either is cut
-// off. In the Archive it isn't dragged, and offers Restore and Delete.
+// off. In the Archive it isn't dragged; its menu offers Restore.
 function Card(s: Session, archived = false): HTMLElement {
   // Only a change of status redraws the glyph (a new note doesn't).
   const status = van.derive(() => s.card.val.status);
@@ -149,14 +132,6 @@ function Card(s: Session, archived = false): HTMLElement {
           )
         : '',
     div({ class: 'card-meta' }, () => since(s.card.val.statusAt, now.val)),
-    // Archiving is in the card's menu; an archived card also keeps these.
-    archived
-      ? div(
-          { class: 'card-actions' },
-          cardButton('Restore', () => void setStatus(s, 'backlog')),
-          cardButton('Delete', () => void closeSession(s)),
-        )
-      : '',
   );
   // A clamped box reports no overflow in scrollHeight, so this compares its
   // text's height with the clamp lifted. Hidden (height 0), nothing is cut.

@@ -394,7 +394,6 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .card-tags { display: flex; flex-wrap: wrap; gap: .25rem; }
 .badge.tag-badge { gap: .375rem; color: var(--foreground); font-weight: 500; background: color-mix(in srgb, var(--tag) 22%, transparent); }
 .badge.tag-badge i { width: .5rem; height: .5rem; border-radius: 999px; background: var(--tag); }
-.card-actions { display: flex; gap: .25rem; }
 .status-glyph { display: inline-flex; flex-shrink: 0; color: var(--muted-foreground); }
 /* A card's glyph opens its Move menu (board/move-menu.ts). */
 .card-move { all: unset; display: inline-flex; flex-shrink: 0; padding: .1875rem; margin: -.1875rem -.1875rem -.1875rem 0; border-radius: calc(var(--radius, .5rem) - 4px); cursor: pointer; color: var(--muted-foreground); }
