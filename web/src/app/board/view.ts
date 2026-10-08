@@ -208,6 +208,13 @@ async function move(id: string, status: Status, beforeId: string | null): Promis
   if (s.card.val.status !== status) await setStatus(s, status).catch(console.error);
 }
 
+// Puts a card first in `status`'s column (a new card, so it's seen without
+// scrolling): in the tab order, before that column's first card.
+export function moveToTop(s: Session, status: Status): Promise<void> {
+  const first = cards().find((x) => x.id !== s.id && x.card.status === status);
+  return move(s.id, status, first?.id ?? null);
+}
+
 // The sessions in each column, in tab order.
 type Columns = Record<Status, Session[]>;
 

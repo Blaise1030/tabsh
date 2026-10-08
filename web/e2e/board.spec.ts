@@ -213,7 +213,7 @@ test('a card name with markup is shown as text', async ({ page, daemon }) => {
 
 // A drop within a column reorders its cards and leaves none marked as
 // dragged, even without a dragend.
-test('cards reorder within a column', async ({ page, daemon, project }) => {
+test('a new card goes on top; cards reorder within a column', async ({ page, daemon, project }) => {
   await openApp(page, daemon);
   await page.locator('#board-btn').click();
   for (const name of ['First card', 'Second card']) {
@@ -227,13 +227,15 @@ test('cards reorder within a column', async ({ page, daemon, project }) => {
     const names = await titles.allTextContents();
     return names.indexOf('Second card') < names.indexOf('First card');
   };
-  expect(await secondFirst()).toBe(false);
+  // New cards go first in their column, so they're seen without scrolling.
+  expect(await secondFirst()).toBe(true);
+  expect((await titles.allTextContents())[0]).toBe('Second card');
 
   // As where a browser loses dragend once the dragged node has moved (Firefox
   // bug 460801): the drop alone must end the drag.
   await page.evaluate(() => window.addEventListener('dragend', (e) => e.stopImmediatePropagation(), true));
-  await card(page, 'Second card').dragTo(card(page, 'First card'), { targetPosition: { x: 10, y: 2 } });
-  await expect.poll(secondFirst).toBe(true);
+  await card(page, 'First card').dragTo(card(page, 'Second card'), { targetPosition: { x: 10, y: 2 } });
+  await expect.poll(secondFirst).toBe(false);
   await expect(page.locator('.board-card.dragging')).toHaveCount(0);
   await expect(page.locator('.drop-before, .drop-end')).toHaveCount(0);
 });

@@ -9,8 +9,7 @@ import { openTab, type Session, store } from '../sessions/store.ts';
 import { current, saveSetting } from '../settings/settings.ts';
 import { keyed } from '../ui/keyed.ts';
 import { DEFAULT_COMMAND, recentFolders, rememberCommand, type Status } from './model.ts';
-import { setStatus } from './status.ts';
-import { setNewCard } from './view.ts';
+import { moveToTop, setNewCard } from './view.ts';
 
 const { button, datalist, dialog, footer, form, h2, header, input, label, option, p, section, span, textarea } =
   van.tags;
@@ -67,7 +66,7 @@ async function submit(e: Event): Promise<void> {
   host.close();
   // The next card offers it first.
   saveSetting('agentCommands', rememberCommand(current.saved.agentCommands, command));
-  if (column !== 'backlog') await setStatus(s, column).catch(() => {});
+  await moveToTop(s, column); // sets its status too
 }
 
 // The New card dialog lives as long as the page.
