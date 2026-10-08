@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.1.13
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.12...v0.1.13)
+
+### Features
+
+- **board:** Show Archived as a column like the others ([efda3c3](https://github.com/Blaise1030/tabsh/commit/efda3c3))
+- **board:** A hook's move puts the card at the end of its new column ([2111d1b](https://github.com/Blaise1030/tabsh/commit/2111d1b))
+- **sound:** Pick the Needs input and Completed chimes ([13bbdc7](https://github.com/Blaise1030/tabsh/commit/13bbdc7))
+- **board:** Agent providers, and resuming a card's agent after tabsh restarts ([4062d4f](https://github.com/Blaise1030/tabsh/commit/4062d4f))
+- **board:** OpenCode, resumed and kept current by its plugin ([fc44e3a](https://github.com/Blaise1030/tabsh/commit/fc44e3a))
+- **board:** New card laid out like Linear, with images ([af24f06](https://github.com/Blaise1030/tabsh/commit/af24f06))
+- **board:** Filter cards by tag and folder from the tab bar ([1cb0618](https://github.com/Blaise1030/tabsh/commit/1cb0618))
+- **board:** Fade scrolled columns and settle the drawer chrome ([17e0f95](https://github.com/Blaise1030/tabsh/commit/17e0f95))
+- **board:** Add a New card shortcut and point the drawer close right ([c5c0d54](https://github.com/Blaise1030/tabsh/commit/c5c0d54))
+- **board:** Edit a Backlog card, and show each card's agent ([ac23b3c](https://github.com/Blaise1030/tabsh/commit/ac23b3c))
+
+### Fixes
+
+- **e2e:** Follow the tag field and click the New card backdrop ([627710b](https://github.com/Blaise1030/tabsh/commit/627710b))
+- **board:** Keep a card's menu whole over the column fades ([ab3338e](https://github.com/Blaise1030/tabsh/commit/ab3338e))
+
 ## v0.1.12
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.11...v0.1.12)
