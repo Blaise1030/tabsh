@@ -1,5 +1,5 @@
 // The settings stored on the daemon, and how a stored object is cleaned up.
-import { FONT_SIZES, FONTS, THEMES, TYPING_SOUNDS } from './catalog.ts';
+import { CARD_SOUNDS, FONT_SIZES, FONTS, THEMES, TYPING_SOUNDS } from './catalog.ts';
 import { comboProblem, type KeyId, keybindings } from './keys.ts';
 
 // The explorer sidebar's width, in px.
@@ -65,6 +65,8 @@ export interface Settings {
   font: string;
   fontSize: number;
   typingSound: string;
+  needsInputSound: string; // played when a card starts needing input
+  completedSound: string; // played when a card completes
   paneWidth: number;
   drawerWidth: number; // the board's drawer, as a share of the page's width
   explorerOpen: boolean;
@@ -92,6 +94,8 @@ export function defaults(isMac: boolean): Settings {
     font: 'menlo',
     fontSize: 13,
     typingSound: 'mx-black-pbt',
+    needsInputSound: 'ping',
+    completedSound: 'arpeggio',
     paneWidth: 0.5,
     drawerWidth: 0.5,
     explorerOpen: false,
@@ -145,6 +149,8 @@ export function cleanSettings(stored: Record<string, unknown>, isMac: boolean): 
     fontSize:
       typeof stored.fontSize === 'number' && FONT_SIZES.includes(stored.fontSize) ? stored.fontSize : d.fontSize,
     typingSound: TYPING_SOUNDS[str(stored.typingSound)] ? str(stored.typingSound) : d.typingSound,
+    needsInputSound: CARD_SOUNDS[str(stored.needsInputSound)] ? str(stored.needsInputSound) : d.needsInputSound,
+    completedSound: CARD_SOUNDS[str(stored.completedSound)] ? str(stored.completedSound) : d.completedSound,
     paneWidth:
       typeof stored.paneWidth === 'number' && stored.paneWidth >= 0.2 && stored.paneWidth <= 0.8
         ? stored.paneWidth

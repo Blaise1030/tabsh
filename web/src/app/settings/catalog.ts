@@ -1,4 +1,5 @@
-// What the settings offer: terminal themes, fonts, sizes and typing sounds.
+// What the settings offer: terminal themes, fonts, sizes, typing sounds and
+// the sounds a card makes when it needs input or completes.
 
 export interface ThemeColors extends AnsiColors {
   background: string;
@@ -411,6 +412,17 @@ export const TYPING_SOUNDS: Record<string, string> = {
   'mx-blue': 'Cherry MX Blue',
   'holy-panda': 'Holy Panda',
   'gateron-black-ink': 'Gateron Black Ink',
+  off: 'Off',
+};
+
+// Chimes for a card's notifications, synthesized in sound/chime.ts.
+export const CARD_SOUNDS: Record<string, string> = {
+  ping: 'Ping',
+  arpeggio: 'Arpeggio',
+  ding: 'Ding',
+  pop: 'Pop',
+  marimba: 'Marimba',
+  blip: 'Blip',
   off: 'Off',
 };
 

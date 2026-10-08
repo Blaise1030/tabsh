@@ -239,7 +239,7 @@ fn apply_status(
         .note
         .map(|n| n.trim().chars().take(NOTE_CHARS).collect::<String>())
         .filter(|n| !n.is_empty());
-    let db = st.db.lock().unwrap();
+    let mut db = st.db.lock().unwrap();
     let row: Option<(String, Option<String>)> = db
         .query_row(
             "SELECT status, resume_command FROM sessions WHERE id = ?1",
@@ -281,6 +281,11 @@ fn apply_status(
         )
         .map_err(internal_error)?;
     }
+    // A hook's move puts the card last in its new column (pages do the same
+    // on its event); one that leaves the status alone doesn't move it.
+    if apply && source == Source::Hook && current != body.status {
+        append_to_column(&mut db, id, &body.status).map_err(internal_error)?;
+    }
     let info = store::info(&db, id)
         .map_err(internal_error)?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -301,6 +306,23 @@ fn apply_status(
         });
     }
     Ok(Json(info))
+}
+
+/// Puts card `id` right after the last other card in `status`'s column (at
+/// the very end of the tab order when that column is empty), as the board's
+/// `dropOrder` does with no card to go before.
+fn append_to_column(db: &mut Connection, id: &str, status: &str) -> rusqlite::Result<()> {
+    let rest: Vec<(String, String)> = db
+        .prepare("SELECT id, status FROM sessions WHERE id != ?1 ORDER BY position")?
+        .query_map(params![id], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+    let at = rest
+        .iter()
+        .rposition(|(_, s)| s == status)
+        .map_or(rest.len(), |i| i + 1);
+    let mut ids: Vec<String> = rest.into_iter().map(|(id, _)| id).collect();
+    ids.insert(at, id.to_owned());
+    store::reorder(db, &ids)
 }
 
 /// Every status a card can have, in board order.
@@ -533,6 +555,60 @@ mod tests {
 
     fn new_card(st: &AppState) -> String {
         insert_session(&st.db.lock().unwrap(), None).unwrap().id
+    }
+
+    fn order(st: &AppState) -> Vec<String> {
+        st.db
+            .lock()
+            .unwrap()
+            .prepare("SELECT id FROM sessions ORDER BY position")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_hook_appends_the_card_to_its_new_column_but_a_drag_does_not() {
+        let st = test_state();
+        let [a, b, c, d] = [0; 4].map(|_| new_card(&st));
+        for id in [&a, &c] {
+            patch(
+                &st,
+                id,
+                serde_json::json!({"status": "in_progress", "source": "user"}),
+            )
+            .await;
+        }
+        assert_eq!(
+            order(&st),
+            [a.clone(), b.clone(), c.clone(), d.clone()],
+            "a drag leaves the order to the board"
+        );
+
+        patch(&st, &d, serde_json::json!({"status": "in_progress"})).await;
+        assert_eq!(
+            order(&st),
+            [a.clone(), b.clone(), c.clone(), d.clone()],
+            "already after the column's last card"
+        );
+        patch(&st, &a, serde_json::json!({"status": "needs_input"})).await;
+        assert_eq!(
+            order(&st),
+            [b.clone(), c.clone(), d.clone(), a.clone()],
+            "an empty column: the very end"
+        );
+        patch(&st, &b, serde_json::json!({"status": "in_progress"})).await;
+        assert_eq!(order(&st), [c.clone(), d.clone(), b.clone(), a.clone()]);
+
+        patch(
+            &st,
+            &c,
+            serde_json::json!({"status": "in_progress", "note": "x"}),
+        )
+        .await;
+        assert_eq!(order(&st), [c, d, b, a], "same status: stays put");
     }
 
     #[tokio::test]
