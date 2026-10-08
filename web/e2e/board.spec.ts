@@ -266,6 +266,53 @@ test("a card's menu has a Tags submenu: tags made and toggled there show on the 
   await expect(submenu).toHaveCount(0);
 });
 
+test('a hook moving a card to Needs input or Completed notifies; a move on the board does not', async ({
+  page,
+  daemon,
+  project,
+}) => {
+  // The browser's notifications, granted and recorded.
+  await page.addInitScript(() => {
+    const notes: string[][] = [];
+    (window as unknown as { notes: string[][] }).notes = notes;
+    class Stub {
+      static permission = 'granted';
+      static requestPermission = async () => 'granted';
+      onclick: (() => void) | null = null;
+      constructor(title: string, options?: { body?: string }) {
+        notes.push([title, options?.body ?? '']);
+      }
+      close() {}
+    }
+    (window as unknown as { Notification: unknown }).Notification = Stub;
+  });
+  const notes = () => page.evaluate(() => (window as unknown as { notes: string[][] }).notes);
+  const hook = async (id: string | null, data: object) =>
+    page.request.patch(`${daemon.baseUrl}/api/sessions/${id}/status`, {
+      headers: { Authorization: `Bearer ${daemon.token}` },
+      data,
+    });
+  await openApp(page, daemon);
+  await boardAlone(page);
+  await col(page, 'backlog').locator('header .btn').click();
+  await newCard(page, 'Notify me', project);
+  const id = await card(page, 'Notify me').getAttribute('data-id');
+
+  await hook(id, { status: 'needs_input', note: 'Claude needs your permission' });
+  await expect.poll(notes).toEqual([['Notify me', 'Needs your input: Claude needs your permission']]);
+  await hook(id, { status: 'in_progress' }); // not one that notifies
+  await hook(id, { status: 'completed' });
+  await expect.poll(notes).toHaveLength(2);
+  expect((await notes())[1]).toEqual(['Notify me', 'Completed']);
+
+  // A move made on the board doesn't.
+  await card(page, 'Notify me').locator('.card-move').click();
+  await page.locator('.move-menu [data-popover][aria-hidden="false"] [role^="menuitem"]').filter({ hasText: 'Needs input' }).click();
+  await expect(col(page, 'needs_input').locator('.board-card').filter({ hasText: 'Notify me' })).toBeVisible();
+  await page.waitForTimeout(300);
+  expect(await notes()).toHaveLength(2);
+});
+
 test('dragging a card does not light the file drop', async ({ page, daemon, project }) => {
   await openApp(page, daemon);
   await boardAlone(page);
