@@ -10,6 +10,7 @@ import { cycleTab, store } from '../sessions/store.ts';
 import { comboFromEvent, comboProblem, type KeyId, keyLabel, matchesKey } from '../settings/keys.ts';
 import type { Settings } from '../settings/schema.ts';
 import { applySettings, current, saveSetting, setPreviewing } from '../settings/settings.ts';
+import { previewChime } from '../sound/chime.ts';
 import { previewSound } from '../sound/packs.ts';
 import { openAbout } from '../ui/about.ts';
 import { isMac } from '../ui/dom.ts';
@@ -210,12 +211,14 @@ export function initPalette(): void {
   new ResizeObserver(updatePaletteFades).observe(paletteMenu());
 
   // Live preview: whatever setting is highlighted (keyboard or mouse) is shown,
-  // or for typing sounds, heard once per highlight.
+  // or for typing sounds and card chimes, heard once per highlight.
   let previewed: PaletteItem | undefined;
   new MutationObserver(() => {
     const item = itemsById.get(paletteMenu().querySelector('[role="menuitem"].active')?.id ?? '');
     if (paletteEl().open && item?.key) applySettings({ ...current.saved, [item.key]: item.value } as Settings);
     if (paletteEl().open && item?.key === 'typingSound' && item !== previewed) previewSound(String(item.value));
+    if (paletteEl().open && (item?.key === 'needsInputSound' || item?.key === 'completedSound') && item !== previewed)
+      previewChime(String(item.value));
     if (paletteEl().open && item?.preview) item.preview();
     previewed = item;
   }).observe(paletteMenu(), { subtree: true, attributes: true, attributeFilter: ['class'] });
