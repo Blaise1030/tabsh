@@ -181,7 +181,11 @@ html.themed {
 #frame { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 #frame[hidden] { display: none; }
 /* Beside the board: a share of the page set by its divider (drawerWidth). */
-#frame.in-drawer { flex: 0 0 calc(var(--drawer-width, .5) * 100%); }
+#frame.in-drawer { flex: 0 0 calc(var(--drawer-width, .5) * 100%); position: relative; }
+#frame.in-drawer::before {
+  content: ''; position: absolute; top: 0; bottom: 0; right: 100%; width: 1.5rem; z-index: 4; pointer-events: none;
+  background: linear-gradient(to right, transparent, color-mix(in srgb, var(--foreground) 7%, transparent));
+}
 /* Too narrow to share: the drawer covers the board. */
 @media (max-width: 799px) {
   #frame.in-drawer { flex-basis: 100%; }
@@ -189,7 +193,7 @@ html.themed {
 }
 .drawer-bar { display: flex; align-items: center; gap: .375rem; padding: .125rem .5rem; }
 .drawer-bar[hidden] { display: none; }
-.drawer-title { flex: 1; min-width: 0; font-size: .8125rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drawer-title { flex: 1; min-width: 0; font-size: 1rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #workspace { flex: 1; min-height: 0; display: flex; position: relative; }
 #main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 #terms { flex: 1; min-width: 0; min-height: 0; position: relative; }
@@ -245,8 +249,8 @@ file-tree-container {
    reads as one canvas. A short pill in the middle marks the drag handle, and
    darkens while it is hovered or dragged. */
 #explorer-divider, #pane-divider, #drawer-divider { flex: 0 0 1px; position: relative; touch-action: none; }
-/* The drawer is a separate surface from the board: its divider is a line. */
-#drawer-divider { background: var(--border); }
+/* No line between the board and its drawer: the board fades into the
+   drawer's edge (#frame.in-drawer::before). */
 #drawer-divider[hidden] { display: none; }
 /* A wider grab area than the divider itself. */
 #explorer-divider::before, #pane-divider::before, #drawer-divider::before {
