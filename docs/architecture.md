@@ -89,10 +89,12 @@ components.
   `van.state`s and the router's steps assign them. States are assigned
   whole (`s.val = next`), never mutated in place. User text goes in as a
   child string or an attribute value, never as markup. Lists go through
-  `keyed()`. Read states inside binding functions (`() => s.val`), never
+  `keyed()`. Code that waits for VanJS to apply a state's DOM update relies
+  on VanJS 1.6 doing it in a microtask queued before its own (`store.activate`,
+  `board.showBoard`, `files/open.ts`'s layout derive, `pane.applied()`, the
+  explorer's `load()`), so `vanjs-core` is pinned to `~1.6.1`. Read states inside binding functions (`() => s.val`), never
   directly in a component body: a direct read renders a value that never
-  updates, and inside `keyed`'s render it also subscribes the list derive
-  once. xterm, CodeMirror and the tree stay in hosts created once.
+  updates. xterm, CodeMirror and the tree stay in hosts created once.
 - **The editor stays lazy:** `files/pane.ts` and `editor.ts` (CodeMirror,
   `marked`) are only reached through `import()`. The daemon test
   `entry_script_does_not_bundle_the_editor` fails if the page's first load

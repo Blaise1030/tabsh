@@ -26,6 +26,7 @@ export function Tab(s: Session, opts: { group?: string; copy?: boolean; grow?: b
   const t = div(
     {
       class: opts.copy ? 'tab mirror' : grow ? 'tab entering' : 'tab',
+      ...(opts.group !== undefined && { 'data-group': opts.group }),
       role: 'tab',
       'aria-selected': () => String(active.val === s),
       title: () => s.name.val,
@@ -61,7 +62,6 @@ export function Tab(s: Session, opts: { group?: string; copy?: boolean; grow?: b
       icons.close(),
     ),
   );
-  if (opts.group !== undefined) t.dataset.group = opts.group;
   // Toggled one by one, so the strip's own classes (dragging, …) stay.
   const mark = (name: string, on: () => boolean) => van.derive(() => t.classList.toggle(name, on()));
   mark('active', () => active.val === s);

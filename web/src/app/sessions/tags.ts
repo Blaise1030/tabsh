@@ -3,7 +3,7 @@
 // shows its tags' colors, and the strip groups tabs by either (groups.ts).
 import van from 'vanjs-core';
 import { daemonFetch } from '../daemon/client.ts';
-import { cleanTag, type Labels, parseTags, repoName, tagColor, toggleTag } from './labels.ts';
+import { cleanTag, type Labels, parseTags, repoName, sameTags, tagColor, toggleTag } from './labels.ts';
 import { onActivate, type Session, store } from './store.ts';
 
 const { div, i, input, label, span } = van.tags;
@@ -32,9 +32,10 @@ export function setTags(s: Session, list: string[]): void {
 
 export const labelsOf = (s: Session): Labels => ({ repo: s.repo.val, tags: s.tags.val });
 
-// Its tags, as stored, reach its tab (and its groups).
-function render(s: Session): void {
-  s.tags.val = storedTags()[s.id] ?? [];
+// Its tags, as stored, reach its tab (and its groups), when they changed.
+function render(s: Session, all = storedTags()): void {
+  const tags = all[s.id] ?? [];
+  if (!sameTags(tags, s.tags.val)) s.tags.val = tags;
 }
 
 // The project root of a tab's shell, once read.
@@ -145,6 +146,12 @@ export function initTabLabels(): void {
     if (menu && !menu.contains(t)) closeMenu();
   });
   addEventListener('keydown', (e) => e.key === 'Escape' && closeMenu());
+  // Tags changed in another window of this browser reach these tabs.
+  addEventListener('storage', (e) => {
+    if (e.key !== TAGS_KEY && e.key !== null) return;
+    const all = storedTags();
+    for (const s of store.sessions) render(s, all);
+  });
   // The active tab's shell may `cd` into another repo: check it on a switch
   // and every few seconds.
   onActivate(() => {

@@ -223,3 +223,24 @@ test('a session a sync opens before its POST answers is one tab and one terminal
   await expect(page.locator('.term.active')).toHaveCount(1);
   await page.unrouteAll({ behavior: 'ignoreErrors' });
 });
+
+// Tags live in this browser: one added in another window shows here too.
+test("a tag added in another window shows on this window's tab", async ({ page, daemon }) => {
+  await openApp(page, daemon);
+  await expect(tabs(page)).toHaveCount(1);
+  const other = await page.context().newPage();
+  try {
+    await openApp(other, daemon);
+    await expect(tabs(other)).toHaveCount(1);
+    await tabs(other).first().click({ button: 'right' });
+    const menu = other.locator('.tab-menu[aria-label="Tab tags"]');
+    await menu.locator('input[aria-label="New tag"]').fill('elsewhere');
+    await other.keyboard.press('Enter');
+    await other.keyboard.press('Escape');
+    await expect(tabs(other).first()).toHaveClass(/tagged/);
+    await expect(tabs(page).first()).toHaveClass(/tagged/);
+  } finally {
+    await other.close();
+    await page.evaluate(() => localStorage.removeItem('tabsh.tags'));
+  }
+});
