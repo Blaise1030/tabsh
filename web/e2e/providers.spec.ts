@@ -45,7 +45,7 @@ test('a provider is added and edited in the palette and offered by New card', as
   await page.locator('#board-btn').click();
   await page.locator('.board-col[data-status="backlog"] header .btn').click();
   const options = page.locator('#new-card select[name="provider"] option');
-  await expect(options).toHaveText(['Claude Code', 'Codex', 'Gemini CLI', 'Aider <b>x</b>']);
+  await expect(options).toHaveText(['Claude Code', 'Codex', 'Gemini CLI', 'OpenCode', 'Aider <b>x</b>']);
   await page.locator('#new-card button[value="cancel"]').click();
 
   await page.request.put(`${daemon.baseUrl}/api/settings`, { headers, data: before });

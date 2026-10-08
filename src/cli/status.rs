@@ -136,23 +136,29 @@ pub(super) fn run(args: &[String], env: &Env, stdin: &mut dyn Read) -> i32 {
 
 fn set(args: &[String], env: &Env, stdin: &mut dyn Read) -> Result<(), String> {
     let p = parse(args)?;
-    let id = env
-        .session
-        .as_deref()
-        .ok_or("not inside a tabsh terminal (TABSH_SESSION_ID is not set)")?;
-    if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
-        return Err(format!("odd TABSH_SESSION_ID '{id}'"));
-    }
     let event = match (p.hook, p.payload.as_deref()) {
         (false, _) => HookEvent::default(),
         (true, Some(json)) => event_of(json),
         (true, None) => read_event(stdin),
     };
-    let note = p.note.or(event.message);
-    let (agent, agent_session) = match (env.agent, event.session) {
-        (Some(agent), Some(session)) => (Some(agent), Some(session)),
-        _ => (None, None),
+    let plain = |s: &str| {
+        !s.is_empty()
+            && s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
     };
+    // Inside a tabsh terminal, its card; else (a hook running in an agent's
+    // server, like OpenCode's plugins) the card whose agent has the
+    // conversation the hook names.
+    let path = match (env.session.as_deref(), event.session.as_deref()) {
+        (Some(id), _) if id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') => {
+            format!("/api/sessions/{id}/status")
+        }
+        (Some(id), _) => return Err(format!("odd TABSH_SESSION_ID '{id}'")),
+        (None, Some(s)) if p.hook && plain(s) => format!("/api/board/agents/{s}/status"),
+        (None, _) => return Err("not inside a tabsh terminal (TABSH_SESSION_ID is not set)".into()),
+    };
+    let note = p.note.or(event.message);
+    let (agent, agent_session) = (env.agent, event.session);
     let body = serde_json::json!({
         "status": p.status,
         "note": note,
@@ -162,7 +168,7 @@ fn set(args: &[String], env: &Env, stdin: &mut dyn Read) -> Result<(), String> {
         "agent_session": agent_session,
     })
     .to_string();
-    match patch(&env.url, env.token.as_deref(), id, &body)? {
+    match patch(&env.url, env.token.as_deref(), &path, &body)? {
         200 => Ok(()),
         404 => Err("this terminal's card no longer exists".into()),
         code => Err(format!("the daemon answered {code}")),
@@ -171,7 +177,7 @@ fn set(args: &[String], env: &Env, stdin: &mut dyn Read) -> Result<(), String> {
 
 /// A one-shot HTTP/1.1 PATCH over a plain socket: the daemon is on loopback
 /// and this keeps the binary free of an HTTP client crate.
-fn patch(url: &str, token: Option<&str>, id: &str, body: &str) -> Result<u16, String> {
+fn patch(url: &str, token: Option<&str>, path: &str, body: &str) -> Result<u16, String> {
     let authority = url
         .strip_prefix("http://")
         .ok_or_else(|| format!("TABSH_URL must start with http:// (got '{url}')"))?
@@ -196,7 +202,7 @@ fn patch(url: &str, token: Option<&str>, id: &str, body: &str) -> Result<u16, St
         .unwrap_or_default();
     write!(
         stream,
-        "PATCH /api/sessions/{id}/status HTTP/1.1\r\nHost: {authority}\r\n{auth}\
+        "PATCH {path} HTTP/1.1\r\nHost: {authority}\r\n{auth}\
          Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     )
@@ -421,5 +427,60 @@ mod tests {
             .unwrap();
         assert_eq!(note.as_deref(), Some("finished"));
         assert_eq!(resume.as_deref(), Some("claude --resume s-1\r"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_hook_outside_a_terminal_finds_its_card_by_conversation() {
+        let st = test_state();
+        let session = crate::board::mint_session();
+        let id = crate::sessions::store::insert_card(
+            &st.db.lock().unwrap(),
+            &crate::sessions::store::NewCard {
+                agent_session: Some(&session),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .id;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let app = router(st.clone());
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+        });
+        let s = session.clone();
+        let (by_hand, hooked) = tokio::task::spawn_blocking(move || {
+            let payload = format!(r#"{{"session_id":"ses_{s}"}}"#);
+            let e = env(None, &url);
+            let by_hand = set(&args("in_progress"), &e, &mut payload.as_bytes());
+            let mut a = args("needs_input --hook --note waiting");
+            a.push(payload);
+            (by_hand, set(&a, &e, &mut &b""[..]))
+        })
+        .await
+        .unwrap();
+        assert!(
+            by_hand.is_err(),
+            "only a hook names its card by conversation"
+        );
+        assert_eq!(hooked, Ok(()));
+        let (status, note): (String, Option<String>) = st
+            .db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT status, note FROM sessions WHERE id = ?1",
+                [&id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            (status.as_str(), note.as_deref()),
+            ("needs_input", Some("waiting"))
+        );
     }
 }

@@ -28,8 +28,9 @@ Do not use a single quote (') inside a note; escape it as needed by your shell i
 1. **Find your mechanism.** Identify your own hook or notification system and its config file
    (for example Claude Code: `~/.claude/settings.json` hooks `UserPromptSubmit`, `Notification`,
    `Stop`; Gemini CLI: `~/.gemini/settings.json` hooks `BeforeAgent`, `Notification`,
-   `AfterAgent`; Codex: `notify` in `~/.codex/config.toml`). Check your current documentation
-   rather than trusting these examples.
+   `AfterAgent`; Codex: `notify` in `~/.codex/config.toml`; OpenCode: a plugin, see
+   [OpenCode](#opencode) below). Check your current documentation rather than trusting these
+   examples.
 2. **Back up** that config file next to itself with a `.bak` suffix before changing it.
 3. **Merge, never replace.** Add one entry per row of the contract that you have an event for.
    Keep every existing hook. If an entry whose command contains ` status ` and `--hook` and the
@@ -52,3 +53,53 @@ Do not use a single quote (') inside a note; escape it as needed by your shell i
    whose command contains ` status ` and `--hook` and the word `tabsh`, and the instruction from
    step 5. If the `{tabsh}` path above isn't the installed binary (for example it's under a
    `target/` build folder), tell the user, because hooks would point at it.
+
+## OpenCode
+
+OpenCode runs plugins in its server, not in the terminal, so they never see `TABSH_SESSION_ID`.
+Instead, tabsh names each card's OpenCode session (`opencode --session ses_<id>`), and a hook
+without `TABSH_SESSION_ID` finds its card by the `session_id` in its payload. Steps 2 to 7 still
+apply; for step 3, the plugin below is the whole wiring.
+
+OpenCode 2.x loads `~/.config/opencode/plugins/tabsh.ts` (create it, or update it if it is
+already there). Its default export must be an object with an `id` and a `setup` function; the old
+1.x shape (an exported function returning hooks) no longer loads. Write exactly this:
+
+```ts
+// Keeps the tabsh board current: tabsh status, by OpenCode session.
+import { execFile } from "node:child_process"
+
+const tabsh = {tabsh_js}
+// Not this server's terminal's card (when it was started in one): each
+// session's own, found by its id.
+const { TABSH_SESSION_ID: _, ...inherited } = process.env
+const env = { ...inherited, TABSH_URL: {url_js} }
+
+function status(sessionID: string, ...args: string[]) {
+  const event = JSON.stringify({ session_id: sessionID })
+  execFile(tabsh, ["status", ...args, "--hook", event], { env }, () => {})
+}
+
+export default {
+  id: "tabsh.board",
+  setup: async (ctx: any) => {
+    const stop = new AbortController()
+    void (async () => {
+      for await (const e of ctx.event.subscribe(undefined, { signal: stop.signal })) {
+        const id = e?.data?.sessionID
+        if (typeof id !== "string") continue
+        if (e.type === "session.execution.started") status(id, "in_progress")
+        else if (e.type === "permission.asked")
+          status(id, "needs_input", "--if-not", "completed", "--note", "OpenCode needs your permission")
+        else if (e.type.startsWith("session.execution."))
+          status(id, "needs_input", "--if-not", "completed", "--note", "Agent finished its turn")
+      }
+    })().catch(() => {})
+    return () => stop.abort()
+  },
+}
+```
+
+It reports every OpenCode session; tabsh ignores the ones that aren't its cards. To undo it,
+delete that file.
+

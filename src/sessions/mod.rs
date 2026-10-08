@@ -195,12 +195,20 @@ async fn create_session(
         .map(|p| p.replace('\0', ""))
         .map(|p| p.trim().to_owned())
         .filter(|p| !p.is_empty());
+    let command = body
+        .command
+        .as_deref()
+        .unwrap_or(crate::board::DEFAULT_COMMAND);
+    // `{session}` in the command: tabsh names the agent's conversation, so
+    // it can be resumed (and its hooks found) without the agent saying so.
+    let agent_session =
+        (prompt.is_some() && command.contains("{session}")).then(crate::board::mint_session);
     let pending = prompt.as_ref().map(|_| {
-        crate::board::launch_line(
-            body.command
-                .as_deref()
-                .unwrap_or(crate::board::DEFAULT_COMMAND),
-        )
+        let line = crate::board::launch_line(command);
+        match &agent_session {
+            Some(s) => line.replace("{session}", s),
+            None => line,
+        }
     });
     // Without a name, a card is titled by its prompt; the title isn't
     // pinned, so the agent's terminal title can replace it.
@@ -212,6 +220,9 @@ async fn create_session(
         .and(body.resume.as_deref())
         .map(crate::board::one_line)
         .filter(|r| !r.is_empty());
+    let resume_input = agent_session
+        .as_deref()
+        .and_then(|s| crate::board::resume_line(resume.as_deref(), None, Some(s)));
     let card = store::NewCard {
         cwd: body.cwd.as_deref(),
         name: name.as_deref(),
@@ -221,6 +232,8 @@ async fn create_session(
         prompt: prompt.as_deref(),
         pinned,
         resume: resume.as_deref(),
+        agent_session: agent_session.as_deref(),
+        resume_input: resume_input.as_deref(),
     };
     let db = st.db.lock().unwrap();
     store::insert_card(&db, &card)
@@ -454,6 +467,54 @@ mod tests {
         let (_, body) = create(&st, serde_json::json!({"prompt": "Fix login\nmore"})).await;
         assert_eq!(body["name"], "Fix login");
         assert_eq!(body["pinned"], false);
+    }
+
+    fn column(st: &AppState, id: &serde_json::Value, col: &str) -> Option<String> {
+        st.db
+            .lock()
+            .unwrap()
+            .query_row(
+                &format!("SELECT {col} FROM sessions WHERE id = ?1"),
+                [id.as_str().unwrap()],
+                |r| r.get(0),
+            )
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_session_in_the_command_is_named_by_tabsh_and_resumable_at_once() {
+        let st = test_state();
+        let (_, body) = create(
+            &st,
+            serde_json::json!({
+                "prompt": "go",
+                "command": "opencode --session ses_{session} --prompt {prompt}",
+                "resume": "opencode --session ses_{session}",
+            }),
+        )
+        .await;
+        let session = column(&st, &body["id"], "agent_session").unwrap();
+        assert_eq!(session.len(), 36);
+        assert!(session.chars().all(|c| c.is_ascii_hexdigit() || c == '-'));
+        assert_eq!(
+            pending(&st, &body["id"]),
+            Some(format!(
+                "opencode --session ses_{session} --prompt \"$TABSH_PROMPT\"\r"
+            ))
+        );
+        assert_eq!(
+            column(&st, &body["id"], "resume_input"),
+            Some(format!("opencode --session ses_{session}\r"))
+        );
+        let (_, other) = create(
+            &st,
+            serde_json::json!({"prompt": "go", "command": "x --session {session}"}),
+        )
+        .await;
+        assert_ne!(column(&st, &other["id"], "agent_session"), Some(session));
+        let (_, plain) = create(&st, serde_json::json!({"prompt": "go"})).await;
+        assert_eq!(column(&st, &plain["id"], "agent_session"), None);
+        assert_eq!(column(&st, &plain["id"], "resume_input"), None);
     }
 
     #[tokio::test]

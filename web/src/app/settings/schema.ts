@@ -11,7 +11,8 @@ export type TabGrouping = (typeof TAB_GROUPINGS)[number];
 
 // A coding agent the New card dialog starts: `command` with `{prompt}` for
 // the card's first prompt, and `resume`, typed after tabsh restarts, with
-// `{session}` for the conversation its hooks reported ('' for none).
+// `{session}` for the conversation ('' for none). `{session}` in `command`
+// too means tabsh names the conversation, so it resumes without hooks.
 export interface Provider {
   name: string;
   command: string;
@@ -22,6 +23,12 @@ export const DEFAULT_PROVIDERS: Provider[] = [
   { name: 'Claude Code', command: 'claude {prompt}', resume: 'claude --resume {session}' },
   { name: 'Codex', command: 'codex {prompt}', resume: 'codex resume {session}' },
   { name: 'Gemini CLI', command: 'gemini -i {prompt}', resume: 'gemini --resume {session}' },
+  // OpenCode takes a new session's id from `--session` if it starts with `ses`.
+  {
+    name: 'OpenCode',
+    command: 'opencode --session ses_{session} --prompt {prompt}',
+    resume: 'opencode --session ses_{session}',
+  },
 ];
 
 export const MAX_PROVIDERS = 12;
