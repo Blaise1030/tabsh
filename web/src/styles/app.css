@@ -185,6 +185,8 @@ html.themed {
 #frame.in-drawer::before {
   content: ''; position: absolute; top: 0; bottom: 0; right: 100%; width: .75rem; z-index: 4; pointer-events: none;
   background: linear-gradient(to right, transparent, color-mix(in srgb, var(--foreground) 5%, transparent));
+  /* It fades in from the top, so it doesn't meet the tab bar at a hard corner. */
+  mask-image: linear-gradient(to bottom, transparent, #000 2rem);
 }
 /* Too narrow to share: the drawer covers the board. */
 @media (max-width: 799px) {
