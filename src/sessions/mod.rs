@@ -17,7 +17,15 @@ use modes::ModeTracker;
 use portable_pty::{ChildKiller, MasterPty};
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
-use std::{collections::VecDeque, path::PathBuf, sync::Mutex, time::Duration};
+use std::{
+    collections::VecDeque,
+    path::PathBuf,
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 #[cfg(test)]
 use store::insert_session;
 use tokio::sync::broadcast;
@@ -80,6 +88,29 @@ pub(crate) fn launch(st: &AppState, id: &str) {
     }
 }
 
+/// Replaces a card's shell with a fresh one. The first prompt rides in the
+/// shell's environment from its start, so an edited prompt needs a new shell:
+/// the old one is killed with its screen saved, and the next tab to attach
+/// spawns the replacement (in the saved cwd, with the scrollback replayed).
+pub(crate) fn restart(st: &AppState, id: &str) {
+    let Some(session) = st.live.lock().unwrap().remove(id) else {
+        return;
+    };
+    let scrollback: Vec<u8> = {
+        let out = session.output.lock().unwrap();
+        out.scrollback.iter().copied().collect()
+    };
+    let cwd = session.pid.and_then(pty::process_cwd);
+    if let Err(e) = st.db.lock().unwrap().execute(
+        "UPDATE sessions SET scrollback = ?1, cwd = COALESCE(?2, cwd) WHERE id = ?3",
+        params![scrollback, cwd, id],
+    ) {
+        eprintln!("failed to save session {id}: {e}");
+    }
+    session.restarting.store(true, Ordering::SeqCst);
+    let _ = session.killer.lock().unwrap().kill();
+}
+
 /// Running shells and all sessions, for the About dialog.
 pub(crate) fn counts(st: &AppState) -> rusqlite::Result<(usize, i64)> {
     let running = st.live.lock().unwrap().len();
@@ -100,6 +131,9 @@ pub(crate) const FLUSH_INTERVAL: Duration = Duration::from_secs(2);
 enum Event {
     Output(Bytes),
     Exit,
+    /// This shell was replaced (`restart`): the session stays; its tabs are
+    /// told to reattach to the replacement.
+    Restart,
 }
 
 /// A shell running in a PTY. It outlives any single WebSocket so a browser
@@ -109,6 +143,9 @@ pub(crate) struct Session {
     input: std::sync::mpsc::Sender<Bytes>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     pid: Option<u32>,
+    /// Set before `restart` kills this shell: its end keeps the session (the
+    /// replacement carries on) instead of deleting it.
+    restarting: AtomicBool,
     // Scrollback and broadcast are updated under one lock so a new subscriber
     // sees every byte exactly once: replayed history, then live output.
     output: Mutex<Output>,
@@ -135,6 +172,13 @@ pub(crate) struct SessionInfo {
     pub(crate) cwd: Option<String>,
     /// A name the user chose: shell titles don't replace it.
     pub(crate) pinned: bool,
+    /// The card's first prompt, while it waits in Backlog for its drag.
+    pub(crate) pending_prompt: Option<String>,
+    /// The launch template that prompt runs (its provider's), for an edit.
+    pub(crate) pending_command: Option<String>,
+    /// The agent it runs, by its launch template or else its resume command,
+    /// so the board can show which one.
+    pub(crate) agent_command: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -189,12 +233,7 @@ async fn create_session(
         .name
         .map(|n| n.trim().chars().take(100).collect::<String>())
         .filter(|n| !n.is_empty());
-    let prompt: Option<String> = body
-        .prompt
-        .as_deref()
-        .map(|p| p.replace('\0', ""))
-        .map(|p| p.trim().to_owned())
-        .filter(|p| !p.is_empty());
+    let prompt = body.prompt.as_deref().and_then(crate::board::clean_prompt);
     let command = body
         .command
         .as_deref()
@@ -230,6 +269,7 @@ async fn create_session(
         status: "backlog",
         pending: pending.as_deref(),
         prompt: prompt.as_deref(),
+        command: prompt.as_ref().map(|_| command.trim()),
         pinned,
         resume: resume.as_deref(),
         agent_session: agent_session.as_deref(),
@@ -348,6 +388,18 @@ mod tests {
             .unwrap()
     }
 
+    fn command(st: &AppState, id: &serde_json::Value) -> Option<String> {
+        st.db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT pending_command FROM sessions WHERE id = ?1",
+                [id.as_str().unwrap()],
+                |r| r.get(0),
+            )
+            .unwrap()
+    }
+
     #[tokio::test]
     async fn a_card_with_a_prompt_waits_in_backlog_with_its_agent_pending() {
         let st = test_state();
@@ -366,6 +418,11 @@ mod tests {
             Some("claude \"$TABSH_PROMPT\"\r")
         );
         assert_eq!(prompt(&st, &body["id"]).as_deref(), Some("fix it"));
+        assert_eq!(
+            command(&st, &body["id"]).as_deref(),
+            Some("claude {prompt}"),
+            "the default agent is remembered for an edit"
+        );
         let (_, body) = create(
             &st,
             serde_json::json!({"prompt": "hi", "command": "gemini -i {prompt}"}),
@@ -374,6 +431,10 @@ mod tests {
         assert_eq!(
             pending(&st, &body["id"]).as_deref(),
             Some("gemini -i \"$TABSH_PROMPT\"\r")
+        );
+        assert_eq!(
+            command(&st, &body["id"]).as_deref(),
+            Some("gemini -i {prompt}")
         );
     }
 

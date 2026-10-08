@@ -161,7 +161,7 @@ pub(super) fn type_launch_line(st: &AppState, id: &str, session: &Session) {
         .flatten();
     let Some(line) = line else { return };
     if let Err(e) = db.execute(
-        "UPDATE sessions SET pending_input = NULL, pending_prompt = NULL WHERE id = ?1",
+        "UPDATE sessions SET pending_input = NULL, pending_prompt = NULL, pending_command = NULL WHERE id = ?1",
         params![id],
     ) {
         eprintln!("failed to clear pending input of {id}: {e}");
@@ -222,6 +222,7 @@ fn spawn_session(
         input,
         killer: Mutex::new(child.clone_killer()),
         pid: child.process_id(),
+        restarting: AtomicBool::new(false),
         output: Mutex::new(Output {
             scrollback,
             trimmed_modes: ModeTracker::default(),
@@ -250,11 +251,29 @@ fn spawn_session(
         if SHUTTING_DOWN.load(Ordering::SeqCst) {
             return;
         }
+        // A restart swapped this shell out (its card's first prompt changed):
+        // the session stays for its replacement, and its tabs reattach to it
+        // instead of closing.
+        let restarting = s.restarting.load(Ordering::SeqCst);
         let mut out = s.output.lock().unwrap();
         out.exited = true;
-        let _ = out.tx.send(Event::Exit);
+        let _ = out.tx.send(if restarting {
+            Event::Restart
+        } else {
+            Event::Exit
+        });
         drop(out);
-        st.live.lock().unwrap().remove(&id);
+        // A replacement may already be running under this id: forget only
+        // this session.
+        {
+            let mut live = st.live.lock().unwrap();
+            if live.get(&id).is_some_and(|x| Arc::ptr_eq(x, &s)) {
+                live.remove(&id);
+            }
+        }
+        if restarting {
+            return;
+        }
         if let Err(e) = st
             .db
             .lock()
@@ -329,6 +348,43 @@ mod tests {
         crate::sessions::launch(&st, &id);
         assert_eq!(pending(&st, &id), None, "typed once");
         let _ = session.killer.lock().unwrap().kill();
+    }
+
+    #[test]
+    fn a_restart_swaps_the_shell_but_keeps_the_card_and_its_pending_prompt() {
+        let st = test_state();
+        let id = crate::sessions::store::insert_card(
+            &st.db.lock().unwrap(),
+            &crate::sessions::store::NewCard {
+                pending: Some("true\r"),
+                prompt: Some("go"),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .id;
+        let first = get_or_spawn(&st, &id).unwrap().unwrap();
+        crate::sessions::restart(&st, &id);
+        let second = get_or_spawn(&st, &id).unwrap().unwrap();
+        assert!(
+            !Arc::ptr_eq(&first, &second),
+            "the next attach gets a fresh shell"
+        );
+        assert_eq!(
+            pending(&st, &id).as_deref(),
+            Some("true\r"),
+            "still waiting for the drag to In progress"
+        );
+        let alive: i64 = st
+            .db
+            .lock()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM sessions WHERE id = ?1", [&id], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(alive, 1, "the card survives its shell");
+        let _ = second.killer.lock().unwrap().kill();
     }
 
     #[test]

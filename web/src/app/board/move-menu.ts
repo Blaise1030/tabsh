@@ -2,7 +2,8 @@
 // and moves through it by keyboard): a card's ⋯ button on the board, or the
 // status's name in the drawer's bar, lists the stages to move it to (the
 // current one checked, and not picked again), its Tags (a submenu,
-// tags-submenu.ts), then Archive (Restore, for an archived card) and Delete
+// tags-submenu.ts), Edit for a Backlog card still waiting on its prompt
+// (in the New card dialog), then Archive (Restore, for an archived card) and Delete
 // session.
 // Open, its popover is fixed under the button, so a column that scrolls
 // doesn't clip it.
@@ -18,6 +19,12 @@ const { button, div, hr, i, span } = van.tags;
 
 // Basecoat's root, and this file's own: placing its fixed popover again.
 type Dropdown = HTMLElement & { close?: (focusOnTrigger?: boolean) => void; place?: () => void };
+
+// Opens the New card dialog on a card, to edit it (set by new-card.ts).
+let editCard: (s: Session) => void = () => {};
+export function setEditCard(fn: (s: Session) => void): void {
+  editCard = fn;
+}
 
 const statusGlyph = (status: Status) => i({ class: 'status-glyph', 'data-status': status }, glyph(status));
 
@@ -56,6 +63,14 @@ function MoveMenu(s: () => Session | null, trigger: Record<string, string>, ...f
       div({ role: 'group', 'aria-label': 'Move to' }, div({ role: 'heading' }, 'Move to'), stages),
       hr({ role: 'separator' }),
       tags.row,
+      // Its prompt can change until it starts.
+      () => {
+        const session = s();
+        const card = session?.card.val;
+        return session && card?.status === 'backlog' && card.prompt
+          ? div({ role: 'menuitem', onclick: () => editCard(session) }, icons.edit(), span('Edit card'))
+          : span({ hidden: true });
+      },
       hr({ role: 'separator' }),
       // Archive, or for an archived card, Restore (to Backlog).
       div(

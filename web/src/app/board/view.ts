@@ -11,7 +11,7 @@ import { orderTabs } from '../sessions/tabs.ts';
 import { onTagsChange, tagBadge } from '../sessions/tags.ts';
 import { matchesKey } from '../settings/keys.ts';
 import { current, keyHint, onSaved, saveSetting } from '../settings/settings.ts';
-import { glyph, icons } from '../ui/icons.ts';
+import { glyph, icons, providerIcon } from '../ui/icons.ts';
 import { keyed } from '../ui/keyed.ts';
 import {
   COLUMNS,
@@ -183,6 +183,22 @@ function updateBoardFades(): void {
   el.classList.toggle('fade-right', el.scrollLeft < end - 1);
 }
 
+// Fade a column's top or bottom while cards are scrolled out past it.
+function updateListFades(list: Element): void {
+  const end = list.scrollHeight - list.clientHeight;
+  list.classList.toggle('fade-top', list.scrollTop > 1);
+  list.classList.toggle('fade-bottom', list.scrollTop < end - 1);
+}
+
+// A list or one of its cards changing size (the window, Show more) moves
+// what's out of view.
+const listSized = new ResizeObserver((entries) => {
+  for (const e of entries) {
+    const list = e.target.closest('.board-cards');
+    if (list) updateListFades(list);
+  }
+});
+
 const resized = new ResizeObserver(() => {
   updateBoardFades();
   for (const c of board().querySelectorAll('.board-card')) measures.get(c)?.();
@@ -248,7 +264,14 @@ function Card(s: Session): HTMLElement {
             () => (open.val ? 'Show less' : 'Show more'),
           )
         : '',
-    div({ class: 'card-meta' }, () => since(s.card.val.statusAt, now.val)),
+    div(
+      { class: 'card-meta' },
+      () => {
+        const agent = s.card.val.agent;
+        return agent ? span({ class: 'card-agent', title: agent }, providerIcon(agent)()) : '';
+      },
+      () => since(s.card.val.statusAt, now.val),
+    ),
   );
   // A clamped box reports no overflow in scrollHeight, so this compares its
   // text's height with the clamp lifted. Hidden (height 0), nothing is cut.
@@ -343,6 +366,17 @@ function Column(status: Status, name: string, columns: State<Columns>): HTMLElem
     (s) => s.id,
     (s) => Card(s),
   );
+  list.addEventListener('scroll', () => updateListFades(list), { passive: true });
+  listSized.observe(list);
+  // Cards coming and going change the list's height without resizing it.
+  new MutationObserver((changes) => {
+    for (const c of changes) {
+      for (const n of c.addedNodes) if (n instanceof Element) listSized.observe(n);
+      for (const n of c.removedNodes) if (n instanceof Element) listSized.unobserve(n);
+    }
+    updateListFades(list);
+  }).observe(list, { childList: true });
+  for (const c of list.children) listSized.observe(c);
   const col: HTMLElement = section(
     {
       class: 'board-col',

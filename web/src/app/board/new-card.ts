@@ -11,20 +11,25 @@
 // board stays open and the card goes on top of its column. In Backlog it waits, and its agent starts when it's dragged to In progress; in
 // In progress, its agent starts at once. With Create more on, the dialog
 // stays open for the next card. The card is titled by its prompt until its
-// terminal gives it a title.
+// terminal gives it a title. A Backlog card still waiting on its prompt
+// opens here too, to edit (its card menu's Edit): its prompt, agent and tags,
+// in the folder and column it has.
 import van, { type State } from 'vanjs-core';
-import { ApiError, uploadFile } from '../daemon/client.ts';
+import { ApiError, api, uploadFile } from '../daemon/client.ts';
 import { newTabGroup } from '../sessions/groups.ts';
 import { addTag } from '../sessions/labels.ts';
-import { openTab, type Session, store } from '../sessions/store.ts';
+import { openTab, type Session, type SessionInfo, store } from '../sessions/store.ts';
+import { setName } from '../sessions/tabs.ts';
 import { setTags, tagBadge } from '../sessions/tags.ts';
 import { current, saveSetting } from '../settings/settings.ts';
 import { isMac } from '../ui/dom.ts';
-import { glyph, icons } from '../ui/icons.ts';
+import { glyph, icons, providerIcon } from '../ui/icons.ts';
 import { keyed } from '../ui/keyed.ts';
 import { type FolderPicker, initFolderPicker } from './folder-picker.ts';
 import { STATUS_NAMES } from './glyph.ts';
 import { recentFolders, type Status, withImages } from './model.ts';
+import { setEditCard } from './move-menu.ts';
+import { applyCard, cardOf } from './status.ts';
 import { TagsPanel } from './tags-submenu.ts';
 import { moveToTop, setNewCard } from './view.ts';
 
@@ -54,6 +59,9 @@ const busy = van.state(false); // creating: uploads and the card
 // What the Folder and Tags chips show.
 const folderText = van.state('');
 const pickedTags: State<string[]> = van.state([]);
+// The card being edited (null: a new one), and the agent it had.
+const editing: State<Session | null> = van.state(null);
+let editedProvider = '';
 
 // The home folder as seen in other cards' paths, until the folder search
 // hears the daemon's.
@@ -79,6 +87,7 @@ function clearImages(): void {
 }
 
 export function openNewCard(status: Status): void {
+  editing.val = null;
   start.val = status === 'backlog' ? 'backlog' : 'in_progress';
   formEl.reset();
   error.val = null;
@@ -99,9 +108,68 @@ export function openNewCard(status: Status): void {
   promptEl.focus();
 }
 
+// A Backlog card that hasn't started: its prompt, agent and tags.
+export function openEditCard(s: Session): void {
+  editing.val = s;
+  formEl.reset();
+  error.val = null;
+  busy.val = false;
+  clearImages();
+  folderText.val = s.card.val.cwd ?? '~';
+  providers.val = current.saved.providers.map((p) => p.name);
+  // Its agent, when it's still one of the providers.
+  editedProvider = current.saved.providers.find((p) => p.command === s.card.val.command)?.name ?? '';
+  provider.val = editedProvider;
+  pickedTags.val = [...s.tags.val];
+  tagsPanel.field.value = '';
+  promptEl.value = s.card.val.prompt ?? '';
+  host.showModal();
+  promptEl.focus();
+}
+
+async function save(s: Session): Promise<void> {
+  const picked = addTag(pickedTags.val, tagsPanel.field.value);
+  const chosen = provider.val === editedProvider ? null : current.saved.providers.find((p) => p.name === provider.val);
+  busy.val = true;
+  error.val = null;
+  let info: SessionInfo | null;
+  try {
+    let paths: string[];
+    try {
+      paths = await Promise.all(images.val.map((x) => uploadFile(x.file)));
+    } catch {
+      error.val = "Couldn't attach the images";
+      return;
+    }
+    const prompt = withImages(promptEl.value.trim(), paths);
+    try {
+      // Without a command, the card keeps its agent.
+      info = await api<SessionInfo>('PATCH', `/${s.id}/prompt`, {
+        prompt,
+        ...(chosen && { command: chosen.command, resume: chosen.resume }),
+      });
+    } catch (err) {
+      // 409: it left Backlog, so its agent already has the prompt.
+      const started = err instanceof ApiError && err.status === 409;
+      error.val = started ? 'This card has already started' : "Couldn't save the card";
+      return;
+    }
+  } finally {
+    busy.val = false;
+  }
+  if (info) {
+    setName(s, info.name, false);
+    applyCard(s, cardOf(info));
+  }
+  setTags(s, picked);
+  if (chosen) saveSetting('agentProvider', chosen.name);
+  host.close();
+}
+
 async function submit(e: Event): Promise<void> {
   e.preventDefault();
   if (busy.val) return;
+  if (editing.val) return save(editing.val);
   const data = new FormData(formEl);
   const cwd = folder.value();
   const saved = current.saved.providers;
@@ -319,7 +387,7 @@ export function NewCard(): HTMLDialogElement {
   promptEl = textarea({
     class: 'nc-prompt',
     name: 'prompt',
-    rows: 3,
+    rows: 2,
     required: true,
     'aria-label': 'First prompt',
     placeholder: 'What should the agent do?',
@@ -370,16 +438,24 @@ export function NewCard(): HTMLDialogElement {
     { method: 'dialog', id: 'new-card-form', onsubmit: submit },
     header(
       { class: 'nc-head' },
-      h2({ id: 'new-card-title', class: 'sr-only' }, 'New card'),
+      h2({ id: 'new-card-title', class: 'sr-only' }, () => (editing.val ? 'Edit card' : 'New card')),
       div(
         { class: 'nc-crumbs' },
-        folderChip.node,
+        // An edited card stays in its folder.
+        () =>
+          editing.val
+            ? span(
+                { class: 'nc-chip nc-fixed', title: folderText.val },
+                icons.folder(),
+                span({ class: 'nc-value' }, folderText.val),
+              )
+            : folderChip.node,
         span({ class: 'nc-sep', 'aria-hidden': 'true' }, icons.chevronRight()),
         ChipMenu(
           'Agent',
           () => providers.val,
           provider,
-          (v) => named(icons.agent, v || 'Agent'),
+          (v) => named(providerIcon(current.saved.providers.find((p) => p.name === v)?.command ?? ''), v || 'Agent'),
         ),
       ),
       div(
@@ -415,11 +491,15 @@ export function NewCard(): HTMLDialogElement {
     section({ class: 'nc-body' }, promptEl, thumbs),
     div(
       { class: 'nc-props' },
-      ChipMenu<Start>(
-        'Column',
-        () => ['backlog', 'in_progress'],
-        start,
-        (v) => named(() => glyph(v), STATUS_NAMES[v]),
+      // An edited card stays in Backlog.
+      span(
+        { class: 'nc-column', hidden: () => !!editing.val },
+        ChipMenu<Start>(
+          'Column',
+          () => ['backlog', 'in_progress'],
+          start,
+          (v) => named(() => glyph(v), STATUS_NAMES[v]),
+        ),
       ),
       tagsChip.node,
     ),
@@ -440,12 +520,12 @@ export function NewCard(): HTMLDialogElement {
       ),
       files,
       label(
-        { class: 'nc-more' },
+        { class: 'nc-more', hidden: () => !!editing.val },
         input({ type: 'checkbox', role: 'switch', class: 'input', name: 'more' }),
         'Create more',
       ),
       button({ type: 'submit', class: 'btn', disabled: () => busy.val }, () =>
-        busy.val ? 'Creating…' : 'Create card',
+        editing.val ? (busy.val ? 'Saving…' : 'Save') : busy.val ? 'Creating…' : 'Create card',
       ),
     ),
     div({ class: 'nc-drop', 'aria-hidden': 'true' }, icons.paperclip(), span('Drop images to attach')),
@@ -502,5 +582,6 @@ export function NewCard(): HTMLDialogElement {
     folderChip.close();
   });
   setNewCard(openNewCard);
+  setEditCard(openEditCard);
   return host;
 }

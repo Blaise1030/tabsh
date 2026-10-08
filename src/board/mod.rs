@@ -47,6 +47,13 @@ pub(crate) fn launch_line(command: &str) -> String {
 
 const PROMPT_ARG: &str = "\"$TABSH_PROMPT\"";
 
+/// A first prompt as stored: no NUL bytes, trimmed, and `None` when blank.
+pub(crate) fn clean_prompt(raw: &str) -> Option<String> {
+    let p = raw.replace('\0', "");
+    let p = p.trim();
+    (!p.is_empty()).then(|| p.to_owned())
+}
+
 /// A card's title made from its prompt: the first line with text, its
 /// whitespace collapsed and control characters dropped, cut at
 /// `PROMPT_TITLE_CHARS` with an ellipsis. `None` when nothing is left.
@@ -151,6 +158,7 @@ pub(crate) struct BoardEvent {
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/sessions/{id}/status", patch(set_status))
+        .route("/api/sessions/{id}/prompt", patch(set_prompt))
         .route(
             "/api/board/agents/{session}/status",
             patch(set_agent_status),
@@ -304,6 +312,121 @@ pub(crate) const STATUSES: [&str; 5] = [
     "archived",
 ];
 
+/// What `set_prompt` reads of a card: its status, the line its drag types,
+/// that line's launch template, its agent's conversation, and whether its
+/// name was chosen.
+type BacklogCard = (String, Option<String>, Option<String>, Option<String>, bool);
+
+#[derive(Deserialize)]
+struct SetPrompt {
+    prompt: String,
+    /// A provider picked again: its launch template, and how its
+    /// conversation resumes. `None` keeps the card's agent.
+    command: Option<String>,
+    resume: Option<String>,
+}
+
+/// A Backlog card's first prompt: the card hasn't started its agent, so the
+/// prompt — and the provider that runs it — can still change. The prompt
+/// rides in the shell's environment from its start, so a running shell is
+/// swapped for a fresh one that carries the new prompt.
+async fn set_prompt(
+    State(st): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<SetPrompt>,
+) -> Result<Json<SessionInfo>, StatusCode> {
+    let prompt = clean_prompt(&body.prompt);
+    let command = body
+        .command
+        .as_deref()
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+        .map(str::to_owned);
+    let db = st.db.lock().unwrap();
+    let card: Option<BacklogCard> = db
+        .query_row(
+            "SELECT status, pending_input, pending_command, agent_session, pinned
+             FROM sessions WHERE id = ?1",
+            params![id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        )
+        .optional()
+        .map_err(internal_error)?;
+    let Some((status, line, stored_command, agent_session, pinned)) = card else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+    // Any other column means the card already started: its agent has the
+    // prompt. Backlog is also the one column a drag can still start it from.
+    if status != "backlog" {
+        return Err(StatusCode::CONFLICT);
+    }
+    // A card with a prompt is titled by it (`prompt_title`, as on creation)
+    // until its terminal gives it a title; an unpinned title follows the edit.
+    let name = match (&prompt, pinned) {
+        (Some(p), false) => prompt_title(p),
+        _ => None,
+    };
+    let updated = match (&prompt, &command) {
+        // No prompt left: a plain backlog shell again.
+        (None, _) => db.execute(
+            "UPDATE sessions SET pending_input = NULL, pending_prompt = NULL, pending_command = NULL,
+                 name = COALESCE(?2, name)
+             WHERE id = ?1",
+            params![id, name],
+        ),
+        // The card keeps its agent; a plain card gains the default one.
+        (Some(_), None) => {
+            let line = line.unwrap_or_else(|| launch_line(DEFAULT_COMMAND));
+            let command = stored_command.unwrap_or_else(|| DEFAULT_COMMAND.to_owned());
+            db.execute(
+                "UPDATE sessions SET pending_input = ?2, pending_prompt = ?3, pending_command = ?4,
+                     name = COALESCE(?5, name)
+                 WHERE id = ?1",
+                params![id, line, prompt, command, name],
+            )
+        }
+        // A provider picked again: rebuild its launch line, and how its
+        // conversation resumes, as New card does.
+        (Some(_), Some(c)) => {
+            // The conversation the card named stays named; `{session}` mints
+            // one when the card has none.
+            let session = c.contains("{session}").then(|| {
+                agent_session
+                    .clone()
+                    .unwrap_or_else(mint_session)
+            });
+            let line = launch_line(c);
+            let line = session
+                .as_ref()
+                .map(|s| line.replace("{session}", s))
+                .unwrap_or(line);
+            let resume = body
+                .resume
+                .as_deref()
+                .map(one_line)
+                .filter(|r| !r.is_empty());
+            let resume_input = session
+                .as_deref()
+                .and_then(|s| resume_line(resume.as_deref(), None, Some(s)));
+            db.execute(
+                "UPDATE sessions SET pending_input = ?2, pending_prompt = ?3, pending_command = ?4,
+                     resume_command = ?5, agent_session = COALESCE(?6, agent_session), resume_input = ?7,
+                     name = COALESCE(?8, name)
+                 WHERE id = ?1",
+                params![id, line, prompt, c, resume, session, resume_input, name],
+            )
+        }
+    };
+    updated.map_err(internal_error)?;
+    let info = store::info(&db, &id)
+        .map_err(internal_error)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    drop(db);
+    // The old shell was spawned with the old prompt in its environment.
+    crate::sessions::restart(&st, &id);
+    Ok(Json(info))
+}
+
 /// Adds the card columns to a `sessions` table that lacks them. SQLite can't
 /// add a column with a non-constant default, so `status_at` starts at 0 and
 /// is set to now for those rows.
@@ -329,6 +452,10 @@ pub(crate) fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         (
             "pending_prompt",
             "ALTER TABLE sessions ADD COLUMN pending_prompt TEXT",
+        ),
+        (
+            "pending_command",
+            "ALTER TABLE sessions ADD COLUMN pending_command TEXT",
         ),
         (
             "pinned",
@@ -370,9 +497,24 @@ mod tests {
         id: &str,
         body: serde_json::Value,
     ) -> (StatusCode, serde_json::Value) {
+        req(
+            st,
+            Method::PATCH,
+            &format!("/api/sessions/{id}/status"),
+            body,
+        )
+        .await
+    }
+
+    async fn req(
+        st: &AppState,
+        method: Method,
+        uri: &str,
+        body: serde_json::Value,
+    ) -> (StatusCode, serde_json::Value) {
         let req = Request::builder()
-            .method(Method::PATCH)
-            .uri(format!("/api/sessions/{id}/status"))
+            .method(method)
+            .uri(uri)
             .header("Host", "127.0.0.1:7681")
             .header("Authorization", "Bearer t0k3n")
             .header("Content-Type", "application/json")
@@ -499,6 +641,169 @@ mod tests {
             body["note"],
             serde_json::Value::Null,
             "a change without a note clears it"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_backlog_card_can_change_its_first_prompt_and_its_agent() {
+        let st = test_state();
+        let typed = launch_line("gemini -i {prompt}");
+        let id = crate::sessions::store::insert_card(
+            &st.db.lock().unwrap(),
+            &crate::sessions::store::NewCard {
+                prompt: Some("fix it"),
+                pending: Some(typed.as_str()),
+                command: Some("gemini -i {prompt}"),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .id;
+        let uri = format!("/api/sessions/{id}/prompt");
+
+        // No command given: the card keeps its agent, and its unpinned title
+        // follows the new prompt.
+        let (code, body) = req(
+            &st,
+            Method::PATCH,
+            &uri,
+            serde_json::json!({"prompt": "  fix it again  "}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK);
+        assert_eq!(body["pending_prompt"], "fix it again");
+        assert_eq!(body["pending_command"], "gemini -i {prompt}");
+        assert_eq!(body["name"], "fix it again", "titled by its prompt");
+        let line: Option<String> = st
+            .db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT pending_input FROM sessions WHERE id = ?1",
+                [&id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            line.as_deref(),
+            Some("gemini -i \"$TABSH_PROMPT\"\r"),
+            "the line the drag types is unchanged"
+        );
+
+        // A provider picked again rebuilds the line, and how its conversation
+        // resumes, naming it when the card hasn't.
+        let (_, body) = req(
+            &st,
+            Method::PATCH,
+            &uri,
+            serde_json::json!({
+                "prompt": "go",
+                "command": "claude {prompt} --session-id {session}",
+                "resume": "claude --resume {session}"
+            }),
+        )
+        .await;
+        assert_eq!(
+            body["pending_command"],
+            "claude {prompt} --session-id {session}"
+        );
+        let (line, session, resume): (String, String, Option<String>) = st
+            .db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT pending_input, agent_session, resume_input FROM sessions WHERE id = ?1",
+                [&id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            line,
+            format!("claude \"$TABSH_PROMPT\" --session-id {session}\r")
+        );
+        assert_eq!(session.len(), 36, "a conversation was minted");
+        assert_eq!(
+            resume.as_deref(),
+            Some(format!("claude --resume {session}\r").as_str())
+        );
+
+        // A blank prompt clears all three: the card waits as a plain shell.
+        let (_, body) = req(
+            &st,
+            Method::PATCH,
+            &uri,
+            serde_json::json!({"prompt": "   "}),
+        )
+        .await;
+        assert_eq!(body["pending_prompt"], serde_json::Value::Null);
+        assert_eq!(body["pending_command"], serde_json::Value::Null);
+        let line: Option<String> = st
+            .db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT pending_input FROM sessions WHERE id = ?1",
+                [&id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(line, None);
+
+        // A plain card can gain a first prompt, on the default agent.
+        let plain = new_card(&st);
+        let (_, body) = req(
+            &st,
+            Method::PATCH,
+            &format!("/api/sessions/{plain}/prompt"),
+            serde_json::json!({"prompt": "hi"}),
+        )
+        .await;
+        assert_eq!(body["pending_prompt"], "hi");
+        assert_eq!(body["pending_command"], DEFAULT_COMMAND);
+        let line: String = st
+            .db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT pending_input FROM sessions WHERE id = ?1",
+                [&plain],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(line, "claude \"$TABSH_PROMPT\"\r");
+    }
+
+    #[tokio::test]
+    async fn only_a_backlog_card_can_change_its_prompt() {
+        let st = test_state();
+        let id = new_card(&st);
+        patch(
+            &st,
+            &id,
+            serde_json::json!({"status": "in_progress", "source": "user"}),
+        )
+        .await;
+        assert_eq!(
+            req(
+                &st,
+                Method::PATCH,
+                &format!("/api/sessions/{id}/prompt"),
+                serde_json::json!({"prompt": "x"}),
+            )
+            .await
+            .0,
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            req(
+                &st,
+                Method::PATCH,
+                "/api/sessions/nope/prompt",
+                serde_json::json!({"prompt": "x"}),
+            )
+            .await
+            .0,
+            StatusCode::NOT_FOUND
         );
     }
 
