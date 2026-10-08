@@ -20,6 +20,11 @@ function storedTags(): Record<string, string[]> {
   }
 }
 
+const tagListeners: (() => void)[] = [];
+export function onTagsChange(fn: () => void): void {
+  tagListeners.push(fn);
+}
+
 export function setTags(s: Session, list: string[]): void {
   const tags = storedTags();
   if (list.length) tags[s.id] = list;
@@ -28,6 +33,7 @@ export function setTags(s: Session, list: string[]): void {
     localStorage.setItem(TAGS_KEY, JSON.stringify(tags));
   } catch {}
   render(s);
+  for (const fn of tagListeners) fn();
 }
 
 // Every tag some tab has, sorted.

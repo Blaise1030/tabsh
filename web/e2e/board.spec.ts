@@ -54,6 +54,7 @@ test('cards move through the board', async ({ page, daemon, project }) => {
   // Still on the board, with the card waiting in Backlog and its tab not
   // selected.
   await expect(col(page, 'backlog').locator('.board-card').filter({ hasText: 'Fix login' })).toBeVisible();
+  await expect(page.locator('#tabs')).toBeHidden();
   await expect(page.locator('#tabs .tab:has-text("Fix login")')).toHaveAttribute('aria-selected', 'false');
 
   await card(page, 'Fix login').dragTo(col(page, 'in_progress').locator('.board-cards'));
@@ -489,6 +490,46 @@ test("the group's tag starts as a chip, and taking it off leaves the card untagg
   await grouping('No grouping').click();
 });
 
+test('the board filters cards by tag and folder', async ({ page, daemon, twins }) => {
+  const alphaTab = page.locator('#tabs .tab:not(.mirror)').filter({ hasText: 'Alpha' });
+  await openApp(page, daemon);
+  await page.locator('#board-btn').click();
+  await col(page, 'backlog').locator('header .btn').click();
+  await newCard(page, 'Alpha', twins.alpha);
+  await col(page, 'backlog').locator('header .btn').click();
+  await newCard(page, 'Beta', twins.beta);
+  await expect(page.locator('#tabs')).toBeHidden();
+  await page.locator('#board-btn').click();
+
+  await alphaTab.click({ button: 'right' });
+  const menu = page.locator('.tab-menu[aria-label="Tab tags"]');
+  await menu.locator('input[aria-label="New tag"]').fill('ship');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Escape');
+  await page.locator('#board-btn').click();
+
+  const filterBtn = page.locator('#board-filter-btn');
+  await expect(filterBtn).toBeVisible();
+  await filterBtn.click();
+  const filters = page.locator('.board-filter-menu');
+  const ship = filters.getByRole('checkbox', { name: 'ship' });
+  await ship.check();
+  await expect(card(page, 'Alpha')).toBeVisible();
+  await expect(card(page, 'Beta')).toHaveCount(0);
+
+  const alpha = await card(page, 'Alpha').locator('.card-meta span').first().textContent();
+  await filters.getByRole('checkbox', { name: alpha ?? '' }).check();
+  await expect(card(page, 'Beta')).toHaveCount(0);
+  await ship.uncheck();
+  await filters.getByRole('checkbox', { name: alpha ?? '' }).uncheck();
+  const beta = await card(page, 'Beta').locator('.card-meta span').first().textContent();
+  await filters.getByRole('checkbox', { name: beta ?? '' }).check();
+  await expect(card(page, 'Alpha')).toHaveCount(0);
+  await expect(card(page, 'Beta')).toBeVisible();
+  await filters.getByRole('checkbox', { name: beta ?? '' }).uncheck();
+  await expect(card(page, 'Alpha')).toBeVisible();
+});
+
 test('a card name with markup is shown as text', async ({ page, daemon }) => {
   await openApp(page, daemon);
   await expect(async () => {
@@ -552,7 +593,8 @@ test("an archived card's tab leaves the strip, grouped or not", async ({ page, d
   await page.locator('#board-btn').click();
   await col(page, 'backlog').locator('header .btn').click();
   await newCard(page, 'Old work', project);
-  await page.locator('#board-btn').click(); // the board stays open after a new card, its tabs hidden
+  await expect(oldTab).toBeHidden(); // the board stays open after a new card, its tabs hidden
+  await page.locator('#board-btn').click();
   await expect(oldTab).toBeVisible();
   await newTab(page); // another tab is active: an active archived tab stays shown
 

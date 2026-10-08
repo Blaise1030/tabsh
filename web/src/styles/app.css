@@ -50,8 +50,10 @@ html.themed {
 .about-table td { white-space: normal; overflow-wrap: anywhere; font-family: ui-monospace, Menlo, monospace; font-size: .8125rem; }
 
 .tabbar { display: flex; align-items: center; gap: .375rem; padding: .125rem .5rem; }
-.tabbar.on-board > :not(#board-btn, .settings-btn) { display: none; }
+.tabbar.on-board > :not(#board-btn, .settings-btn, #board-filter-btn) { display: none; }
 .tabbar.on-board .settings-btn { margin-left: auto; }
+.tabbar.on-board #board-filter-btn:not([hidden]) { margin-left: auto; }
+.tabbar.on-board #board-filter-btn:not([hidden]) ~ .settings-btn { margin-left: 0; }
 /* Edge fades show only where tabs are scrolled out of view; registered so
    they ease in and out instead of popping. */
 @property --fade-l { syntax: '<length>'; inherits: false; initial-value: 0px; }
@@ -369,6 +371,9 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .tab.archived:not([aria-selected="true"]) { display: none; }
 
 /* The board: Linear-style columns in the theme's own tokens. */
+#board-filter-btn[hidden] { display: none; }
+#board-filter-btn[aria-pressed="true"] { color: var(--foreground); background: var(--muted); }
+.board-filter-menu { max-width: 20rem; }
 #board { flex: 1; min-width: 0; min-height: 0; display: flex; gap: .75rem; padding: .75rem; overflow-x: auto; background: var(--background); }
 #board[hidden] { display: none; }
 .board-col { flex: 0 0 18rem; display: flex; flex-direction: column; min-height: 0; }

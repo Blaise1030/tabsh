@@ -31,6 +31,7 @@ export const icons: Record<
   | 'explorer'
   | 'plus'
   | 'group'
+  | 'filter'
   | 'settings'
   | 'search'
   | 'close'
@@ -81,6 +82,9 @@ export const icons: Record<
       rect({ width: '7', height: '5', x: '7', y: '7', rx: '1' }),
       rect({ width: '7', height: '5', x: '10', y: '12', rx: '1' }),
     ),
+  ),
+  filter: draw(({ polygon, svg }) =>
+    svg({ ...LUCIDE }, polygon({ points: '22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3' })),
   ),
   settings: draw(({ circle, path, svg }) =>
     svg(
