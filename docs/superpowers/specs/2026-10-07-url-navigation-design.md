@@ -196,8 +196,10 @@ back with a replace. `go()` calls made before then are queued.
 - Caught in the capture phase like ⌘B, so they work from the terminal and
   the editor; they call `navigation.back()` / `forward()` and do nothing
   when `canGoBack` / `canGoForward` is false.
-- Palette entries "Go back" and "Go forward", greyed out on the same
-  conditions.
+- A palette entry "Go back", greyed out on the same condition. There is no
+  "Go forward" entry: opening the palette pushes an entry, which always
+  clears forward history, so it could never be enabled. Forward is the
+  keybinding.
 
 ## Security
 

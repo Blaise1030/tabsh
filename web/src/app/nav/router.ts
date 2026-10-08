@@ -80,7 +80,7 @@ export function back(): void {
   if (navigation.canGoBack) quiet(navigation.back());
 }
 
-// The palette's "Go back" / "Go forward" items: a traversal started as the
+// The palette's "Go back" item: a traversal started as the
 // palette closes. The close must not start a navigation over it (`leaving`).
 // If the traversal is refused or fails, the palette is already shut, so the
 // place drops it too.
@@ -100,10 +100,6 @@ export function backPastPalette(): void {
   const before = at >= 2 && current.palette && isPaletteEntry() ? navigation.entries()[at - 2] : undefined;
   if (before) leavePalette(navigation.traverseTo(before.key));
   else if (navigation.canGoBack) leavePalette(navigation.back());
-}
-
-export function forwardFromPalette(): void {
-  if (navigation.canGoForward) leavePalette(navigation.forward());
 }
 
 // A traversal off the palette's entry is on its way: the palette's close
