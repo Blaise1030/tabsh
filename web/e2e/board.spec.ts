@@ -88,6 +88,24 @@ test('a completed card has an Archive button', async ({ page, daemon, project })
   await expect(page.locator('.archive-toggle')).toContainText('Archive 1');
 });
 
+test('a long card is clamped, with Show more', async ({ page, daemon, project }) => {
+  await openApp(page, daemon);
+  await page.locator('#board-btn').click();
+  await col(page, 'backlog').locator('header .btn').click();
+  await newCard(page, 'Short', project);
+  await col(page, 'backlog').locator('header .btn').click();
+  const long = `Long ${'WWWW '.repeat(19)}`; // names are cut at 100 characters
+  await newCard(page, long, project);
+  await expect(card(page, 'Long').locator('.card-more')).toHaveText('Show more');
+  await expect(card(page, 'Short').locator('.card-more')).toHaveCount(0);
+  const more = card(page, 'Long').locator('.card-more');
+  const clamped = (await card(page, 'Long').boundingBox())?.height ?? 0;
+  await more.click();
+  await expect(more).toHaveText('Show less');
+  await expect(page.locator('#board')).toBeVisible(); // the click didn't open the card
+  expect((await card(page, 'Long').boundingBox())?.height ?? 0).toBeGreaterThan(clamped);
+});
+
 test('a card name with markup is shown as text', async ({ page, daemon }) => {
   await openApp(page, daemon);
   await expect(async () => {

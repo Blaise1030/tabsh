@@ -72,12 +72,22 @@ const cardButton = (text: string, act: () => void) =>
     text,
   );
 
-// A card: its session's name, status, folder, note and time in status. In
-// the Archive it isn't dragged, and offers Restore and Delete.
+// Each card's check for a cut-off title or note, run again whenever the
+// board's size changes (shown, hidden, the window resized).
+const measures = new WeakMap<Element, () => void>();
+const resized = new ResizeObserver(() => {
+  for (const c of board().querySelectorAll('.board-card')) measures.get(c)?.();
+});
+
+// A card: its session's name, status, folder, note and time in status. Its
+// title and note are clamped to two lines, with Show more when either is cut
+// off. In the Archive it isn't dragged, and offers Restore and Delete.
 function Card(s: Session, archived = false): HTMLElement {
   // Only a change of status redraws the glyph (a new note doesn't).
   const status = van.derive(() => s.card.val.status);
   const note = van.derive(() => s.card.val.note);
+  const open = van.state(false);
+  const cut = van.state(false);
   const card: HTMLElement = article(
     {
       class: 'board-card',
@@ -106,6 +116,21 @@ function Card(s: Session, archived = false): HTMLElement {
       span(() => shortPath(s.card.val.cwd) || '~'),
     ),
     () => (note.val ? div({ class: 'card-note' }, note.val) : ''),
+    () =>
+      cut.val || open.val
+        ? button(
+            {
+              type: 'button',
+              class: 'card-more',
+              onclick: (e: MouseEvent) => {
+                e.stopPropagation();
+                open.val = !open.val;
+              },
+              onkeydown: (e: KeyboardEvent) => e.stopPropagation(), // Enter/Space on the button must not open the card
+            },
+            () => (open.val ? 'Show less' : 'Show more'),
+          )
+        : '',
     div({ class: 'card-meta' }, () => since(s.card.val.statusAt, now.val)),
     archived
       ? div(
@@ -121,6 +146,25 @@ function Card(s: Session, archived = false): HTMLElement {
               )
             : '',
   );
+  // A clamped box reports no overflow in scrollHeight, so this compares its
+  // text's height with the clamp lifted. Hidden (height 0), nothing is cut.
+  const measure = () => {
+    const texts = [...card.querySelectorAll<HTMLElement>('.card-title, .card-note')];
+    const heights = () => texts.map((t) => t.clientHeight);
+    card.classList.remove('expanded');
+    const clamped = heights();
+    card.classList.add('expanded');
+    const full = heights();
+    card.classList.toggle('expanded', open.val);
+    cut.val = full.some((h, j) => h > clamped[j] + 1);
+  };
+  measures.set(card, measure);
+  van.derive(() => card.classList.toggle('expanded', open.val));
+  van.derive(() => {
+    s.name.val;
+    note.val;
+    requestAnimationFrame(measure); // once the new text is laid out
+  });
   return card;
 }
 
@@ -314,6 +358,7 @@ export function Board(): HTMLElement {
     return Object.fromEntries(Object.entries(g).map(([k, v]) => [k, v.map((x) => x.s)])) as Columns;
   });
   const el = section({ id: 'board', 'aria-label': 'Board', hidden: () => !shown.val });
+  resized.observe(el);
   keyed(
     el,
     () => (onboarded.val ? PARTS : ['onboarding']),
