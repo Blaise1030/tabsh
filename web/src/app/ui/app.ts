@@ -4,6 +4,7 @@ import van from 'vanjs-core';
 import { Board, shown } from '../board/view.ts';
 import { open as explorerOpen } from '../explorer/explorer.ts';
 import { Sidebar } from '../explorer/sidebar.ts';
+import { paneShown } from '../files/open.ts';
 import { grouping, TabStrip } from '../sessions/groups.ts';
 import { noTab } from '../sessions/store.ts';
 import { Gate } from './gate.ts';
@@ -141,8 +142,8 @@ function Workspace(): HTMLElement {
         Gate(),
       ),
     ),
-    div({ id: 'pane-divider', hidden: true }),
-    aside({ id: 'pane', hidden: true, tabindex: '-1', 'aria-label': 'File' }),
+    div({ id: 'pane-divider', hidden: () => !paneShown.val }),
+    aside({ id: 'pane', hidden: () => !paneShown.val, tabindex: '-1', 'aria-label': 'File' }),
   );
 }
 
