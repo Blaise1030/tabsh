@@ -18,6 +18,7 @@ test('New card: a folder that is not there shows the error, and reopening clears
   const dialog = page.locator('#new-card');
   const error = dialog.locator('.new-card-error');
   await expect(error).toBeHidden();
+  await dialog.locator('button[aria-label="Folder"]').click();
   await dialog.locator('input[name="cwd"]').fill('/no/such/folder/here');
   await dialog.locator('textarea[name="prompt"]').fill('Go');
   await dialog.locator('button[type="submit"]').click();

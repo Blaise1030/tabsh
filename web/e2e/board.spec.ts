@@ -4,13 +4,26 @@
 // its agent (and a drop types nothing into a terminal); one made from another
 // column starts at once; a status set through the daemon's API (as `tabsh status` does) moves it and
 // colours its tab; dragging moves it on; a name with markup stays text; tags
-// picked as chips show on the card; the folder is searched as it's typed.
+// ticked in the Tags panel show on the card; the folder is searched as it's typed;
+// attached images reach the agent's prompt as paths.
 // A new card is titled by its prompt, so cards are found by their prompts.
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import type { Daemon } from './daemon.ts';
-import { cdInTerminal, expect, newTab, openApp, setOnboarded, test, typeInTerminal } from './fixture.ts';
+import {
+  cdInTerminal,
+  expect,
+  newTab,
+  openApp,
+  setOnboarded,
+  TEST_PROVIDERS,
+  test,
+  typeInTerminal,
+} from './fixture.ts';
+
+// A provider whose agent writes its prompt to a file.
+const WRITES_PROMPT = "printf '%s' {prompt} > prompt.txt";
 
 const card = (page: Page, name: string) => page.locator('.board-card').filter({ hasText: name });
 const col = (page: Page, status: string) => page.locator(`.board-col[data-status="${status}"]`);
@@ -26,9 +39,11 @@ async function boardAlone(page: Page): Promise<void> {
 // Fills in and submits the New card dialog, by default with an agent that
 // exits at once (`command` names one of the providers `setOnboarded` sets).
 async function newCard(page: Page, prompt: string, cwd: string, command = 'true'): Promise<void> {
+  await page.locator('#new-card button[aria-label="Folder"]').click();
   await page.locator('#new-card input[name="cwd"]').fill(cwd);
   await page.locator('#new-card textarea[name="prompt"]').fill(prompt);
-  await page.locator('#new-card select[name="provider"]').selectOption(command);
+  await page.locator('#new-card button[aria-label="Agent"]').click();
+  await page.locator('#new-card').getByRole('menuitemradio', { name: command, exact: true }).click();
   await page.locator('#new-card button[type="submit"]').click();
 }
 
@@ -378,44 +393,46 @@ test('a long note is clamped, with Show more', async ({ page, daemon, project })
   expect((await card(page, 'Long').boundingBox())?.height ?? 0).toBeGreaterThan(clamped);
 });
 
-test('tags picked as chips show on the card, and are offered next time', async ({ page, daemon, project }) => {
-  const tag = page.locator('#new-card-tag');
-  const chips = page.locator('#new-card-chips .tag-badge');
-  const rows = page.locator('#new-card-tag-options [role="option"]');
+test('tags ticked in the Tags panel show on the card, and are offered next time', async ({ page, daemon, project }) => {
+  const chip = page.locator('#new-card button[aria-label="Tags"]');
+  const field = page.locator('#new-card input[aria-label="New tag"]');
+  const rows = page.locator('#new-card [role="menuitemcheckbox"]');
   await openApp(page, daemon);
   await page.locator('#board-btn').click();
   await col(page, 'backlog').locator('header .btn').click();
+  await page.locator('#new-card button[aria-label="Folder"]').click();
   await page.locator('#new-card input[name="cwd"]').fill(project);
   await page.locator('#new-card textarea[name="prompt"]').fill('Tag me');
-  await tag.fill('bug');
-  await expect(rows).toHaveText(['Create "bug"']);
-  await tag.press('Enter'); // a chip, not the card
+  await expect(chip).toHaveText('Tags');
+  await chip.click();
+  await expect(page.locator('#new-card .tags-submenu-empty')).toHaveText('No tags yet');
+  await field.fill('bug');
+  await field.press('Enter'); // a tag, ticked, not the card
   await expect(page.locator('#new-card-form')).toBeVisible();
-  await expect(tag).toHaveValue('');
-  await tag.pressSequentially('ui,docs,');
-  await expect(chips).toHaveText(['bug', 'ui', 'docs'].map((t) => new RegExp(`^${t}`)));
-  await tag.press('Backspace'); // the empty box takes the last chip off
-  await chips.filter({ hasText: 'bug' }).getByRole('button', { name: 'Remove bug' }).click();
-  await tag.fill('perf'); // typed but not yet a chip: still counts
+  await field.fill('ui, docs'); // a list makes several
+  await field.press('Enter');
+  await expect(rows).toHaveText(['bug', 'docs', 'ui']);
+  await expect(chip.locator('.tag-badge')).toHaveText(['bug', 'ui', 'docs']);
+  await rows.filter({ hasText: 'docs' }).click(); // untick; the panel stays open
+  await rows.filter({ hasText: 'bug' }).click();
+  await expect(rows.filter({ hasText: 'bug' })).toHaveAttribute('aria-checked', 'false');
+  await field.fill('perf'); // typed but not entered: still counts
   await page.locator('#new-card button[type="submit"]').click();
 
   await expect(card(page, 'Tag me').locator('.tag-badge')).toHaveText(['ui', 'perf']);
   await col(page, 'backlog').locator('header .btn').click();
-  await expect(chips).toHaveCount(0);
-  // The tags in use, offered as a list to pick several from.
-  await tag.focus();
+  await expect(chip).toHaveText('Tags');
+  // The tags in use, offered to tick several.
+  await chip.click();
   await expect(rows).toHaveText(['perf', 'ui']);
-  await rows.filter({ hasText: 'ui' }).click();
-  await expect(rows.filter({ hasText: 'ui' })).toHaveAttribute('aria-selected', 'true');
-  await tag.press('ArrowDown');
-  await tag.press('Enter'); // perf, the first row
-  await expect(chips).toHaveText([/^ui/, /^perf/]);
-  await tag.press('Enter'); // and off again
-  await expect(chips).toHaveText([/^ui/]);
-  await tag.fill('P');
-  await expect(rows).toHaveText(['Create "P"', 'perf']); // "perf" holds a p
-  await tag.press('Escape'); // the list closes, not the dialog
-  await expect(page.locator('#new-card-tag-options')).toBeHidden();
+  await expect(rows.first()).toBeFocused();
+  await page.keyboard.press('Enter'); // perf
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press(' '); // ui
+  await expect(chip.locator('.tag-badge')).toHaveText(['perf', 'ui']);
+  await page.keyboard.press('Escape'); // the panel closes, not the dialog
+  await expect(rows.first()).toBeHidden();
+  await expect(chip).toBeFocused();
   await expect(page.locator('#new-card-form')).toBeVisible();
 });
 
@@ -430,6 +447,7 @@ test('the folder is searched as it is typed, and Tab goes into the highlighted o
   await openApp(page, daemon);
   await page.locator('#board-btn').click();
   await col(page, 'backlog').locator('header .btn').click();
+  await page.locator('#new-card button[aria-label="Folder"]').click();
   await folder.fill(`${project}/`);
   // Its folders, not its files, nor `.git` until a `.` is typed.
   await expect(options).toHaveText(['docs', 'src', 'target'].map((d) => `${project}/${d}`));
@@ -438,14 +456,16 @@ test('the folder is searched as it is typed, and Tab goes into the highlighted o
   await folder.press('Tab');
   await expect(folder).toHaveValue(`${project}/src/`);
   await expect(options).toHaveText([`${project}/src/app`]);
-  await folder.press('Escape'); // the list closes, not the dialog
+  await folder.press('Escape'); // the popover closes, not the dialog
   await expect(page.locator('#new-card-folders')).toBeHidden();
+  await expect(folder).toBeHidden();
   await expect(page.locator('#new-card-form')).toBeVisible();
-  await folder.press('ArrowDown'); // opens the list again
+  await page.locator('#new-card button[aria-label="Folder"]').click(); // opens it again, listing what's typed
   await expect(options).toHaveText([`${project}/src/app`]);
   await folder.press('Enter'); // picks it, doesn't create the card
   await expect(folder).toHaveValue(`${project}/src/app`);
   await expect(page.locator('#new-card-folders')).toBeHidden();
+  await expect(page.locator('#new-card button[aria-label="Folder"]')).toHaveText(`${project}/src/app`);
   await page.locator('#new-card textarea[name="prompt"]').fill('In app');
   await page.locator('#new-card button[type="submit"]').click();
 
@@ -474,10 +494,14 @@ test("the group's tag starts as a chip, and taking it off leaves the card untagg
 
   await page.locator('#board-btn').click();
   await col(page, 'backlog').locator('header .btn').click();
-  const chips = page.locator('#new-card-chips .tag-badge');
-  await expect(chips).toHaveText([/^deploy/]);
-  await chips.getByRole('button', { name: 'Remove deploy' }).click();
+  const chips = page.locator('#new-card button[aria-label="Tags"] .tag-badge');
+  await expect(chips).toHaveText(['deploy']);
+  await page.locator('#new-card button[aria-label="Tags"]').click();
+  const deploy = page.locator('#new-card [role="menuitemcheckbox"]').filter({ hasText: 'deploy' });
+  await expect(deploy).toHaveAttribute('aria-checked', 'true');
+  await deploy.click();
   await expect(chips).toHaveCount(0);
+  await page.locator('#new-card button[aria-label="Folder"]').click();
   await page.locator('#new-card input[name="cwd"]').fill(project);
   await page.locator('#new-card textarea[name="prompt"]').fill('No group');
   await page.locator('#new-card button[type="submit"]').click();
@@ -601,4 +625,59 @@ test('the board shows its setup screen until skipped', async ({ page, daemon }) 
   await page.locator('#board-btn').click();
   await expect(page.locator('.board-col[data-status="backlog"]')).toBeVisible();
   await expect(page.locator('.board-onboarding')).toHaveCount(0);
+});
+
+test("images attached to a new card reach its agent's prompt as paths", async ({ page, daemon, project }) => {
+  const headers = { Authorization: `Bearer ${daemon.token}` };
+  const now = await (await page.request.get(`${daemon.baseUrl}/api/settings`, { headers })).json();
+  const providers = [...TEST_PROVIDERS, { name: WRITES_PROMPT, command: WRITES_PROMPT, resume: '' }];
+  await page.request.put(`${daemon.baseUrl}/api/settings`, { headers, data: { ...now, providers } });
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+    'base64',
+  );
+  await openApp(page, daemon);
+  await boardAlone(page);
+  await col(page, 'in_progress').locator('header .btn').click();
+  const dialog = page.locator('#new-card');
+  await dialog.locator('input[type="file"]').setInputFiles([
+    { name: 'shot.png', mimeType: 'image/png', buffer: png },
+    { name: 'other.png', mimeType: 'image/png', buffer: png },
+  ]);
+  await expect(dialog.locator('.nc-thumb img')).toHaveCount(2);
+  await dialog.getByRole('button', { name: 'Remove other.png' }).click();
+  await expect(dialog.locator('.nc-thumb img')).toHaveAttribute('alt', 'shot.png');
+  // The agent writes its prompt to a file, so the test can read it.
+  await newCard(page, 'Look at this', project, WRITES_PROMPT);
+  await expect(card(page, 'Look at this')).toBeVisible();
+  const out = join(project, 'prompt.txt');
+  await expect.poll(() => existsSync(out) && readFileSync(out, 'utf8'), { timeout: 15_000 }).toMatch(/^Look at this\n\n\//);
+  const paths = readFileSync(out, 'utf8').split('\n').slice(2);
+  expect(paths).toHaveLength(1);
+  expect(paths[0]).toMatch(/-shot\.png$/);
+  expect(readFileSync(paths[0])).toEqual(png);
+});
+
+test("the column chip's menu picks where a new card goes, and Esc closes only the menu", async ({
+  page,
+  daemon,
+  project,
+}) => {
+  await openApp(page, daemon);
+  await boardAlone(page);
+  await col(page, 'backlog').locator('header .btn').click();
+  const chip = page.locator('#new-card button[aria-label="Column"]');
+  const rows = page.locator('#new-card [role="menu"][aria-label="Column"] [role="menuitemradio"]');
+  await expect(chip).toHaveText('Backlog');
+  await chip.click();
+  await expect(rows).toHaveText(['Backlog', 'In progress']);
+  await expect(rows.first()).toHaveAttribute('aria-checked', 'true');
+  await page.keyboard.press('Escape'); // the menu closes, not the dialog
+  await expect(rows.first()).toBeHidden();
+  await expect(page.locator('#new-card-form')).toBeVisible();
+  await chip.click();
+  await rows.filter({ hasText: 'In progress' }).click();
+  await expect(chip).toHaveText('In progress');
+  await newCard(page, 'Straight in', project);
+  await expect(col(page, 'in_progress').locator('.board-card').filter({ hasText: 'Straight in' })).toBeVisible();
 });
