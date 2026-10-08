@@ -196,7 +196,7 @@ test('a card opens its terminal in a drawer beside the board', async ({ page, da
 
 test("a card's Move menu sets its status, on the board and in the drawer", async ({ page, daemon, project }) => {
   const shownMenu = page.locator('.move-menu [data-popover][aria-hidden="false"]');
-  const item = (name: string) => shownMenu.locator('[role="menuitemradio"]').filter({ hasText: name });
+  const item = (name: string) => shownMenu.locator('[role^="menuitem"]').filter({ hasText: name });
   await openApp(page, daemon);
   await boardAlone(page);
   await col(page, 'backlog').locator('header .btn').click();
@@ -221,6 +221,14 @@ test("a card's Move menu sets its status, on the board and in the drawer", async
   await item('Archive').click();
   await expect(col(page, 'completed').locator('.board-card')).toHaveCount(0);
   await expect(page.locator('.archive-toggle')).toContainText('Archive 1');
+
+  // Delete session closes it: its card and its tab go.
+  await page.locator('#drawer-close').click();
+  await page.locator('.archive-toggle').click();
+  await card(page, 'Move me').locator('.card-move').click();
+  await item('Delete session').click();
+  await expect(card(page, 'Move me')).toHaveCount(0);
+  await expect(page.locator('.archive-toggle')).toContainText('Archive 0');
 });
 
 test('dragging a card does not light the file drop', async ({ page, daemon, project }) => {

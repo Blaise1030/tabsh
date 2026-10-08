@@ -51,7 +51,8 @@ export const icons: Record<
   | 'boardOnboarding'
   | 'arrowUpRight'
   | 'expand'
-  | 'chevronDown',
+  | 'chevronDown'
+  | 'trash',
   Icon
 > = {
   board: draw(({ path, rect, svg }) =>
@@ -88,6 +89,14 @@ export const icons: Record<
   ),
   search: draw(({ circle, path, svg }) =>
     svg({ ...LUCIDE }, circle({ cx: '11', cy: '11', r: '8' }), path({ d: 'm21 21-4.3-4.3' })),
+  ),
+  trash: draw(({ path, svg }) =>
+    svg(
+      { ...LUCIDE },
+      path({ d: 'M3 6h18' }),
+      path({ d: 'M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6' }),
+      path({ d: 'M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2' }),
+    ),
   ),
   chevronDown: draw(({ path, svg }) => svg({ ...LUCIDE }, path({ d: 'm6 9 6 6 6-6' }))),
   expand: draw(({ path, svg }) =>

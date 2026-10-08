@@ -1,43 +1,71 @@
-// A card's Move menu, as Basecoat's dropdown menu (its script opens and
-// closes it, and moves through it by keyboard): the card's status glyph on
-// the board, or the status's name in the drawer's bar, lists the statuses to
-// move it to, Archive last. The current one is checked and can't be picked.
+// A card's menu, as Basecoat's dropdown menu (its script opens and closes it,
+// and moves through it by keyboard): the card's status glyph on the board, or
+// the status's name in the drawer's bar, lists the stages to move it to (the
+// current one checked, and not picked again), then Archive and Delete
+// session.
 // Open, its popover is fixed under the button, so a column that scrolls
 // doesn't clip it.
 import van from 'vanjs-core';
-import type { Session } from '../sessions/store.ts';
+import { closeSession, type Session } from '../sessions/store.ts';
 import { glyph, icons } from '../ui/icons.ts';
 import { STATUS_NAMES } from './glyph.ts';
-import { STATUSES, type Status } from './model.ts';
+import { COLUMNS, type Status } from './model.ts';
 import { setStatus } from './status.ts';
 
-const { button, div, i, span } = van.tags;
+const { button, div, hr, i, span } = van.tags;
 
-type Dropdown = HTMLElement & { close?: (focusOnTrigger?: boolean) => void };
+// Basecoat's root, and this file's own: placing its fixed popover again.
+type Dropdown = HTMLElement & { close?: (focusOnTrigger?: boolean) => void; place?: () => void };
 
 const statusGlyph = (status: Status) => i({ class: 'status-glyph', 'data-status': status }, glyph(status));
 
 function MoveMenu(s: () => Session | null, trigger: Record<string, string>, ...face: (() => Node)[]): HTMLElement {
   const now = (): Status | null => s()?.card.val.status ?? null;
-  const items = STATUSES.map((status) =>
+  const moveTo = (status: Status) => {
+    const session = s();
+    if (session && now() !== status) void setStatus(session, status).catch(console.error);
+  };
+  const stages = COLUMNS.map(({ status }) =>
     div(
       {
         role: 'menuitemradio',
         'aria-checked': () => String(now() === status),
         'aria-disabled': () => String(now() === status),
-        onclick: () => {
-          const session = s();
-          if (session && now() !== status) void setStatus(session, status).catch(console.error);
-        },
+        onclick: () => moveTo(status),
       },
       statusGlyph(status),
-      span(status === 'archived' ? 'Archive' : STATUS_NAMES[status]),
+      span(STATUS_NAMES[status]),
       () => (now() === status ? icons.check() : span()),
     ),
   );
   const popover = div(
     { 'data-popover': '', 'aria-hidden': 'true', 'data-align': 'end' },
-    div({ role: 'menu', 'aria-label': 'Move to' }, items),
+    div(
+      { role: 'menu', 'aria-label': 'Card' },
+      div({ role: 'group', 'aria-label': 'Move to' }, div({ role: 'heading' }, 'Move to'), stages),
+      hr({ role: 'separator' }),
+      div(
+        {
+          role: 'menuitem',
+          'aria-disabled': () => String(now() === 'archived'),
+          onclick: () => moveTo('archived'),
+        },
+        statusGlyph('archived'),
+        span('Archive'),
+      ),
+      div(
+        {
+          role: 'menuitem',
+          class: 'menu-danger',
+          onclick: () => {
+            const session = s();
+            if (session) void closeSession(session);
+          },
+        },
+        icons.trash(),
+        span('Delete session'),
+      ),
+    ),
   );
   const open: HTMLElement = button(
     {
@@ -45,18 +73,19 @@ function MoveMenu(s: () => Session | null, trigger: Record<string, string>, ...f
       'aria-haspopup': 'menu',
       'aria-expanded': 'false',
       ...trigger,
-      // Runs before Basecoat's own click (added later): place the popover
-      // under the button, its right edge at the button's.
-      onclick: () => {
-        const r = open.getBoundingClientRect();
-        popover.style.top = `${r.bottom + 4}px`;
-        popover.style.right = `${innerWidth - r.right}px`;
-      },
+      // Runs before Basecoat's own click (added later).
+      onclick: () => place(),
     },
     ...face,
   );
+  // Under the button, its right edge at the button's.
+  const place = () => {
+    const r = open.getBoundingClientRect();
+    popover.style.top = `${r.bottom + 4}px`;
+    popover.style.right = `${innerWidth - r.right}px`;
+  };
   // Clicks and keys inside stay here: they must not open or drag the card.
-  return div(
+  const root: Dropdown = div(
     {
       class: 'dropdown-menu move-menu',
       onclick: (e: MouseEvent) => e.stopPropagation(),
@@ -65,6 +94,8 @@ function MoveMenu(s: () => Session | null, trigger: Record<string, string>, ...f
     open,
     popover,
   );
+  root.place = place;
+  return root;
 }
 
 // A card's status glyph, as the button that opens its menu.
@@ -82,14 +113,19 @@ export const DrawerMoveButton = (s: () => Session | null): HTMLElement =>
     return span({ class: 'drawer-move-label' }, statusGlyph(status), STATUS_NAMES[status], icons.chevronDown());
   });
 
-// A fixed popover stays put while the board scrolls or the window resizes:
-// close it instead.
+// A fixed popover doesn't move with the page: as the board scrolls or the
+// window resizes, an open one follows its button, and closes once the button
+// is out of sight.
 export function initMoveMenu(): void {
-  const closeAll = () => {
+  const follow = () => {
     for (const m of document.querySelectorAll<Dropdown>('.move-menu')) {
-      if (m.querySelector('[aria-expanded="true"]')) m.close?.(false);
+      const button = m.querySelector('[aria-expanded="true"]');
+      if (!button) continue;
+      const r = button.getBoundingClientRect();
+      if (r.width === 0 || r.right < 0 || r.left > innerWidth || r.bottom < 0 || r.top > innerHeight) m.close?.(false);
+      else m.place?.();
     }
   };
-  addEventListener('resize', closeAll);
-  addEventListener('scroll', (e) => !(e.target as Element).closest?.('.move-menu') && closeAll(), true);
+  addEventListener('resize', follow);
+  addEventListener('scroll', (e) => !(e.target as Element).closest?.('.move-menu') && follow(), true);
 }
