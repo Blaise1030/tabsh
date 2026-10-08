@@ -10,6 +10,14 @@ import { cdInTerminal, expect, newTab, openApp, setOnboarded, test, typeInTermin
 const card = (page: Page, name: string) => page.locator('.board-card').filter({ hasText: name });
 const col = (page: Page, status: string) => page.locator(`.board-col[data-status="${status}"]`);
 
+// Opens the board on its own: with a tab open it shows that tab in its
+// drawer, so this closes the drawer, giving the columns the whole width.
+async function boardAlone(page: Page): Promise<void> {
+  await page.locator('#board-btn').click();
+  await page.locator('#drawer-close').click();
+  await expect(page.locator('#frame')).toBeHidden();
+}
+
 // Fills in and submits the New card dialog, with an agent that exits at once.
 async function newCard(page: Page, name: string, cwd: string): Promise<void> {
   await page.locator('#new-card input[name="name"]').fill(name);
@@ -34,7 +42,7 @@ test.afterEach(async ({ page, daemon }) => {
 
 test('cards move through the board', async ({ page, daemon, project }) => {
   await openApp(page, daemon);
-  await page.locator('#board-btn').click();
+  await boardAlone(page);
   await col(page, 'backlog').locator('header .btn').click();
   await newCard(page, 'Fix login', project);
 
@@ -88,13 +96,20 @@ test('a completed card has an Archive button', async ({ page, daemon, project })
   await expect(page.locator('.archive-toggle')).toContainText('Archive 1');
 });
 
-test('the board hides the workspace and the tabs', async ({ page, daemon }) => {
+test('the board hides the tabs, and shows the open tab in its drawer', async ({ page, daemon }) => {
   await openApp(page, daemon);
   await expect(page.locator('#tabs')).toBeVisible();
+  const tab = await page.locator('#tabs .tab[aria-selected="true"]').textContent();
   await page.locator('#board-btn').click();
   await expect(page.locator('#board')).toBeVisible();
-  for (const id of ['#workspace', '#tabs', '#explorer-btn', '#tab-group-btn']) await expect(page.locator(id)).toBeHidden();
+  for (const id of ['#tabs', '#explorer-btn', '#tab-group-btn']) await expect(page.locator(id)).toBeHidden();
   await expect(page.locator('#settings-btn')).toBeVisible();
+  // The tab that was open stays in view, in the drawer.
+  await expect(page.locator('#frame')).toHaveClass(/in-drawer/);
+  await expect(page.locator('.drawer-title')).toHaveText(tab ?? '');
+  // Closed, the board has the whole page: no workspace.
+  await page.locator('#drawer-close').click();
+  await expect(page.locator('#workspace')).toBeHidden();
   await page.locator('#board-btn').click();
   await expect(page.locator('#workspace')).toBeVisible();
   await expect(page.locator('#tabs')).toBeVisible();
@@ -143,7 +158,7 @@ test("a card's Move menu sets its status, on the board and in the drawer", async
   const shownMenu = page.locator('.move-menu [data-popover][aria-hidden="false"]');
   const item = (name: string) => shownMenu.locator('[role="menuitemradio"]').filter({ hasText: name });
   await openApp(page, daemon);
-  await page.locator('#board-btn').click();
+  await boardAlone(page);
   await col(page, 'backlog').locator('header .btn').click();
   await newCard(page, 'Move me', project);
 
@@ -170,7 +185,7 @@ test("a card's Move menu sets its status, on the board and in the drawer", async
 
 test('dragging a card does not light the file drop', async ({ page, daemon, project }) => {
   await openApp(page, daemon);
-  await page.locator('#board-btn').click();
+  await boardAlone(page);
   await col(page, 'backlog').locator('header .btn').click();
   await newCard(page, 'Drag me', project);
   await card(page, 'Drag me').hover();

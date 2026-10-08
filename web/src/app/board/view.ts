@@ -40,8 +40,9 @@ export function setNewCard(fn: (status: Status) => void): void {
 
 export const boardOpen = (): boolean => shown.val;
 
+// Opening the board with a tab open keeps that tab in view, in the drawer.
 export function toggleBoard(open = !boardOpen()): void {
-  go({ view: open ? 'board' : 'terms' });
+  go(open ? { view: 'board', drawer: !!store.active } : { view: 'terms' });
 }
 
 function showBoard(open: boolean): void {
