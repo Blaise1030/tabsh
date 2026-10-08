@@ -10,6 +10,9 @@ export const cardOf = (info: SessionInfo): Card => ({
   statusAt: info.status_at ?? 0,
   note: info.note ?? null,
   cwd: info.cwd ?? null,
+  prompt: info.pending_prompt ?? null,
+  command: info.pending_command ?? null,
+  agent: info.agent_command ?? null,
 });
 
 // The tab's glyph, its title and `.archived` follow `s.card` (tab.ts), as

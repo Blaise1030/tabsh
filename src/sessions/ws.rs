@@ -64,6 +64,12 @@ async fn attach(socket: WebSocket, session: &Session) -> Result<(), BoxError> {
         tokio::select! {
             ev = rx.recv() => match ev {
                 Ok(Event::Output(data)) => sink.send(Message::Binary(data)).await?,
+                // The daemon replaced this shell (its card's first prompt
+                // changed): the tab reattaches to the replacement.
+                Ok(Event::Restart) => {
+                    sink.send(Message::Text(r#"{"restart":true}"#.into())).await?;
+                    break;
+                }
                 Ok(Event::Exit) | Err(broadcast::error::RecvError::Closed) => {
                     sink.send(Message::Text(r#"{"exit":true}"#.into())).await?;
                     break;

@@ -64,7 +64,9 @@ pub(crate) fn flush(state: &AppState) {
 }
 
 /// The columns `SessionInfo` is read from, in `info_row`'s order.
-pub(crate) const INFO_COLUMNS: &str = "id, name, status, status_at, note, cwd, pinned";
+pub(crate) const INFO_COLUMNS: &str =
+    "id, name, status, status_at, note, cwd, pinned, pending_prompt, pending_command,
+     COALESCE(pending_command, resume_command)";
 
 pub(super) fn info_row(r: &rusqlite::Row) -> rusqlite::Result<SessionInfo> {
     Ok(SessionInfo {
@@ -75,6 +77,9 @@ pub(super) fn info_row(r: &rusqlite::Row) -> rusqlite::Result<SessionInfo> {
         note: r.get(4)?,
         cwd: r.get(5)?,
         pinned: r.get(6)?,
+        pending_prompt: r.get(7)?,
+        pending_command: r.get(8)?,
+        agent_command: r.get(9)?,
     })
 }
 
@@ -99,6 +104,9 @@ pub(crate) struct NewCard<'a> {
     pub(crate) pending: Option<&'a str>,
     /// Handed to that shell as `TABSH_PROMPT`.
     pub(crate) prompt: Option<&'a str>,
+    /// The launch template `pending` was built from (`launch_line`'s input),
+    /// so an edit of the prompt can prefill the card's agent.
+    pub(crate) command: Option<&'a str>,
     /// The name was chosen by the user: shell titles don't replace it.
     pub(crate) pinned: bool,
     /// How its agent's conversation is reopened after a restart, with
@@ -118,6 +126,7 @@ impl Default for NewCard<'_> {
             status: "backlog",
             pending: None,
             prompt: None,
+            command: None,
             pinned: false,
             resume: None,
             agent_session: None,
@@ -162,10 +171,10 @@ pub(crate) fn insert_card(db: &Connection, card: &NewCard) -> rusqlite::Result<S
         }
     };
     db.execute(
-        "INSERT INTO sessions (id, name, position, cwd, status, status_at, pending_input, pending_prompt, pinned,
-                               resume_command, agent_session, resume_input)
-         VALUES (?1, ?2, (SELECT COALESCE(MAX(position), 0) + 1 FROM sessions), ?3, ?4, unixepoch(), ?5, ?6, ?7,
-                 ?8, ?9, ?10)",
+        "INSERT INTO sessions (id, name, position, cwd, status, status_at, pending_input, pending_prompt,
+                                pending_command, pinned, resume_command, agent_session, resume_input)
+         VALUES (?1, ?2, (SELECT COALESCE(MAX(position), 0) + 1 FROM sessions), ?3, ?4, unixepoch(), ?5, ?6,
+                 ?7, ?8, ?9, ?10, ?11)",
         params![
             id,
             name,
@@ -173,6 +182,7 @@ pub(crate) fn insert_card(db: &Connection, card: &NewCard) -> rusqlite::Result<S
             card.status,
             card.pending,
             card.prompt,
+            card.command,
             card.pinned,
             card.resume,
             card.agent_session,
@@ -258,6 +268,7 @@ mod tests {
                 status: "in_progress",
                 pending: Some("claude 'x'\r"),
                 prompt: None,
+                command: None,
                 pinned: false,
                 resume: None,
                 agent_session: None,

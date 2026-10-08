@@ -10,7 +10,7 @@ import {
 } from '../settings/schema.ts';
 import { current, KEYBINDINGS, saveSetting } from '../settings/settings.ts';
 import { isMac } from '../ui/dom.ts';
-import { type Icon, icons } from '../ui/icons.ts';
+import { type Icon, icons, providerIcon } from '../ui/icons.ts';
 
 // An item either opens another page (`go`, after running `run` if it has
 // one), picks a setting (`key` + `value`, previewed while highlighted),
@@ -207,7 +207,7 @@ export function pages(ctx: {
           heading: 'Agent providers',
           items: saved.providers.map((p, i) => ({
             label: p.name,
-            icon: icons.agent,
+            icon: providerIcon(p.command),
             hint: p.command,
             keywords: `${p.command} ${p.resume}`,
             go: `provider:${i}`,

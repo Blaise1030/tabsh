@@ -20,6 +20,9 @@ const card = (status: Card['status'], cwd: string | null = null, statusAt = 0): 
   statusAt,
   note: null,
   cwd,
+  prompt: null,
+  command: null,
+  agent: null,
 });
 const item = (id: string, status: Card['status'], cwd: string | null = null, statusAt = 0) => ({
   id,

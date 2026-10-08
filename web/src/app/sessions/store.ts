@@ -47,6 +47,12 @@ export interface SessionInfo {
   note: string | null;
   cwd: string | null;
   pinned: boolean;
+  // The card's first prompt and its agent's launch template, while it waits
+  // in Backlog.
+  pending_prompt?: string | null;
+  pending_command?: string | null;
+  // The agent it runs (its launch or resume command), if any.
+  agent_command?: string | null;
 }
 
 const activateListeners: (() => void)[] = [];

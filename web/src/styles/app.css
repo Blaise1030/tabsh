@@ -36,11 +36,11 @@ html.themed {
 .command > header { min-height: 2.5rem; flex-shrink: 0; }
 .command:has(> [role="menu"][hidden]) > header { margin-bottom: var(--spacing, .25rem); }
 .command-dialog [role="menu"] { max-height: none; flex: 1; min-height: 0; }
-/* Gradient edge fades on the palette list, shown only where items are
+/* Gradient edge fades on the palette list and the board's columns, shown only where items are
    scrolled out of view (same approach as the tab strip). */
 @property --fade-t { syntax: '<length>'; inherits: false; initial-value: 0px; }
 @property --fade-b { syntax: '<length>'; inherits: false; initial-value: 0px; }
-#palette-menu {
+#palette-menu, .board-cards {
   --fade-t: 0px; --fade-b: 0px;
   mask-image: linear-gradient(to bottom,
     transparent, rgb(0 0 0 / .35) calc(var(--fade-t) * .45), #000 var(--fade-t),
@@ -49,6 +49,11 @@ html.themed {
 }
 #palette-menu.fade-top { --fade-t: 3rem; }
 #palette-menu.fade-bottom { --fade-b: 3rem; }
+.board-cards.fade-top { --fade-t: 4rem; }
+.board-cards.fade-bottom { --fade-b: 4rem; }
+/* A mask clips everything painted inside, fixed popovers too: a card's open
+   menu (and its Tags submenu) drops the fades rather than be cut off. */
+:is(#board, .board-cards):has(.move-menu [aria-expanded="true"]) { mask-image: none; }
 .command-dialog [role="menuitem"] .swatch { display: flex; gap: 2px; padding: 3px; border-radius: 4px; border: 1px solid var(--border); }
 .command-dialog [role="menuitem"] .swatch i { width: 6px; height: 10px; border-radius: 1px; }
 .about-table th { width: 1%; white-space: nowrap; font-weight: 400; color: var(--muted-foreground); }
@@ -405,6 +410,8 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .card-title { flex: 1; min-width: 0; font-weight: 500; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .card-meta { display: flex; align-items: center; gap: .375rem; color: var(--muted-foreground); font-size: .75rem; min-width: 0; }
 .card-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-agent { display: inline-flex; flex: none; }
+.card-agent svg { width: 12px; height: 12px; }
 .card-note { color: var(--muted-foreground); font-size: .75rem; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .board-card.expanded :is(.card-title, .card-note) { -webkit-line-clamp: unset; }
 .card-more { align-self: flex-start; background: none; border: 0; padding: 0; font: inherit; font-size: .75rem; color: var(--muted-foreground); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
@@ -440,7 +447,7 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .tags-submenu[hidden] { display: none; }
 .tags-submenu-list { display: flex; flex-direction: column; max-height: 14rem; overflow-y: auto; }
 .tags-submenu-empty { padding: .375rem .5rem; color: var(--muted-foreground); }
-.move-menu .menu-danger svg { width: 14px; height: 14px; }
+.move-menu :is(.menu-danger, .menu-edit) svg { width: 14px; height: 14px; }
 .status-glyph[data-status="needs_input"] { color: var(--needs-input); }
 .board-onboarding { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; padding: 1.5rem; text-align: center; text-wrap: balance; }
 .board-onboarding-header { max-width: 24rem; display: flex; flex-direction: column; align-items: center; gap: .5rem; }
@@ -464,10 +471,10 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .nc-sep { display: inline-flex; color: var(--muted-foreground); }
 .nc-sep svg { width: 14px; height: 14px; }
 .nc-tools { display: flex; gap: .125rem; margin: -.25rem -.375rem 0 0; }
-/* A chip: a rounded pill, an icon then its value. */
+/* A chip: a rounded box, an icon then its value. */
 .nc-chip {
   position: relative; display: inline-flex; align-items: center; gap: .375rem; min-width: 0;
-  height: 1.875rem; padding: 0 .625rem; border: 1px solid var(--border); border-radius: 999px;
+  height: 1.875rem; padding: 0 .625rem; border: 1px solid var(--border); border-radius: var(--radius, .5rem);
   font-size: .8125rem; color: var(--foreground); background: transparent; cursor: text;
 }
 .nc-chip:hover { background: var(--accent); }
@@ -502,7 +509,7 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .nc-trigger-body > svg:last-child:not(:first-child) { width: 12px; height: 12px; }
 .nc-body { display: flex; flex-direction: column; gap: .75rem; }
 .nc-prompt {
-  width: 100%; min-height: 6rem; resize: none; field-sizing: content; max-height: 50vh;
+  width: 100%; min-height: calc(2lh + .5rem); resize: none; field-sizing: content; max-height: 50vh;
   border: 0; outline: 0; padding: .25rem 0; background: transparent; color: inherit;
   font: inherit; font-size: 1.0625rem; line-height: 1.5;
 }
@@ -520,9 +527,17 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .nc-thumb-off svg { width: 12px; height: 12px; }
 .nc-props { display: flex; flex-wrap: wrap; align-items: center; gap: .375rem; }
 #new-card .nc-foot { display: flex; flex-direction: row; justify-content: flex-start; align-items: center; gap: .75rem; margin: 0; padding: 0; }
-.nc-attach { border-radius: 999px; }
+.nc-attach { border-radius: var(--radius, .5rem); }
 .nc-more { display: inline-flex; align-items: center; gap: .5rem; margin-left: auto; font-size: .8125rem; color: var(--muted-foreground); cursor: pointer; }
-.nc-foot [type="submit"] { border-radius: 999px; }
+.nc-more[hidden] { display: none; }
+/* Editing a card: no Create more, so Save keeps to the right. */
+.nc-more[hidden] + [type="submit"] { margin-left: auto; }
+.nc-column { display: contents; }
+.nc-column[hidden] { display: none; }
+/* An edited card's folder, which can't change. */
+.nc-fixed { cursor: default; color: var(--muted-foreground); }
+.nc-fixed:hover { background: transparent; }
+.nc-foot [type="submit"] { border-radius: var(--radius, .5rem); }
 /* Files dragged over the dialog: a dashed outline and a hint over it all. */
 .nc-drop {
   position: absolute; inset: .375rem; z-index: 20; display: none; flex-direction: column; align-items: center; justify-content: center; gap: .5rem;

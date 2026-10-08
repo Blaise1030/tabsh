@@ -72,6 +72,7 @@ mod tests {
             (Method::PATCH, "/api/sessions/x"),
             (Method::DELETE, "/api/sessions/x"),
             (Method::PATCH, "/api/sessions/x/status"),
+            (Method::PATCH, "/api/sessions/x/prompt"),
             (Method::PATCH, "/api/board/agents/x/status"),
             (Method::GET, "/api/board/events"),
             (Method::GET, "/api/settings"),

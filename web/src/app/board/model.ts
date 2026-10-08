@@ -17,6 +17,12 @@ export interface Card {
   statusAt: number; // unix seconds
   note: string | null;
   cwd: string | null;
+  // Its first prompt while the card waits in Backlog for its drag, and the
+  // agent launch template that runs it. Both once it starts.
+  prompt: string | null;
+  command: string | null;
+  // The agent it runs, by command, for its icon.
+  agent: string | null;
 }
 
 export const asStatus = (v: unknown): Status => (STATUSES.includes(v as Status) ? (v as Status) : 'backlog');
