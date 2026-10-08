@@ -57,11 +57,12 @@ it in `state::router()`, and add its routes to `every_route_is_guarded`.
 | `board/` | `model.ts` (statuses, columns, grouping, drop order, no DOM), `glyph.ts` (status names), `status.ts` (a tab's card: glyph, archived tabs hidden, bell on needs input), `events.ts` (the board events socket), `view.ts` (the board as components following `sessionList` and each card's state, `shown` set by the view step; drag and drop incl. onto Archive, an Archive button on Completed cards, ⌘B; until the `boardOnboarded` setting is true, a setup screen instead of columns, whose button opens a Claude Code card that runs `tabsh setup`), `new-card.ts` (the New card dialog, with recent agent commands; the board stays open) |
 | `sound/` | `packs.ts` (samples), `typing.ts` (key listeners) |
 | `palette/` | `pages.ts` (what the palette offers), `palette.ts` (dialog, preview, shortcuts, the grouping page the group button and its keybinding open) |
-| `ui/` | `dom.ts` (`el`, `isMac`), `icons.ts` (every icon, as SVG tags), `keyed.ts` (lists by key), `app.ts` (the page shell), `gate.ts` (the connection gate's screens, from `daemon/client.ts`'s `gateMode`), `divider.ts`, `about.ts`, `drop.ts` and `drop-paths.ts` |
+| `ui/` | `dom.ts` (`isMac`), `icons.ts` (every icon, as SVG tags), `keyed.ts` (lists by key), `app.ts` (the page shell), `gate.ts` (the connection gate's screens, from `daemon/client.ts`'s `gateMode`), `divider.ts`, `about.ts`, `drop.ts` and `drop-paths.ts`, `no-markup.test.ts` (the guard: no `innerHTML` in the app) |
 
-The page's CSS is in `web/src/styles/app.css`. `web/src/pages/app/index.astro`'s
-body is one mount point, `#app`; `main.ts` mounts `ui/app.ts`'s `App()` into it
-first, so the markup comes from components.
+The page's CSS is in `web/src/styles/app.css`. The page's `<head>` is in
+`web/src/pages/app/index.astro`; its body is one mount point, `#app`, and
+`main.ts` mounts `ui/app.ts`'s `App()` into it first, so the markup comes from
+components.
 
 **Rules**
 - **One-way dependencies between features:**
@@ -82,7 +83,7 @@ first, so the markup comes from components.
   the DOM when imported: `links.ts`, `files/api.ts`, `daemon/parse.ts`,
   `settings/catalog.ts`, `keys.ts`, `schema.ts`, `sessions/bell-scan.ts`,
   `sessions/labels.ts`, `sessions/order.ts`,
-  `explorer/listing.ts`, `explorer/changes.ts`, `ui/drop-paths.ts`, `ui/keyed.ts`, `nav/place.ts`. Their tests sit beside them as `*.test.ts`.
+  `explorer/listing.ts`, `explorer/changes.ts`, `ui/drop-paths.ts`, `ui/keyed.ts`, `nav/place.ts`, and `ui/no-markup.test.ts`'s rule (it only reads files). Their tests sit beside them as `*.test.ts`.
 - **Components:** a component is a function returning a node, built with
   VanJS tags (`import van from 'vanjs-core'`). A feature owns its
   `van.state`s and the router's steps assign them. States are assigned
@@ -124,6 +125,8 @@ A refactor must not change any of these.
   - Markdown and SVG render in `<iframe sandbox="">`.
   - Images and PDFs load from `blob:` URLs.
   - File content never goes through `innerHTML`.
+- **No markup strings:** no `innerHTML`, `outerHTML` or `insertAdjacentHTML` in
+  `web/src/app` (`ui/no-markup.test.ts`).
 - **URLs select, never act:** a URL only selects what exists: it never opens
   a tab, runs a command, sets a `cwd` or saves a file. The query string
   holds the place; the router never reads the fragment (the token's), and

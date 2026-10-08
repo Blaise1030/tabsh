@@ -1,10 +1,12 @@
 // Tab labels: the repo a tab's shell is in, read from the daemon, and the tags
 // checked in the tab's right-click menu (kept in this browser). A tagged tab
 // shows its tags' colors, and the strip groups tabs by either (groups.ts).
+import van from 'vanjs-core';
 import { daemonFetch } from '../daemon/client.ts';
-import { el } from '../ui/dom.ts';
 import { cleanTag, type Labels, parseTags, repoName, tagColor, toggleTag } from './labels.ts';
 import { onActivate, type Session, store } from './store.ts';
+
+const { div, i, input, label, span } = van.tags;
 
 const TAGS_KEY = 'tabsh.tags';
 const roots = new Map<string, string>(); // session id → project root
@@ -67,28 +69,25 @@ function showMenu(m: HTMLElement, x: number, y: number): void {
 // A checkbox row, as Basecoat's label and checkbox: a tag gets its color's
 // dot.
 function checkRow(kind: 'repo' | 'tag', value: string, on: boolean, change: (on: boolean) => void): HTMLElement {
-  const box = document.createElement('input');
-  Object.assign(box, { type: 'checkbox', className: 'input', checked: on });
-  box.onchange = () => change(box.checked);
-  const dot = el('i');
-  if (kind === 'tag') dot.style.background = tagColor(value);
-  return el('label', { className: `label menu-check ${kind}` }, box, dot, el('span', { textContent: value }));
+  const box = input({
+    type: 'checkbox',
+    class: 'input',
+    checked: on,
+    onchange: () => change(box.checked),
+  });
+  return label(
+    { class: `label menu-check ${kind}` },
+    box,
+    i({ style: kind === 'tag' ? `background:${tagColor(value)}` : '' }),
+    span(value),
+  );
 }
 
 // The tab's right-click menu: a box to type a new tag, then a checkbox per tag
 // in use, checked for the tab's own. A typed tag is added to the tab and the
 // list, and the menu stays open.
 function tagMenu(s: Session): HTMLElement {
-  const m = el('div', { className: 'row-menu tab-menu', role: 'dialog', ariaLabel: 'Tab tags' });
-  const input = document.createElement('input');
-  Object.assign(input, {
-    type: 'text',
-    className: 'input',
-    placeholder: 'New tag…',
-    maxLength: 24,
-    ariaLabel: 'New tag',
-  });
-  const list = el('div', { className: 'menu-list' });
+  const list = div({ class: 'menu-list' });
   const fill = () => {
     const mine = storedTags()[s.id] ?? [];
     const used = [...new Set(Object.values(storedTags()).flat())].sort();
@@ -98,17 +97,23 @@ function tagMenu(s: Session): HTMLElement {
       ),
     );
   };
-  input.onkeydown = (e) => {
-    const tag = e.key === 'Enter' && cleanTag(input.value);
-    if (!tag) return;
-    setTags(s, toggleTag(storedTags()[s.id] ?? [], tag, true));
-    input.value = '';
-    fill();
-  };
+  const field = input({
+    type: 'text',
+    class: 'input',
+    placeholder: 'New tag…',
+    maxLength: 24,
+    'aria-label': 'New tag',
+    onkeydown: (e: KeyboardEvent) => {
+      const tag = e.key === 'Enter' && cleanTag(field.value);
+      if (!tag) return;
+      setTags(s, toggleTag(storedTags()[s.id] ?? [], tag, true));
+      field.value = '';
+      fill();
+    },
+  });
   fill();
-  m.append(input, list);
-  queueMicrotask(() => input.focus());
-  return m;
+  queueMicrotask(() => field.focus());
+  return div({ class: 'row-menu tab-menu', role: 'dialog', 'aria-label': 'Tab tags' }, field, list);
 }
 
 // Tags a tab before it opens, so it lands in its tag's group.
