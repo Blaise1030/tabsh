@@ -113,7 +113,7 @@ test("dragging a card doesn't type its id into the active terminal", async ({ pa
   await expect.poll(() => existsSync(mark), { timeout: 10_000 }).toBe(true);
 });
 
-test('a completed card has an Archive button', async ({ page, daemon, project }) => {
+test("a completed card is archived from its menu, and has no Archive button", async ({ page, daemon, project }) => {
   await openApp(page, daemon);
   await page.locator('#board-btn').click();
   await col(page, 'backlog').locator('header .btn').click();
@@ -124,7 +124,9 @@ test('a completed card has an Archive button', async ({ page, daemon, project })
     data: { status: 'completed', source: 'user' },
   });
   await expect(col(page, 'completed').locator('.board-card').filter({ hasText: 'Ship it' })).toBeVisible();
-  await card(page, 'Ship it').getByRole('button', { name: 'Archive' }).click();
+  await expect(card(page, 'Ship it').getByRole('button', { name: 'Archive' })).toHaveCount(0);
+  await card(page, 'Ship it').locator('.card-move').click();
+  await page.locator('.move-menu [data-popover][aria-hidden="false"] [role="menuitem"]').filter({ hasText: 'Archive' }).click();
   await expect(col(page, 'completed').locator('.board-card')).toHaveCount(0);
   await expect(page.locator('.archive-toggle')).toContainText('Archive 1');
 });

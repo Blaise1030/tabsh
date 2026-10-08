@@ -1,6 +1,6 @@
 // A card's menu, as Basecoat's dropdown menu (its script opens and closes it,
-// and moves through it by keyboard): the card's status glyph on the board, or
-// the status's name in the drawer's bar, lists the stages to move it to (the
+// and moves through it by keyboard): a card's ⋯ button on the board, or the
+// status's name in the drawer's bar, lists the stages to move it to (the
 // current one checked, and not picked again), then Archive and Delete
 // session.
 // Open, its popover is fixed under the button, so a column that scrolls
@@ -98,12 +98,12 @@ function MoveMenu(s: () => Session | null, trigger: Record<string, string>, ...f
   return root;
 }
 
-// A card's status glyph, as the button that opens its menu.
-export const CardMoveButton = (s: Session, status: () => Status): HTMLElement =>
+// A card's ⋯ button, opening its menu.
+export const CardMenuButton = (s: Session): HTMLElement =>
   MoveMenu(
     () => s,
-    { class: 'card-move', title: 'Move to…', 'aria-label': 'Move to…' },
-    () => statusGlyph(status()),
+    { class: 'card-move', title: 'Card menu', 'aria-label': 'Card menu' },
+    () => icons.more(),
   );
 
 // The drawer bar's button: the active card's status, by name.

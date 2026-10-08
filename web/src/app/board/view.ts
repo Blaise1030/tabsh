@@ -13,7 +13,7 @@ import { current, onSaved, saveSetting } from '../settings/settings.ts';
 import { glyph, icons } from '../ui/icons.ts';
 import { keyed } from '../ui/keyed.ts';
 import { COLUMNS, DEFAULT_COMMAND, dropOrder, group, SETUP_PROMPT, type Status, shortPath, since } from './model.ts';
-import { CardMoveButton } from './move-menu.ts';
+import { CardMenuButton } from './move-menu.ts';
 import { setStatus } from './status.ts';
 
 const { a, article, button, div, h2, header, i, p, section, span } = van.tags;
@@ -117,7 +117,8 @@ function Card(s: Session, archived = false): HTMLElement {
     div(
       { class: 'card-top' },
       span({ class: 'card-title' }, () => s.name.val),
-      CardMoveButton(s, () => status.val),
+      statusGlyph(() => status.val),
+      CardMenuButton(s),
     ),
     div(
       { class: 'card-meta' },
@@ -148,19 +149,14 @@ function Card(s: Session, archived = false): HTMLElement {
           )
         : '',
     div({ class: 'card-meta' }, () => since(s.card.val.statusAt, now.val)),
+    // Archiving is in the card's menu; an archived card also keeps these.
     archived
       ? div(
           { class: 'card-actions' },
           cardButton('Restore', () => void setStatus(s, 'backlog')),
           cardButton('Delete', () => void closeSession(s)),
         )
-      : () =>
-          status.val === 'completed'
-            ? div(
-                { class: 'card-actions' },
-                cardButton('Archive', () => void setStatus(s, 'archived')),
-              )
-            : '',
+      : '',
   );
   // A clamped box reports no overflow in scrollHeight, so this compares its
   // text's height with the clamp lifted. Hidden (height 0), nothing is cut.

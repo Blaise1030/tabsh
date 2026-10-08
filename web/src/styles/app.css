@@ -397,7 +397,9 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .card-actions { display: flex; gap: .25rem; }
 .status-glyph { display: inline-flex; flex-shrink: 0; color: var(--muted-foreground); }
 /* A card's glyph opens its Move menu (board/move-menu.ts). */
-.card-move { all: unset; display: inline-flex; flex-shrink: 0; padding: .1875rem; margin: -.1875rem; border-radius: calc(var(--radius, .5rem) - 4px); cursor: pointer; }
+.card-move { all: unset; display: inline-flex; flex-shrink: 0; padding: .1875rem; margin: -.1875rem -.1875rem -.1875rem 0; border-radius: calc(var(--radius, .5rem) - 4px); cursor: pointer; color: var(--muted-foreground); }
+.card-move > svg { width: 16px; height: 16px; }
+.card-move:hover, .card-move:focus-visible, .card-move[aria-expanded="true"] { color: var(--foreground); }
 .card-move:hover, .card-move:focus-visible, .card-move[aria-expanded="true"] { background: var(--muted); }
 .drawer-move-label { display: inline-flex; align-items: center; gap: .375rem; }
 .drawer-move-label > svg { width: 14px; height: 14px; color: var(--muted-foreground); }
