@@ -15,8 +15,8 @@ import { labelTab } from './tags.ts';
 
 const enc = new TextEncoder();
 
-// Opens `info`'s tab, once: a session already open is returned as it is (a
-// sync and the POST that made the session can both bring it).
+// Opens a session's tab and terminal, once: a session already open (a sync
+// can list a new tab before its POST answers) is returned as it is.
 export function openSession(info: SessionInfo): Session {
   const known = store.sessions.find((x) => x.id === info.id);
   if (known) return known;

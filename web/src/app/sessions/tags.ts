@@ -116,13 +116,16 @@ function tagMenu(s: Session): HTMLElement {
   return div({ class: 'row-menu tab-menu', role: 'dialog', 'aria-label': 'Tab tags' }, field, list);
 }
 
-// Tags a tab before it opens, so it lands in its tag's group.
+// Tags a tab before it opens, so it lands in its tag's group (or, when a
+// sync opened it first, moves it there).
 export function adoptTag(id: string, tag: string): void {
   const all = storedTags();
   all[id] = [...new Set([...(all[id] ?? []), tag])];
   try {
     localStorage.setItem(TAGS_KEY, JSON.stringify(all));
   } catch {}
+  const open = store.sessions.find((s) => s.id === id);
+  if (open) render(open);
 }
 
 // A tab's right-click menu, at (x, y).

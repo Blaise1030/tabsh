@@ -90,7 +90,7 @@ export const savedActive = (): string | null => {
 
 // Opens a tab with `body`'s options in the active tab's group: grouped by
 // tag, it gets that group's tag. It becomes the active tab unless `focus` is
-// false.
+// false. A sync may have opened it first: then that session is the tab.
 export async function openTab(
   body?: { cwd?: string; name?: string; prompt?: string; command?: string },
   focus = true,

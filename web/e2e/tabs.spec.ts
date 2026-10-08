@@ -203,3 +203,23 @@ test('the empty state stays hidden while tabs are restored', async ({ page, daem
   await expect(tabs(page).first()).toHaveAttribute('aria-selected', 'true');
   expect(await page.evaluate(() => (window as unknown as { emptyShown: boolean }).emptyShown)).toBe(false);
 });
+
+// The first tab's POST answers slowly; a sync (coming back to the window)
+// lists the new session before it does. It opens once: one tab, one terminal.
+test('a session a sync opens before its POST answers is one tab and one terminal', async ({ page, daemon }) => {
+  await page.route('**/api/sessions', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    const response = await route.fetch(); // the daemon has the session now
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await new Promise((r) => setTimeout(r, 1500));
+    await route.fulfill({ response });
+  });
+  await openApp(page, daemon);
+  await expect.poll(() => urlTab(page)).not.toBeNull();
+  // Past the POST's answer, and the open it leads to.
+  await page.waitForTimeout(2000);
+  await expect(tabs(page)).toHaveCount(1);
+  await expect(page.locator('.term')).toHaveCount(1);
+  await expect(page.locator('.term.active')).toHaveCount(1);
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+});
