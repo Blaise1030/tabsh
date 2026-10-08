@@ -147,6 +147,13 @@ test('a card opens its terminal in a drawer beside the board', async ({ page, da
   await expect(page.locator('#frame')).toBeHidden();
   await expect(page.locator('#board')).toBeVisible();
 
+  // A click on the board's empty space closes it; a card's click opens it.
+  await card(page, 'In a drawer').click();
+  await expect(page.locator('#frame')).toBeVisible();
+  await page.locator('#board').click({ position: { x: 300, y: 600 } });
+  await expect(page.locator('#frame')).toBeHidden();
+  await expect(page.locator('#board')).toBeVisible();
+
   // Expanding goes to the terminals.
   await card(page, 'In a drawer').click();
   await page.locator('#drawer-expand').click();

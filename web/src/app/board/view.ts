@@ -378,7 +378,18 @@ export function Board(): HTMLElement {
     const g = group(sessionList.val.map((s) => ({ s, card: s.card.val })));
     return Object.fromEntries(Object.entries(g).map(([k, v]) => [k, v.map((x) => x.s)])) as Columns;
   });
-  const el = section({ id: 'board', 'aria-label': 'Board', hidden: () => !shown.val });
+  const el = section({
+    id: 'board',
+    'aria-label': 'Board',
+    hidden: () => !shown.val,
+    // A click on the board's empty space closes the drawer; one on a card
+    // opens that card in it instead, and controls keep their own clicks.
+    onclick: (e: MouseEvent) => {
+      if (drawer.val && !(e.target as Element).closest('.board-card, button, a, input, .move-menu')) {
+        go({ drawer: false });
+      }
+    },
+  });
   resized.observe(el);
   keyed(
     el,
