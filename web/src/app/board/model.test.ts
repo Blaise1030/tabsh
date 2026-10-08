@@ -1,6 +1,19 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { asStatus, type Card, dropOrder, group, recentFolders, rememberCommand, shortPath, since } from './model.ts';
+import {
+  asStatus,
+  type BoardFilter,
+  type Card,
+  dropOrder,
+  foldersOf,
+  group,
+  matchesFilter,
+  recentFolders,
+  shortPath,
+  since,
+  tagsInUse,
+  withImages,
+} from './model.ts';
 
 const card = (status: Card['status'], cwd: string | null = null, statusAt = 0): Card => ({
   status,
@@ -43,14 +56,35 @@ test('shortPath shortens home', () => {
   assert.equal(shortPath(null), '');
 });
 
-test('recent folders are unique, newest first', () => {
-  const r = recentFolders([
+test('folders are unique, newest first, and recent ones are capped', () => {
+  const items = [
     item('a', 'backlog', '/a', 1),
     item('b', 'backlog', '/b', 3),
     item('c', 'backlog', '/a', 5),
     item('d', 'backlog', null, 9),
+  ];
+  assert.deepEqual(foldersOf(items), ['/a', '/b']);
+  assert.deepEqual(recentFolders(items, 1), ['/a']);
+});
+
+test('a filter keeps cards in any checked folder that have any checked tag', () => {
+  const items = [
+    { tags: ['bug'], card: card('backlog', '/app') },
+    { tags: ['chore'], card: card('backlog', '/app') },
+    { tags: ['bug', 'chore'], card: card('backlog', '/lib') },
+    { tags: [], card: card('backlog', '/lib') },
+  ];
+  const kept = (filter: BoardFilter) => items.filter((x) => matchesFilter(x, filter)).map((x) => [x.card.cwd, x.tags]);
+  assert.deepEqual(kept({ tags: ['bug'], folders: ['/app', '/lib'] }), [
+    ['/app', ['bug']],
+    ['/lib', ['bug', 'chore']],
   ]);
-  assert.deepEqual(r, ['/a', '/b']);
+  assert.deepEqual(kept({ tags: [], folders: [] }).length, 4);
+  assert.deepEqual(kept({ tags: ['missing'], folders: [] }), []);
+});
+
+test('tags in use follow the order they first appear', () => {
+  assert.deepEqual(tagsInUse([{ tags: ['bug', 'ui'] }, { tags: ['ui', 'api'] }]), ['bug', 'ui', 'api']);
 });
 
 test('dropOrder puts the card before the target, or at the end of its column', () => {
@@ -60,12 +94,7 @@ test('dropOrder puts the card before the target, or at the end of its column', (
   assert.deepEqual(dropOrder(items, 'a', 'needs_input', null), ['b', 'c', 'd', 'a']);
 });
 
-test('used agent commands move to the front, without repeats, at most 8', () => {
-  assert.deepEqual(rememberCommand(['claude {prompt}'], 'gemini -i {prompt}'), [
-    'gemini -i {prompt}',
-    'claude {prompt}',
-  ]);
-  assert.deepEqual(rememberCommand(['a', 'b'], ' b '), ['b', 'a']);
-  assert.deepEqual(rememberCommand(['a'], '   '), ['a']);
-  assert.equal(rememberCommand(['1', '2', '3', '4', '5', '6', '7', '8'], '9').length, 8);
+test('attached images follow the prompt, one path a line', () => {
+  assert.equal(withImages('Fix the header', []), 'Fix the header');
+  assert.equal(withImages('Fix the header', ['/u/a.png', '/u/b.png']), 'Fix the header\n\n/u/a.png\n/u/b.png');
 });

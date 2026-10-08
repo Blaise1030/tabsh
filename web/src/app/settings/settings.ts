@@ -3,7 +3,7 @@
 import { daemonFetch } from '../daemon/client.ts';
 import { isMac } from '../ui/dom.ts';
 import { FONTS, type Font, fontStack, THEMES } from './catalog.ts';
-import { keybindings } from './keys.ts';
+import { type KeyId, keybindings, keyLabel } from './keys.ts';
 import { cleanSettings, defaults, type Settings } from './schema.ts';
 
 export type { Settings } from './schema.ts';
@@ -93,4 +93,12 @@ export function saveSetting<K extends keyof Settings>(key: K, value: Settings[K]
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(current.saved),
   }).catch(() => {});
+}
+
+// Shows a button's shortcut in its tooltip; set on hover so it always
+// reflects the current keybinding.
+export function keyHint(button: HTMLButtonElement, label: string, key: KeyId): void {
+  button.addEventListener('pointerenter', () => {
+    button.title = `${label} (${keyLabel(current.saved[key], isMac)})`;
+  });
 }

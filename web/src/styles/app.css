@@ -30,6 +30,11 @@ html.themed {
 /* Near the top of the screen at Tailwind's max-w-xl width; tall enough to show
    long lists. The menu fills what's left instead of Basecoat's fixed 18rem. */
 .command-dialog > .command { top: 10%; max-width: min(36rem, 100% - 2rem); max-height: min(75%, 44rem); }
+/* The list fills the dialog and would otherwise shrink this bar down to the text line.
+   Its bottom margin is 0 so it meets the list; while the list is hidden (a provider's
+   command being edited), the space below matches the space above. */
+.command > header { min-height: 2.5rem; flex-shrink: 0; }
+.command:has(> [role="menu"][hidden]) > header { margin-bottom: var(--spacing, .25rem); }
 .command-dialog [role="menu"] { max-height: none; flex: 1; min-height: 0; }
 /* Gradient edge fades on the palette list, shown only where items are
    scrolled out of view (same approach as the tab strip). */
@@ -50,8 +55,10 @@ html.themed {
 .about-table td { white-space: normal; overflow-wrap: anywhere; font-family: ui-monospace, Menlo, monospace; font-size: .8125rem; }
 
 .tabbar { display: flex; align-items: center; gap: .375rem; padding: .125rem .5rem; }
-.tabbar.on-board > :not(#board-btn, .settings-btn) { display: none; }
+.tabbar.on-board > :not(#board-btn, .settings-btn, #board-filter-btn) { display: none; }
 .tabbar.on-board .settings-btn { margin-left: auto; }
+.tabbar.on-board #board-filter-btn:not([hidden]) { margin-left: auto; }
+.tabbar.on-board #board-filter-btn:not([hidden]) ~ .settings-btn { margin-left: 0; }
 /* Edge fades show only where tabs are scrolled out of view; registered so
    they ease in and out instead of popping. */
 @property --fade-l { syntax: '<length>'; inherits: false; initial-value: 0px; }
@@ -150,12 +157,12 @@ html.themed {
 .tab-menu .menu-hint { padding: .25rem .5rem .375rem; font-size: .75rem; color: var(--muted-foreground); }
 /* A checkbox row is Basecoat's label (its layout, gap and type); the menu adds
    the padding and the hover. */
-.tab-menu .menu-check { padding: .375rem .5rem; cursor: default; border-radius: calc(var(--radius, .5rem) - 2px); }
-.tab-menu .menu-check:hover { background: var(--accent); }
-.tab-menu .menu-check input { margin: 0; }
-.tab-menu .menu-check i { flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; }
+.tab-menu .menu-check, .tags-submenu .menu-check { padding: .375rem .5rem; cursor: default; border-radius: calc(var(--radius, .5rem) - 2px); }
+.tab-menu .menu-check:hover, .tags-submenu .menu-check:hover { background: var(--accent); }
+.tab-menu .menu-check input, .tags-submenu .menu-check input { margin: 0; }
+.tab-menu .menu-check i, .tags-submenu .menu-check i { flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; }
 .tab-menu .menu-check.repo i { display: none; } /* repos have no color of their own */
-.tab-menu .menu-check span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-menu .menu-check span, .tags-submenu .menu-check span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab-menu .menu-check small { color: var(--muted-foreground); }
 .tab-menu .menu-foot { display: flex; flex-direction: column; }
 .tab-menu .menu-foot[hidden] { display: none; }
@@ -183,10 +190,10 @@ html.themed {
 /* Beside the board: a share of the page set by its divider (drawerWidth). */
 #frame.in-drawer { flex: 0 0 calc(var(--drawer-width, .5) * 100%); position: relative; }
 #frame.in-drawer::before {
-  content: ''; position: absolute; top: 0; bottom: 0; right: 100%; width: .75rem; z-index: 4; pointer-events: none;
-  background: linear-gradient(to right, transparent, color-mix(in srgb, var(--foreground) 5%, transparent));
+  content: ''; position: absolute; top: 0; bottom: 0; right: 100%; width: 6rem; z-index: 4; pointer-events: none;
+  background: linear-gradient(to right, transparent, var(--background));
   /* It fades in from the top, so it doesn't meet the tab bar at a hard corner. */
-  mask-image: linear-gradient(to bottom, transparent, #000 2rem);
+  mask-image: linear-gradient(to bottom, transparent, #000 4rem);
 }
 /* Too narrow to share: the drawer covers the board. */
 @media (max-width: 799px) {
@@ -251,8 +258,8 @@ file-tree-container {
    reads as one canvas. A short pill in the middle marks the drag handle, and
    darkens while it is hovered or dragged. */
 #explorer-divider, #pane-divider, #drawer-divider { flex: 0 0 1px; position: relative; touch-action: none; }
-/* No line between the board and its drawer: a narrow shade on the board's
-   side, darkening toward the drawer's edge (#frame.in-drawer::before). */
+/* No line between the board and its drawer: a narrow fade on the board's
+   side, into the background toward the drawer's edge (#frame.in-drawer::before). */
 #drawer-divider[hidden] { display: none; }
 /* A wider grab area than the divider itself. */
 #explorer-divider::before, #pane-divider::before, #drawer-divider::before {
@@ -369,7 +376,20 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .tab.archived:not([aria-selected="true"]) { display: none; }
 
 /* The board: Linear-style columns in the theme's own tokens. */
-#board { flex: 1; min-width: 0; min-height: 0; display: flex; gap: .75rem; padding: .75rem; overflow-x: auto; background: var(--background); }
+#board-filter-btn[hidden] { display: none; }
+#board-filter-btn[aria-pressed="true"] { color: var(--foreground); background: var(--muted); }
+.board-filter-menu { max-width: 20rem; }
+#board {
+  flex: 1; min-width: 0; min-height: 0; display: flex; gap: .75rem; padding: .75rem; overflow-x: auto; background: var(--background);
+  /* Longer than the tab strip, so a column cut by the edge dissolves instead of ending in a hard line. */
+  --fade-l: 0px; --fade-r: 0px;
+  mask-image: linear-gradient(to right,
+    transparent, rgb(0 0 0 / .25) calc(var(--fade-l) * .45), #000 var(--fade-l),
+    #000 calc(100% - var(--fade-r)), rgb(0 0 0 / .25) calc(100% - var(--fade-r) * .45), transparent);
+  transition: --fade-l .2s ease, --fade-r .2s ease;
+}
+#board.fade-left { --fade-l: 6rem; }
+#board.fade-right { --fade-r: 6rem; }
 #board[hidden] { display: none; }
 .board-col { flex: 0 0 18rem; display: flex; flex-direction: column; min-height: 0; }
 .board-col > header { display: flex; align-items: center; gap: .5rem; padding: .25rem .25rem .5rem; font-size: .8125rem; font-weight: 500; min-height: 2.25rem; /* the same with or without a + */ }
@@ -419,24 +439,9 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 }
 .tags-submenu[hidden] { display: none; }
 .tags-submenu-list { display: flex; flex-direction: column; max-height: 14rem; overflow-y: auto; }
-.tags-submenu [role="menuitemcheckbox"] {
-  display: flex; align-items: center; gap: .5rem; padding: .375rem .5rem; cursor: default; outline: none;
-  border-radius: calc(var(--radius, .5rem) - 2px);
-}
-.tags-submenu [role="menuitemcheckbox"]:hover, .tags-submenu [role="menuitemcheckbox"]:focus-visible { background: var(--accent); color: var(--accent-foreground); }
-.tags-submenu [role="menuitemcheckbox"] > span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tags-submenu [role="menuitemcheckbox"] > svg { width: 14px; height: 14px; }
-.tags-submenu .tag-dot { width: .5rem; height: .5rem; border-radius: 999px; flex-shrink: 0; }
 .tags-submenu-empty { padding: .375rem .5rem; color: var(--muted-foreground); }
-.tags-submenu > .input { height: 2rem; font-size: .8125rem; }
 .move-menu .menu-danger svg { width: 14px; height: 14px; }
 .status-glyph[data-status="needs_input"] { color: var(--needs-input); }
-.board-col.archive.drop-end { box-shadow: inset 0 0 0 1px var(--muted-foreground); border-radius: var(--radius, .5rem); }
-.board-col.archive { flex: 0 0 auto; min-width: 8rem; }
-.board-col.archive:has(.board-card) { flex-basis: 18rem; }
-.archive-cards { display: contents; }
-.archive-toggle { align-self: flex-start; background: none; border: 0; color: var(--muted-foreground); font: inherit; font-size: .8125rem; padding: .25rem; cursor: pointer; }
-.archive .board-card { margin-top: .5rem; cursor: default; }
 .board-onboarding { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; padding: 1.5rem; text-align: center; text-wrap: balance; }
 .board-onboarding-header { max-width: 24rem; display: flex; flex-direction: column; align-items: center; gap: .5rem; }
 .board-onboarding-icon { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 2rem; height: 2rem; margin-bottom: .5rem; border-radius: var(--radius, .5rem); background: var(--muted); color: var(--foreground); }
@@ -446,13 +451,87 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .board-onboarding-more { display: inline-flex; align-items: center; gap: .25rem; height: 1.75rem; padding-inline: .625rem; color: var(--muted-foreground); font-size: .8rem; font-weight: 500; text-decoration: none; text-underline-offset: 4px; }
 .board-onboarding-more:hover { text-decoration: underline; }
 
-.new-card-fields { display: flex; flex-direction: column; gap: .75rem; }
-.new-card-fields .label { display: flex; flex-direction: column; align-items: stretch; gap: .375rem; text-align: left; }
-.new-card-fields .mark { color: var(--muted-foreground); font-weight: 400; }
-/* The folder and tag lists hang under their fields, over the fields below,
-   in the row menu's look. */
-.picker { position: relative; display: block; }
-.picker > .input { width: 100%; }
+/* New card, after Linear's New issue: folder and agent as chips at the top,
+   the prompt as a borderless body, the column and tags as chips under it,
+   then attach, Create more and Create. */
+/* Basecoat centres the form (the dialog's child) as the panel; the dialog
+   itself is only the overlay. */
+#new-card-form { width: min(44rem, 100% - 2rem); max-width: none; gap: .75rem; padding: .875rem 1rem 1rem; border-radius: calc(var(--radius, .5rem) + 6px); overflow: visible; }
+#new-card.big #new-card-form { width: min(64rem, 100% - 2rem); }
+#new-card .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+#new-card .nc-head { display: flex; flex-direction: row; align-items: flex-start; gap: .5rem; margin: 0; padding: 0; }
+.nc-crumbs { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: .375rem; }
+.nc-sep { display: inline-flex; color: var(--muted-foreground); }
+.nc-sep svg { width: 14px; height: 14px; }
+.nc-tools { display: flex; gap: .125rem; margin: -.25rem -.375rem 0 0; }
+/* A chip: a rounded pill, an icon then its value. */
+.nc-chip {
+  position: relative; display: inline-flex; align-items: center; gap: .375rem; min-width: 0;
+  height: 1.875rem; padding: 0 .625rem; border: 1px solid var(--border); border-radius: 999px;
+  font-size: .8125rem; color: var(--foreground); background: transparent; cursor: text;
+}
+.nc-chip:hover { background: var(--accent); }
+.nc-chip:focus-within { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 35%, transparent); }
+.nc-chip > svg { flex: none; width: 14px; height: 14px; color: var(--muted-foreground); }
+/* A combobox chip (Folder, Tags): the button shows the value, and its
+   popover holds the search box and the list. */
+.nc-pick { position: relative; display: inline-flex; min-width: 0; }
+.nc-trigger { cursor: pointer; font: inherit; font-size: .8125rem; max-width: 24rem; }
+.nc-trigger[aria-expanded="true"] { background: var(--accent); }
+.nc-trigger-body { display: inline-flex; align-items: center; gap: .375rem; min-width: 0; }
+.nc-trigger-body > svg { flex: none; width: 14px; height: 14px; color: var(--muted-foreground); }
+.nc-trigger .nc-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nc-trigger .tag-badge { font-size: .75rem; }
+.nc-pop {
+  position: absolute; top: calc(100% + .375rem); left: 0; z-index: 30; width: 24rem; max-width: calc(100vw - 2rem);
+  display: flex; flex-direction: column; gap: .25rem; padding: .25rem;
+  background: var(--popover); color: var(--popover-foreground);
+  border: 1px solid var(--border); border-radius: var(--radius, .5rem); box-shadow: 0 8px 24px rgb(0 0 0 / .3);
+}
+.nc-pop[hidden] { display: none; }
+.nc-search { width: 100%; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; font-size: .8125rem; padding: .375rem .5rem; }
+.nc-pop > .nc-search { border-bottom: 1px solid var(--border); }
+/* The Tags chip's popover is the card menu's Tags panel, under the chip. */
+.nc-pop:has(> .tags-submenu) { width: auto; padding: 0; border: 0; background: none; box-shadow: none; }
+.nc-pop > .tags-submenu { position: static; min-width: 14rem; box-shadow: 0 8px 24px rgb(0 0 0 / .3); }
+.nc-pop .nc-options { position: static; border: 0; box-shadow: none; padding: 0; max-height: 16rem; background: transparent; }
+/* The agent and column chips' menus (Basecoat's dropdown): a row's name
+   fills it, the current one checked. */
+.nc-menu [role="menuitemradio"] > span { flex: 1; }
+.nc-menu [data-popover] { min-width: 10rem; }
+.nc-trigger-body > svg:last-child:not(:first-child) { width: 12px; height: 12px; }
+.nc-body { display: flex; flex-direction: column; gap: .75rem; }
+.nc-prompt {
+  width: 100%; min-height: 6rem; resize: none; field-sizing: content; max-height: 50vh;
+  border: 0; outline: 0; padding: .25rem 0; background: transparent; color: inherit;
+  font: inherit; font-size: 1.0625rem; line-height: 1.5;
+}
+#new-card.big .nc-prompt { min-height: 16rem; max-height: 65vh; }
+.nc-prompt::placeholder { color: var(--muted-foreground); }
+.nc-thumbs { display: flex; flex-wrap: wrap; gap: .5rem; }
+.nc-thumbs[hidden] { display: none; }
+.nc-thumb { position: relative; width: 4.5rem; height: 4.5rem; border: 1px solid var(--border); border-radius: var(--radius, .5rem); overflow: hidden; background: var(--muted); }
+.nc-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.nc-thumb-off {
+  position: absolute; top: .25rem; right: .25rem; display: inline-flex; padding: .125rem; border: 0; border-radius: 999px;
+  background: rgb(0 0 0 / .6); color: #fff; cursor: pointer; opacity: 0;
+}
+.nc-thumb:hover .nc-thumb-off, .nc-thumb-off:focus-visible { opacity: 1; }
+.nc-thumb-off svg { width: 12px; height: 12px; }
+.nc-props { display: flex; flex-wrap: wrap; align-items: center; gap: .375rem; }
+#new-card .nc-foot { display: flex; flex-direction: row; justify-content: flex-start; align-items: center; gap: .75rem; margin: 0; padding: 0; }
+.nc-attach { border-radius: 999px; }
+.nc-more { display: inline-flex; align-items: center; gap: .5rem; margin-left: auto; font-size: .8125rem; color: var(--muted-foreground); cursor: pointer; }
+.nc-foot [type="submit"] { border-radius: 999px; }
+/* Files dragged over the dialog: a dashed outline and a hint over it all. */
+.nc-drop {
+  position: absolute; inset: .375rem; z-index: 20; display: none; flex-direction: column; align-items: center; justify-content: center; gap: .5rem;
+  border: 2px dashed var(--ring); border-radius: var(--radius, .5rem); pointer-events: none;
+  background: color-mix(in srgb, var(--background) 88%, transparent); color: var(--foreground); font-size: .875rem; font-weight: 500;
+}
+.nc-drop svg { width: 20px; height: 20px; }
+#new-card.dragging .nc-drop { display: flex; }
+/* The folder list, in the row menu's look (in the Folder chip's popover). */
 .picker-options {
   position: absolute; top: calc(100% + .25rem); left: 0; right: 0; z-index: 10;
   margin: 0; padding: .25rem; list-style: none; max-height: 14rem; overflow-y: auto;
@@ -466,20 +545,7 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .picker-options [role="option"]:hover { background: var(--accent); color: var(--accent-foreground); }
-/* The folder list highlights its one pick; the tag list, where several are
-   picked, marks them with a check and highlights the row the keys are on. */
-#new-card-folders [role="option"][aria-selected="true"],
-.tag-options [role="option"][data-active] { background: var(--accent); color: var(--accent-foreground); }
-.tag-options [role="option"] { display: flex; align-items: center; gap: .5rem; }
-.tag-options [role="option"] i { flex: none; width: .5rem; height: .5rem; border-radius: 999px; }
-.tag-options [role="option"]::after { content: ''; margin-left: auto; }
-.tag-options [role="option"][aria-selected="true"]::after { content: '✓'; }
-.tag-options .create { color: var(--muted-foreground); }
-/* The tags box: chips, then the text box, wrapping like one input. */
-.tag-field { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem; height: auto; min-height: 2.25rem; padding-block: .25rem; cursor: text; }
-.tag-field:focus-within { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent); }
-.tag-field input { flex: 1; min-width: 6rem; border: 0; outline: 0; background: transparent; padding: 0; color: inherit; font: inherit; }
-#new-card-chips { display: contents; }
-.tag-off { background: none; border: 0; padding: 0 0 0 .125rem; color: var(--muted-foreground); font: inherit; line-height: 1; cursor: pointer; }
-.tag-off:hover { color: var(--foreground); }
+/* The folder list highlights its one pick. */
+#new-card-folders [role="option"][aria-selected="true"] { background: var(--accent); color: var(--accent-foreground); }
 .new-card-error { color: var(--destructive, #ef4444); font-size: .8125rem; margin: 0; }
+.new-card-error[hidden] { display: none; }

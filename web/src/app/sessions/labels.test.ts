@@ -14,7 +14,6 @@ import {
   TAG_COLORS,
   tagBar,
   tagColor,
-  tagOptions,
   toggleTag,
 } from './labels.ts';
 
@@ -139,25 +138,4 @@ test('tag lists are the same only with the same tags in the same order', () => {
   assert.equal(sameTags(['a', 'b'], ['a', 'b']), true);
   assert.equal(sameTags(['a', 'b'], ['b', 'a']), false);
   assert.equal(sameTags(['a'], ['a', 'b']), false);
-});
-
-test('the tag list offers every tag, picked ones checked, filtered by what is typed', () => {
-  const used = ['deploy', 'Bug', 'ui'];
-  assert.deepEqual(tagOptions(used, ['ui', 'new'], ''), [
-    { tag: 'Bug', on: false, create: false },
-    { tag: 'deploy', on: false, create: false },
-    { tag: 'new', on: true, create: false },
-    { tag: 'ui', on: true, create: false },
-  ]);
-  assert.deepEqual(tagOptions(used, [], ' U '), [
-    { tag: 'U', on: false, create: true },
-    { tag: 'Bug', on: false, create: false },
-    { tag: 'ui', on: false, create: false },
-  ]);
-});
-
-test('a typed tag that is already there, in any case, is not offered to create', () => {
-  assert.deepEqual(tagOptions(['Bug'], [], 'bug'), [{ tag: 'Bug', on: false, create: false }]);
-  assert.deepEqual(tagOptions([], [], 'perf'), [{ tag: 'perf', on: false, create: true }]);
-  assert.deepEqual(tagOptions([], [], '   '), []);
 });

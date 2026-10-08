@@ -9,6 +9,57 @@ export const EXPLORER_WIDTH = { min: 200, max: 640, default: 260 };
 export const TAB_GROUPINGS = ['none', 'repo', 'tag'] as const;
 export type TabGrouping = (typeof TAB_GROUPINGS)[number];
 
+// A coding agent the New card dialog starts: `command` with `{prompt}` for
+// the card's first prompt, and `resume`, typed after tabsh restarts, with
+// `{session}` for the conversation ('' for none). `{session}` in `command`
+// too means tabsh names the conversation, so it resumes without hooks.
+export interface Provider {
+  name: string;
+  command: string;
+  resume: string;
+}
+
+export const DEFAULT_PROVIDERS: Provider[] = [
+  { name: 'Claude Code', command: 'claude {prompt}', resume: 'claude --resume {session}' },
+  { name: 'Codex', command: 'codex {prompt}', resume: 'codex resume {session}' },
+  { name: 'Gemini CLI', command: 'gemini -i {prompt}', resume: 'gemini --resume {session}' },
+  // OpenCode takes a new session's id from `--session` if it starts with `ses`.
+  {
+    name: 'OpenCode',
+    command: 'opencode --session ses_{session} --prompt {prompt}',
+    resume: 'opencode --session ses_{session}',
+  },
+];
+
+export const MAX_PROVIDERS = 12;
+
+// Stored providers, cleaned: named, with a command, names unique. Settings
+// from before providers keep their recent agent commands as providers.
+function cleanProviders(stored: Record<string, unknown>): Provider[] {
+  const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+  if (!Array.isArray(stored.providers)) {
+    const old = Array.isArray(stored.agentCommands) ? stored.agentCommands.map(text) : [];
+    const extra = [...new Set(old)]
+      .filter((c) => c && !DEFAULT_PROVIDERS.some((p) => p.command === c))
+      .map((c) => ({ name: c, command: c, resume: '' }));
+    return [...DEFAULT_PROVIDERS, ...extra].slice(0, MAX_PROVIDERS);
+  }
+  const list: Provider[] = [];
+  for (const p of stored.providers as Record<string, unknown>[]) {
+    const [name, command] = [text(p?.name), text(p?.command)];
+    if (!name || !command || list.some((q) => q.name === name)) continue;
+    list.push({ name, command, resume: text(p.resume) });
+  }
+  return list.length ? list.slice(0, MAX_PROVIDERS) : DEFAULT_PROVIDERS;
+}
+
+// Why `name` can't name provider `index` of `list` (-1: a new one), or null.
+export function providerNameProblem(list: Provider[], index: number, name: string): string | null {
+  if (!name.trim()) return 'A provider needs a name';
+  if (list.some((p, i) => i !== index && p.name === name.trim())) return 'Another provider has that name';
+  return null;
+}
+
 export interface Settings {
   theme: string;
   font: string;
@@ -28,9 +79,11 @@ export interface Settings {
   keySearchFiles: string;
   keyGroupTabs: string;
   keyToggleBoard: string;
+  keyNewCard: string;
   keyBack: string;
   keyForward: string;
-  agentCommands: string[]; // most recent first, at most 8
+  providers: Provider[];
+  agentProvider: string; // the provider New card offers first: the last one used
   boardOnboarded: boolean; // the board's setup screen was dealt with (set up or skipped)
 }
 
@@ -55,9 +108,11 @@ export function defaults(isMac: boolean): Settings {
     keySearchFiles: keys.keySearchFiles.presets[0],
     keyGroupTabs: keys.keyGroupTabs.presets[0],
     keyToggleBoard: keys.keyToggleBoard.presets[0],
+    keyNewCard: keys.keyNewCard.presets[0],
     keyBack: keys.keyBack.presets[0],
     keyForward: keys.keyForward.presets[0],
-    agentCommands: ['claude {prompt}'],
+    providers: DEFAULT_PROVIDERS,
+    agentProvider: DEFAULT_PROVIDERS[0].name,
     boardOnboarded: false,
   };
 }
@@ -78,6 +133,7 @@ export function cleanSettings(stored: Record<string, unknown>, isMac: boolean): 
     keySearchFiles: '',
     keyGroupTabs: '',
     keyToggleBoard: '',
+    keyNewCard: '',
     keyBack: '',
     keyForward: '',
   };
@@ -118,13 +174,13 @@ export function cleanSettings(stored: Record<string, unknown>, isMac: boolean): 
     keySearchFiles: key('keySearchFiles'),
     keyGroupTabs: key('keyGroupTabs'),
     keyToggleBoard: key('keyToggleBoard'),
+    keyNewCard: key('keyNewCard'),
     keyBack: key('keyBack'),
     keyForward: key('keyForward'),
-    agentCommands: (() => {
-      const list = Array.isArray(stored.agentCommands)
-        ? [...new Set(stored.agentCommands.filter((c): c is string => typeof c === 'string' && !!c.trim()))].slice(0, 8)
-        : [];
-      return list.length ? list : d.agentCommands;
+    ...(() => {
+      const providers = cleanProviders(stored);
+      const chosen = providers.find((p) => p.name === stored.agentProvider) ?? providers[0];
+      return { providers, agentProvider: chosen.name };
     })(),
     boardOnboarded: stored.boardOnboarded === true,
   };

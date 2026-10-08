@@ -5,18 +5,31 @@
 import van, { type State } from 'vanjs-core';
 import { api } from '../daemon/client.ts';
 import { go, onPlace } from '../nav/router.ts';
+import { tagColor } from '../sessions/labels.ts';
 import { newSession, openTab, type Session, sendSize, sessionList, store } from '../sessions/store.ts';
 import { orderTabs } from '../sessions/tabs.ts';
-import { tagBadge } from '../sessions/tags.ts';
+import { onTagsChange, tagBadge } from '../sessions/tags.ts';
 import { matchesKey } from '../settings/keys.ts';
-import { current, onSaved, saveSetting } from '../settings/settings.ts';
+import { current, keyHint, onSaved, saveSetting } from '../settings/settings.ts';
 import { glyph, icons } from '../ui/icons.ts';
 import { keyed } from '../ui/keyed.ts';
-import { COLUMNS, DEFAULT_COMMAND, dropOrder, group, SETUP_PROMPT, type Status, shortPath, since } from './model.ts';
+import {
+  COLUMNS,
+  DEFAULT_COMMAND,
+  dropOrder,
+  foldersOf,
+  group,
+  matchesFilter,
+  SETUP_PROMPT,
+  type Status,
+  shortPath,
+  since,
+  tagsInUse,
+} from './model.ts';
 import { CardMenuButton } from './move-menu.ts';
 import { setStatus } from './status.ts';
 
-const { a, article, button, div, h2, header, i, p, section, span } = van.tags;
+const { a, article, button, div, h2, header, i, input, label, p, section, span } = van.tags;
 
 // Whether the board is shown (else the terminals are): set only by the
 // router's view step.
@@ -28,6 +41,11 @@ export const drawer: State<boolean> = van.state(false);
 const now = van.state(Math.floor(Date.now() / 1000));
 // Until the board is onboarded it shows its setup screen.
 const onboarded = van.state(current.saved.boardOnboarded);
+// Checked tags (a card needs any of them) and checked folders. Nothing checked shows every card.
+const filterTags: State<string[]> = van.state([]);
+const filterFolders: State<string[]> = van.state([]);
+const filterOpen: State<boolean> = van.state(false);
+let filterMenu: HTMLElement | null = null;
 
 const board = () => document.getElementById('board') as HTMLElement;
 // A dragged card's data type: its own, so the page's file drop
@@ -41,6 +59,93 @@ export function setNewCard(fn: (status: Status) => void): void {
 
 export const boardOpen = (): boolean => shown.val;
 
+function closeFilterMenu(): void {
+  filterMenu?.remove();
+  filterMenu = null;
+  filterOpen.val = false;
+}
+
+function checkRow(text: string, on: boolean, color: string | null, change: (on: boolean) => void): HTMLElement {
+  const box = input({ type: 'checkbox', class: 'input', checked: on, onchange: () => change(box.checked) });
+  const dot = i();
+  if (color) dot.style.background = color;
+  return label({ class: `label menu-check${color ? '' : ' repo'}` }, box, dot, span(text));
+}
+
+function toggleFilter(kind: 'tags' | 'folders', value: string, on: boolean): void {
+  const cur = kind === 'tags' ? filterTags : filterFolders;
+  const list = cur.val.filter((x) => x !== value);
+  cur.val = on ? [...list, value] : list;
+}
+
+// Beside Settings: tags and folders in use, each a checkbox. Checking one
+// narrows the columns; the menu stays open so several can be checked.
+function openFilterMenu(): void {
+  closeFilterMenu();
+  const items = sessionList.val.map((s) => ({ card: s.card.val, tags: s.tags.val }));
+  const tags = tagsInUse(items);
+  const folders = foldersOf(items);
+  filterTags.val = filterTags.val.filter((t) => tags.includes(t));
+  filterFolders.val = filterFolders.val.filter((f) => folders.includes(f));
+  const parts: HTMLElement[] = [];
+  if (tags.length) {
+    parts.push(
+      div({ class: 'menu-heading' }, 'Tags'),
+      div(
+        { class: 'menu-list' },
+        ...tags.map((tag) =>
+          checkRow(tag, filterTags.val.includes(tag), tagColor(tag), (on) => toggleFilter('tags', tag, on)),
+        ),
+      ),
+    );
+  }
+  if (folders.length) {
+    if (parts.length) parts.push(div({ class: 'menu-sep' }));
+    parts.push(
+      div({ class: 'menu-heading' }, 'Folders'),
+      div(
+        { class: 'menu-list' },
+        ...folders.map((folder) =>
+          checkRow(shortPath(folder) || folder, filterFolders.val.includes(folder), null, (on) =>
+            toggleFilter('folders', folder, on),
+          ),
+        ),
+      ),
+    );
+  }
+  if (!parts.length) parts.push(div({ class: 'menu-hint' }, 'No tags or folders yet'));
+  const menu = div(
+    { class: 'row-menu tab-menu board-filter-menu', role: 'dialog', 'aria-label': 'Filter cards' },
+    ...parts,
+  );
+  document.body.append(menu);
+  const r = (document.getElementById('board-filter-btn') as HTMLElement).getBoundingClientRect();
+  menu.style.top = `${r.bottom + 4}px`;
+  menu.style.left = `${Math.max(8, r.right - menu.offsetWidth)}px`;
+  filterMenu = menu;
+  filterOpen.val = true;
+}
+
+// Shown only while the board is open and past its setup screen.
+export function FilterButton(): HTMLElement {
+  return button(
+    {
+      type: 'button',
+      class: 'btn',
+      'data-variant': 'ghost',
+      'data-size': 'icon-sm',
+      'aria-label': 'Filter',
+      title: 'Filter',
+      id: 'board-filter-btn',
+      'aria-expanded': () => String(filterOpen.val),
+      'aria-pressed': () => String(filterTags.val.length > 0 || filterFolders.val.length > 0),
+      hidden: () => !(shown.val && onboarded.val),
+      onclick: () => (filterOpen.val ? closeFilterMenu() : openFilterMenu()),
+    },
+    icons.listFilter(),
+  );
+}
+
 // Opening the board with a tab open keeps that tab in view, in the drawer.
 export function toggleBoard(open = !boardOpen()): void {
   go(open ? { view: 'board', drawer: !!store.active } : { view: 'terms' });
@@ -48,6 +153,7 @@ export function toggleBoard(open = !boardOpen()): void {
 
 function showBoard(open: boolean): void {
   shown.val = open;
+  if (!open) closeFilterMenu();
   if (open) return;
   // The terminals show once VanJS applies the state, in a microtask queued
   // before this one: fit and focus the active one then.
@@ -67,14 +173,25 @@ const statusGlyph = (status: Status | (() => Status)) =>
 // Each card's check for a cut-off title or note, run again whenever the
 // board's size changes (shown, hidden, the window resized).
 const measures = new WeakMap<Element, () => void>();
+
+// Fade whichever edge has columns hidden beyond it, as the tab strip does.
+function updateBoardFades(): void {
+  const el = board();
+  if (!el) return;
+  const end = el.scrollWidth - el.clientWidth;
+  el.classList.toggle('fade-left', el.scrollLeft > 1);
+  el.classList.toggle('fade-right', el.scrollLeft < end - 1);
+}
+
 const resized = new ResizeObserver(() => {
+  updateBoardFades();
   for (const c of board().querySelectorAll('.board-card')) measures.get(c)?.();
 });
 
 // A card: its session's name, status, folder, note and time in status. Its
 // title and note are clamped to two lines, with Show more when either is cut
-// off. In the Archive it isn't dragged; its menu offers Restore.
-function Card(s: Session, archived = false): HTMLElement {
+// off.
+function Card(s: Session): HTMLElement {
   // Only a change of status redraws the glyph (a new note doesn't).
   const status = van.derive(() => s.card.val.status);
   const note = van.derive(() => s.card.val.note);
@@ -83,7 +200,7 @@ function Card(s: Session, archived = false): HTMLElement {
   const card: HTMLElement = article(
     {
       class: 'board-card',
-      draggable: !archived,
+      draggable: true,
       tabindex: '0',
       'data-id': s.id,
       onclick: () => go({ tab: s.id, drawer: true }),
@@ -200,6 +317,24 @@ type Columns = Record<Status, Session[]>;
 
 const ADDABLE: Status[] = ['backlog', 'in_progress'];
 
+function newCardButton(status: Status, name: string): HTMLButtonElement {
+  const btn = button(
+    {
+      type: 'button',
+      class: 'btn',
+      'data-variant': 'ghost',
+      'data-size': 'icon-xs',
+      title: `New card in ${name}`,
+      'aria-label': `New card in ${name}`,
+      onclick: () => newCard(status),
+    },
+    icons.plus(),
+  );
+  // The shortcut opens Backlog's dialog; In progress is only its own button.
+  if (status === 'backlog') keyHint(btn, `New card in ${name}`, 'keyNewCard');
+  return btn;
+}
+
 function Column(status: Status, name: string, columns: State<Columns>): HTMLElement {
   const list = div({ class: 'board-cards' });
   keyed(
@@ -234,57 +369,7 @@ function Column(status: Status, name: string, columns: State<Columns>): HTMLElem
       span({ class: 'col-count' }, () => String(columns.val[status].length)),
       // New cards start in Backlog or In progress; the others are reached by
       // moving a card.
-      ADDABLE.includes(status)
-        ? button(
-            {
-              type: 'button',
-              class: 'btn',
-              'data-variant': 'ghost',
-              'data-size': 'icon-xs',
-              title: `New card in ${name}`,
-              'aria-label': `New card in ${name}`,
-              onclick: () => newCard(status),
-            },
-            '+',
-          )
-        : '',
-    ),
-    list,
-  );
-  return col;
-}
-
-// Archived cards, collapsed under a toggle; a card dropped here is archived.
-function Archive(columns: State<Columns>): HTMLElement {
-  const open = van.state(false);
-  // `display: contents`: the cards sit in the column, after the toggle.
-  const list = div({ class: 'archive-cards' });
-  keyed(
-    list,
-    () => (open.val ? columns.val.archived : []),
-    (s) => s.id,
-    (s) => Card(s, true),
-  );
-  const col: HTMLElement = section(
-    {
-      class: 'board-col archive',
-      'data-status': 'archived',
-      ondragover: (e: DragEvent) => {
-        e.preventDefault();
-        clearDropMarks();
-        col.classList.add('drop-end');
-      },
-      ondragleave: (e: DragEvent) => !col.contains(e.relatedTarget as Node) && clearDropMarks(),
-      ondrop: (e: DragEvent) => {
-        e.preventDefault();
-        endDrag();
-        const id = e.dataTransfer?.getData(CARD_DRAG);
-        if (id) void move(id, 'archived', null);
-      },
-    },
-    button(
-      { type: 'button', class: 'archive-toggle', onclick: () => (open.val = !open.val) },
-      () => `Archive ${columns.val.archived.length} ${open.val ? '▾' : '▸'}`,
+      ADDABLE.includes(status) ? newCardButton(status, name) : '',
     ),
     list,
   );
@@ -310,8 +395,7 @@ function Onboarding(): HTMLElement {
       return;
     }
     saveSetting('boardOnboarded', true);
-    await setStatus(s, 'in_progress').catch(console.error); // starts its agent
-    go({ view: 'terms', tab: s.id });
+    await setStatus(s, 'in_progress').catch(console.error); // starts its agent; the board stays open
   }
   // The shape of shadcn's Empty: header (icon, title, description), content, link.
   return div(
@@ -349,12 +433,18 @@ function Onboarding(): HTMLElement {
   );
 }
 
-// The board's parts: its setup screen, or its columns and the Archive.
-const PARTS = [...COLUMNS.map((c) => c.status), 'archived'];
+// The board's columns: the stages, then Archived (reached from a card's menu
+// or by a drop, never by a new card).
+const BOARD_COLUMNS: typeof COLUMNS = [...COLUMNS, { status: 'archived', name: 'Archived' }];
+
+// The board's parts: its setup screen, or its columns.
+const PARTS = BOARD_COLUMNS.map((c) => c.status);
 
 export function Board(): HTMLElement {
   const sessions = van.derive((): Columns => {
-    const g = group(sessionList.val.map((s) => ({ s, card: s.card.val })));
+    const filter = { tags: filterTags.val, folders: filterFolders.val };
+    const kept = sessionList.val.filter((s) => matchesFilter({ card: s.card.val, tags: s.tags.val }, filter));
+    const g = group(kept.map((s) => ({ s, card: s.card.val })));
     return Object.fromEntries(Object.entries(g).map(([k, v]) => [k, v.map((x) => x.s)])) as Columns;
   });
   const el = section({
@@ -370,14 +460,20 @@ export function Board(): HTMLElement {
     },
   });
   resized.observe(el);
+  el.addEventListener('scroll', updateBoardFades, { passive: true });
+  // Columns replacing the setup screen change the scroll width without resizing the board.
+  van.derive(() => {
+    onboarded.val;
+    shown.val;
+    requestAnimationFrame(updateBoardFades);
+  });
   keyed(
     el,
     () => (onboarded.val ? PARTS : ['onboarding']),
     (part) => part,
     (part) => {
       if (part === 'onboarding') return Onboarding();
-      if (part === 'archived') return Archive(sessions);
-      const c = COLUMNS.find((x) => x.status === part) as (typeof COLUMNS)[number];
+      const c = BOARD_COLUMNS.find((x) => x.status === part) as (typeof COLUMNS)[number];
       return Column(c.status, c.name, sessions);
     },
   );
@@ -391,7 +487,21 @@ export function initBoard(): void {
     if (to.drawer) queueMicrotask(() => store.active?.term.focus()); // once VanJS shows it
     return undefined;
   });
-  (document.getElementById('board-btn') as HTMLButtonElement).onclick = () => toggleBoard();
+  const boardButton = document.getElementById('board-btn') as HTMLButtonElement;
+  keyHint(boardButton, 'Board', 'keyToggleBoard');
+  boardButton.onclick = () => toggleBoard();
+  addEventListener('pointerdown', (e) => {
+    const t = e.target as Node;
+    const btn = document.getElementById('board-filter-btn');
+    if (filterMenu && !filterMenu.contains(t) && !btn?.contains(t)) closeFilterMenu();
+  });
+  addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeFilterMenu();
+  });
+  onTagsChange(() => {
+    const tags = tagsInUse(sessionList.val.map((s) => ({ tags: s.tags.val })));
+    filterTags.val = filterTags.val.filter((t) => tags.includes(t));
+  });
   window.addEventListener(
     'keydown',
     (e) => {
@@ -402,6 +512,19 @@ export function initBoard(): void {
     },
     true,
   );
-  onSaved((s) => (onboarded.val = s.boardOnboarded)); // e.g. the setup screen, once it's dealt with
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if (!matchesKey(e, current.saved.keyNewCard) || document.querySelector('dialog[open]')) return;
+      e.preventDefault();
+      e.stopPropagation(); // capture phase: keep it away from the terminal
+      newCard('backlog');
+    },
+    true,
+  );
+  onSaved((s) => {
+    onboarded.val = s.boardOnboarded; // e.g. the setup screen, once it's dealt with
+    if (!s.boardOnboarded) closeFilterMenu();
+  });
   setInterval(() => (now.val = Math.floor(Date.now() / 1000)), 30_000);
 }
