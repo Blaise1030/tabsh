@@ -140,23 +140,25 @@ test('a card opens its terminal in a drawer beside the board', async ({ page, da
 });
 
 test("a card's Move menu sets its status, on the board and in the drawer", async ({ page, daemon, project }) => {
-  const item = (name: string) => page.locator('.move-menu [role="menuitemradio"]').filter({ hasText: name });
+  const shownMenu = page.locator('.move-menu [data-popover][aria-hidden="false"]');
+  const item = (name: string) => shownMenu.locator('[role="menuitemradio"]').filter({ hasText: name });
   await openApp(page, daemon);
   await page.locator('#board-btn').click();
   await col(page, 'backlog').locator('header .btn').click();
   await newCard(page, 'Move me', project);
 
   await card(page, 'Move me').locator('.card-move').click();
-  await expect(item('Backlog')).toBeDisabled();
+  await expect(item('Backlog')).toHaveAttribute('aria-disabled', 'true');
   await item('Completed').click();
-  await expect(page.locator('.move-menu')).toHaveCount(0);
+  await expect(shownMenu).toHaveCount(0);
   await expect(col(page, 'completed').locator('.board-card').filter({ hasText: 'Move me' })).toBeVisible();
   await expect(page.locator('#board')).toBeVisible(); // the click didn't open the card
 
   // Escape closes it without a move.
   await card(page, 'Move me').locator('.card-move').click();
+  await expect(shownMenu).toHaveCount(1);
   await page.keyboard.press('Escape');
-  await expect(page.locator('.move-menu')).toHaveCount(0);
+  await expect(shownMenu).toHaveCount(0);
 
   await card(page, 'Move me').click();
   await expect(page.locator('.drawer-move')).toContainText('Completed');

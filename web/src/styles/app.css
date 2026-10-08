@@ -183,8 +183,8 @@ html.themed {
 /* Beside the board: a share of the page set by its divider (drawerWidth). */
 #frame.in-drawer { flex: 0 0 calc(var(--drawer-width, .5) * 100%); position: relative; }
 #frame.in-drawer::before {
-  content: ''; position: absolute; top: 0; bottom: 0; right: 100%; width: 1.5rem; z-index: 4; pointer-events: none;
-  background: linear-gradient(to left, var(--background), transparent);
+  content: ''; position: absolute; top: 0; bottom: 0; right: 100%; width: .75rem; z-index: 4; pointer-events: none;
+  background: linear-gradient(to right, transparent, color-mix(in srgb, var(--foreground) 5%, transparent));
 }
 /* Too narrow to share: the drawer covers the board. */
 @media (max-width: 799px) {
@@ -249,9 +249,8 @@ file-tree-container {
    reads as one canvas. A short pill in the middle marks the drag handle, and
    darkens while it is hovered or dragged. */
 #explorer-divider, #pane-divider, #drawer-divider { flex: 0 0 1px; position: relative; touch-action: none; }
-/* No line between the board and its drawer: the board's cards fade out at
-   the drawer's edge (#frame.in-drawer::before), as a file does under its
-   header. */
+/* No line between the board and its drawer: a narrow shade on the board's
+   side, darkening toward the drawer's edge (#frame.in-drawer::before). */
 #drawer-divider[hidden] { display: none; }
 /* A wider grab area than the divider itself. */
 #explorer-divider::before, #pane-divider::before, #drawer-divider::before {
@@ -395,12 +394,10 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .card-move:hover, .card-move:focus-visible, .card-move[aria-expanded="true"] { background: var(--muted); }
 .drawer-move-label { display: inline-flex; align-items: center; gap: .375rem; }
 .drawer-move-label > svg { width: 14px; height: 14px; color: var(--muted-foreground); }
-.row-menu.move-menu { position: fixed; z-index: 50; }
-.move-menu [role="menuitemradio"] { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: .5rem; cursor: default; padding: .375rem .5rem; border-radius: calc(var(--radius, .5rem) - 2px); }
-.move-menu [role="menuitemradio"]:not(:disabled):hover, .move-menu [role="menuitemradio"]:focus-visible { background: var(--accent); color: var(--accent-foreground); }
-.move-menu [role="menuitemradio"]:disabled { color: var(--muted-foreground); }
+/* Basecoat's dropdown, its popover fixed under the button (placed by
+   move-menu.ts) so a scrolling column doesn't clip it. */
+.move-menu > [data-popover] { position: fixed; margin-top: 0; }
 .move-menu [role="menuitemradio"] > span { flex: 1; }
-.move-menu [role="menuitemradio"] > svg { width: 14px; height: 14px; }
 .status-glyph[data-status="needs_input"] { color: var(--needs-input); }
 .board-col.archive.drop-end { box-shadow: inset 0 0 0 1px var(--muted-foreground); border-radius: var(--radius, .5rem); }
 .board-col.archive { flex: 0 0 auto; min-width: 8rem; }
