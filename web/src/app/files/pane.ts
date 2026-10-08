@@ -1,3 +1,4 @@
+import { go, here } from '../nav/router.ts';
 import { el, isMac } from '../ui/dom.ts';
 import {
   displayPath,
@@ -51,7 +52,6 @@ interface PaneState {
   info: FileInfo | null;
   requested: string;
   line?: number;
-  col?: number;
   editor: Editor | null;
   blobUrl: string | null;
   markdown: string | null; // rendered HTML, re-wrapped when the theme changes
@@ -183,10 +183,13 @@ export function hasFile(sessionId: string): boolean {
   return states.has(sessionId);
 }
 
-export function close(sessionId: string): void {
-  if (!confirmDiscard(sessionId)) return;
-  forget(sessionId);
-  host.focusTerminal();
+// The absolute path the tab shows, once loaded.
+export function fileOf(sessionId: string): string | null {
+  return states.get(sessionId)?.info?.path ?? null;
+}
+
+export function isDirty(sessionId: string): boolean {
+  return !!states.get(sessionId)?.dirty;
 }
 
 // A relative path is shown relative to the directory it was resolved from.
@@ -196,14 +199,14 @@ function shownPath(st: PaneState, abs: string): string {
   return displayPath(abs, abs.slice(0, abs.length - rel.length));
 }
 
-function header(sessionId: string, st: PaneState, info: FileInfo | null): HTMLElement {
+function header(st: PaneState, info: FileInfo | null): HTMLElement {
   const abs = info?.path ?? st.requested;
   const path = el('span', { className: 'pane-path', textContent: info ? shownPath(st, abs) : abs, title: abs });
   const dot = el('span', { className: 'pane-dot', textContent: '●', title: 'Unsaved changes', hidden: true });
   const status = el('span', { className: 'pane-status', role: 'status' });
   const edit = iconButton('edit', 'Edit', () => toggleMode(st));
   edit.disabled = !st.editable;
-  const x = iconButton('collapse', 'Close file', () => close(sessionId));
+  const x = iconButton('collapse', 'Close file', () => go({ file: null }));
   const bar = el(
     'div',
     { className: 'pane-bar', hidden: true, role: 'alert' },
@@ -290,8 +293,8 @@ async function save(st: PaneState, overwrite = false): Promise<void> {
 }
 
 // Re-reads the file, dropping the edits.
-function reload(st: PaneState, focus = true): Promise<void> {
-  return load(st.id, st.info?.path ?? st.requested, undefined, undefined, focus);
+async function reload(st: PaneState, focus = true): Promise<void> {
+  await load(st.id, st.info?.path ?? st.requested, { focus });
 }
 
 // Checks whether the shown file changed on disk. Without edits it's reloaded
@@ -381,7 +384,17 @@ function newEditor(st: PaneState, body: HTMLElement, readOnly: boolean): Editor 
       if (st.ui) st.ui.status.textContent = '';
     },
     onSave: () => void save(st),
+    onCursor: (line) => reportLine(st, line),
   });
+}
+
+// The cursor's line goes in the place, by a replace, while this file is the
+// place's; never in the middle of another move.
+function reportLine(st: PaneState, line: number): void {
+  const p = here();
+  if (navigation.transition || current !== st.id || p.tab !== st.id) return;
+  if (!st.info || p.file !== st.info.path || p.line === line) return;
+  go({ line }, 'replace');
 }
 
 // Markdown, HTML and SVG: sandboxed preview of the current text, or its source in CodeMirror.
@@ -467,27 +480,46 @@ async function renderBody(st: PaneState, info: FileInfo, body: HTMLElement, isCu
         return;
       }
       st.editor = newEditor(st, body, true);
-      st.editor.goTo(st.line ?? 1, st.col);
+      st.editor.goTo(st.line ?? 1);
       return;
     }
   }
 }
 
-export function openPath(sessionId: string, path: string, line?: number, col?: number): Promise<void> {
-  if (!confirmDiscard(sessionId)) return Promise.resolve();
-  return load(sessionId, path, line, col);
-}
-
-// Reopens a file shown before the page reloaded, without taking the keyboard.
-// One that can't be read any more is dropped instead of showing an error.
-export async function restore(sessionId: string, path: string): Promise<void> {
-  await load(sessionId, path, undefined, undefined, false);
+// Shows `path` in the tab, or with null forgets its file, without asking
+// about unsaved edits (the router's guard has). A file the tab already shows
+// only moves to `line`. Resolves to the absolute path shown: null when the
+// file couldn't be read, which with `quiet` is dropped quietly (else shown). A directory opens a new tab
+// only with `dirTab` (a click, never a URL), and the tab keeps its file.
+export async function showFile(
+  sessionId: string,
+  path: string | null,
+  line: number | null,
+  opts: { focus: boolean; signal: AbortSignal; dirTab?: boolean; quiet?: boolean },
+): Promise<string | null> {
+  if (path === null) {
+    forget(sessionId);
+    return null;
+  }
   const st = states.get(sessionId);
-  if (st && !st.info && st.requested === path) forget(sessionId);
+  if (st?.info?.path === path) {
+    if (line !== null && st.editor && st.editor.line() !== line) st.editor.goTo(line);
+    return path;
+  }
+  const res = await load(sessionId, path, { ...opts, line: line ?? undefined });
+  if (res === 'failed') forget(sessionId);
+  return fileOf(sessionId);
 }
 
-// `focus` is false for a reload nobody asked for, which mustn't take the keyboard.
-async function load(sessionId: string, path: string, line?: number, col?: number, focus = true): Promise<void> {
+// `focus` is false for a load nobody asked for, which mustn't take the
+// keyboard. `quiet` drops a file that can't be read instead of showing why;
+// `signal` drops a load whose navigation was overtaken.
+async function load(
+  sessionId: string,
+  path: string,
+  opts: { line?: number; focus?: boolean; quiet?: boolean; signal?: AbortSignal; dirTab?: boolean } = {},
+): Promise<'shown' | 'failed' | 'dropped'> {
+  const { line, focus = true, signal } = opts;
   const seq = (seqs.get(sessionId) ?? 0) + 1;
   seqs.set(sessionId, seq);
   let info: FileInfo | null = null;
@@ -497,11 +529,12 @@ async function load(sessionId: string, path: string, line?: number, col?: number
   } catch (err) {
     error = err instanceof FileError ? `${err.message}: ${path}` : `Couldn't reach tabsh: ${path}`;
   }
-  if (seqs.get(sessionId) !== seq) return;
+  if (seqs.get(sessionId) !== seq || signal?.aborted) return 'dropped';
   if (info?.kind === 'dir') {
-    host.newTabAt(info.path);
-    return;
+    if (opts.dirTab) host.newTabAt(info.path);
+    return 'dropped';
   }
+  if (!info && opts.quiet) return 'failed';
   rememberFile(sessionId, info?.path ?? null);
 
   let st = states.get(sessionId);
@@ -551,7 +584,6 @@ async function load(sessionId: string, path: string, line?: number, col?: number
     info,
     requested: path,
     line,
-    col,
     editable,
     mode: 'view',
     dirty: false,
@@ -563,14 +595,14 @@ async function load(sessionId: string, path: string, line?: number, col?: number
   });
   const body = el('div', { className: 'pane-body' });
   st.body = body;
-  st.view.replaceChildren(header(sessionId, st, info), body, st.ui!.bar);
+  st.view.replaceChildren(header(st, info), body, st.ui!.bar);
   refresh();
 
   const state = st;
   const isCurrent = () => states.get(sessionId) === state && seqs.get(sessionId) === seq;
   if (error || !info) {
     body.append(message(error ?? 'Not found'));
-    return;
+    return 'shown';
   }
   try {
     await renderBody(state, info, body, isCurrent);
@@ -580,7 +612,7 @@ async function load(sessionId: string, path: string, line?: number, col?: number
       else paneEl.focus();
     }
   } catch (err) {
-    if (!isCurrent()) return;
+    if (!isCurrent()) return 'dropped';
     const big = err instanceof FileError && err.status === 413;
     body.replaceChildren(
       big
@@ -588,6 +620,7 @@ async function load(sessionId: string, path: string, line?: number, col?: number
         : message(err instanceof FileError ? err.message : `Couldn't open ${info.path}`),
     );
   }
+  return 'shown';
 }
 
 export function applyTheme(): void {

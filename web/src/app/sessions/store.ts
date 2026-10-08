@@ -6,10 +6,11 @@ import type { Card } from '../board/model.ts';
 import { applyCard, cardOf, cardsChanged } from '../board/status.ts';
 import { api } from '../daemon/client.ts';
 import { loadedPane } from '../files/open.ts';
+import { go, onPlace } from '../nav/router.ts';
 import { clearBell, updateBadge } from './bell.ts';
 import { layout, newTabGroup, shownSessions, stepTab } from './groups.ts';
 import { orderTabs, setName, updateFades } from './tabs.ts';
-import { adoptTag } from './tags.ts';
+import { adoptTag, labelsOf, setTags } from './tags.ts';
 import { openSession } from './terminal.ts';
 
 export interface Session {
@@ -22,6 +23,8 @@ export interface Session {
   ws: WebSocket | null;
   closed: boolean;
   replaying: boolean;
+  // xterm is still parsing the replay: its answers to queries in it go nowhere.
+  parsingReplay: boolean;
   esc: number;
   bell: boolean;
   card: Card;
@@ -71,7 +74,9 @@ export async function openTab(
   const info = (await api<SessionInfo>('POST', '', body)) as SessionInfo;
   if (tag) adoptTag(info.id, tag);
   const s = openSession(info);
-  if (focus) activate(s);
+  // A sync may have opened it before the tag was stored: label it again.
+  if (tag) setTags(s, labelsOf(s).tags);
+  if (focus) go({ tab: s.id });
   return s;
 }
 
@@ -105,7 +110,7 @@ export async function sync(): Promise<void> {
     } else openSession(info);
   }
   orderTabs(list.map((s) => s.id));
-  if (!store.active && store.sessions.length) activate(shownSessions()[0] ?? store.sessions[0]);
+  if (!store.active && store.sessions.length) go({ tab: (shownSessions()[0] ?? store.sessions[0]).id }, 'replace');
 }
 
 export function sendSize(s: Session): void {
@@ -116,6 +121,7 @@ export function sendSize(s: Session): void {
   }
 }
 
+// Only the router's tab step calls this; everything else calls go().
 export function activate(s: Session | null): void {
   const prev = store.active;
   if (prev) {
@@ -139,11 +145,18 @@ export function activate(s: Session | null): void {
   for (const fn of activateListeners) fn();
 }
 
+// A click on a tab: a move to it, or back to its terminal when it's already
+// the active one (the URL doesn't change, so there's no navigation).
+export function pick(s: Session): void {
+  if (s === store.active) s.term.focus();
+  else go({ tab: s.id });
+}
+
 // The next/previous tab keybindings walk the shown tabs along the strip,
 // wrapping at the ends.
 export function cycleTab(step: 1 | -1): void {
   const next = stepTab(step);
-  if (next) activate(next);
+  if (next) go({ tab: next.id });
 }
 
 export async function closeSession(s: Session): Promise<void> {
@@ -179,7 +192,22 @@ export function removeSession(s: Session): void {
     // The next shown tab after it, else the last shown one before it.
     const rest = shownSessions();
     const next = rest.find((t) => sessions.indexOf(t) >= i) ?? rest.at(-1);
-    activate(next ?? sessions[Math.min(i, sessions.length - 1)] ?? null);
+    go({ tab: (next ?? sessions[Math.min(i, sessions.length - 1)])?.id ?? null }, 'replace');
   } else updateBadge();
   cardsChanged();
+}
+
+// The tab step: a tab the URL names that isn't open (closed, or never was)
+// gives way to the first shown tab, and the URL is corrected.
+export function initTabRouting(): void {
+  onPlace('tab', (to) => {
+    const s = store.sessions.find((s) => s.id === to.tab);
+    if (s) {
+      if (s !== store.active) activate(s);
+      return;
+    }
+    const first = shownSessions()[0] ?? store.sessions[0] ?? null;
+    activate(first);
+    if ((first?.id ?? null) !== to.tab) return { tab: first?.id ?? null };
+  });
 }

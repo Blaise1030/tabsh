@@ -1,9 +1,11 @@
 // The file explorer: a sidebar left of the terminals that lists the active
 // tab's project. It opens from the tab bar's button, the palette or a
 // keybinding, and clicking a file opens it in the file pane. Whether it is
-// open and how wide are settings. The tree's library loads on first use.
+// open is part of the place (the setting only follows it); how wide is a
+// setting. The tree's library loads on first use.
 import { daemonFetch } from '../daemon/client.ts';
 import { openInPane } from '../files/open.ts';
+import { go, here, onPlace } from '../nav/router.ts';
 import { newTabAt, onActivate, store } from '../sessions/store.ts';
 import { matchesKey } from '../settings/keys.ts';
 import { EXPLORER_WIDTH } from '../settings/schema.ts';
@@ -42,7 +44,7 @@ let seq = 0; // bumped by every fetch, so a slow answer to a superseded one is d
 const isOpen = () => !aside.hidden;
 
 export function toggleExplorer(): void {
-  saveSetting('explorerOpen', !current.saved.explorerOpen);
+  go({ explorer: !here().explorer });
 }
 
 // Opens the sidebar if it is closed, then the tree's search field (once the
@@ -50,7 +52,7 @@ export function toggleExplorer(): void {
 // back, so the field opens a moment later.
 export function searchFiles(): void {
   wantSearch = true;
-  if (!isOpen()) saveSetting('explorerOpen', true);
+  if (!here().explorer) go({ explorer: true });
   else if (ready && !mount.hidden) openSearchSoon();
 }
 
@@ -101,14 +103,20 @@ export function initExplorer(): void {
     true,
   );
 
-  onApply((s) => {
+  // Open or closed comes from the place; settings only give the width.
+  onPlace('explorer', (to) => {
     const wasOpen = isOpen();
-    aside.hidden = divider.hidden = !s.explorerOpen;
-    button.setAttribute('aria-pressed', String(s.explorerOpen));
-    aside.style.setProperty('--explorer-width', `${s.explorerWidth}px`);
-    if (s.explorerOpen && !wasOpen) void refresh();
+    // Hiding the sidebar under the keyboard would leave it on <body>.
+    const heldFocus = wasOpen && !to.explorer && aside.contains(document.activeElement);
+    aside.hidden = divider.hidden = !to.explorer;
+    button.setAttribute('aria-pressed', String(to.explorer));
+    if (to.explorer && !wasOpen) void refresh();
     watch();
+    if (heldFocus) store.active?.term.focus();
+    if (to.explorer !== current.saved.explorerOpen) saveSetting('explorerOpen', to.explorer);
+    return undefined;
   });
+  onApply((s) => aside.style.setProperty('--explorer-width', `${s.explorerWidth}px`));
   // A tab's project is fetched on opening and on switching tabs; after that
   // the socket keeps the tree current.
   onActivate(() => {

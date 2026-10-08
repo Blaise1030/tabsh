@@ -4,6 +4,7 @@
 import { toggleBoard } from '../board/view.ts';
 import { searchFiles, toggleExplorer } from '../explorer/explorer.ts';
 import { loadedPane } from '../files/open.ts';
+import { back, backPastPalette, forward, go, here, isLeavingPalette, isPaletteEntry, onPlace } from '../nav/router.ts';
 import { cycleTab, store } from '../sessions/store.ts';
 import { comboFromEvent, comboProblem, type KeyId, keyLabel, matchesKey } from '../settings/keys.ts';
 import type { Settings } from '../settings/schema.ts';
@@ -21,18 +22,24 @@ let page = 'root';
 let recording: KeyId | null = null; // the keybinding the next key press sets
 const itemsById = new Map<string, PaletteItem>();
 
-function showPage(name: string): void {
-  page = name;
-  recording = null;
+function palettePages(): ReturnType<typeof pages> {
   const active = store.active;
-  const { placeholder, groups } = pages({
+  return pages({
     hasFile: !!active && !!loadedPane()?.hasFile(active.id),
-    closeFile: () => active && loadedPane()?.close(active.id),
+    closeFile: () => go({ file: null }),
     openAbout,
     toggleExplorer,
     toggleBoard: () => toggleBoard(),
     searchFiles,
-  })[name]();
+    canGoBack: navigation.canGoBack,
+    goBack: backPastPalette,
+  });
+}
+
+function showPage(name: string): void {
+  page = name;
+  recording = null;
+  const { placeholder, groups } = palettePages()[name]();
   paletteInput.value = '';
   paletteInput.placeholder = name === 'root' ? placeholder : `${placeholder}  (Esc to go back)`;
   itemsById.clear();
@@ -56,7 +63,8 @@ function showPage(name: string): void {
                 .join('')}</span>`
             : '';
           return `<div role="menuitem" id="${id}" data-filter="${item.label}" data-keywords="${item.keywords ?? ''}"
-                     ${item.go || item.record ? 'data-keep-command-open' : ''} ${checked ? 'data-checked="true"' : ''}>
+                     ${item.disabled ? 'aria-disabled="true"' : ''}
+                     ${item.go || item.record || item.disabled ? 'data-keep-command-open' : ''} ${checked ? 'data-checked="true"' : ''}>
           ${item.icon ?? swatch}<span>${item.label}</span>
           ${item.hint ? `<span data-shortcut>${item.hint}</span>` : ''}
           ${item.key || item.checked ? `<span data-indicator>${CHECK}</span>` : ''}
@@ -114,15 +122,24 @@ function updatePaletteFades(): void {
   paletteMenu.classList.toggle('fade-bottom', paletteMenu.scrollTop < end - 1);
 }
 
-export function openPalette(at: string = 'root'): void {
-  if (palette.open) {
-    palette.close();
+// The palette step's half: open on `at`, or closed. It never navigates.
+function showPalette(at: string | null): void {
+  if (!at) {
+    if (palette.open) palette.close();
     return;
   }
-  (document.getElementById('about') as HTMLDialogElement).close();
-  palette.showModal();
-  setPreviewing(true);
+  if (!palette.open) {
+    (document.getElementById('about') as HTMLDialogElement).close();
+    palette.showModal();
+    setPreviewing(true);
+  } else if (page === at) return;
   showPage(at);
+}
+
+// Opening the palette is a push; when it is already open, it closes.
+export function openPalette(at: string = 'root'): void {
+  if (palette.open) palette.close();
+  else go({ palette: at });
 }
 
 // The group button and its keybinding: the palette straight on its grouping
@@ -130,7 +147,7 @@ export function openPalette(at: string = 'root'): void {
 export function openGroupPalette(): void {
   if (palette.open) {
     if (page === 'tabGrouping') palette.close();
-    else showPage('tabGrouping');
+    else go({ palette: 'tabGrouping' }, 'replace');
     return;
   }
   openPalette('tabGrouping');
@@ -159,27 +176,40 @@ export function initPalette(): void {
     const el = (e.target as Element).closest('[role="menuitem"]');
     const item = el && el.getAttribute('aria-hidden') !== 'true' ? itemsById.get(el.id) : undefined;
     if (!item) return;
-    if (item.go) showPage(item.go);
+    if (item.go) go({ palette: item.go }, 'replace');
     else if (item.record) startRecording(item.record);
     else if (item.key) saveSetting(item.key, item.value as never);
     else item.run?.();
   });
 
   paletteInput.addEventListener('keydown', (e) => {
-    const back = e.key === 'Escape' || (e.key === 'Backspace' && !paletteInput.value);
-    if (back && page !== 'root') {
+    const toRoot = e.key === 'Escape' || (e.key === 'Backspace' && !paletteInput.value);
+    if (toRoot && page !== 'root') {
       e.preventDefault(); // also stops Escape from closing the dialog
-      showPage('root');
+      go({ palette: 'root' }, 'replace');
     }
   });
 
-  // Closing without picking reverts any preview.
+  // Closing without picking reverts any preview. A close the place didn't
+  // ask for (Esc, the backdrop, an item) takes the palette out of it: Back
+  // over the entry that opened it, else a replace, so no step reopens it.
   palette.addEventListener('close', () => {
     recording = null;
     setPreviewing(false);
     applySettings(current.saved);
     store.active?.term.focus();
+    if (!here().palette || isLeavingPalette()) return;
+    if (isPaletteEntry()) back();
+    else go({ palette: null }, 'replace');
   });
+
+  // An unknown page opens the root page, and the URL says so.
+  onPlace('palette', (to) => {
+    const known = !to.palette || Object.hasOwn(palettePages(), to.palette);
+    showPalette(known ? to.palette : 'root');
+    return known ? undefined : { palette: 'root' };
+  });
+
   // Clicking the backdrop closes it.
   palette.addEventListener('click', (e) => {
     if (e.target === palette) palette.close();
@@ -222,6 +252,25 @@ export function initPalette(): void {
       e.preventDefault();
       e.stopPropagation(); // capture phase: keep it away from the terminal
       openGroupPalette();
+    },
+    true,
+  );
+
+  // The back and forward keybindings walk the history, unless a dialog
+  // other than the palette has the page.
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      const step = matchesKey(e, current.saved.keyBack)
+        ? 'back'
+        : matchesKey(e, current.saved.keyForward)
+          ? 'forward'
+          : '';
+      if (!step || document.querySelector('dialog[open]:not(#palette)')) return;
+      e.preventDefault();
+      e.stopPropagation(); // capture phase: keep it away from the terminal
+      if (step === 'back') back();
+      else forward();
     },
     true,
   );

@@ -10,7 +10,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import type { Daemon } from './daemon.ts';
-import { expect, newTab, openApp, test, typeInTerminal } from './fixture.ts';
+import { expect, newTab, openApp, setOnboarded, test, typeInTerminal } from './fixture.ts';
 
 const card = (page: Page, name: string) => page.locator('.board-card').filter({ hasText: name });
 const col = (page: Page, status: string) => page.locator(`.board-col[data-status="${status}"]`);
@@ -22,17 +22,6 @@ async function newCard(page: Page, prompt: string, cwd: string, command = 'true'
   await page.locator('#new-card textarea[name="prompt"]').fill(prompt);
   await page.locator('#new-card input[name="command"]').fill(command);
   await page.locator('#new-card button[type="submit"]').click();
-}
-
-// Sets the stored `boardOnboarded` flag, keeping the other settings.
-async function setOnboarded(page: Page, daemon: Daemon, on: boolean): Promise<void> {
-  const headers = { Authorization: `Bearer ${daemon.token}` };
-  const now = await (await page.request.get(`${daemon.baseUrl}/api/settings`, { headers })).json();
-  const res = await page.request.put(`${daemon.baseUrl}/api/settings`, {
-    headers,
-    data: { ...now, boardOnboarded: on },
-  });
-  expect(res.status()).toBe(204);
 }
 
 // These cards need the columns, not the setup screen.

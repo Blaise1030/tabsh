@@ -114,3 +114,14 @@ export async function cdInTerminal(page: Page, dir: string, mark: string): Promi
     await expect(page.locator('#tabs .tab:not(.mirror)[aria-selected="true"] span')).toHaveText(mark, { timeout: 2_000 });
   }).toPass({ timeout: 10_000 });
 }
+
+// Sets the stored `boardOnboarded` flag, keeping the other settings.
+export async function setOnboarded(page: Page, daemon: Daemon, on: boolean): Promise<void> {
+  const headers = { Authorization: `Bearer ${daemon.token}` };
+  const now = await (await page.request.get(`${daemon.baseUrl}/api/settings`, { headers })).json();
+  const res = await page.request.put(`${daemon.baseUrl}/api/settings`, {
+    headers,
+    data: { ...now, boardOnboarded: on },
+  });
+  expect(res.status()).toBe(204);
+}

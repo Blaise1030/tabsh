@@ -47,11 +47,12 @@ it in `state::router()`, and add its routes to `every_route_is_guarded`.
 | Folder | Holds |
 |---|---|
 | `main.ts` | Startup only: adopt the token, wire the features, restore tabs |
+| `nav/` | `place.ts` (the place: tab, view, file, line, explorer, palette, and its query string; pure), `router.ts` (the one `navigate` handler, on the Navigation API: `go`, `here`, `onPlace` (each feature's step, run in the order tab → view → file → explorer → palette), `onLeave`, `startRouter`, `back`, `forward`, `backPastPalette`, `isPaletteEntry`, `isLeavingPalette`; the Back and Forward keybindings (`keyBack`, `keyForward`) and the palette's "Go back" live in `palette/palette.ts` and call them) |
 | `daemon/` | `config.ts` (which daemon), `token.ts` and `parse.ts` (pairing), `client.ts` (`daemonFetch`, `api`, the connection gate) |
 | `settings/` | `catalog.ts` (themes, fonts, sounds), `keys.ts` (keybindings), `schema.ts` (`Settings`, cleanup), `settings.ts` (current values, apply, save, `onApply` and `onSaved`) |
 | `sessions/` | `store.ts` (tabs, active tab, sync), `terminal.ts` (xterm, socket), `tabs.ts` (tab strip, dragging tabs into order), `order.ts` (where a dragged tab lands), `tags.ts` (each tab's repo and tags, the tag menu), `groups.ts` (grouping the strip by repo or tag: labels, collapsing, copies of multi-tag tabs; archived cards' tabs kept out of the strip and its groups), `labels.ts` (their pure logic), `bell.ts` and `bell-scan.ts` |
 | `links/` | `links.ts` (finding URLs and paths), `provider.ts` (xterm link provider) |
-| `files/` | `api.ts` (file API client), `open.ts` (loads the pane on first use, reopens files after a reload), `remember.ts` (each tab's file, in `localStorage`), `pane.ts` and `editor.ts` (pane and CodeMirror) |
+| `files/` | `api.ts` (file API client), `open.ts` (the file step and its unsaved-edits guard: the place's file is the active tab's, by the absolute path the daemon resolved; loads the pane on first use, reopens the other tabs' files after a reload), `remember.ts` (each tab's file, in `localStorage`), `pane.ts` and `editor.ts` (pane and CodeMirror) |
 | `explorer/` | `explorer.ts` (the sidebar: toggle, divider, fetch on open and on tab switch, `/`, "Search files" and its keybinding opening the search), `view.ts` (the tree, its search and its row menu, drawn by `@pierre/trees`), `listing.ts` (the listing as what the sidebar shows, row paths, pasted paths and `cd` commands, a row menu's entries, whether a key opens the search), `api.ts` (the listing request), `socket.ts` (the live socket, open while the sidebar is, reconnecting), `changes.ts` (a live message as tree operations, or a re-fetch for a new root) |
 | `board/` | `model.ts` (statuses, columns, grouping, drop order, no DOM), `glyph.ts`, `status.ts` (a tab's card: glyph, archived tabs hidden (re-laying out the strip), bell on needs input), `events.ts` (the board events socket), `view.ts` (the board, each card's tags, drag and drop incl. onto Archive, an Archive button on Completed cards, ⌘B; until the `boardOnboarded` setting is true, a setup screen instead of columns, whose button opens a Claude Code card that runs `tabsh setup`), `new-card.ts` (the New card dialog: folder (`folder-picker.ts`, the folder field as a search: subfolders listed as it's typed, recent folders until it's edited, ↑↓, Enter, Tab to go into one, Esc; `folders.ts`, its pure logic), prompt, agent command (recent ones offered) and tags picked as chips (`tag-picker.ts`: a list of the tags in use to pick several from, filtered as it's typed, with a row creating a new one; a comma makes one; the group it opens in gives its tag, which can be taken off), no title; the board stays open; made from any column but Backlog, the card goes to In progress and its agent starts at once) |
 | `sound/` | `packs.ts` (samples), `typing.ts` (key listeners: typing sounds everywhere in the app, in the pack on screen, except app shortcuts) |
@@ -63,20 +64,24 @@ The page's CSS is in `web/src/styles/app.css`. The markup is in
 
 **Rules**
 - **One-way dependencies between features:**
-  - `daemon` → `settings` → `sound`
-  - `daemon` → `files` → `links` → `sessions` → `explorer` → `palette` and `ui` → `main`
+  - `nav` → `daemon` → `settings` → `sound`
+  - `nav` → `daemon` → `files` → `links` → `sessions` → `explorer` → `palette` and `ui` → `main`
 
   A lower feature never imports a higher one:
   - `settings` tells others about changes through `onApply` and `onSaved`;
-  - `files/open.ts` gets a `Host` from `main.ts`.
+  - `files/open.ts` gets a `Host` from `main.ts`;
+  - `nav` imports no feature: features register their steps with it.
 
   Inside one folder, modules may import each other, as long as their top
   level doesn't call across.
+- **Only the router moves:** only the router changes the active tab, view,
+  file, explorer or palette; everything else calls `go()`. Back, Forward and
+  reload then walk the same places.
 - **Pure logic stays testable:** files that `node --test` loads don't touch
   the DOM when imported: `links.ts`, `files/api.ts`, `daemon/parse.ts`,
   `settings/catalog.ts`, `keys.ts`, `schema.ts`, `sessions/bell-scan.ts`,
   `sessions/labels.ts`, `sessions/order.ts`,
-  `explorer/listing.ts`, `explorer/changes.ts`, `board/folders.ts`, `ui/drop-paths.ts`. Their tests sit beside them as `*.test.ts`.
+  `explorer/listing.ts`, `explorer/changes.ts`, `board/folders.ts`, `ui/drop-paths.ts`, `nav/place.ts`. Their tests sit beside them as `*.test.ts`.
 - **The editor stays lazy:** `files/pane.ts` and `editor.ts` (CodeMirror,
   `marked`) are only reached through `import()`. The daemon test
   `entry_script_does_not_bundle_the_editor` fails if the page's first load
@@ -109,6 +114,11 @@ A refactor must not change any of these.
   - Markdown and SVG render in `<iframe sandbox="">`.
   - Images and PDFs load from `blob:` URLs.
   - File content never goes through `innerHTML`.
+- **URLs select, never act:** a URL only selects what exists: it never opens
+  a tab, runs a command, sets a `cwd` or saves a file. The query string
+  holds the place; the router never reads the fragment (the token's), and
+  the daemon's app page sends `Referrer-Policy: no-referrer`
+  (`local_app_sends_no_referrer`).
 - **CSP:** `web/public/_headers` and `APP_CSP` (`web/pages.rs`) stay in step.
   Neither allows `'unsafe-inline'` scripts, so the page has no inline
   `<script>` or `on…=` attributes. Tests in `web/pages.rs` enforce both.

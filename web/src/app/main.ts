@@ -9,10 +9,12 @@ import { LOCAL_APP, MIXED_BLOCKED } from './daemon/config.ts';
 import { adoptToken } from './daemon/token.ts';
 import { initExplorer } from './explorer/explorer.ts';
 import { initFilePane, loadedPane, restoreFiles } from './files/open.ts';
+import { rememberedFiles } from './files/remember.ts';
+import { startRouter } from './nav/router.ts';
 import { initPalette } from './palette/palette.ts';
 import { initBell } from './sessions/bell.ts';
 import { initTabGroups } from './sessions/groups.ts';
-import { activate, newSession, newTabAt, savedActive, sendSize, store, sync } from './sessions/store.ts';
+import { initTabRouting, newSession, newTabAt, savedActive, sendSize, store, sync } from './sessions/store.ts';
 import { initTabStrip } from './sessions/tabs.ts';
 import { initTabLabels } from './sessions/tags.ts';
 import { FONTS, fontStack, prefersLight, THEMES } from './settings/catalog.ts';
@@ -61,6 +63,7 @@ addEventListener('beforeunload', (e) => {
   e.returnValue = ''; // older browsers
 });
 
+initTabRouting();
 initBell();
 initTabStrip();
 initTabLabels();
@@ -101,9 +104,18 @@ window.addEventListener('focus', () => {
   applySettings(current.saved); // theme the connection screen before the daemon answers
   await waitForDaemon();
   await loadSettings().catch(() => applySettings(current.saved));
-  await sync();
+  // A failed sync mustn't keep the router from starting (go() queues until it
+  // has); the next window focus syncs again.
+  await sync().catch(console.error);
   initBoardEvents();
+  if (!store.sessions.length) await newSession().catch(console.error);
+  const tab = (store.sessions.find((s) => s.id === activeId) ?? store.sessions[0])?.id ?? null;
+  await startRouter({
+    tab,
+    // The tab's remembered file opens as part of the startup place, which
+    // doesn't take the keyboard. A URL naming another tab drops it.
+    file: (tab && rememberedFiles()[tab]) || null,
+    explorer: current.saved.explorerOpen,
+  });
   restoreFiles(store.sessions.map((s) => s.id));
-  if (!store.sessions.length) return newSession();
-  activate(store.sessions.find((s) => s.id === activeId) ?? store.sessions[0]);
 })();
