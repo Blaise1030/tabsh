@@ -44,8 +44,11 @@ test('a provider is added and edited in the palette and offered by New card', as
   await page.locator('#palette-input').press('Escape'); // closed
   await page.locator('#board-btn').click();
   await page.locator('.board-col[data-status="backlog"] header .btn').click();
-  const options = page.locator('#new-card select[name="provider"] option');
+  await page.locator('#new-card button[aria-label="Agent"]').click();
+  const options = page.locator('#new-card [role="menu"][aria-label="Agent"] [role="menuitemradio"]');
   await expect(options).toHaveText(['Claude Code', 'Codex', 'Gemini CLI', 'OpenCode', 'Aider <b>x</b>']);
+  await page.keyboard.press('Escape'); // the menu closes, not the dialog
+  await expect(options.first()).toBeHidden();
   await page.locator('#new-card button[value="cancel"]').click();
 
   await page.request.put(`${daemon.baseUrl}/api/settings`, { headers, data: before });

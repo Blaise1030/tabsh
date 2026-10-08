@@ -16,9 +16,17 @@ export interface FolderPicker {
   reset(recent: string[], home: string | null): void;
   // What's typed, with `~` expanded once the home folder is known.
   value(): string;
+  // Lists the folders for what's typed (recent ones until it's edited).
+  open(): void;
 }
 
-export function initFolderPicker(input: HTMLInputElement, list: HTMLUListElement): FolderPicker {
+// `onPick` hears a folder picked with Enter or a click (not Tab, which goes on
+// into it).
+export function initFolderPicker(
+  input: HTMLInputElement,
+  list: HTMLUListElement,
+  onPick: () => void = () => {},
+): FolderPicker {
   let home: string | null = null;
   let recent: string[] = [];
   let edited = false;
@@ -94,7 +102,10 @@ export function initFolderPicker(input: HTMLInputElement, list: HTMLUListElement
     input.value = descend ? `${path}/` : path;
     edited = true;
     if (descend) void search();
-    else close();
+    else {
+      close();
+      onPick();
+    }
   }
 
   input.setAttribute('role', 'combobox');
@@ -132,5 +143,6 @@ export function initFolderPicker(input: HTMLInputElement, list: HTMLUListElement
       close();
     },
     value: () => expandHome(input.value.trim(), home),
+    open: () => void search(),
   };
 }

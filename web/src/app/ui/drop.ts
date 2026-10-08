@@ -3,7 +3,7 @@
 // reveal a dropped file's real path, so files are uploaded to the daemon
 // first and the saved copy's path is used.
 import { CARD_DRAG, drawer, shown } from '../board/view.ts';
-import { daemonFetch } from '../daemon/client.ts';
+import { uploadFile } from '../daemon/client.ts';
 import { store } from '../sessions/store.ts';
 import { localPaths, shellQuote } from './drop-paths.ts';
 
@@ -14,12 +14,6 @@ const isDroppable = (dt: DataTransfer | null): dt is DataTransfer =>
   (!shown.val || drawer.val) &&
   !dt.types.includes(CARD_DRAG) &&
   ['Files', 'text/uri-list', 'text/plain'].some((t) => dt.types.includes(t));
-
-async function uploadFile(file: File): Promise<string> {
-  const res = await daemonFetch(`/api/uploads?name=${encodeURIComponent(file.name)}`, { method: 'POST', body: file });
-  if (!res.ok) throw new Error(`upload ${file.name}: ${res.status}`);
-  return (await res.json()).path;
-}
 
 async function textForDrop(dt: DataTransfer): Promise<string> {
   const local = localPaths(dt.getData('text/uri-list') || '');
