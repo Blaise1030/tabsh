@@ -74,19 +74,19 @@ function TabBar(): HTMLElement {
   );
 }
 
-// The drawer's own bar, standing in for the tab bar's: the card's name, the
-// file explorer, the full terminal view, and close.
+// The drawer's own bar, standing in for the tab bar's: the file explorer,
+// the card's name and status, the full terminal view, and close.
 function DrawerBar(): HTMLElement {
   return header(
     { class: 'drawer-bar', hidden: () => !drawer.val },
-    span({ class: 'drawer-title' }, () => active.val?.name.val ?? ''),
-    DrawerMoveButton(() => active.val),
     barButton(icons.explorer, {
       'aria-label': 'Toggle file explorer',
       title: 'Toggle file explorer',
       'aria-pressed': () => String(explorerOpen.val),
       onclick: toggleExplorer,
     }),
+    span({ class: 'drawer-title' }, () => active.val?.name.val ?? ''),
+    DrawerMoveButton(() => active.val),
     barButton(icons.expand, {
       'aria-label': 'Open in terminals',
       title: 'Open in terminals',
