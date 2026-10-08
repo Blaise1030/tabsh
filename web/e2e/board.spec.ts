@@ -233,6 +233,39 @@ test("a card's Move menu sets its status, on the board and in the drawer", async
   await expect(page.locator('.archive-toggle')).toContainText('Archive 0');
 });
 
+test("a card's menu has a Tags submenu: tags made and toggled there show on the card", async ({
+  page,
+  daemon,
+  project,
+}) => {
+  const submenu = page.locator('.tags-submenu:visible');
+  const tagRow = (tag: string) => submenu.locator('[role="menuitemcheckbox"]').filter({ hasText: tag });
+  await openApp(page, daemon);
+  await boardAlone(page);
+  await col(page, 'backlog').locator('header .btn').click();
+  await newCard(page, 'Tag from menu', project);
+
+  await card(page, 'Tag from menu').locator('.card-move').click();
+  await page.locator('.move-menu [data-popover][aria-hidden="false"] .tags-row').click();
+  await expect(submenu).toBeVisible();
+  await submenu.getByRole('textbox', { name: 'New tag' }).fill('bug');
+  await submenu.getByRole('textbox', { name: 'New tag' }).press('Enter');
+  await expect(card(page, 'Tag from menu').locator('.tag-badge')).toHaveText(['bug']);
+  await expect(tagRow('bug')).toHaveAttribute('aria-checked', 'true');
+
+  // Toggling keeps it open.
+  await tagRow('bug').click();
+  await expect(card(page, 'Tag from menu').locator('.tag-badge')).toHaveCount(0);
+  await expect(tagRow('bug')).toHaveAttribute('aria-checked', 'false');
+  await tagRow('bug').click();
+  await expect(card(page, 'Tag from menu').locator('.tag-badge')).toHaveText(['bug']);
+  await expect(page.locator('#frame')).toBeHidden(); // no click opened the card
+
+  // Escape goes back; closing the menu closes it.
+  await page.keyboard.press('Escape');
+  await expect(submenu).toHaveCount(0);
+});
+
 test('dragging a card does not light the file drop', async ({ page, daemon, project }) => {
   await openApp(page, daemon);
   await boardAlone(page);

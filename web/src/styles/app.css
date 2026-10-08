@@ -408,6 +408,28 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .move-menu > [data-popover] { position: fixed; margin-top: 0; }
 .move-menu :is([role="menuitemradio"], [role="menuitem"]) > span { flex: 1; }
 .move-menu .menu-danger { color: var(--destructive); }
+.move-menu .tags-row > svg { width: 14px; height: 14px; }
+.move-menu .tags-row > svg:last-child { color: var(--muted-foreground); }
+/* The Tags submenu: fixed beside the card menu, styled as its popover. */
+.tags-submenu {
+  position: fixed; z-index: 51; min-width: 12rem; max-width: 16rem; padding: .25rem;
+  display: flex; flex-direction: column; gap: .25rem;
+  background: var(--popover); color: var(--popover-foreground);
+  border: 1px solid var(--border); border-radius: var(--radius, .5rem); box-shadow: 0 4px 12px rgb(0 0 0 / .08);
+  font-size: .875rem;
+}
+.tags-submenu[hidden] { display: none; }
+.tags-submenu-list { display: flex; flex-direction: column; max-height: 14rem; overflow-y: auto; }
+.tags-submenu [role="menuitemcheckbox"] {
+  display: flex; align-items: center; gap: .5rem; padding: .375rem .5rem; cursor: default; outline: none;
+  border-radius: calc(var(--radius, .5rem) - 2px);
+}
+.tags-submenu [role="menuitemcheckbox"]:hover, .tags-submenu [role="menuitemcheckbox"]:focus-visible { background: var(--accent); color: var(--accent-foreground); }
+.tags-submenu [role="menuitemcheckbox"] > span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tags-submenu [role="menuitemcheckbox"] > svg { width: 14px; height: 14px; }
+.tags-submenu .tag-dot { width: .5rem; height: .5rem; border-radius: 999px; flex-shrink: 0; }
+.tags-submenu-empty { padding: .375rem .5rem; color: var(--muted-foreground); }
+.tags-submenu > .input { height: 2rem; font-size: .8125rem; }
 .move-menu .menu-danger svg { width: 14px; height: 14px; }
 .status-glyph[data-status="needs_input"] { color: var(--needs-input); }
 .board-col.archive.drop-end { box-shadow: inset 0 0 0 1px var(--muted-foreground); border-radius: var(--radius, .5rem); }

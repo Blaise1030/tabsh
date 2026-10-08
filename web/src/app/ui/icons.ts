@@ -53,7 +53,9 @@ export const icons: Record<
   | 'expand'
   | 'chevronDown'
   | 'trash'
-  | 'more',
+  | 'more'
+  | 'tag'
+  | 'chevronRight',
   Icon
 > = {
   board: draw(({ path, rect, svg }) =>
@@ -91,6 +93,16 @@ export const icons: Record<
   search: draw(({ circle, path, svg }) =>
     svg({ ...LUCIDE }, circle({ cx: '11', cy: '11', r: '8' }), path({ d: 'm21 21-4.3-4.3' })),
   ),
+  tag: draw(({ circle, path, svg }) =>
+    svg(
+      { ...LUCIDE },
+      path({
+        d: 'M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z',
+      }),
+      circle({ cx: '7.5', cy: '7.5', r: '.5', fill: 'currentColor' }),
+    ),
+  ),
+  chevronRight: draw(({ path, svg }) => svg({ ...LUCIDE }, path({ d: 'm9 18 6-6-6-6' }))),
   more: draw(({ circle, svg }) =>
     svg(
       { ...LUCIDE },

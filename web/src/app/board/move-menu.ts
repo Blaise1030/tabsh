@@ -1,8 +1,8 @@
 // A card's menu, as Basecoat's dropdown menu (its script opens and closes it,
 // and moves through it by keyboard): a card's ⋯ button on the board, or the
 // status's name in the drawer's bar, lists the stages to move it to (the
-// current one checked, and not picked again), then Archive and Delete
-// session.
+// current one checked, and not picked again), its Tags (a submenu,
+// tags-submenu.ts), then Archive and Delete session.
 // Open, its popover is fixed under the button, so a column that scrolls
 // doesn't clip it.
 import van from 'vanjs-core';
@@ -11,6 +11,7 @@ import { glyph, icons } from '../ui/icons.ts';
 import { STATUS_NAMES } from './glyph.ts';
 import { COLUMNS, type Status } from './model.ts';
 import { setStatus } from './status.ts';
+import { TagsSubmenu } from './tags-submenu.ts';
 
 const { button, div, hr, i, span } = van.tags;
 
@@ -38,11 +39,22 @@ function MoveMenu(s: () => Session | null, trigger: Record<string, string>, ...f
       () => (now() === status ? icons.check() : span()),
     ),
   );
+  const tags = TagsSubmenu(s);
   const popover = div(
     { 'data-popover': '', 'aria-hidden': 'true', 'data-align': 'end' },
     div(
-      { role: 'menu', 'aria-label': 'Card' },
+      {
+        role: 'menu',
+        'aria-label': 'Card',
+        // Pointing at another row closes the Tags submenu.
+        onmouseover: (e: MouseEvent) => {
+          const row = (e.target as Element).closest('[role^="menuitem"]');
+          if (row && row !== tags.row) tags.close();
+        },
+      },
       div({ role: 'group', 'aria-label': 'Move to' }, div({ role: 'heading' }, 'Move to'), stages),
+      hr({ role: 'separator' }),
+      tags.row,
       hr({ role: 'separator' }),
       div(
         {
@@ -93,8 +105,30 @@ function MoveMenu(s: () => Session | null, trigger: Record<string, string>, ...f
     },
     open,
     popover,
+    tags.panel,
   );
-  root.place = place;
+  // → (or Enter, Space) on the highlighted Tags row opens the submenu; caught
+  // before Basecoat's own keys, which would click the row and close.
+  root.addEventListener(
+    'keydown',
+    (e) => {
+      if (tags.panel.contains(e.target as Node)) return; // the submenu's own keys
+      if (!tags.row.classList.contains('active') || !['ArrowRight', 'Enter', ' '].includes(e.key)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      tags.open(true);
+    },
+    true,
+  );
+  // The submenu closes with the dropdown.
+  new MutationObserver(() => open.getAttribute('aria-expanded') !== 'true' && tags.close()).observe(open, {
+    attributes: true,
+    attributeFilter: ['aria-expanded'],
+  });
+  root.place = () => {
+    place();
+    tags.close();
+  };
   return root;
 }
 
