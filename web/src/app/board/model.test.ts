@@ -12,6 +12,7 @@ import {
   shortPath,
   since,
   tagsInUse,
+  withImages,
 } from './model.ts';
 
 const card = (status: Card['status'], cwd: string | null = null, statusAt = 0): Card => ({
@@ -91,4 +92,9 @@ test('dropOrder puts the card before the target, or at the end of its column', (
   assert.deepEqual(dropOrder(items, 'd', 'backlog', 'c'), ['a', 'b', 'd', 'c']);
   assert.deepEqual(dropOrder(items, 'a', 'backlog', null), ['b', 'c', 'a', 'd']);
   assert.deepEqual(dropOrder(items, 'a', 'needs_input', null), ['b', 'c', 'd', 'a']);
+});
+
+test('attached images follow the prompt, one path a line', () => {
+  assert.equal(withImages('Fix the header', []), 'Fix the header');
+  assert.equal(withImages('Fix the header', ['/u/a.png', '/u/b.png']), 'Fix the header\n\n/u/a.png\n/u/b.png');
 });

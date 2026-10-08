@@ -54,10 +54,7 @@ async fn upload(
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    let dir = std::path::Path::new(&*st.db_path)
-        .parent()
-        .unwrap_or(std::path::Path::new("."))
-        .join("uploads");
+    let dir = uploads_dir(&st.db_path).map_err(internal_error)?;
     let path = dir.join(format!(
         "{nanos:x}-{:x}-{safe}",
         COUNTER.fetch_add(1, Ordering::Relaxed)
@@ -71,4 +68,31 @@ async fn upload(
     .map_err(internal_error)?
     .map_err(internal_error)?;
     Ok(Json(serde_json::json!({ "path": path.to_string_lossy() })))
+}
+
+/// Where uploads are saved: beside the database, as an absolute path even
+/// when `TABSH_DB` is relative, since the path is used from other folders
+/// (a terminal's, or a new card's agent's).
+fn uploads_dir(db_path: &str) -> std::io::Result<std::path::PathBuf> {
+    let dir = std::path::Path::new(db_path)
+        .parent()
+        .unwrap_or(std::path::Path::new("."))
+        .join("uploads");
+    std::path::absolute(dir)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uploads_go_beside_the_database_by_an_absolute_path() {
+        let rel = uploads_dir("target/dev/state.db").unwrap();
+        assert!(rel.is_absolute());
+        assert!(rel.ends_with("target/dev/uploads"));
+        assert_eq!(
+            uploads_dir("/home/me/.tabsh/state.db").unwrap(),
+            std::path::Path::new("/home/me/.tabsh/uploads")
+        );
+    }
 }

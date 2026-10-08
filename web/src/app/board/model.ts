@@ -108,3 +108,10 @@ export const DEFAULT_COMMAND = 'claude {prompt}';
 // wires its own hooks by following `tabsh setup`'s guide.
 export const SETUP_PROMPT =
   'Run `tabsh setup` and follow the guide it prints, so your hooks keep your card on the tabsh board current.';
+
+// A card's first prompt with its attached images: their saved paths, one per
+// line after the prompt, which agents like Claude Code read as images. The
+// prompt's first line stays the card's title.
+export function withImages(prompt: string, paths: string[]): string {
+  return paths.length ? `${prompt}\n\n${paths.join('\n')}` : prompt;
+}

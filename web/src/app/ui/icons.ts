@@ -57,7 +57,9 @@ export const icons: Record<
   | 'trash'
   | 'more'
   | 'tag'
-  | 'chevronRight',
+  | 'chevronRight'
+  | 'paperclip'
+  | 'shrink',
   Icon
 > = {
   board: draw(({ path, rect, svg }) =>
@@ -132,6 +134,27 @@ export const icons: Record<
       path({ d: 'M9 21H3v-6' }),
       path({ d: 'm21 3-7 7' }),
       path({ d: 'm3 21 7-7' }),
+    ),
+  ),
+  shrink: draw(({ path, svg }) =>
+    svg(
+      { ...LUCIDE },
+      path({ d: 'm15 15 6 6' }),
+      path({ d: 'm15 9 6-6' }),
+      path({ d: 'M21 16v5h-5' }),
+      path({ d: 'M21 8V3h-5' }),
+      path({ d: 'M3 16v5h5' }),
+      path({ d: 'm3 21 6-6' }),
+      path({ d: 'M3 8V3h5' }),
+      path({ d: 'M9 9 3 3' }),
+    ),
+  ),
+  paperclip: draw(({ path, svg }) =>
+    svg(
+      { ...LUCIDE },
+      path({
+        d: 'm16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551',
+      }),
     ),
   ),
   close: draw(({ path, svg }) => svg({ ...LUCIDE }, path({ d: 'M18 6 6 18' }), path({ d: 'm6 6 12 12' }))),
