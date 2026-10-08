@@ -533,6 +533,40 @@ test('a new card goes on top; cards reorder within a column', async ({ page, dae
   await expect(page.locator('.drop-before, .drop-end')).toHaveCount(0);
 });
 
+// A hook's move (as `tabsh status`) puts the card last in its new column, on
+// the page and in the daemon's order alike.
+test("a hook's move puts the card at the end of its new column", async ({ page, daemon, project }) => {
+  const names = async (status: string) =>
+    (await col(page, status).locator('.board-card .card-title').allTextContents()).filter((n) =>
+      ['One', 'Two', 'Three'].includes(n),
+    );
+  const hook = async (name: string, status: string) => {
+    const id = await card(page, name).getAttribute('data-id');
+    const res = await page.request.patch(`${daemon.baseUrl}/api/sessions/${id}/status`, {
+      headers: { Authorization: `Bearer ${daemon.token}` },
+      data: { status },
+    });
+    expect(res.status()).toBe(200);
+  };
+  await openApp(page, daemon);
+  await page.locator('#board-btn').click();
+  for (const name of ['One', 'Two', 'Three']) {
+    await col(page, 'backlog').locator('header .btn').click();
+    await newCard(page, name, project);
+    await expect(card(page, name)).toBeVisible();
+  }
+  await expect.poll(() => names('backlog')).toEqual(['Three', 'Two', 'One']);
+
+  await hook('One', 'needs_input');
+  await expect.poll(() => names('needs_input')).toEqual(['One']);
+  await hook('Three', 'needs_input');
+  await expect.poll(() => names('needs_input')).toEqual(['One', 'Three']);
+
+  await page.reload();
+  await page.locator('#board-btn').click();
+  await expect.poll(() => names('needs_input')).toEqual(['One', 'Three']);
+});
+
 // The open board follows its cards: a terminal renamed while it's shown
 // renames its card at once, not at the next 30 s refresh.
 test('a card follows its terminal while the board is open', async ({ page, daemon, project }) => {

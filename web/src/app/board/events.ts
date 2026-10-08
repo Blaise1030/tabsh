@@ -1,9 +1,11 @@
 // Card status changes pushed by the daemon (hooks, other browsers). A
 // dropped socket reconnects and re-reads the list, so nothing is missed. A
-// hook moving a card to Needs input or Completed notifies (notify.ts).
+// hook moving a card to Needs input or Completed notifies (notify.ts). A
+// hook's move puts the card last in its new column, as the daemon does.
 import { boardEventsUrl } from '../daemon/client.ts';
 import { store, sync } from '../sessions/store.ts';
-import { asStatus } from './model.ts';
+import { orderTabs } from '../sessions/tabs.ts';
+import { asStatus, dropOrder } from './model.ts';
 import { notifyStatus } from './notify.ts';
 import { applyCard } from './status.ts';
 
@@ -26,6 +28,10 @@ export function initBoardEvents(): void {
     if (!s) return;
     const before = s.card.val.status;
     const status = asStatus(ev.status);
+    if (ev.source === 'hook' && status !== before) {
+      const items = store.sessions.map((x) => ({ id: x.id, card: x.card.val }));
+      orderTabs(dropOrder(items, s.id, status, null));
+    }
     applyCard(s, { ...s.card.val, status, statusAt: ev.status_at, note: ev.note });
     if (ev.source === 'hook' && status !== before) notifyStatus(s, status, ev.note);
   };

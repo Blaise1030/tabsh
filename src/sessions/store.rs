@@ -161,7 +161,7 @@ pub(crate) fn insert_card(db: &Connection, card: &NewCard) -> rusqlite::Result<S
 
 /// Sets the tab order: `ids` first, in that order, then any other sessions in
 /// their old order.
-pub(super) fn reorder(db: &mut Connection, ids: &[String]) -> rusqlite::Result<()> {
+pub(crate) fn reorder(db: &mut Connection, ids: &[String]) -> rusqlite::Result<()> {
     let tx = db.transaction()?;
     let old: Vec<String> = tx
         .prepare("SELECT id FROM sessions ORDER BY position")?
