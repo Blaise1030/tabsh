@@ -1,5 +1,5 @@
 // The command palette's pages: settings to pick, pages to open, and actions.
-import { FONT_SIZES, FONTS, THEMES, type ThemeColors, TYPING_SOUNDS } from '../settings/catalog.ts';
+import { CARD_SOUNDS, FONT_SIZES, FONTS, THEMES, type ThemeColors, TYPING_SOUNDS } from '../settings/catalog.ts';
 import { type KeyId, keyLabel } from '../settings/keys.ts';
 import {
   MAX_PROVIDERS,
@@ -101,6 +101,20 @@ export function pages(ctx: {
               hint: TYPING_SOUNDS[saved.typingSound],
               keywords: 'keyboard click clack audio mute',
               go: 'typingSound',
+            },
+            {
+              label: 'Needs input sound…',
+              icon: icons.sound,
+              hint: CARD_SOUNDS[saved.needsInputSound],
+              keywords: 'notification alert chime board card waiting audio mute',
+              go: 'needsInputSound',
+            },
+            {
+              label: 'Completed sound…',
+              icon: icons.sound,
+              hint: CARD_SOUNDS[saved.completedSound],
+              keywords: 'notification alert chime board card done finished audio mute',
+              go: 'completedSound',
             },
           ],
         },
@@ -268,6 +282,20 @@ export function pages(ctx: {
         },
       ],
     }),
+    ...Object.fromEntries(
+      (['needsInputSound', 'completedSound'] as const).map((key) => [
+        key,
+        (): PalettePage => ({
+          placeholder: 'Search…',
+          groups: [
+            {
+              heading: key === 'needsInputSound' ? 'Needs input sound' : 'Completed sound',
+              items: Object.entries(CARD_SOUNDS).map(([id, name]) => ({ label: name, key, value: id })),
+            },
+          ],
+        }),
+      ]),
+    ),
     fontSize: () => ({
       placeholder: 'Search sizes…',
       groups: [

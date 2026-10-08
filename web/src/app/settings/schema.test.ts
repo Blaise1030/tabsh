@@ -12,6 +12,9 @@ test('cleanSettings keeps valid values and drops unknown ones', () => {
   assert.equal(cleanSettings({ paneWidth: 0.9 }, true).paneWidth, 0.5);
   assert.equal(cleanSettings({ paneWidth: 0.3 }, true).paneWidth, 0.3);
   assert.equal(cleanSettings({ typingSound: 'off' }, true).typingSound, 'off');
+  assert.equal(cleanSettings({ needsInputSound: 'pop' }, true).needsInputSound, 'pop');
+  assert.equal(cleanSettings({ completedSound: 'off' }, true).completedSound, 'off');
+  assert.equal(cleanSettings({ completedSound: 'gone' }, true).completedSound, d.completedSound);
 });
 test('a keybinding saved on another OS falls back to this OS default', () => {
   assert.equal(cleanSettings({ keyPalette: 'meta+KeyK' }, false).keyPalette, 'ctrl+shift+KeyK');
