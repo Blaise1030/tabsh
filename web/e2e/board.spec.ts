@@ -76,13 +76,12 @@ test('cards move through the board', async ({ page, daemon, project }) => {
   await card(page, 'Fix login').dragTo(col(page, 'completed').locator('.board-cards'));
   await expect(col(page, 'completed').locator('.board-card').filter({ hasText: 'Fix login' })).toBeVisible();
 
-  // Dropping a card on the Archive section archives it.
-  await card(page, 'Fix login').dragTo(page.locator('.board-col.archive'));
+  // Archived is a column like the others: dropping a card there archives it.
+  await col(page, 'archived').scrollIntoViewIfNeeded(); // five columns overflow the viewport
+  await card(page, 'Fix login').dragTo(col(page, 'archived').locator('.board-cards'));
   await expect(col(page, 'completed').locator('.board-card')).toHaveCount(0);
-  const toggle = page.locator('.archive-toggle');
-  await expect(toggle).toContainText('Archive 1');
-  await toggle.click();
-  await expect(page.locator('.board-col.archive .board-card').filter({ hasText: 'Fix login' })).toBeVisible();
+  await expect(col(page, 'archived').locator('.col-count')).toHaveText('1');
+  await expect(col(page, 'archived').locator('.board-card').filter({ hasText: 'Fix login' })).toBeVisible();
 });
 
 test("a card made from In progress's + starts its agent at once", async ({ page, daemon, project }) => {
@@ -128,7 +127,7 @@ test("a completed card is archived from its menu, and has no Archive button", as
   await card(page, 'Ship it').locator('.card-move').click();
   await page.locator('.move-menu [data-popover][aria-hidden="false"] [role="menuitem"]').filter({ hasText: 'Archive' }).click();
   await expect(col(page, 'completed').locator('.board-card')).toHaveCount(0);
-  await expect(page.locator('.archive-toggle')).toContainText('Archive 1');
+  await expect(col(page, 'archived').locator('.board-card').filter({ hasText: 'Ship it' })).toBeVisible();
 });
 
 test('the board hides the tabs, and shows the open tab in its drawer', async ({ page, daemon }) => {
@@ -222,24 +221,23 @@ test("a card's Move menu sets its status, on the board and in the drawer", async
   await page.locator('.drawer-move').click();
   await item('Archive').click();
   await expect(col(page, 'completed').locator('.board-card')).toHaveCount(0);
-  await expect(page.locator('.archive-toggle')).toContainText('Archive 1');
+  await expect(col(page, 'archived').locator('.col-count')).toHaveText('1');
 
   // An archived card has no buttons of its own; its menu restores it.
   await page.locator('#drawer-close').click();
-  await page.locator('.archive-toggle').click();
   await expect(card(page, 'Move me').getByRole('button', { name: /Restore|Delete/ })).toHaveCount(0);
   await card(page, 'Move me').locator('.card-move').click();
   await item('Restore').click();
   await expect(col(page, 'backlog').locator('.board-card').filter({ hasText: 'Move me' })).toBeVisible();
   await card(page, 'Move me').locator('.card-move').click();
   await item('Archive').click();
-  await expect(page.locator('.board-col.archive .board-card').filter({ hasText: 'Move me' })).toBeVisible();
+  await expect(col(page, 'archived').locator('.board-card').filter({ hasText: 'Move me' })).toBeVisible();
 
   // Delete session closes it: its card and its tab go.
   await card(page, 'Move me').locator('.card-move').click();
   await item('Delete session').click();
   await expect(card(page, 'Move me')).toHaveCount(0);
-  await expect(page.locator('.archive-toggle')).toContainText('Archive 0');
+  await expect(col(page, 'archived').locator('.col-count')).toHaveText('0');
 });
 
 test("a card's menu has a Tags submenu: tags made and toggled there show on the card", async ({

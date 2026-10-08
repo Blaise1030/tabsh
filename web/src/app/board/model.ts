@@ -4,7 +4,7 @@
 export type Status = 'backlog' | 'in_progress' | 'needs_input' | 'completed' | 'archived';
 export const STATUSES: Status[] = ['backlog', 'in_progress', 'needs_input', 'completed', 'archived'];
 
-// The board's columns; Archive is a collapsed extra at the end.
+// The stages a card moves through; the board shows Archived after them.
 export const COLUMNS: { status: Status; name: string }[] = [
   { status: 'backlog', name: 'Backlog' },
   { status: 'in_progress', name: 'In progress' },
