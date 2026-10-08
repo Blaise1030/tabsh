@@ -1,5 +1,61 @@
 # Changelog
 
+## v0.1.12
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.11...v0.1.12)
+
+### Features
+
+- **nav:** The place and its query string ([8a34912](https://github.com/Blaise1030/tabsh/commit/8a34912))
+- **nav:** Tab switches are navigations, so Back and reload keep your tab ([a126ec7](https://github.com/Blaise1030/tabsh/commit/a126ec7))
+- **board:** Opening the board is a navigation ([8b93737](https://github.com/Blaise1030/tabsh/commit/8b93737))
+- **files:** The open file and line are part of the place ([2944af0](https://github.com/Blaise1030/tabsh/commit/2944af0))
+- **explorer:** Opening the explorer is a navigation ([e5ff1bf](https://github.com/Blaise1030/tabsh/commit/e5ff1bf))
+- **palette:** The palette is a place; Back closes it ([8d6c27f](https://github.com/Blaise1030/tabsh/commit/8d6c27f))
+- **nav:** Back and Forward keybindings and palette entries; rebuild the embedded app ([23e3f0f](https://github.com/Blaise1030/tabsh/commit/23e3f0f))
+- **sound:** Typing sounds everywhere in the app, and in the previewed pack ([8a56f16](https://github.com/Blaise1030/tabsh/commit/8a56f16))
+- **ui:** VanJS, icons as tags, and keyed lists ([16ee973](https://github.com/Blaise1030/tabsh/commit/16ee973))
+- **ui:** The page shell is components mounted from main ([b2cf913](https://github.com/Blaise1030/tabsh/commit/b2cf913))
+- **sessions:** Tabs are components driven by session state ([6354f17](https://github.com/Blaise1030/tabsh/commit/6354f17))
+- **sessions:** Tab groups and copies are rendered from state ([c23062f](https://github.com/Blaise1030/tabsh/commit/c23062f))
+- **board:** The board is components driven by card state ([649c3bf](https://github.com/Blaise1030/tabsh/commit/649c3bf))
+- **palette:** Palette pages are components ([0f46aae](https://github.com/Blaise1030/tabsh/commit/0f46aae))
+- **explorer:** The sidebar's chrome is components ([8900696](https://github.com/Blaise1030/tabsh/commit/8900696))
+- **files:** The file pane's chrome is components ([6d0ea8a](https://github.com/Blaise1030/tabsh/commit/6d0ea8a))
+- **ui:** About and New card are components ([8e8ee2c](https://github.com/Blaise1030/tabsh/commit/8e8ee2c))
+- **board:** Long card titles and notes clamp to two lines, with Show more; rebuild the embedded app ([10f00e0](https://github.com/Blaise1030/tabsh/commit/10f00e0))
+- **board:** The board replaces the workspace and hides the tabs; card drags don't light the file drop ([6def26d](https://github.com/Blaise1030/tabsh/commit/6def26d))
+- **board:** A card opens its terminal in a resizable drawer beside the board ([c3f26a3](https://github.com/Blaise1030/tabsh/commit/c3f26a3))
+- **board:** A Move menu on each card and in the drawer's bar ([c546154](https://github.com/Blaise1030/tabsh/commit/c546154))
+- **board:** A new card goes on top of its column ([3ead2b6](https://github.com/Blaise1030/tabsh/commit/3ead2b6))
+- **board:** The Move menu is Basecoat's dropdown; a narrow shade at the drawer's edge ([52abf72](https://github.com/Blaise1030/tabsh/commit/52abf72))
+- **board:** Needs input and Completed have no + button ([6c449e2](https://github.com/Blaise1030/tabsh/commit/6c449e2))
+- **board:** Opening the board keeps the open tab in its drawer ([1ffc13e](https://github.com/Blaise1030/tabsh/commit/1ffc13e))
+- **board:** A click on the board's empty space closes the drawer ([6fa27f7](https://github.com/Blaise1030/tabsh/commit/6fa27f7))
+- **board:** A card's menu offers Archive and Delete session ([aba6968](https://github.com/Blaise1030/tabsh/commit/aba6968))
+- **board:** A ⋯ button opens a card's menu; no separate Archive button ([2116e30](https://github.com/Blaise1030/tabsh/commit/2116e30))
+- **board:** A Tags submenu in the card's menu ([68ea5ab](https://github.com/Blaise1030/tabsh/commit/68ea5ab))
+- **board:** A desktop notification when an agent needs you or is done ([cd859ae](https://github.com/Blaise1030/tabsh/commit/cd859ae))
+- **board:** A chime with each status notification ([6265f7d](https://github.com/Blaise1030/tabsh/commit/6265f7d))
+- **board:** An archived card's Restore and Delete live in its menu ([0efb4c4](https://github.com/Blaise1030/tabsh/commit/0efb4c4))
+
+### Fixes
+
+- **app:** A reload no longer answers queries in the replayed scrollback ([c2131d2](https://github.com/Blaise1030/tabsh/commit/c2131d2))
+- **nav:** Steps a superseded navigation never ran still run on the next one ([c2ba270](https://github.com/Blaise1030/tabsh/commit/c2ba270))
+- **nav:** A tab switch overtaken mid-load is still undone ([54df52a](https://github.com/Blaise1030/tabsh/commit/54df52a))
+- **nav:** The palette's Go back only skips the palette's own entry; the Back key just closes it ([10b672d](https://github.com/Blaise1030/tabsh/commit/10b672d))
+- **nav:** A reload keeps focus in the terminal; a failed startup sync no longer stalls the router ([675612f](https://github.com/Blaise1030/tabsh/commit/675612f))
+- **nav:** Back and Forward take the keyboard to where they land ([4bc81bd](https://github.com/Blaise1030/tabsh/commit/4bc81bd))
+- **explorer:** Closing the explorer hands the keyboard back to the terminal ([57e27e3](https://github.com/Blaise1030/tabsh/commit/57e27e3))
+- **sessions:** A session opened twice is one tab ([65fd0a3](https://github.com/Blaise1030/tabsh/commit/65fd0a3))
+- **ui:** Back and forward icons; component state-reading rule ([a56452b](https://github.com/Blaise1030/tabsh/commit/a56452b))
+- **ui:** Keyed items drop their derives when removed; the empty state waits for the first tab ([142a41b](https://github.com/Blaise1030/tabsh/commit/142a41b))
+- **sessions:** Closing tabs collapse even when their group empties; regrouping doesn't regrow tabs ([46160af](https://github.com/Blaise1030/tabsh/commit/46160af))
+- **board:** A drop clears the drag state without waiting for dragend ([4b87abe](https://github.com/Blaise1030/tabsh/commit/4b87abe))
+- **sessions:** A session opened twice is one tab and one terminal ([06d57a7](https://github.com/Blaise1030/tabsh/commit/06d57a7))
+- **sessions:** Tags from another window show up; pin vanjs-core to 1.6 ([833827c](https://github.com/Blaise1030/tabsh/commit/833827c))
+
 ## v0.1.11
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.10...v0.1.11)
