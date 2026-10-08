@@ -218,6 +218,8 @@ export function moveToTop(s: Session, status: Status): Promise<void> {
 // The sessions in each column, in tab order.
 type Columns = Record<Status, Session[]>;
 
+const ADDABLE: Status[] = ['backlog', 'in_progress'];
+
 function Column(status: Status, name: string, columns: State<Columns>): HTMLElement {
   const list = div({ class: 'board-cards' });
   keyed(
@@ -250,18 +252,22 @@ function Column(status: Status, name: string, columns: State<Columns>): HTMLElem
       statusGlyph(status),
       span({ class: 'col-name' }, name),
       span({ class: 'col-count' }, () => String(columns.val[status].length)),
-      button(
-        {
-          type: 'button',
-          class: 'btn',
-          'data-variant': 'ghost',
-          'data-size': 'icon-xs',
-          title: `New card in ${name}`,
-          'aria-label': `New card in ${name}`,
-          onclick: () => newCard(status),
-        },
-        '+',
-      ),
+      // New cards start in Backlog or In progress; the others are reached by
+      // moving a card.
+      ADDABLE.includes(status)
+        ? button(
+            {
+              type: 'button',
+              class: 'btn',
+              'data-variant': 'ghost',
+              'data-size': 'icon-xs',
+              title: `New card in ${name}`,
+              'aria-label': `New card in ${name}`,
+              onclick: () => newCard(status),
+            },
+            '+',
+          )
+        : '',
     ),
     list,
   );

@@ -182,6 +182,15 @@ test('dragging a card does not light the file drop', async ({ page, daemon, proj
   await expect(col(page, 'in_progress').locator('.board-card').filter({ hasText: 'Drag me' })).toBeVisible();
 });
 
+test('only Backlog and In progress offer a new card', async ({ page, daemon }) => {
+  await openApp(page, daemon);
+  await page.locator('#board-btn').click();
+  for (const status of ['backlog', 'in_progress']) await expect(col(page, status).locator('header .btn')).toHaveCount(1);
+  for (const status of ['needs_input', 'completed']) await expect(col(page, status).locator('header .btn')).toHaveCount(0);
+  const heights = await page.locator('.board-col > header').evaluateAll((hs) => hs.map((h) => h.getBoundingClientRect().height));
+  expect(new Set(heights).size).toBe(1);
+});
+
 test('a long card is clamped, with Show more', async ({ page, daemon, project }) => {
   await openApp(page, daemon);
   await page.locator('#board-btn').click();
