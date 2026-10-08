@@ -272,10 +272,14 @@ export function initPalette(): void {
 
   paletteInput().addEventListener('keydown', (e) => {
     if (editing) return;
-    const toRoot = e.key === 'Escape' || (e.key === 'Backspace' && !paletteInput().value);
-    if (toRoot && page.val !== 'root') {
+    // Esc, or Backspace in an empty field, returns to the page that opened
+    // this one (a provider's page to the providers list). On the root page
+    // Esc still closes the dialog.
+    const back = e.key === 'Escape' || (e.key === 'Backspace' && !paletteInput().value);
+    const at = page.val;
+    if (back && at && at !== 'root') {
       e.preventDefault(); // also stops Escape from closing the dialog
-      go({ palette: 'root' }, 'replace');
+      go({ palette: at.startsWith('provider:') ? 'providers' : 'root' }, 'replace');
     }
   });
 

@@ -12,7 +12,7 @@ import type { Session } from '../sessions/store.ts';
 import { setTags, usedTags } from '../sessions/tags.ts';
 import { icons } from '../ui/icons.ts';
 
-const { div, i, input, span } = van.tags;
+const { div, i, input, label, span } = van.tags;
 
 export interface TagsSubmenu {
   row: HTMLElement; // in the menu
@@ -41,7 +41,7 @@ export function TagsPanel(
   const offered: State<string[]> = van.state([]);
   const has = (tag: string) => get().includes(tag);
 
-  const items = (): HTMLElement[] => [...panel.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"], input')];
+  const items = (): HTMLElement[] => [...panel.querySelectorAll<HTMLElement>('input')];
   const field = input({
     class: 'input',
     placeholder: 'New tag…',
@@ -81,30 +81,22 @@ export function TagsPanel(
         all[to]?.focus();
       },
     },
+    field,
     () =>
       div(
         { class: 'tags-submenu-list' },
         offered.val.length ? '' : div({ class: 'tags-submenu-empty' }, 'No tags yet'),
-        ...offered.val.map((tag) =>
-          div(
-            {
-              role: 'menuitemcheckbox',
-              tabindex: '-1',
-              'aria-checked': () => String(has(tag)),
-              onclick: () => set(toggleTag(get(), tag, !has(tag))),
-              onkeydown: (e: KeyboardEvent) => {
-                if (e.key !== 'Enter' && e.key !== ' ') return;
-                e.preventDefault();
-                (e.currentTarget as HTMLElement).click();
-              },
-            },
-            i({ class: 'tag-dot', style: `background: ${tagColor(tag)}` }),
-            span(tag),
-            () => (has(tag) ? icons.check() : span()),
-          ),
-        ),
+        ...offered.val.map((tag) => {
+          const box = input({
+            type: 'checkbox',
+            class: 'input',
+            tabindex: '-1',
+            checked: () => has(tag),
+            onchange: () => set(toggleTag(get(), tag, box.checked)),
+          });
+          return label({ class: 'label menu-check' }, box, i({ style: `background:${tagColor(tag)}` }), span(tag));
+        }),
       ),
-    field,
   );
 
   function open(focus: boolean) {

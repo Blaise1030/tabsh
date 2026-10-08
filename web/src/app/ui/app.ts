@@ -76,11 +76,18 @@ function TabBar(): HTMLElement {
   );
 }
 
-// The drawer's own bar, standing in for the tab bar's: the file explorer,
-// the card's name and status, the full terminal view, and close.
+// The drawer's own bar, standing in for the tab bar's: close (in front of
+// the sidebar), the file explorer, the card's name and status, and the full
+// terminal view.
 function DrawerBar(): HTMLElement {
   return header(
     { class: 'drawer-bar', hidden: () => !drawer.val },
+    barButton(icons.arrowLeftToLine, {
+      'aria-label': 'Close drawer',
+      title: 'Close drawer',
+      id: 'drawer-close',
+      onclick: () => go({ drawer: false }),
+    }),
     barButton(icons.explorer, {
       'aria-label': 'Toggle file explorer',
       title: 'Toggle file explorer',
@@ -94,12 +101,6 @@ function DrawerBar(): HTMLElement {
       title: 'Open in terminals',
       id: 'drawer-expand',
       onclick: () => go({ view: 'terms' }),
-    }),
-    barButton(icons.close, {
-      'aria-label': 'Close drawer',
-      title: 'Close drawer',
-      id: 'drawer-close',
-      onclick: () => go({ drawer: false }),
     }),
   );
 }
@@ -134,7 +135,11 @@ function Stage(): HTMLElement {
     Board(),
     div({ id: 'drawer-divider', hidden: () => !drawer.val }),
     div(
-      { id: 'frame', class: () => (drawer.val ? 'in-drawer' : ''), hidden: () => shown.val && !drawer.val },
+      {
+        id: 'frame',
+        class: () => (drawer.val ? 'in-drawer' : ''),
+        hidden: () => shown.val && !drawer.val,
+      },
       DrawerBar(),
       Workspace(),
     ),

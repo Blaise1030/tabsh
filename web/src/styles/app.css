@@ -30,6 +30,11 @@ html.themed {
 /* Near the top of the screen at Tailwind's max-w-xl width; tall enough to show
    long lists. The menu fills what's left instead of Basecoat's fixed 18rem. */
 .command-dialog > .command { top: 10%; max-width: min(36rem, 100% - 2rem); max-height: min(75%, 44rem); }
+/* The list fills the dialog and would otherwise shrink this bar down to the text line.
+   Its bottom margin is 0 so it meets the list; while the list is hidden (a provider's
+   command being edited), the space below matches the space above. */
+.command > header { min-height: 2.5rem; flex-shrink: 0; }
+.command:has(> [role="menu"][hidden]) > header { margin-bottom: var(--spacing, .25rem); }
 .command-dialog [role="menu"] { max-height: none; flex: 1; min-height: 0; }
 /* Gradient edge fades on the palette list, shown only where items are
    scrolled out of view (same approach as the tab strip). */
@@ -152,12 +157,12 @@ html.themed {
 .tab-menu .menu-hint { padding: .25rem .5rem .375rem; font-size: .75rem; color: var(--muted-foreground); }
 /* A checkbox row is Basecoat's label (its layout, gap and type); the menu adds
    the padding and the hover. */
-.tab-menu .menu-check { padding: .375rem .5rem; cursor: default; border-radius: calc(var(--radius, .5rem) - 2px); }
-.tab-menu .menu-check:hover { background: var(--accent); }
-.tab-menu .menu-check input { margin: 0; }
-.tab-menu .menu-check i { flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; }
+.tab-menu .menu-check, .tags-submenu .menu-check { padding: .375rem .5rem; cursor: default; border-radius: calc(var(--radius, .5rem) - 2px); }
+.tab-menu .menu-check:hover, .tags-submenu .menu-check:hover { background: var(--accent); }
+.tab-menu .menu-check input, .tags-submenu .menu-check input { margin: 0; }
+.tab-menu .menu-check i, .tags-submenu .menu-check i { flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; }
 .tab-menu .menu-check.repo i { display: none; } /* repos have no color of their own */
-.tab-menu .menu-check span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-menu .menu-check span, .tags-submenu .menu-check span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab-menu .menu-check small { color: var(--muted-foreground); }
 .tab-menu .menu-foot { display: flex; flex-direction: column; }
 .tab-menu .menu-foot[hidden] { display: none; }
@@ -185,10 +190,10 @@ html.themed {
 /* Beside the board: a share of the page set by its divider (drawerWidth). */
 #frame.in-drawer { flex: 0 0 calc(var(--drawer-width, .5) * 100%); position: relative; }
 #frame.in-drawer::before {
-  content: ''; position: absolute; top: 0; bottom: 0; right: 100%; width: .75rem; z-index: 4; pointer-events: none;
-  background: linear-gradient(to right, transparent, color-mix(in srgb, var(--foreground) 5%, transparent));
+  content: ''; position: absolute; top: 0; bottom: 0; right: 100%; width: 6rem; z-index: 4; pointer-events: none;
+  background: linear-gradient(to right, transparent, var(--background));
   /* It fades in from the top, so it doesn't meet the tab bar at a hard corner. */
-  mask-image: linear-gradient(to bottom, transparent, #000 2rem);
+  mask-image: linear-gradient(to bottom, transparent, #000 4rem);
 }
 /* Too narrow to share: the drawer covers the board. */
 @media (max-width: 799px) {
@@ -253,8 +258,8 @@ file-tree-container {
    reads as one canvas. A short pill in the middle marks the drag handle, and
    darkens while it is hovered or dragged. */
 #explorer-divider, #pane-divider, #drawer-divider { flex: 0 0 1px; position: relative; touch-action: none; }
-/* No line between the board and its drawer: a narrow shade on the board's
-   side, darkening toward the drawer's edge (#frame.in-drawer::before). */
+/* No line between the board and its drawer: a narrow fade on the board's
+   side, into the background toward the drawer's edge (#frame.in-drawer::before). */
 #drawer-divider[hidden] { display: none; }
 /* A wider grab area than the divider itself. */
 #explorer-divider::before, #pane-divider::before, #drawer-divider::before {
@@ -374,7 +379,17 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 #board-filter-btn[hidden] { display: none; }
 #board-filter-btn[aria-pressed="true"] { color: var(--foreground); background: var(--muted); }
 .board-filter-menu { max-width: 20rem; }
-#board { flex: 1; min-width: 0; min-height: 0; display: flex; gap: .75rem; padding: .75rem; overflow-x: auto; background: var(--background); }
+#board {
+  flex: 1; min-width: 0; min-height: 0; display: flex; gap: .75rem; padding: .75rem; overflow-x: auto; background: var(--background);
+  /* Longer than the tab strip, so a column cut by the edge dissolves instead of ending in a hard line. */
+  --fade-l: 0px; --fade-r: 0px;
+  mask-image: linear-gradient(to right,
+    transparent, rgb(0 0 0 / .25) calc(var(--fade-l) * .45), #000 var(--fade-l),
+    #000 calc(100% - var(--fade-r)), rgb(0 0 0 / .25) calc(100% - var(--fade-r) * .45), transparent);
+  transition: --fade-l .2s ease, --fade-r .2s ease;
+}
+#board.fade-left { --fade-l: 6rem; }
+#board.fade-right { --fade-r: 6rem; }
 #board[hidden] { display: none; }
 .board-col { flex: 0 0 18rem; display: flex; flex-direction: column; min-height: 0; }
 .board-col > header { display: flex; align-items: center; gap: .5rem; padding: .25rem .25rem .5rem; font-size: .8125rem; font-weight: 500; min-height: 2.25rem; /* the same with or without a + */ }
@@ -424,16 +439,7 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 }
 .tags-submenu[hidden] { display: none; }
 .tags-submenu-list { display: flex; flex-direction: column; max-height: 14rem; overflow-y: auto; }
-.tags-submenu [role="menuitemcheckbox"] {
-  display: flex; align-items: center; gap: .5rem; padding: .375rem .5rem; cursor: default; outline: none;
-  border-radius: calc(var(--radius, .5rem) - 2px);
-}
-.tags-submenu [role="menuitemcheckbox"]:hover, .tags-submenu [role="menuitemcheckbox"]:focus-visible { background: var(--accent); color: var(--accent-foreground); }
-.tags-submenu [role="menuitemcheckbox"] > span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tags-submenu [role="menuitemcheckbox"] > svg { width: 14px; height: 14px; }
-.tags-submenu .tag-dot { width: .5rem; height: .5rem; border-radius: 999px; flex-shrink: 0; }
 .tags-submenu-empty { padding: .375rem .5rem; color: var(--muted-foreground); }
-.tags-submenu > .input { height: 2rem; font-size: .8125rem; }
 .move-menu .menu-danger svg { width: 14px; height: 14px; }
 .status-glyph[data-status="needs_input"] { color: var(--needs-input); }
 .board-onboarding { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; padding: 1.5rem; text-align: center; text-wrap: balance; }
