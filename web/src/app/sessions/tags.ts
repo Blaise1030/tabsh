@@ -30,6 +30,13 @@ export function setTags(s: Session, list: string[]): void {
   render(s);
 }
 
+// Every tag some tab has, sorted.
+export const usedTags = (): string[] => [...new Set(Object.values(storedTags()).flat())].sort();
+
+// A tag as a badge tinted in its color, after a dot of it.
+export const tagBadge = (tag: string, ...kids: HTMLElement[]): HTMLElement =>
+  span({ class: 'badge tag-badge', style: `--tag: ${tagColor(tag)}` }, i(), span(tag), ...kids);
+
 export const labelsOf = (s: Session): Labels => ({ repo: s.repo.val, tags: s.tags.val });
 
 // Its tags, as stored, reach its tab (and its groups), when they changed.
@@ -91,9 +98,8 @@ function tagMenu(s: Session): HTMLElement {
   const list = div({ class: 'menu-list' });
   const fill = () => {
     const mine = storedTags()[s.id] ?? [];
-    const used = [...new Set(Object.values(storedTags()).flat())].sort();
     list.replaceChildren(
-      ...used.map((tag) =>
+      ...usedTags().map((tag) =>
         checkRow('tag', tag, mine.includes(tag), (on) => setTags(s, toggleTag(storedTags()[s.id] ?? [], tag, on))),
       ),
     );

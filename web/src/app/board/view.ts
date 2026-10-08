@@ -7,6 +7,7 @@ import { api } from '../daemon/client.ts';
 import { go, onPlace } from '../nav/router.ts';
 import { closeSession, newSession, openTab, type Session, sendSize, sessionList, store } from '../sessions/store.ts';
 import { orderTabs } from '../sessions/tabs.ts';
+import { tagBadge } from '../sessions/tags.ts';
 import { matchesKey } from '../settings/keys.ts';
 import { current, onSaved, saveSetting } from '../settings/settings.ts';
 import { glyph, icons } from '../ui/icons.ts';
@@ -123,6 +124,13 @@ function Card(s: Session, archived = false): HTMLElement {
       icons.folder(),
       span(() => shortPath(s.card.val.cwd) || '~'),
     ),
+    () =>
+      s.tags.val.length
+        ? div(
+            { class: 'card-tags' },
+            s.tags.val.map((t) => tagBadge(t)),
+          )
+        : '',
     () => (note.val ? div({ class: 'card-note' }, note.val) : ''),
     () =>
       cut.val || open.val
