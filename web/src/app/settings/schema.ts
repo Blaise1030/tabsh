@@ -15,6 +15,7 @@ export interface Settings {
   fontSize: number;
   typingSound: string;
   paneWidth: number;
+  drawerWidth: number; // the board's drawer, as a share of the page's width
   explorerOpen: boolean;
   explorerWidth: number; // px
   tabGrouping: TabGrouping;
@@ -39,6 +40,7 @@ export function defaults(isMac: boolean): Settings {
     fontSize: 13,
     typingSound: 'mx-black-pbt',
     paneWidth: 0.5,
+    drawerWidth: 0.5,
     explorerOpen: false,
     explorerWidth: EXPLORER_WIDTH.default,
     tabGrouping: 'none',
@@ -91,6 +93,10 @@ export function cleanSettings(stored: Record<string, unknown>, isMac: boolean): 
       typeof stored.paneWidth === 'number' && stored.paneWidth >= 0.2 && stored.paneWidth <= 0.8
         ? stored.paneWidth
         : d.paneWidth,
+    drawerWidth:
+      typeof stored.drawerWidth === 'number' && stored.drawerWidth >= 0.25 && stored.drawerWidth <= 0.85
+        ? stored.drawerWidth
+        : d.drawerWidth,
     explorerOpen: typeof stored.explorerOpen === 'boolean' ? stored.explorerOpen : d.explorerOpen,
     explorerWidth:
       typeof stored.explorerWidth === 'number' &&

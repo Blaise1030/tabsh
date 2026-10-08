@@ -86,6 +86,9 @@ pub(crate) struct BoardEvent {
     pub(crate) status: String,
     pub(crate) status_at: i64,
     pub(crate) note: Option<String>,
+    /// Who changed it: "user" (the board) or "hook" (the agent, through
+    /// `tabsh status`). Pages notify only for a hook's change.
+    pub(crate) source: &'static str,
 }
 
 pub(crate) fn routes() -> Router<AppState> {
@@ -157,6 +160,10 @@ async fn set_status(
             status: info.status.clone(),
             status_at: info.status_at,
             note: info.note.clone(),
+            source: match source {
+                Source::User => "user",
+                Source::Hook => "hook",
+            },
         });
     }
     Ok(Json(info))
@@ -264,9 +271,23 @@ mod tests {
         assert_eq!(body["note"], "needs Bash");
         let ev = rx.try_recv().unwrap();
         assert_eq!(
-            (ev.id.as_str(), ev.status.as_str()),
-            (id.as_str(), "needs_input")
+            (ev.id.as_str(), ev.status.as_str(), ev.source),
+            (id.as_str(), "needs_input", "hook")
         );
+    }
+
+    #[tokio::test]
+    async fn the_board_hears_who_moved_a_card() {
+        let st = test_state();
+        let id = new_card(&st);
+        let mut rx = st.events.subscribe();
+        patch(
+            &st,
+            &id,
+            serde_json::json!({"status": "completed", "source": "user"}),
+        )
+        .await;
+        assert_eq!(rx.try_recv().unwrap().source, "user");
     }
 
     #[tokio::test]

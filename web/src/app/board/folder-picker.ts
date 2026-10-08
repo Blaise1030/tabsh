@@ -2,9 +2,11 @@
 // that complete it (the daemon's /api/files/folders), and until the field is
 // edited the list offers recent folders. ↑↓ move, Enter picks, Tab picks and
 // lists the picked folder's subfolders, Esc closes the list (not the dialog).
+import van from 'vanjs-core';
 import { daemonFetch } from '../daemon/client.ts';
-import { el } from '../ui/dom.ts';
 import { expandHome, foldersUrl, moveActive, tildify } from './folders.ts';
+
+const { li } = van.tags;
 
 const SEARCH_DELAY_MS = 120;
 
@@ -51,14 +53,19 @@ export function initFolderPicker(input: HTMLInputElement, list: HTMLUListElement
     if (!folders.length) return close();
     options = folders;
     list.replaceChildren(
-      ...folders.map((f, i) => {
-        const li = el('li', { id: `${list.id}-${i}`, textContent: tildify(f, home), title: f });
-        li.setAttribute('role', 'option');
-        // Keep focus in the field, so picking doesn't close the list on blur first.
-        li.onmousedown = (e) => e.preventDefault();
-        li.onclick = () => pick(i, false);
-        return li;
-      }),
+      ...folders.map((f, i) =>
+        li(
+          {
+            id: `${list.id}-${i}`,
+            title: f,
+            role: 'option',
+            // Keep focus in the field, so picking doesn't close the list on blur first.
+            onmousedown: (e: MouseEvent) => e.preventDefault(),
+            onclick: () => pick(i, false),
+          },
+          tildify(f, home),
+        ),
+      ),
     );
     list.hidden = false;
     input.setAttribute('aria-expanded', 'true');

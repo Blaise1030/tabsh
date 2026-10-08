@@ -5,7 +5,15 @@ import { changed, fileAction, fromQuery, HOME, merge, type Place, toQuery } from
 const q = (s: string) => fromQuery(new URLSearchParams(s));
 
 test('round-trips a full place', () => {
-  const p: Place = { tab: '7f3a', view: 'board', file: '/r/src/main.rs', line: 42, explorer: true, palette: 'root' };
+  const p: Place = {
+    tab: '7f3a',
+    view: 'board',
+    drawer: true,
+    file: '/r/src/main.rs',
+    line: 42,
+    explorer: true,
+    palette: 'root',
+  };
   assert.deepEqual(fromQuery(new URLSearchParams(toQuery(p, new URLSearchParams()))), p);
 });
 
@@ -60,4 +68,11 @@ test('fileAction', () => {
   assert.equal(fileAction({ ...a, file: null, line: null }, { ...a, file: null, line: null }), 'keep');
   assert.equal(fileAction(a, { ...a, file: '/y' }), 'open');
   assert.equal(fileAction(a, { ...a, line: 4 }), 'open');
+});
+
+test('the drawer is only on the board', () => {
+  assert.equal(merge({ ...HOME, view: 'board', drawer: true }, { view: 'terms' }, 'push').drawer, false);
+  assert.equal(q('drawer=1').drawer, undefined);
+  assert.equal(q('view=board&drawer=1').drawer, true);
+  assert.deepEqual(changed({ ...HOME, view: 'board' }, { ...HOME, view: 'board', drawer: true }), ['drawer']);
 });

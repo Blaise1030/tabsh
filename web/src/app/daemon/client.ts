@@ -1,5 +1,6 @@
 // Talking to the daemon: authenticated requests, the sessions API, and the
 // gate shown while the daemon can't be reached.
+import van from 'vanjs-core';
 import { DAEMON, LOCAL_APP, MIXED_BLOCKED } from './config.ts';
 import { adoptToken, getToken } from './token.ts';
 
@@ -43,7 +44,9 @@ export function watchUrl(session: string): string {
   return `${DAEMON.replace(/^http/, 'ws')}/api/files/watch?session=${encodeURIComponent(session)}${auth}`;
 }
 
-const gate = document.getElementById('gate') as HTMLElement;
+// Why the daemon can't be reached; null once it answers, hiding the gate.
+export type GateMode = 'offline' | 'safari' | 'pair';
+export const gateMode = van.state<GateMode | null>(null);
 let wake = () => {};
 
 // Holds startup until the daemon answers, showing why it can't be reached.
@@ -54,12 +57,10 @@ export async function waitForDaemon(): Promise<void> {
       status = (await daemonFetch('/api/about')).status;
     } catch {}
     if (status === 200) {
-      gate.hidden = true;
+      gateMode.val = null;
       return;
     }
-    const mode = status === 401 ? 'pair' : MIXED_BLOCKED ? 'safari' : 'offline';
-    for (const el of gate.querySelectorAll<HTMLElement>('[data-gate]')) el.hidden = el.dataset.gate !== mode;
-    gate.hidden = false;
+    gateMode.val = status === 401 ? 'pair' : MIXED_BLOCKED ? 'safari' : 'offline';
     await new Promise<void>((resolve) => {
       wake = resolve;
       setTimeout(resolve, 2000);

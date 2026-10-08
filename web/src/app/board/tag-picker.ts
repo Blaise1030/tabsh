@@ -4,10 +4,13 @@
 // and the list stays open; a comma makes the typed text a chip, Backspace on an
 // empty box takes the last chip off, Esc closes the list (not the dialog).
 // With nothing typed and no row highlighted, Enter creates the card.
+
+import van from 'vanjs-core';
 import { addTag, tagColor, tagOptions } from '../sessions/labels.ts';
 import { tagBadge, usedTags } from '../sessions/tags.ts';
-import { el } from '../ui/dom.ts';
 import { moveActive } from './folders.ts';
+
+const { button, i: dot, li, span } = van.tags;
 
 export interface TagPicker {
   // Starts over for a freshly opened dialog, with these tags picked.
@@ -23,21 +26,25 @@ export function initTagPicker(input: HTMLInputElement, chips: HTMLElement, list:
 
   const drawChips = () => {
     chips.replaceChildren(
-      ...picked.map((tag) => {
-        const off = el('button', {
-          type: 'button',
-          className: 'tag-off',
-          textContent: '×',
-          ariaLabel: `Remove ${tag}`,
-        });
-        off.onclick = () => {
-          picked = picked.filter((t) => t !== tag);
-          drawChips();
-          input.focus();
-          if (!list.hidden) drawList();
-        };
-        return tagBadge(tag, off);
-      }),
+      ...picked.map((tag) =>
+        tagBadge(
+          tag,
+          button(
+            {
+              type: 'button',
+              class: 'tag-off',
+              'aria-label': `Remove ${tag}`,
+              onclick: () => {
+                picked = picked.filter((t) => t !== tag);
+                drawChips();
+                input.focus();
+                if (!list.hidden) drawList();
+              },
+            },
+            '×',
+          ),
+        ),
+      ),
     );
   };
 
@@ -64,19 +71,22 @@ export function initTagPicker(input: HTMLInputElement, chips: HTMLElement, list:
     rows = tagOptions(usedTags(), picked, input.value);
     if (!rows.length) return close();
     list.replaceChildren(
-      ...rows.map((row, i) => {
-        const dot = el('i');
-        dot.style.background = tagColor(row.tag);
-        const li = row.create
-          ? el('li', { id: `${list.id}-${i}`, className: 'create', textContent: `Create "${row.tag}"` })
-          : el('li', { id: `${list.id}-${i}` }, dot, el('span', { textContent: row.tag }));
-        li.setAttribute('role', 'option');
-        li.setAttribute('aria-selected', String(row.on));
-        // Keep focus in the box, so picking doesn't close the list on blur first.
-        li.onmousedown = (e) => e.preventDefault();
-        li.onclick = () => toggle(i);
-        return li;
-      }),
+      ...rows.map((row, i) =>
+        li(
+          {
+            id: `${list.id}-${i}`,
+            class: row.create ? 'create' : '',
+            role: 'option',
+            'aria-selected': String(row.on),
+            // Keep focus in the box, so picking doesn't close the list on blur first.
+            onmousedown: (e: MouseEvent) => e.preventDefault(),
+            onclick: () => toggle(i),
+          },
+          ...(row.create
+            ? [`Create "${row.tag}"`]
+            : [dot({ style: `background: ${tagColor(row.tag)}` }), span(row.tag)]),
+        ),
+      ),
     );
     list.hidden = false;
     input.setAttribute('aria-expanded', 'true');

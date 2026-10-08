@@ -1,25 +1,28 @@
-// A tab's terminal: xterm with right-click copy/paste and links, its tab
-// element, and the socket to its shell.
-import { applyCard, cardOf } from '../board/status.ts';
+// A tab's terminal: xterm with right-click copy/paste and links, its
+// session, and the socket to its shell. The strip draws its tab from the
+// session (tab.ts).
+import van from 'vanjs-core';
+import { cardOf } from '../board/status.ts';
 import { socketUrl } from '../daemon/client.ts';
 import { linkProvider } from '../links/provider.ts';
 import { current, terminalOptions } from '../settings/settings.ts';
+import { scoped } from '../ui/keyed.ts';
 import { ring } from './bell.ts';
 import { scanBell } from './bell-scan.ts';
-import { closeSession, pick, removeSession, type Session, type SessionInfo, sendSize, store, sync } from './store.ts';
+import { active, removeSession, type Session, type SessionInfo, sendSize, setSessions, store, sync } from './store.ts';
 import { setName } from './tabs.ts';
 import { labelTab } from './tags.ts';
 
 const enc = new TextEncoder();
 
-// Opens `info`'s tab, once: a session already open is returned as it is (a
-// sync and the POST that made the session can both bring it).
+// Opens a session's tab and terminal, once: a session already open (a sync
+// can list a new tab before its POST answers) is returned as it is.
 export function openSession(info: SessionInfo): Session {
   const known = store.sessions.find((x) => x.id === info.id);
   if (known) return known;
   const { id, name } = info;
-  const el = document.createElement('div');
-  el.className = 'term';
+  // Shown while its tab is the active one (until it's closed and gone).
+  const el = scoped(() => van.tags.div({ class: () => (active.val?.id === id ? 'term active' : 'term') }));
   document.getElementById('terms')?.append(el);
 
   const term = new Terminal({
@@ -50,45 +53,27 @@ export function openSession(info: SessionInfo): Session {
     term.focus();
   });
 
-  const template = document.getElementById('tab-template') as HTMLTemplateElement;
-  const tab = template.content.firstElementChild?.cloneNode(true) as HTMLElement;
-  tab.classList.add('entering');
-  document.getElementById('tabs')?.append(tab);
-  void tab.offsetWidth; // commit the collapsed state so removing the class animates
-  tab.classList.remove('entering');
-  // It was zero-width when activated; bring it fully into view once grown.
-  tab.addEventListener('transitionend', function grown(e) {
-    if (e.propertyName !== 'max-width') return;
-    tab.removeEventListener('transitionend', grown);
-    if (s === store.active) tab.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  });
-
   const s: Session = {
     id,
-    name,
+    name: van.state(name),
     term,
     fit,
     el,
-    tab,
     ws: null,
     closed: false,
     replaying: false,
     parsingReplay: false,
     esc: 0,
-    bell: false,
-    card: cardOf(info),
+    bell: van.state(false),
+    unread: van.state(false),
+    card: van.state(cardOf(info)),
+    tags: van.state<string[]>([]),
+    repo: van.state<string | null>(null),
+    leaving: van.state(false),
     pinned: info.pinned,
   };
-  store.sessions.push(s);
-  setName(s, name, false);
+  setSessions([...store.sessions, s]);
   labelTab(s);
-  applyCard(s, s.card);
-  tab.onclick = () => pick(s);
-  tab.onauxclick = (e) => e.button === 1 && closeSession(s); // middle-click closes
-  (tab.querySelector('button') as HTMLButtonElement).onclick = (e) => {
-    e.stopPropagation();
-    closeSession(s);
-  };
 
   // Replayed scrollback holds queries programs sent long ago (e.g. OSC 11,
   // "what's your background colour?"); xterm answers them as it parses, and
@@ -132,7 +117,7 @@ function connect(s: Session): void {
     }
     s.term.write(bytes);
     if (scanned.bell) ring(s);
-    if (s !== store.active) s.tab.classList.add('unread');
+    if (s !== store.active) s.unread.val = true;
   };
   // Dropped without an exit message (network blip, client lagged, daemon
   // restarting): reattach if the session still exists on the server.

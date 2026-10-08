@@ -1,5 +1,14 @@
+// The file pane: one view per tab with a file, the current tab's shown. The
+// header and the conflict bar are components following each view's states;
+// the body is a host made once per load, filled with a sandboxed preview, an
+// image, a message or CodeMirror. Nothing from a file goes in as markup: paths
+// and messages are child strings or attribute values, previews are srcdoc in
+// sandboxed frames, images and PDFs blob: URLs.
+import van, { type State } from 'vanjs-core';
 import { go, here } from '../nav/router.ts';
-import { el, isMac } from '../ui/dom.ts';
+import { isMac } from '../ui/dom.ts';
+import { icons } from '../ui/icons.ts';
+import { keyed } from '../ui/keyed.ts';
 import {
   displayPath,
   type Fetcher,
@@ -14,7 +23,10 @@ import {
   toDisk,
 } from './api.ts';
 import { createEditor, type Editor } from './editor.ts';
+import { paneShown } from './open.ts';
 import { rememberFile } from './remember.ts';
+
+const { button, div, header, iframe, img, p, section, span } = van.tags;
 
 export interface PaneTheme {
   background: string;
@@ -35,17 +47,20 @@ export interface Host {
 
 interface PaneState {
   id: string;
-  view: HTMLElement; // this session's header and body, inside #pane
-  body: HTMLElement | null;
-  ui: { edit: HTMLButtonElement; dot: HTMLElement; status: HTMLElement; bar: HTMLElement } | null;
-  editable: boolean;
-  mode: 'view' | 'edit';
+  key: string; // the view's: the tab's id and which state this is, so a tab closed and reopened at once gets a new view
+  // What the header shows: the absolute path (its title) and the path as shown.
+  path: State<{ abs: string; text: string }>;
+  dirty: State<boolean>;
+  status: State<string>;
+  conflict: State<string | null>; // the version found on disk when a save was refused; the bar shows while set
+  editing: State<boolean>;
+  editable: State<boolean>;
+  scrolled: State<boolean>; // the body is scrolled: the header shows its shadow
+  body: State<HTMLElement>; // this load's host: a preview, an image, a message or CodeMirror
   doc: string; // current text (\n endings) while no editor is mounted
   version: string;
   eol: 'crlf' | 'lf';
-  dirty: boolean;
   saving: boolean;
-  conflict: string | null; // the version found on disk when a save was refused
   epoch: number; // bumped when the view is rebuilt, so a late save result is dropped
   previewSeq: number;
   timer: number | undefined;
@@ -60,24 +75,42 @@ interface PaneState {
 
 let host: Host;
 let paneEl: HTMLElement;
-let dividerEl: HTMLElement;
 const states = new Map<string, PaneState>();
+// The views, in the order they were opened: `states`' values, assigned whole.
+const panes = van.state<PaneState[]>([]);
+// The tab whose view shows.
+const current = van.state<string | null>(null);
 // Bumped by every open and forget, so a slow response to a superseded one is dropped.
 const seqs = new Map<string, number>();
-let current: string | null = null;
 const EDITABLE = new Set(['text', 'html', 'markdown', 'svg']);
 // How often the shown file is checked for changes on disk (a stat, no content).
 const POLL_MS = 2000;
 let polling = false;
 
+const currentState = (): PaneState | undefined => (current.val === null ? undefined : states.get(current.val));
+
+// VanJS applies state changes in a microtask, queued by the first change; this
+// resolves after it has run, so the views and the pane are on the page.
+const applied = () => new Promise<void>((resolve) => queueMicrotask(resolve));
+
 export function init(h: Host): void {
   host = h;
   paneEl = document.getElementById('pane')!;
-  dividerEl = document.getElementById('pane-divider')!;
   paneEl.replaceChildren(); // drop a "couldn't load" message from an earlier attempt
+  keyed(
+    paneEl,
+    () => panes.val,
+    (st) => st.key,
+    PaneView,
+  );
+  // The pane shows while the current tab has a file (open.ts refits the terminal when it flips).
+  van.derive(() => {
+    const id = current.val;
+    paneShown.val = id !== null && panes.val.some((st) => st.id === id);
+  });
   // Esc goes back to the terminal, after CodeMirror's own Esc (closing search).
   paneEl.addEventListener('keydown', (e) => {
-    const st = current === null ? undefined : states.get(current);
+    const st = currentState();
     const key = e.key.toLowerCase();
     const mod = (isMac ? e.metaKey : e.ctrlKey) && !e.altKey && !e.shiftKey;
     if (mod && st && (key === 's' || key === 'e')) {
@@ -96,39 +129,93 @@ export function init(h: Host): void {
   window.addEventListener('focus', () => void poll());
 }
 
-function button(label: string, onclick: () => void, title = label): HTMLButtonElement {
-  const b = el('button', { type: 'button', className: 'btn', textContent: label, title, onclick });
-  b.dataset.variant = 'ghost';
-  b.dataset.size = 'sm';
-  return b;
-}
+const TextButton = (label: string, onclick: () => void) =>
+  button({ type: 'button', class: 'btn', 'data-variant': 'ghost', 'data-size': 'sm', title: label, onclick }, label);
 
-// Lucide icons (ISC). Static markup only: nothing from a file goes in here.
-const ICONS = {
-  edit: '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
-  preview:
-    '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
-  collapse: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m8 9 3 3-3 3"/>',
-};
-
-function setIcon(b: HTMLButtonElement, icon: keyof typeof ICONS, label: string): void {
-  b.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[icon]}</svg>`;
-  b.title = label;
-  b.setAttribute('aria-label', label);
-}
-
-function iconButton(icon: keyof typeof ICONS, label: string, onclick: () => void): HTMLButtonElement {
-  const b = el('button', { type: 'button', className: 'btn', onclick });
-  b.dataset.variant = 'ghost';
-  b.dataset.size = 'icon-sm';
-  setIcon(b, icon, label);
-  return b;
-}
+// `icon` is a binding: it may follow states.
+const IconButton = (icon: () => Node, label: string | (() => string), onclick: () => void, disabled = () => false) =>
+  button(
+    {
+      type: 'button',
+      class: 'btn',
+      'data-variant': 'ghost',
+      'data-size': 'icon-sm',
+      title: label,
+      'aria-label': label,
+      disabled,
+      onclick,
+    },
+    icon,
+  );
 
 // The Edit/Preview toggle shows what pressing it does.
-function setEditIcon(st: PaneState, editing: boolean): void {
+function EditToggle(st: PaneState): HTMLElement {
   const mod = isMac ? '⌘' : 'Ctrl-';
-  setIcon(st.ui!.edit, editing ? 'preview' : 'edit', `${editing ? 'Preview' : 'Edit'} (${mod}E)`);
+  return IconButton(
+    () => (st.editing.val ? icons.preview : icons.edit)(),
+    () => `${st.editing.val ? 'Preview' : 'Edit'} (${mod}E)`,
+    () => toggleMode(st),
+    () => !st.editable.val,
+  );
+}
+
+function PaneHead(st: PaneState): HTMLElement {
+  return header(
+    { class: () => (st.scrolled.val ? 'pane-head scrolled' : 'pane-head') },
+    IconButton(icons.collapse, 'Close file', () => go({ file: null })),
+    span({ class: 'pane-path', title: () => st.path.val.abs }, () => st.path.val.text),
+    span({ class: 'pane-status', role: 'status' }, () => st.status.val),
+    span({ class: 'pane-dot', title: 'Unsaved changes', hidden: () => !st.dirty.val }, '●'),
+    EditToggle(st),
+  );
+}
+
+function ConflictBar(st: PaneState): HTMLElement {
+  return div(
+    { class: 'pane-bar', role: 'alert', hidden: () => st.conflict.val === null },
+    span('Changed on disk. Your edits are unsaved.'),
+    TextButton('Reload', () => void reload(st)),
+    TextButton('Overwrite', () => void save(st, true)),
+  );
+}
+
+function PaneView(st: PaneState): HTMLElement {
+  const view = section(
+    { class: 'pane-view', hidden: () => current.val !== st.id },
+    PaneHead(st),
+    () => st.body.val,
+    ConflictBar(st),
+  );
+  // Scroll doesn't bubble, so catch the editor's or body's on the way down.
+  view.addEventListener(
+    'scroll',
+    (e) => {
+      st.scrolled.val = (e.target as HTMLElement).scrollTop > 0;
+    },
+    true,
+  );
+  return view;
+}
+
+// A preview: `srcdoc` in a frame sandboxed by `sandbox`. The sandbox is set
+// before the document, so the frame never loads without it.
+function Frame(srcdoc: string, sandbox: string, title: string): HTMLIFrameElement {
+  const frame = iframe({ class: 'pane-frame', title });
+  frame.setAttribute('sandbox', sandbox);
+  frame.srcdoc = srcdoc;
+  return frame;
+}
+
+// An image or a PDF from a blob: URL. A raster image can't run scripts; a PDF
+// gets the browser's own viewer.
+function Blob(kind: 'image' | 'pdf', url: string, title: string): HTMLElement {
+  return kind === 'pdf'
+    ? iframe({ class: 'pane-frame', src: url, title })
+    : img({ class: 'pane-img', src: url, alt: title });
+}
+
+function Msg(text: string): HTMLElement {
+  return div({ class: 'pane-msg' }, p(text));
 }
 
 // Drops whatever the body shows, freeing the editor and any blob.
@@ -141,18 +228,8 @@ function clear(st: PaneState): void {
   st.frame = null;
 }
 
-function refresh(): void {
-  const st = current === null ? undefined : states.get(current);
-  for (const s of states.values()) s.view.hidden = s !== st;
-  const open = !!st;
-  if (paneEl.hidden === !open && dividerEl.hidden === !open) return;
-  paneEl.hidden = dividerEl.hidden = !open;
-  host.layout();
-}
-
 export function show(sessionId: string | null): void {
-  current = sessionId;
-  refresh();
+  current.val = sessionId;
   void poll();
 }
 
@@ -162,19 +239,19 @@ export function forget(sessionId: string): void {
   const st = states.get(sessionId);
   if (!st) return;
   clear(st);
-  st.view.remove();
+  clearTimeout(st.timer);
   states.delete(sessionId);
-  refresh();
+  panes.val = [...states.values()];
 }
 
 export function hasUnsaved(): boolean {
-  for (const st of states.values()) if (st.dirty) return true;
+  for (const st of states.values()) if (st.dirty.val) return true;
   return false;
 }
 
 export function confirmDiscard(sessionId: string): boolean {
   const st = states.get(sessionId);
-  if (!st?.dirty) return true;
+  if (!st?.dirty.val) return true;
   const name = (st.info?.path ?? st.requested).split('/').pop();
   return confirm(`Discard unsaved changes to ${name}?`);
 }
@@ -189,7 +266,7 @@ export function fileOf(sessionId: string): string | null {
 }
 
 export function isDirty(sessionId: string): boolean {
-  return !!states.get(sessionId)?.dirty;
+  return !!states.get(sessionId)?.dirty.val;
 }
 
 // A relative path is shown relative to the directory it was resolved from.
@@ -199,38 +276,13 @@ function shownPath(st: PaneState, abs: string): string {
   return displayPath(abs, abs.slice(0, abs.length - rel.length));
 }
 
-function header(st: PaneState, info: FileInfo | null): HTMLElement {
-  const abs = info?.path ?? st.requested;
-  const path = el('span', { className: 'pane-path', textContent: info ? shownPath(st, abs) : abs, title: abs });
-  const dot = el('span', { className: 'pane-dot', textContent: '●', title: 'Unsaved changes', hidden: true });
-  const status = el('span', { className: 'pane-status', role: 'status' });
-  const edit = iconButton('edit', 'Edit', () => toggleMode(st));
-  edit.disabled = !st.editable;
-  const x = iconButton('collapse', 'Close file', () => go({ file: null }));
-  const bar = el(
-    'div',
-    { className: 'pane-bar', hidden: true, role: 'alert' },
-    el('span', { textContent: 'Changed on disk. Your edits are unsaved.' }),
-    button('Reload', () => void reload(st)),
-    button('Overwrite', () => void save(st, true)),
-  );
-  st.ui = { edit, dot, status, bar };
-  setEditIcon(st, st.mode === 'edit');
-  return el('header', { className: 'pane-head' }, x, path, status, dot, edit);
-}
-
 function setStatus(st: PaneState, text: string, ms?: number): void {
   clearTimeout(st.timer);
-  st.ui!.status.textContent = text;
+  st.status.val = text;
   if (ms)
     st.timer = window.setTimeout(() => {
-      st.ui!.status.textContent = '';
+      st.status.val = '';
     }, ms);
-}
-
-function setDirty(st: PaneState, on: boolean): void {
-  st.dirty = on;
-  if (st.ui) st.ui.dot.hidden = !on;
 }
 
 function currentText(st: PaneState): string {
@@ -238,27 +290,25 @@ function currentText(st: PaneState): string {
 }
 
 function toggleMode(st: PaneState): void {
-  if (!st.editable || !st.info) return;
-  const edit = st.mode === 'view';
+  if (!st.editable.val || !st.info) return;
+  const edit = !st.editing.val;
   if (st.info.kind === 'text') {
     st.editor?.setReadOnly(!edit);
     if (edit) st.editor?.view.focus();
-  } else {
-    if (st.editor) st.doc = st.editor.text();
-    st.mode = edit ? 'edit' : 'view';
-    mountRich(st);
-    setEditIcon(st, edit);
+    st.editing.val = edit;
     return;
   }
-  st.mode = edit ? 'edit' : 'view';
-  setEditIcon(st, edit);
+  if (st.editor) st.doc = st.editor.text();
+  st.editing.val = edit;
+  mountRich(st);
 }
 
 async function save(st: PaneState, overwrite = false): Promise<void> {
   const info = st.info;
-  if (!info || !st.editable || st.saving) return;
-  if (!overwrite && !st.dirty) return;
-  const version = overwrite && st.conflict !== null ? st.conflict : st.version;
+  if (!info || !st.editable.val || st.saving) return;
+  if (!overwrite && !st.dirty.val) return;
+  const conflict = st.conflict.val;
+  const version = overwrite && conflict !== null ? conflict : st.version;
   const text = currentText(st);
   const epoch = st.epoch;
   st.saving = true;
@@ -272,20 +322,17 @@ async function save(st: PaneState, overwrite = false): Promise<void> {
   if (st.epoch !== epoch || states.get(st.id) !== st) return; // reloaded or closed meanwhile
   st.saving = false;
   if (res && 'conflict' in res) {
-    st.conflict = res.conflict;
-    st.ui!.bar.hidden = false;
+    st.conflict.val = res.conflict;
     setStatus(st, '');
   } else if (res && !res.version) {
     // Written, but we can't tell the next save's base version.
-    st.conflict = null;
-    st.ui!.bar.hidden = true;
+    st.conflict.val = null;
     setStatus(st, "Saved, but the server didn't return a version; reload before saving again");
   } else if (res) {
     st.version = res.version;
-    st.conflict = null;
-    st.ui!.bar.hidden = true;
+    st.conflict.val = null;
     // Edits made while the save was in flight stay unsaved.
-    if (currentText(st) === text) setDirty(st, false);
+    if (currentText(st) === text) st.dirty.val = false;
     setStatus(st, 'Saved', 1500);
   } else {
     setStatus(st, error);
@@ -300,7 +347,7 @@ async function reload(st: PaneState, focus = true): Promise<void> {
 // Checks whether the shown file changed on disk. Without edits it's reloaded
 // in place; with them the bar asks whether to reload or overwrite.
 async function poll(): Promise<void> {
-  const st = current === null ? undefined : states.get(current);
+  const st = currentState();
   if (polling || document.hidden || !st?.info || st.info.kind === 'dir' || st.saving) return;
   const { epoch, version } = st;
   polling = true;
@@ -314,11 +361,9 @@ async function poll(): Promise<void> {
   }
   // A save, reload or close since then has its own idea of the version.
   if (st.epoch !== epoch || st.version !== version || st.saving || states.get(st.id) !== st) return;
-  if (disk === null || disk === version || disk === st.conflict) return;
-  if (st.dirty) {
-    st.conflict = disk;
-    st.ui!.bar.hidden = false;
-  } else await pull(st);
+  if (disk === null || disk === version || disk === st.conflict.val) return;
+  if (st.dirty.val) st.conflict.val = disk;
+  else await pull(st);
 }
 
 // Shows the disk's copy of a file with no edits, keeping the mode and, in the
@@ -331,23 +376,18 @@ async function pull(st: PaneState): Promise<void> {
   } catch {
     return;
   }
-  if (st.epoch !== epoch || states.get(st.id) !== st || st.dirty || st.saving) return;
+  if (st.epoch !== epoch || states.get(st.id) !== st || st.dirty.val || st.saving) return;
   const editable = info.content !== undefined && EDITABLE.has(info.kind);
-  if (!editable || !st.editable || info.kind !== st.info!.kind) return reload(st, false);
+  if (!editable || !st.editable.val || info.kind !== st.info!.kind) return reload(st, false);
   Object.assign(st, {
     info,
     version: info.version,
     eol: info.eol ?? 'lf',
     doc: fromDisk(info.content!),
-    conflict: null,
   });
-  st.ui!.bar.hidden = true;
+  st.conflict.val = null;
   if (st.editor) st.editor.setText(st.doc);
   else mountRich(st);
-}
-
-function message(text: string): HTMLElement {
-  return el('div', { className: 'pane-msg' }, el('p', { textContent: text }));
 }
 
 function markdownDoc(html: string, th: PaneTheme): string {
@@ -380,8 +420,8 @@ function newEditor(st: PaneState, body: HTMLElement, readOnly: boolean): Editor 
     readOnly,
     theme: host.theme(),
     onChange: () => {
-      setDirty(st, true);
-      if (st.ui) st.ui.status.textContent = '';
+      st.dirty.val = true;
+      st.status.val = '';
     },
     onSave: () => void save(st),
     onCursor: (line) => reportLine(st, line),
@@ -392,14 +432,14 @@ function newEditor(st: PaneState, body: HTMLElement, readOnly: boolean): Editor 
 // place's; never in the middle of another move.
 function reportLine(st: PaneState, line: number): void {
   const p = here();
-  if (navigation.transition || current !== st.id || p.tab !== st.id) return;
+  if (navigation.transition || current.val !== st.id || p.tab !== st.id) return;
   if (!st.info || p.file !== st.info.path || p.line === line) return;
   go({ line }, 'replace');
 }
 
 // Markdown, HTML and SVG: sandboxed preview of the current text, or its source in CodeMirror.
 function mountRich(st: PaneState): void {
-  const body = st.body!,
+  const body = st.body.val,
     kind = st.info!.kind;
   const seq = ++st.previewSeq;
   st.editor?.destroy();
@@ -407,15 +447,14 @@ function mountRich(st: PaneState): void {
   st.frame = null;
   st.markdown = null;
   body.replaceChildren();
-  if (st.mode === 'edit') {
+  if (st.editing.val) {
     st.editor = newEditor(st, body, false);
     st.editor.view.focus();
     return;
   }
   const title = st.info!.path;
   const show = (srcdoc: string, sandbox: string) => {
-    const frame = el('iframe', { className: 'pane-frame', srcdoc, title });
-    frame.setAttribute('sandbox', sandbox);
+    const frame = Frame(srcdoc, sandbox, title);
     body.append(frame);
     return frame;
   };
@@ -431,20 +470,20 @@ function mountRich(st: PaneState): void {
       .then(({ marked }) => marked.parse(st.doc))
       .then(
         (html) => {
-          if (st.previewSeq !== seq || st.body !== body || st.mode !== 'view') return;
+          if (st.previewSeq !== seq || st.body.val !== body || st.editing.val) return;
           // An empty sandbox: no scripts, an opaque origin.
           st.markdown = html;
           st.frame = show(markdownDoc(html, host.theme()), '');
         },
         () => {
-          if (st.previewSeq === seq) body.replaceChildren(message("Couldn't render the preview"));
+          if (st.previewSeq === seq) body.replaceChildren(Msg("Couldn't render the preview"));
         },
       );
   }
 }
 
 async function renderBody(st: PaneState, info: FileInfo, body: HTMLElement, isCurrent: () => boolean): Promise<void> {
-  const tooLarge = () => message(`Too large to open here (${formatSize(info.size)})`);
+  const tooLarge = () => Msg(`Too large to open here (${formatSize(info.size)})`);
   switch (info.kind) {
     case 'image':
     case 'pdf': {
@@ -454,16 +493,11 @@ async function renderBody(st: PaneState, info: FileInfo, body: HTMLElement, isCu
         return;
       }
       st.blobUrl = url;
-      // A raster image can't run scripts; a PDF gets the browser's own viewer.
-      body.append(
-        info.kind === 'pdf'
-          ? el('iframe', { className: 'pane-frame', src: url, title: info.path })
-          : el('img', { className: 'pane-img', src: url, alt: info.path }),
-      );
+      body.append(Blob(info.kind, url, info.path));
       return;
     }
     case 'binary':
-      body.append(message(`Binary file, ${formatSize(info.size)}`));
+      body.append(Msg(`Binary file, ${formatSize(info.size)}`));
       return;
     case 'html':
     case 'svg':
@@ -511,6 +545,35 @@ export async function showFile(
   return fileOf(sessionId);
 }
 
+let made = 0;
+function newState(id: string, requested: string): PaneState {
+  return {
+    id,
+    key: `${id}#${++made}`,
+    path: van.state({ abs: requested, text: requested }),
+    dirty: van.state(false),
+    status: van.state(''),
+    conflict: van.state<string | null>(null),
+    editing: van.state(false),
+    editable: van.state(false),
+    scrolled: van.state(false),
+    body: van.state(div({ class: 'pane-body' })),
+    doc: '',
+    version: '',
+    eol: 'lf',
+    saving: false,
+    epoch: 0,
+    previewSeq: 0,
+    timer: undefined,
+    info: null,
+    requested,
+    editor: null,
+    blobUrl: null,
+    markdown: null,
+    frame: null,
+  };
+}
+
 // `focus` is false for a load nobody asked for, which mustn't take the
 // keyboard. `quiet` drops a file that can't be read instead of showing why;
 // `signal` drops a load whose navigation was overtaken.
@@ -539,41 +602,9 @@ async function load(
 
   let st = states.get(sessionId);
   if (!st) {
-    st = {
-      id: sessionId,
-      view: el('section', { className: 'pane-view' }),
-      body: null,
-      ui: null,
-      editable: false,
-      mode: 'view',
-      doc: '',
-      version: '',
-      eol: 'lf',
-      dirty: false,
-      saving: false,
-      conflict: null,
-      epoch: 0,
-      previewSeq: 0,
-      timer: undefined,
-      info: null,
-      requested: path,
-      editor: null,
-      blobUrl: null,
-      markdown: null,
-      frame: null,
-    };
+    st = newState(sessionId, path);
     states.set(sessionId, st);
-    paneEl.append(st.view);
-    // Scroll doesn't bubble, so catch the editor's or body's on the way down.
-    const view = st.view;
-    view.addEventListener(
-      'scroll',
-      (e) => {
-        const target = e.target as HTMLElement;
-        view.querySelector('.pane-head')?.classList.toggle('scrolled', target.scrollTop > 0);
-      },
-      true,
-    );
+    panes.val = [...states.values()];
   }
   clear(st);
   clearTimeout(st.timer);
@@ -584,30 +615,37 @@ async function load(
     info,
     requested: path,
     line,
-    editable,
-    mode: 'view',
-    dirty: false,
     saving: false,
-    conflict: null,
     doc: editable ? fromDisk(info!.content!) : '',
     version: info?.version ?? '',
     eol: info?.eol ?? 'lf',
   });
-  const body = el('div', { className: 'pane-body' });
-  st.body = body;
-  st.view.replaceChildren(header(st, info), body, st.ui!.bar);
-  refresh();
+  const abs = info?.path ?? path;
+  st.path.val = { abs, text: info ? shownPath(st, abs) : abs };
+  st.editable.val = editable;
+  st.editing.val = false;
+  st.dirty.val = false;
+  st.conflict.val = null;
+  st.status.val = '';
+  st.scrolled.val = false;
+  // The CodeMirror host, made once for this load.
+  const body = div({ class: 'pane-body' });
+  st.body.val = body;
 
   const state = st;
   const isCurrent = () => states.get(sessionId) === state && seqs.get(sessionId) === seq;
+  // The view and the body are on the page once VanJS has applied the states:
+  // CodeMirror mounts into (and focuses in) a pane that shows.
+  await applied();
+  if (!isCurrent()) return 'dropped';
   if (error || !info) {
-    body.append(message(error ?? 'Not found'));
+    body.append(Msg(error ?? 'Not found'));
     return 'shown';
   }
   try {
     await renderBody(state, info, body, isCurrent);
     // So the keyboard (Cmd/Ctrl-E, -S) works at once; Esc goes back to the terminal.
-    if (focus && isCurrent() && current === sessionId) {
+    if (focus && isCurrent() && current.val === sessionId) {
       if (state.editor) state.editor.view.focus();
       else paneEl.focus();
     }
@@ -616,8 +654,8 @@ async function load(
     const big = err instanceof FileError && err.status === 413;
     body.replaceChildren(
       big
-        ? message(`Too large to open here (${formatSize(info.size)})`)
-        : message(err instanceof FileError ? err.message : `Couldn't open ${info.path}`),
+        ? Msg(`Too large to open here (${formatSize(info.size)})`)
+        : Msg(err instanceof FileError ? err.message : `Couldn't open ${info.path}`),
     );
   }
   return 'shown';

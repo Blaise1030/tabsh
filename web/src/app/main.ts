@@ -1,8 +1,10 @@
 // The app page's startup: pair with the daemon, wire the features
 // together, then restore the tabs.
 
+import van from 'vanjs-core';
 import { initBoardEvents } from './board/events.ts';
-import { initNewCard } from './board/new-card.ts';
+import { initMoveMenu } from './board/move-menu.ts';
+import { initNotify } from './board/notify.ts';
 import { initBoard } from './board/view.ts';
 import { daemonFetch, initGate, waitForDaemon } from './daemon/client.ts';
 import { LOCAL_APP, MIXED_BLOCKED } from './daemon/config.ts';
@@ -19,10 +21,13 @@ import { initTabStrip } from './sessions/tabs.ts';
 import { initTabLabels } from './sessions/tags.ts';
 import { FONTS, fontStack, prefersLight, THEMES } from './settings/catalog.ts';
 import { applySettings, current, loadSettings, onApply, terminalOptions } from './settings/settings.ts';
+import { initChime } from './sound/chime.ts';
 import { initTypingSound } from './sound/typing.ts';
-import { initAbout } from './ui/about.ts';
-import { initDivider } from './ui/divider.ts';
+import { App } from './ui/app.ts';
+import { initDivider, initDrawerDivider } from './ui/divider.ts';
 import { initDrop } from './ui/drop.ts';
+
+van.add(document.getElementById('app') as HTMLElement, ...App());
 
 // The pairing link puts the token in the fragment; take it and clear it
 // before anything talks to the daemon.
@@ -70,11 +75,13 @@ initTabLabels();
 initTabGroups();
 initExplorer();
 initBoard();
-initNewCard();
+initMoveMenu();
+initNotify();
+initChime();
 initTypingSound();
 initPalette();
 initDivider();
-initAbout();
+initDrawerDivider();
 initDrop();
 
 // Applied settings restyle every terminal and the file pane (theme and font).

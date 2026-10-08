@@ -2,7 +2,9 @@
 // tab's project. It opens from the tab bar's button, the palette or a
 // keybinding, and clicking a file opens it in the file pane. Whether it is
 // open is part of the place (the setting only follows it); how wide is a
-// setting. The tree's library loads on first use.
+// setting. The tree's library loads on first use. The sidebar's chrome
+// (sidebar.ts) follows the states below.
+import van, { type State } from 'vanjs-core';
 import { daemonFetch } from '../daemon/client.ts';
 import { openInPane } from '../files/open.ts';
 import { go, here, onPlace } from '../nav/router.ts';
@@ -27,11 +29,19 @@ import { watchFiles } from './socket.ts';
 
 type View = typeof import('./view.ts');
 
-let aside: HTMLElement;
-let mount: HTMLElement;
-let message: HTMLElement;
-let heading: HTMLElement;
-let note: HTMLElement; // says when only folders are shown
+// Whether the sidebar is open: assigned only by the router's explorer step.
+export const open: State<boolean> = van.state(false);
+// The listed root, for the heading (its name, the path as its title).
+export const root: State<{ name: string; path: string } | null> = van.state(null);
+// Only folders are shown (too many files to list).
+export const note: State<boolean> = van.state(false);
+// A message in place of the tree; null while the tree shows. Before the
+// first listing it is '', so neither shows.
+export const message: State<string | null> = van.state<string | null>('');
+// The sidebar's width in px, from the settings or a drag; null until they apply.
+export const width: State<number | null> = van.state<number | null>(null);
+
+let mount: HTMLElement; // the tree's host, made once by sidebar.ts
 let view: Promise<View> | null = null;
 let ready: View | null = null; // the loaded tree library, once there is a tree
 let listing: Listing | null = null; // what the tree shows
@@ -41,7 +51,8 @@ let watched: string | null = null; // the session the socket is open for
 let wantSearch = false; // "Search files" was picked and the tree isn't there yet
 let seq = 0; // bumped by every fetch, so a slow answer to a superseded one is dropped
 
-const isOpen = () => !aside.hidden;
+const isOpen = () => open.val;
+const treeShown = () => !!ready && message.val === null;
 
 export function toggleExplorer(): void {
   go({ explorer: !here().explorer });
@@ -53,7 +64,7 @@ export function toggleExplorer(): void {
 export function searchFiles(): void {
   wantSearch = true;
   if (!here().explorer) go({ explorer: true });
-  else if (ready && !mount.hidden) openSearchSoon();
+  else if (treeShown()) openSearchSoon();
 }
 
 function openSearchSoon(): void {
@@ -62,15 +73,9 @@ function openSearchSoon(): void {
 }
 
 export function initExplorer(): void {
-  aside = document.getElementById('explorer') as HTMLElement;
   mount = document.getElementById('explorer-tree') as HTMLElement;
-  message = document.getElementById('explorer-msg') as HTMLElement;
-  heading = document.getElementById('explorer-root') as HTMLElement;
-  note = document.getElementById('explorer-note') as HTMLElement;
   const divider = document.getElementById('explorer-divider') as HTMLElement;
-  const button = document.getElementById('explorer-btn') as HTMLButtonElement;
-
-  button.onclick = toggleExplorer;
+  (document.getElementById('explorer-btn') as HTMLButtonElement).onclick = toggleExplorer;
   // `/` in the tree opens the search; anywhere else it is a plain key.
   mount.addEventListener(
     'keydown',
@@ -105,18 +110,20 @@ export function initExplorer(): void {
 
   // Open or closed comes from the place; settings only give the width.
   onPlace('explorer', (to) => {
-    const wasOpen = isOpen();
+    const wasOpen = open.val;
     // Hiding the sidebar under the keyboard would leave it on <body>.
-    const heldFocus = wasOpen && !to.explorer && aside.contains(document.activeElement);
-    aside.hidden = divider.hidden = !to.explorer;
-    button.setAttribute('aria-pressed', String(to.explorer));
+    const heldFocus =
+      wasOpen && !to.explorer && !!document.getElementById('explorer')?.contains(document.activeElement);
+    open.val = to.explorer;
     if (to.explorer && !wasOpen) void refresh();
     watch();
     if (heldFocus) store.active?.term.focus();
     if (to.explorer !== current.saved.explorerOpen) saveSetting('explorerOpen', to.explorer);
     return undefined;
   });
-  onApply((s) => aside.style.setProperty('--explorer-width', `${s.explorerWidth}px`));
+  onApply((s) => {
+    width.val = s.explorerWidth;
+  });
   // A tab's project is fetched on opening and on switching tabs; after that
   // the socket keeps the tree current.
   onActivate(() => {
@@ -129,8 +136,9 @@ export function initExplorer(): void {
 // Drag the divider to resize; the width is live while dragging and saved
 // once on release. (main.ts refits the terminals when their area changes.)
 function initResize(divider: HTMLElement): void {
+  const aside = document.getElementById('explorer') as HTMLElement;
   const ws = document.getElementById('workspace') as HTMLElement;
-  let width: number | null = null;
+  let dragged: number | null = null;
   const widthAt = (x: number) =>
     Math.round(Math.min(EXPLORER_WIDTH.max, Math.max(EXPLORER_WIDTH.min, x - aside.getBoundingClientRect().left)));
   divider.addEventListener('pointerdown', (e) => {
@@ -138,17 +146,17 @@ function initResize(divider: HTMLElement): void {
     e.preventDefault();
     divider.setPointerCapture(e.pointerId);
     ws.classList.add('dragging');
-    width = widthAt(e.clientX);
+    dragged = widthAt(e.clientX);
   });
   divider.addEventListener('pointermove', (e) => {
-    if (width === null) return;
-    width = widthAt(e.clientX);
-    aside.style.setProperty('--explorer-width', `${width}px`);
+    if (dragged === null) return;
+    dragged = widthAt(e.clientX);
+    width.val = dragged;
   });
   const end = (e: PointerEvent) => {
-    if (width === null) return;
-    const w = width;
-    width = null;
+    if (dragged === null) return;
+    const w = dragged;
+    dragged = null;
     ws.classList.remove('dragging');
     if (e.type === 'pointerup') saveSetting('explorerWidth', w);
     else applySettings(current.saved); // cancelled: back to the stored width
@@ -170,7 +178,7 @@ function watch(): void {
 // A live update: operations for the open tree, or a re-fetch (once, for a new
 // root, whatever arrives before its listing does).
 function onChange(change: Change): void {
-  if (!ready || mount.hidden) live.known = null;
+  if (!treeShown()) live.known = null;
   const action = onMessage(live, change);
   if (action.kind === 'reset') void refresh();
   else if (action.kind === 'ops') ready?.applyOps(action.ops);
@@ -196,10 +204,8 @@ async function load(mine: number): Promise<void> {
   if (mine !== seq) return;
   const s = shown(l);
   live.known = null;
-  heading.textContent = rootName(l.root);
-  heading.title = l.root;
-  heading.hidden = false;
-  note.hidden = s.kind !== 'folders';
+  root.val = { name: rootName(l.root), path: l.root };
+  note.val = s.kind === 'folders';
   if (s.kind === 'too-many') return say('Too many files to show here. cd into a project.');
   if (s.kind === 'empty') return say('This folder is empty');
   if (listing && listing.root !== l.root) ready?.closeSearch(); // a new root starts unfiltered
@@ -219,8 +225,11 @@ async function load(mine: number): Promise<void> {
   if (mine !== seq) return;
   ready = v;
   live.known = new Set(s.paths);
-  message.hidden = true;
-  mount.hidden = false;
+  message.val = null;
+  // The host shows once VanJS applies that, in a microtask queued before
+  // this await's: the tree is drawn into a shown host, as it always was.
+  await Promise.resolve();
+  if (mine !== seq) return;
   v.showTree(
     mount,
     s.paths,
@@ -249,8 +258,6 @@ function act(action: RowAction, path: string): void {
 // A message in place of the tree (the tree keeps its place, hidden).
 function say(text: string): void {
   wantSearch = false;
-  note.hidden = true;
-  message.textContent = text;
-  message.hidden = false;
-  mount.hidden = true;
+  note.val = false;
+  message.val = text;
 }

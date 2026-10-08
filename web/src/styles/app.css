@@ -1,6 +1,8 @@
 /* The app page (pages/app/index.astro). */
 html, body { height: 100%; margin: 0; overflow: hidden; background: var(--background); color: var(--foreground); }
 body { display: flex; flex-direction: column; }
+/* The mount point (#app) adds no box: its children lay out as the body's. */
+#app { display: contents; }
 :root { --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif; }
 body { font-family: var(--font-sans); }
 
@@ -48,6 +50,8 @@ html.themed {
 .about-table td { white-space: normal; overflow-wrap: anywhere; font-family: ui-monospace, Menlo, monospace; font-size: .8125rem; }
 
 .tabbar { display: flex; align-items: center; gap: .375rem; padding: .125rem .5rem; }
+.tabbar.on-board > :not(#board-btn, .settings-btn) { display: none; }
+.tabbar.on-board .settings-btn { margin-left: auto; }
 /* Edge fades show only where tabs are scrolled out of view; registered so
    they ease in and out instead of popping. */
 @property --fade-l { syntax: '<length>'; inherits: false; initial-value: 0px; }
@@ -111,7 +115,7 @@ html.themed {
    groups). */
 .tab-group-box {
   /* Shrinks with the strip, down to its label and its tabs at their
-     narrowest (counted by layout() as --label and --tabs). */
+     narrowest (measured by groups.ts as --label and --tabs). */
   position: relative; display: flex; flex: 0 1 auto; align-items: center; gap: .375rem;
   min-width: calc(var(--label, 0px) + var(--tabs, 0) * (var(--tab-min) + .375rem));
   margin-left: .625rem;
@@ -171,6 +175,27 @@ html.themed {
 
 /* Under the full-width tab bar: the sidebar, the terminals, and a tab's file
    pane (web/src/app/files/pane.ts) beside them. */
+#stage { flex: 1; min-height: 0; display: flex; }
+#stage.dragging { user-select: none; cursor: col-resize; }
+#stage.dragging iframe { pointer-events: none; }
+#frame { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+#frame[hidden] { display: none; }
+/* Beside the board: a share of the page set by its divider (drawerWidth). */
+#frame.in-drawer { flex: 0 0 calc(var(--drawer-width, .5) * 100%); position: relative; }
+#frame.in-drawer::before {
+  content: ''; position: absolute; top: 0; bottom: 0; right: 100%; width: .75rem; z-index: 4; pointer-events: none;
+  background: linear-gradient(to right, transparent, color-mix(in srgb, var(--foreground) 5%, transparent));
+  /* It fades in from the top, so it doesn't meet the tab bar at a hard corner. */
+  mask-image: linear-gradient(to bottom, transparent, #000 2rem);
+}
+/* Too narrow to share: the drawer covers the board. */
+@media (max-width: 799px) {
+  #frame.in-drawer { flex-basis: 100%; }
+  #stage:has(#frame.in-drawer) :is(#board, #drawer-divider) { display: none; }
+}
+.drawer-bar { display: flex; align-items: center; gap: .375rem; padding: .125rem .5rem; }
+.drawer-bar[hidden] { display: none; }
+.drawer-title { flex: 1; min-width: 0; font-size: 1rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #workspace { flex: 1; min-height: 0; display: flex; position: relative; }
 #main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 #terms { flex: 1; min-width: 0; min-height: 0; position: relative; }
@@ -225,18 +250,22 @@ file-tree-container {
 /* The dividers beside the sidebar and the file pane draw no line, so the page
    reads as one canvas. A short pill in the middle marks the drag handle, and
    darkens while it is hovered or dragged. */
-#explorer-divider, #pane-divider { flex: 0 0 1px; position: relative; touch-action: none; }
+#explorer-divider, #pane-divider, #drawer-divider { flex: 0 0 1px; position: relative; touch-action: none; }
+/* No line between the board and its drawer: a narrow shade on the board's
+   side, darkening toward the drawer's edge (#frame.in-drawer::before). */
+#drawer-divider[hidden] { display: none; }
 /* A wider grab area than the divider itself. */
-#explorer-divider::before, #pane-divider::before {
+#explorer-divider::before, #pane-divider::before, #drawer-divider::before {
   content: ''; position: absolute; inset: 0 -3px; cursor: col-resize; z-index: 6;
 }
-#explorer-divider::after, #pane-divider::after {
+#explorer-divider::after, #pane-divider::after, #drawer-divider::after {
   content: ''; position: absolute; top: 50%; left: 50%; width: 4px; height: 2rem;
   transform: translate(-50%, -50%); border-radius: 2px; background: var(--border);
   pointer-events: none; z-index: 6; transition: background .15s ease;
 }
 #explorer-divider:hover::after, #explorer-divider:active::after,
-#pane-divider:hover::after, #pane-divider:active::after { background: var(--muted-foreground); }
+#pane-divider:hover::after, #pane-divider:active::after,
+#drawer-divider:hover::after, #drawer-divider:active::after { background: var(--muted-foreground); }
 @media (max-width: 799px) {
   #explorer { position: absolute; inset: 0; z-index: 5; }
   #explorer-divider { display: none; }
@@ -340,10 +369,10 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .tab.archived:not([aria-selected="true"]) { display: none; }
 
 /* The board: Linear-style columns in the theme's own tokens. */
-#board { flex: 1; min-height: 0; display: flex; gap: .75rem; padding: .75rem; overflow-x: auto; background: var(--background); }
+#board { flex: 1; min-width: 0; min-height: 0; display: flex; gap: .75rem; padding: .75rem; overflow-x: auto; background: var(--background); }
 #board[hidden] { display: none; }
 .board-col { flex: 0 0 18rem; display: flex; flex-direction: column; min-height: 0; }
-.board-col > header { display: flex; align-items: center; gap: .5rem; padding: .25rem .25rem .5rem; font-size: .8125rem; font-weight: 500; }
+.board-col > header { display: flex; align-items: center; gap: .5rem; padding: .25rem .25rem .5rem; font-size: .8125rem; font-weight: 500; min-height: 2.25rem; /* the same with or without a + */ }
 .board-col .col-count { color: var(--muted-foreground); font-weight: 400; }
 .board-col > header .btn { margin-left: auto; color: var(--muted-foreground); }
 .board-cards { flex: 1; min-height: 3rem; overflow-y: auto; display: flex; flex-direction: column; gap: .5rem; padding: .125rem; border-radius: var(--radius, .5rem); }
@@ -353,21 +382,59 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .board-card.drop-before { box-shadow: 0 -2px 0 var(--muted-foreground); }
 .board-cards.drop-end::after { content: ''; display: block; height: 2px; background: var(--muted-foreground); border-radius: 1px; }
 .card-top { display: flex; align-items: flex-start; gap: .5rem; }
-.card-title { flex: 1; min-width: 0; font-weight: 500; overflow-wrap: anywhere; }
+.card-title { flex: 1; min-width: 0; font-weight: 500; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .card-meta { display: flex; align-items: center; gap: .375rem; color: var(--muted-foreground); font-size: .75rem; min-width: 0; }
 .card-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.card-note { color: var(--muted-foreground); font-size: .75rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.card-note { color: var(--muted-foreground); font-size: .75rem; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.board-card.expanded :is(.card-title, .card-note) { -webkit-line-clamp: unset; }
+.card-more { align-self: flex-start; background: none; border: 0; padding: 0; font: inherit; font-size: .75rem; color: var(--muted-foreground); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.card-more:hover, .card-more:focus-visible { color: var(--foreground); outline: none; }
 /* A tag as a badge tinted in its color, after a dot of it: on board cards and
    the New card dialog's chips. */
 .card-tags { display: flex; flex-wrap: wrap; gap: .25rem; }
 .badge.tag-badge { gap: .375rem; color: var(--foreground); font-weight: 500; background: color-mix(in srgb, var(--tag) 22%, transparent); }
 .badge.tag-badge i { width: .5rem; height: .5rem; border-radius: 999px; background: var(--tag); }
-.card-actions { display: flex; gap: .25rem; }
 .status-glyph { display: inline-flex; flex-shrink: 0; color: var(--muted-foreground); }
+/* A card's glyph opens its Move menu (board/move-menu.ts). */
+.card-move { all: unset; display: inline-flex; flex-shrink: 0; padding: .1875rem; margin: -.1875rem -.1875rem -.1875rem 0; border-radius: calc(var(--radius, .5rem) - 4px); cursor: pointer; color: var(--muted-foreground); }
+.card-move > svg { width: 16px; height: 16px; }
+.card-move:hover, .card-move:focus-visible, .card-move[aria-expanded="true"] { color: var(--foreground); }
+.card-move:hover, .card-move:focus-visible, .card-move[aria-expanded="true"] { background: var(--muted); }
+.drawer-move-label { display: inline-flex; align-items: center; gap: .375rem; }
+.drawer-move-label > svg { width: 14px; height: 14px; color: var(--muted-foreground); }
+/* Basecoat's dropdown, its popover fixed under the button (placed by
+   move-menu.ts) so a scrolling column doesn't clip it. */
+.move-menu > [data-popover] { position: fixed; margin-top: 0; }
+.move-menu :is([role="menuitemradio"], [role="menuitem"]) > span { flex: 1; }
+.move-menu .menu-danger { color: var(--destructive); }
+.move-menu .tags-row > svg { width: 14px; height: 14px; }
+.move-menu .tags-row > svg:last-child { color: var(--muted-foreground); }
+/* The Tags submenu: fixed beside the card menu, styled as its popover. */
+.tags-submenu {
+  position: fixed; z-index: 51; min-width: 12rem; max-width: 16rem; padding: .25rem;
+  display: flex; flex-direction: column; gap: .25rem;
+  background: var(--popover); color: var(--popover-foreground);
+  border: 1px solid var(--border); border-radius: var(--radius, .5rem); box-shadow: 0 4px 12px rgb(0 0 0 / .08);
+  font-size: .875rem;
+}
+.tags-submenu[hidden] { display: none; }
+.tags-submenu-list { display: flex; flex-direction: column; max-height: 14rem; overflow-y: auto; }
+.tags-submenu [role="menuitemcheckbox"] {
+  display: flex; align-items: center; gap: .5rem; padding: .375rem .5rem; cursor: default; outline: none;
+  border-radius: calc(var(--radius, .5rem) - 2px);
+}
+.tags-submenu [role="menuitemcheckbox"]:hover, .tags-submenu [role="menuitemcheckbox"]:focus-visible { background: var(--accent); color: var(--accent-foreground); }
+.tags-submenu [role="menuitemcheckbox"] > span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tags-submenu [role="menuitemcheckbox"] > svg { width: 14px; height: 14px; }
+.tags-submenu .tag-dot { width: .5rem; height: .5rem; border-radius: 999px; flex-shrink: 0; }
+.tags-submenu-empty { padding: .375rem .5rem; color: var(--muted-foreground); }
+.tags-submenu > .input { height: 2rem; font-size: .8125rem; }
+.move-menu .menu-danger svg { width: 14px; height: 14px; }
 .status-glyph[data-status="needs_input"] { color: var(--needs-input); }
 .board-col.archive.drop-end { box-shadow: inset 0 0 0 1px var(--muted-foreground); border-radius: var(--radius, .5rem); }
 .board-col.archive { flex: 0 0 auto; min-width: 8rem; }
 .board-col.archive:has(.board-card) { flex-basis: 18rem; }
+.archive-cards { display: contents; }
 .archive-toggle { align-self: flex-start; background: none; border: 0; color: var(--muted-foreground); font: inherit; font-size: .8125rem; padding: .25rem; cursor: pointer; }
 .archive .board-card { margin-top: .5rem; cursor: default; }
 .board-onboarding { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; padding: 1.5rem; text-align: center; text-wrap: balance; }

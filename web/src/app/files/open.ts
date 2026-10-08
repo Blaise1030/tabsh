@@ -1,11 +1,14 @@
 // The file step: the place's file is the active tab's, shown in the file
 // pane. The pane (with CodeMirror) is fetched on first use.
+import van from 'vanjs-core';
 import { fileAction, type Place } from '../nav/place.ts';
 import { go, here, onLeave, onPlace } from '../nav/router.ts';
 import type { Host } from './pane.ts';
 import { rememberedFiles, rememberFile } from './remember.ts';
 
 type Pane = typeof import('./pane.ts');
+
+const { button, div, p } = van.tags;
 
 let host: Host;
 let activeId: () => string | null = () => null;
@@ -15,6 +18,10 @@ let loadFailed = false; // a second failure reloads the page instead
 // The path last clicked: only a click may open a directory (in a new tab).
 let clicked: { tab: string; file: string } | null = null;
 const never = new AbortController().signal;
+
+// Whether #pane and its divider show: the active tab has a file (pane.ts
+// derives it), or the editor couldn't load (the message says so).
+export const paneShown = van.state(false);
 
 export function initFilePane(h: Host, active: () => string | null): void {
   host = h;
@@ -28,6 +35,14 @@ export function initFilePane(h: Host, active: () => string | null): void {
     return pane.confirmDiscard(to.tab);
   });
   onPlace('file', applyFile);
+  // The terminal refits once the pane has shown or hidden: VanJS applies the
+  // state in a microtask queued before this one.
+  let shown = false;
+  van.derive(() => {
+    if (paneShown.val === shown) return;
+    shown = paneShown.val;
+    queueMicrotask(() => host.layout());
+  });
 }
 
 async function applyFile(to: Place, from: Place, signal: AbortSignal, initial: boolean) {
@@ -111,24 +126,20 @@ export function openInPane(s: { id: string; closed: boolean }, f: { text: string
 // instead; the shells survive that.
 function paneLoadFailed(retry: () => void, retried: boolean): void {
   const box = document.getElementById('pane') as HTMLElement;
-  const divider = document.getElementById('pane-divider') as HTMLElement;
-  const msg = document.createElement('div');
-  msg.className = 'pane-msg';
-  const p = document.createElement('p');
-  p.textContent = "Couldn't load the editor";
-  const again = document.createElement('button');
-  again.type = 'button';
-  again.className = 'btn';
-  again.textContent = 'Retry';
-  again.onclick = () => {
-    if (retried) return location.reload();
-    pane = paneLoad = null;
-    box.hidden = divider.hidden = true;
-    box.replaceChildren();
-    retry();
-  };
-  msg.append(p, again);
-  box.replaceChildren(msg);
-  box.hidden = divider.hidden = false;
-  host.layout();
+  const again = button(
+    {
+      type: 'button',
+      class: 'btn',
+      onclick: () => {
+        if (retried) return location.reload();
+        pane = paneLoad = null;
+        paneShown.val = false;
+        box.replaceChildren();
+        retry();
+      },
+    },
+    'Retry',
+  );
+  box.replaceChildren(div({ class: 'pane-msg' }, p("Couldn't load the editor"), again));
+  paneShown.val = true;
 }

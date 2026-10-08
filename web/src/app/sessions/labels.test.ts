@@ -10,6 +10,7 @@ import {
   parseTagList,
   parseTags,
   repoName,
+  sameTags,
   TAG_COLORS,
   tagBar,
   tagColor,
@@ -131,6 +132,13 @@ test('a tab dragged between tag groups trades the tag it was dragged by for the 
   assert.deepEqual(moveTag(['red', 'blue'], 'red', 'blue'), ['blue']); // already there: once
   assert.deepEqual(moveTag([], null, 'red'), ['red']); // out of the untagged group
   assert.deepEqual(moveTag(['red', 'blue'], 'red', null), ['blue']); // into it: loses only that tag
+});
+
+test('tag lists are the same only with the same tags in the same order', () => {
+  assert.equal(sameTags([], []), true);
+  assert.equal(sameTags(['a', 'b'], ['a', 'b']), true);
+  assert.equal(sameTags(['a', 'b'], ['b', 'a']), false);
+  assert.equal(sameTags(['a'], ['a', 'b']), false);
 });
 
 test('the tag list offers every tag, picked ones checked, filtered by what is typed', () => {

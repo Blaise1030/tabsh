@@ -74,6 +74,9 @@ export function parseTags(raw: unknown): Record<string, string[]> {
   return out;
 }
 
+// Whether two tag lists are the same tags in the same order.
+export const sameTags = (a: string[], b: string[]): boolean => a.length === b.length && a.every((t, i) => t === b[i]);
+
 // A tab's tags with `tag` added or taken away, in the order they were given.
 export function toggleTag(tags: string[], tag: string, on: boolean): string[] {
   const rest = tags.filter((t) => t !== tag);

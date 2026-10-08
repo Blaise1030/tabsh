@@ -1,95 +1,157 @@
 // The board: the terminals as cards in status columns. Clicking a card goes
 // to its terminal; dragging one sets its status and its place in the tab
-// order. Names and notes are user text: textContent only.
+// order. Its columns, cards and setup screen follow the sessions' states.
+// Names and notes are user text: child strings only.
+import van, { type State } from 'vanjs-core';
 import { api } from '../daemon/client.ts';
 import { go, onPlace } from '../nav/router.ts';
-import { closeSession, newSession, openTab, type Session, sendSize, store } from '../sessions/store.ts';
+import { newSession, openTab, type Session, sendSize, sessionList, store } from '../sessions/store.ts';
 import { orderTabs } from '../sessions/tabs.ts';
-import { labelsOf, onTagsChange, tagBadge } from '../sessions/tags.ts';
+import { tagBadge } from '../sessions/tags.ts';
 import { matchesKey } from '../settings/keys.ts';
 import { current, onSaved, saveSetting } from '../settings/settings.ts';
-import { el } from '../ui/dom.ts';
-import { glyphSvg } from './glyph.ts';
+import { glyph, icons } from '../ui/icons.ts';
+import { keyed } from '../ui/keyed.ts';
 import { COLUMNS, DEFAULT_COMMAND, dropOrder, group, SETUP_PROMPT, type Status, shortPath, since } from './model.ts';
-import { onCardsChange, setStatus } from './status.ts';
+import { CardMenuButton } from './move-menu.ts';
+import { setStatus } from './status.ts';
+
+const { a, article, button, div, h2, header, i, p, section, span } = van.tags;
+
+// Whether the board is shown (else the terminals are): set only by the
+// router's view step.
+export const shown: State<boolean> = van.state(false);
+// Whether the active tab's terminal shows in a drawer beside the board: set
+// only by the router's drawer step.
+export const drawer: State<boolean> = van.state(false);
+// Unix seconds, ticking every 30 s: keeps "time in status" fresh.
+const now = van.state(Math.floor(Date.now() / 1000));
+// Until the board is onboarded it shows its setup screen.
+const onboarded = van.state(current.saved.boardOnboarded);
 
 const board = () => document.getElementById('board') as HTMLElement;
-const terms = () => document.getElementById('terms') as HTMLElement;
-const button = () => document.getElementById('board-btn') as HTMLButtonElement;
-let archiveOpen = false;
+// A dragged card's data type: its own, so the page's file drop
+// (`ui/drop.ts`) neither glows for it nor pastes it into a terminal.
+export const CARD_DRAG = 'application/x-tabsh-card';
 // Set by Task 9; until then a column's + opens a plain new terminal.
 let newCard: (status: Status) => void = () => void newSession();
 export function setNewCard(fn: (status: Status) => void): void {
   newCard = fn;
 }
 
-export const boardOpen = (): boolean => !board().hidden;
+export const boardOpen = (): boolean => shown.val;
 
+// Opening the board with a tab open keeps that tab in view, in the drawer.
 export function toggleBoard(open = !boardOpen()): void {
-  go({ view: open ? 'board' : 'terms' });
+  go(open ? { view: 'board', drawer: !!store.active } : { view: 'terms' });
 }
 
 function showBoard(open: boolean): void {
-  board().hidden = !open;
-  terms().hidden = open;
-  button().setAttribute('aria-pressed', String(open));
-  if (open) render();
-  else if (store.active) {
+  shown.val = open;
+  if (open) return;
+  // The terminals show once VanJS applies the state, in a microtask queued
+  // before this one: fit and focus the active one then.
+  queueMicrotask(() => {
+    if (shown.val || !store.active) return;
     sendSize(store.active);
     store.active.term.focus();
-  }
+  });
 }
 
-function glyph(status: Status): HTMLElement {
-  const g = el('i', { className: 'status-glyph' });
-  g.dataset.status = status;
-  g.innerHTML = glyphSvg(status); // static markup from glyph.ts
-  return g;
-}
-
-const FOLDER =
-  '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>';
-
-function cardEl(s: Session, now: number): HTMLElement {
-  const top = el(
-    'div',
-    { className: 'card-top' },
-    el('span', { className: 'card-title', textContent: s.name }),
-    glyph(s.card.status),
+const statusGlyph = (status: Status | (() => Status)) =>
+  i(
+    { class: 'status-glyph', 'data-status': status },
+    typeof status === 'function' ? () => glyph(status()) : glyph(status),
   );
-  const folder = el('div', { className: 'card-meta' });
-  folder.innerHTML = FOLDER; // static icon
-  folder.append(el('span', { textContent: shortPath(s.card.cwd) || '~' }));
-  const kids: HTMLElement[] = [top, folder];
-  const { tags } = labelsOf(s);
-  if (tags.length) kids.push(el('div', { className: 'card-tags' }, ...tags.map((t) => tagBadge(t))));
-  if (s.card.note) kids.push(el('div', { className: 'card-note', textContent: s.card.note }));
-  kids.push(el('div', { className: 'card-meta', textContent: since(s.card.statusAt, now) }));
-  const card = el('article', { className: 'board-card', draggable: true, tabIndex: 0 }, ...kids);
-  card.dataset.id = s.id;
-  card.onclick = () => {
-    go({ view: 'terms', tab: s.id });
+
+// Each card's check for a cut-off title or note, run again whenever the
+// board's size changes (shown, hidden, the window resized).
+const measures = new WeakMap<Element, () => void>();
+const resized = new ResizeObserver(() => {
+  for (const c of board().querySelectorAll('.board-card')) measures.get(c)?.();
+});
+
+// A card: its session's name, status, folder, note and time in status. Its
+// title and note are clamped to two lines, with Show more when either is cut
+// off. In the Archive it isn't dragged; its menu offers Restore.
+function Card(s: Session, archived = false): HTMLElement {
+  // Only a change of status redraws the glyph (a new note doesn't).
+  const status = van.derive(() => s.card.val.status);
+  const note = van.derive(() => s.card.val.note);
+  const open = van.state(false);
+  const cut = van.state(false);
+  const card: HTMLElement = article(
+    {
+      class: 'board-card',
+      draggable: !archived,
+      tabindex: '0',
+      'data-id': s.id,
+      onclick: () => go({ tab: s.id, drawer: true }),
+      onkeydown: (e: KeyboardEvent) => e.target === card && e.key === 'Enter' && card.click(),
+      ondragstart: (e: DragEvent) => {
+        e.dataTransfer?.setData(CARD_DRAG, s.id);
+        card.classList.add('dragging');
+      },
+      ondragend: () => {
+        card.classList.remove('dragging');
+        clearDropMarks();
+      },
+    },
+    div(
+      { class: 'card-top' },
+      span({ class: 'card-title' }, () => s.name.val),
+      statusGlyph(() => status.val),
+      CardMenuButton(s),
+    ),
+    div(
+      { class: 'card-meta' },
+      icons.folder(),
+      span(() => shortPath(s.card.val.cwd) || '~'),
+    ),
+    () =>
+      s.tags.val.length
+        ? div(
+            { class: 'card-tags' },
+            s.tags.val.map((t) => tagBadge(t)),
+          )
+        : '',
+    () => (note.val ? div({ class: 'card-note' }, note.val) : ''),
+    () =>
+      cut.val || open.val
+        ? button(
+            {
+              type: 'button',
+              class: 'card-more',
+              onclick: (e: MouseEvent) => {
+                e.stopPropagation();
+                open.val = !open.val;
+              },
+              onkeydown: (e: KeyboardEvent) => e.stopPropagation(), // Enter/Space on the button must not open the card
+            },
+            () => (open.val ? 'Show less' : 'Show more'),
+          )
+        : '',
+    div({ class: 'card-meta' }, () => since(s.card.val.statusAt, now.val)),
+  );
+  // A clamped box reports no overflow in scrollHeight, so this compares its
+  // text's height with the clamp lifted. Hidden (height 0), nothing is cut.
+  const measure = () => {
+    const texts = [...card.querySelectorAll<HTMLElement>('.card-title, .card-note')];
+    const heights = () => texts.map((t) => t.clientHeight);
+    card.classList.remove('expanded');
+    const clamped = heights();
+    card.classList.add('expanded');
+    const full = heights();
+    card.classList.toggle('expanded', open.val);
+    cut.val = full.some((h, j) => h > clamped[j] + 1);
   };
-  card.onkeydown = (e) => e.target === card && e.key === 'Enter' && card.click();
-  if (s.card.status === 'completed') {
-    const arch = el('button', { type: 'button', className: 'btn', textContent: 'Archive' });
-    arch.dataset.variant = 'ghost';
-    arch.dataset.size = 'sm';
-    arch.onclick = (e) => {
-      e.stopPropagation();
-      void setStatus(s, 'archived');
-    };
-    arch.onkeydown = (e) => e.stopPropagation(); // Enter/Space on the button must not open the card
-    card.append(el('div', { className: 'card-actions' }, arch));
-  }
-  card.ondragstart = (e) => {
-    e.dataTransfer?.setData('text/plain', s.id);
-    card.classList.add('dragging');
-  };
-  card.ondragend = () => {
-    card.classList.remove('dragging');
-    render();
-  };
+  measures.set(card, measure);
+  van.derive(() => card.classList.toggle('expanded', open.val));
+  van.derive(() => {
+    s.name.val;
+    note.val;
+    requestAnimationFrame(measure); // once the new text is laid out
+  });
   return card;
 }
 
@@ -107,96 +169,125 @@ function clearDropMarks(): void {
   for (const x of board().querySelectorAll('.drop-before, .drop-end')) x.classList.remove('drop-before', 'drop-end');
 }
 
+// A drop ends the drag here, not at dragend: the drop may move the dragged
+// card's node (a new order), and some browsers then never fire its dragend.
+function endDrag(): void {
+  clearDropMarks();
+  for (const x of board().querySelectorAll('.dragging')) x.classList.remove('dragging');
+}
+
+// The tabs as the board's model takes them: each with its card.
+const cards = () => store.sessions.map((s) => ({ s, id: s.id, card: s.card.val }));
+
 async function move(id: string, status: Status, beforeId: string | null): Promise<void> {
   const s = store.sessions.find((x) => x.id === id);
   if (!s) return;
-  const ids = dropOrder(store.sessions, id, status, beforeId);
+  const ids = dropOrder(cards(), id, status, beforeId);
   orderTabs(ids);
   api('PUT', '/order', { ids }).catch(() => {});
-  if (s.card.status !== status) await setStatus(s, status).catch(console.error);
-  else render();
+  if (s.card.val.status !== status) await setStatus(s, status).catch(console.error);
 }
 
-function column(status: Status, name: string, cards: Session[], now: number): HTMLElement {
-  const add = el('button', { type: 'button', className: 'btn', title: `New card in ${name}`, textContent: '+' });
-  add.dataset.variant = 'ghost';
-  add.dataset.size = 'icon-xs';
-  add.setAttribute('aria-label', `New card in ${name}`);
-  add.onclick = () => newCard(status);
-  const header = el(
-    'header',
-    {},
-    glyph(status),
-    el('span', { className: 'col-name', textContent: name }),
-    el('span', { className: 'col-count', textContent: String(cards.length) }),
-    add,
+// Puts a card first in `status`'s column (a new card, so it's seen without
+// scrolling): in the tab order, before that column's first card.
+export function moveToTop(s: Session, status: Status): Promise<void> {
+  const first = cards().find((x) => x.id !== s.id && x.card.status === status);
+  return move(s.id, status, first?.id ?? null);
+}
+
+// The sessions in each column, in tab order.
+type Columns = Record<Status, Session[]>;
+
+const ADDABLE: Status[] = ['backlog', 'in_progress'];
+
+function Column(status: Status, name: string, columns: State<Columns>): HTMLElement {
+  const list = div({ class: 'board-cards' });
+  keyed(
+    list,
+    () => columns.val[status],
+    (s) => s.id,
+    (s) => Card(s),
   );
-  const list = el('div', { className: 'board-cards' }, ...cards.map((s) => cardEl(s, now)));
-  const col = el('section', { className: 'board-col' }, header, list);
-  col.dataset.status = status;
-  col.ondragover = (e) => {
-    e.preventDefault();
-    clearDropMarks();
-    const before = cardBefore(list, e.clientY);
-    if (before) before.classList.add('drop-before');
-    else list.classList.add('drop-end');
-  };
-  col.ondragleave = (e) => !col.contains(e.relatedTarget as Node) && clearDropMarks();
-  col.ondrop = (e) => {
-    e.preventDefault();
-    clearDropMarks();
-    const id = e.dataTransfer?.getData('text/plain');
-    if (id) void move(id, status, cardBefore(list, e.clientY)?.dataset.id ?? null);
-  };
+  const col: HTMLElement = section(
+    {
+      class: 'board-col',
+      'data-status': status,
+      ondragover: (e: DragEvent) => {
+        e.preventDefault();
+        clearDropMarks();
+        const before = cardBefore(list, e.clientY);
+        if (before) before.classList.add('drop-before');
+        else list.classList.add('drop-end');
+      },
+      ondragleave: (e: DragEvent) => !col.contains(e.relatedTarget as Node) && clearDropMarks(),
+      ondrop: (e: DragEvent) => {
+        e.preventDefault();
+        const before = cardBefore(list, e.clientY)?.dataset.id ?? null; // while the dragged card is still marked
+        endDrag();
+        const id = e.dataTransfer?.getData(CARD_DRAG);
+        if (id) void move(id, status, before);
+      },
+    },
+    header(
+      statusGlyph(status),
+      span({ class: 'col-name' }, name),
+      span({ class: 'col-count' }, () => String(columns.val[status].length)),
+      // New cards start in Backlog or In progress; the others are reached by
+      // moving a card.
+      ADDABLE.includes(status)
+        ? button(
+            {
+              type: 'button',
+              class: 'btn',
+              'data-variant': 'ghost',
+              'data-size': 'icon-xs',
+              title: `New card in ${name}`,
+              'aria-label': `New card in ${name}`,
+              onclick: () => newCard(status),
+            },
+            '+',
+          )
+        : '',
+    ),
+    list,
+  );
   return col;
 }
 
-function archive(cards: Session[], now: number): HTMLElement {
-  const toggle = el('button', {
-    type: 'button',
-    className: 'archive-toggle',
-    textContent: `Archive ${cards.length} ${archiveOpen ? '▾' : '▸'}`,
-  });
-  toggle.onclick = () => {
-    archiveOpen = !archiveOpen;
-    render();
-  };
-  const col = el('section', { className: 'board-col archive' }, toggle);
-  col.dataset.status = 'archived';
-  col.ondragover = (e) => {
-    e.preventDefault();
-    clearDropMarks();
-    col.classList.add('drop-end');
-  };
-  col.ondragleave = (e) => !col.contains(e.relatedTarget as Node) && clearDropMarks();
-  col.ondrop = (e) => {
-    e.preventDefault();
-    clearDropMarks();
-    const id = e.dataTransfer?.getData('text/plain');
-    if (id) void move(id, 'archived', null);
-  };
-  if (archiveOpen) {
-    for (const s of cards) {
-      const restore = el('button', { type: 'button', className: 'btn', textContent: 'Restore' });
-      const del = el('button', { type: 'button', className: 'btn', textContent: 'Delete' });
-      for (const b of [restore, del]) {
-        b.dataset.variant = 'ghost';
-        b.dataset.size = 'sm';
-      }
-      restore.onclick = (e) => {
-        e.stopPropagation();
-        void setStatus(s, 'backlog');
-      };
-      del.onclick = (e) => {
-        e.stopPropagation();
-        void closeSession(s);
-      };
-      const card = cardEl(s, now);
-      card.draggable = false;
-      card.append(el('div', { className: 'card-actions' }, restore, del));
-      col.append(card);
-    }
-  }
+// Archived cards, collapsed under a toggle; a card dropped here is archived.
+function Archive(columns: State<Columns>): HTMLElement {
+  const open = van.state(false);
+  // `display: contents`: the cards sit in the column, after the toggle.
+  const list = div({ class: 'archive-cards' });
+  keyed(
+    list,
+    () => (open.val ? columns.val.archived : []),
+    (s) => s.id,
+    (s) => Card(s, true),
+  );
+  const col: HTMLElement = section(
+    {
+      class: 'board-col archive',
+      'data-status': 'archived',
+      ondragover: (e: DragEvent) => {
+        e.preventDefault();
+        clearDropMarks();
+        col.classList.add('drop-end');
+      },
+      ondragleave: (e: DragEvent) => !col.contains(e.relatedTarget as Node) && clearDropMarks(),
+      ondrop: (e: DragEvent) => {
+        e.preventDefault();
+        endDrag();
+        const id = e.dataTransfer?.getData(CARD_DRAG);
+        if (id) void move(id, 'archived', null);
+      },
+    },
+    button(
+      { type: 'button', class: 'archive-toggle', onclick: () => (open.val = !open.val) },
+      () => `Archive ${columns.val.archived.length} ${open.val ? '▾' : '▸'}`,
+    ),
+    list,
+  );
   return col;
 }
 
@@ -204,78 +295,103 @@ function archive(cards: Session[], now: number): HTMLElement {
 // instead of its columns: one button opens a Claude Code card that wires its
 // own hooks through `tabsh setup`, the other skips it. Either one marks the
 // board onboarded.
-const BOARD_ICON =
-  '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v12"/><path d="M15 3v7"/></svg>';
-const ARROW_UP_RIGHT =
-  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg>';
 const BOARD_DOCS = 'https://github.com/Blaise1030/tabsh#the-board';
 
-function onboarding(): HTMLElement {
-  const setup = el('button', { type: 'button', className: 'btn', textContent: 'Set up with Claude Code' });
-  const skip = el('button', { type: 'button', className: 'btn', textContent: 'Skip' });
-  skip.dataset.variant = 'outline';
-  for (const b of [setup, skip]) b.dataset.size = 'sm';
-  setup.onclick = async () => {
-    setup.disabled = true;
+function Onboarding(): HTMLElement {
+  const busy = van.state(false);
+  async function setUp(): Promise<void> {
+    busy.val = true;
     let s: Session;
     try {
       s = await openTab({ name: 'Set up tabsh hooks', prompt: SETUP_PROMPT, command: DEFAULT_COMMAND }, false);
     } catch (err) {
       console.error(err);
-      setup.disabled = false;
+      busy.val = false;
       return;
     }
     saveSetting('boardOnboarded', true);
     await setStatus(s, 'in_progress').catch(console.error); // starts its agent
     go({ view: 'terms', tab: s.id });
-  };
-  skip.onclick = () => saveSetting('boardOnboarded', true);
-  const icon = el('div', { className: 'board-onboarding-icon' });
-  icon.innerHTML = BOARD_ICON; // static icon
-  const more = el('a', {
-    className: 'board-onboarding-more',
-    href: BOARD_DOCS,
-    target: '_blank',
-    rel: 'noopener noreferrer',
-    textContent: 'Learn more',
-  });
-  more.insertAdjacentHTML('beforeend', ARROW_UP_RIGHT); // static icon
+  }
   // The shape of shadcn's Empty: header (icon, title, description), content, link.
-  return el(
-    'div',
-    { className: 'board-onboarding' },
-    el(
-      'div',
-      { className: 'board-onboarding-header' },
-      icon,
-      el('h2', { textContent: 'Connect your agents' }),
-      el('p', {
-        textContent:
-          'Cards move on their own when your coding agent reports what it is doing. Let Claude Code wire up its own hooks to get started.',
-      }),
+  return div(
+    { class: 'board-onboarding' },
+    div(
+      { class: 'board-onboarding-header' },
+      div({ class: 'board-onboarding-icon' }, icons.boardOnboarding()),
+      h2('Connect your agents'),
+      p(
+        'Cards move on their own when your coding agent reports what it is doing. Let Claude Code wire up its own hooks to get started.',
+      ),
     ),
-    el('div', { className: 'board-onboarding-actions' }, setup, skip),
-    more,
+    div(
+      { class: 'board-onboarding-actions' },
+      button(
+        { type: 'button', class: 'btn', 'data-size': 'sm', disabled: () => busy.val, onclick: () => void setUp() },
+        'Set up with Claude Code',
+      ),
+      button(
+        {
+          type: 'button',
+          class: 'btn',
+          'data-variant': 'outline',
+          'data-size': 'sm',
+          onclick: () => saveSetting('boardOnboarded', true),
+        },
+        'Skip',
+      ),
+    ),
+    a(
+      { class: 'board-onboarding-more', href: BOARD_DOCS, target: '_blank', rel: 'noopener noreferrer' },
+      'Learn more',
+      icons.arrowUpRight(),
+    ),
   );
 }
 
-export function render(): void {
-  if (!boardOpen() || board().querySelector('.dragging')) return;
-  if (!current.saved.boardOnboarded) {
-    if (!board().querySelector('.board-onboarding')) board().replaceChildren(onboarding());
-    return;
-  }
-  const now = Math.floor(Date.now() / 1000);
-  const g = group(store.sessions);
-  board().replaceChildren(
-    ...COLUMNS.map(({ status, name }) => column(status, name, g[status], now)),
-    archive(g.archived, now),
+// The board's parts: its setup screen, or its columns and the Archive.
+const PARTS = [...COLUMNS.map((c) => c.status), 'archived'];
+
+export function Board(): HTMLElement {
+  const sessions = van.derive((): Columns => {
+    const g = group(sessionList.val.map((s) => ({ s, card: s.card.val })));
+    return Object.fromEntries(Object.entries(g).map(([k, v]) => [k, v.map((x) => x.s)])) as Columns;
+  });
+  const el = section({
+    id: 'board',
+    'aria-label': 'Board',
+    hidden: () => !shown.val,
+    // A click on the board's empty space closes the drawer; one on a card
+    // opens that card in it instead, and controls keep their own clicks.
+    onclick: (e: MouseEvent) => {
+      if (drawer.val && !(e.target as Element).closest('.board-card, button, a, input, .move-menu')) {
+        go({ drawer: false });
+      }
+    },
+  });
+  resized.observe(el);
+  keyed(
+    el,
+    () => (onboarded.val ? PARTS : ['onboarding']),
+    (part) => part,
+    (part) => {
+      if (part === 'onboarding') return Onboarding();
+      if (part === 'archived') return Archive(sessions);
+      const c = COLUMNS.find((x) => x.status === part) as (typeof COLUMNS)[number];
+      return Column(c.status, c.name, sessions);
+    },
   );
+  return el;
 }
 
 export function initBoard(): void {
   onPlace('view', (to) => void showBoard(to.view === 'board'));
-  button().onclick = () => toggleBoard();
+  onPlace('drawer', (to) => {
+    drawer.val = to.drawer;
+    if (to.drawer) queueMicrotask(() => store.active?.term.focus()); // once VanJS shows it
+    return undefined;
+  });
+  (document.getElementById('board-btn') as HTMLButtonElement).onclick = () => toggleBoard();
   window.addEventListener(
     'keydown',
     (e) => {
@@ -286,8 +402,6 @@ export function initBoard(): void {
     },
     true,
   );
-  onCardsChange(render);
-  onTagsChange(render);
-  onSaved(render); // e.g. the setup screen, once it's dealt with
-  setInterval(render, 30_000); // keep "time in status" fresh
+  onSaved((s) => (onboarded.val = s.boardOnboarded)); // e.g. the setup screen, once it's dealt with
+  setInterval(() => (now.val = Math.floor(Date.now() / 1000)), 30_000);
 }

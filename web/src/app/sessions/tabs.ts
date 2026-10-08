@@ -2,17 +2,15 @@
 // dragging tabs into a new order.
 import { api } from '../daemon/client.ts';
 import { updateBadge } from './bell.ts';
-import { canMove, layout, moveToGroup, sessionOf } from './groups.ts';
+import { canMove, moveToGroup, sessionOf, settleTabs } from './groups.ts';
 import { dropIndex, inOrder } from './order.ts';
-import { type Session, store } from './store.ts';
+import { type Session, setSessions, store } from './store.ts';
 
 const strip = () => document.getElementById('tabs') as HTMLElement;
 
 export function setName(s: Session, name: string, save = true): void {
-  const label = s.tab.querySelector('.tab-name') as HTMLElement;
-  if (s.name === name && label.textContent) return;
-  s.name = name;
-  label.textContent = s.tab.title = name;
+  if (s.name.val === name) return;
+  s.name.val = name;
   if (s === store.active) updateBadge();
   if (save) api('PATCH', `/${s.id}`, { name, auto: true }).catch(() => {});
 }
@@ -30,8 +28,7 @@ export function updateFades(): void {
 export function orderTabs(ids: string[]): void {
   const sorted = inOrder(store.sessions, ids);
   if (sorted.every((s, i) => s === store.sessions[i])) return;
-  store.sessions.splice(0, store.sessions.length, ...sorted);
-  layout();
+  setSessions(sorted);
 }
 
 // Slides each tab from where it was drawn (`before`) to where it now is.
@@ -115,15 +112,15 @@ function initDrag(el: HTMLElement): void {
       // A copy's place in the strip isn't its tab's, so only the tab itself
       // reorders; either can change group.
       if (!tab.classList.contains('mirror')) {
-        const ids = [...el.querySelectorAll<HTMLElement>('.tab')]
-          .map((t) => store.sessions.find((s) => s.tab === t)?.id)
+        const ids = [...el.querySelectorAll<HTMLElement>('.tab:not(.mirror)')]
+          .map((t) => sessionOf(t)?.id)
           .filter((id): id is string => !!id);
-        store.sessions.splice(0, store.sessions.length, ...inOrder(store.sessions, ids));
+        setSessions(inOrder(store.sessions, ids));
         api('PUT', '/order', { ids }).catch(() => {});
       }
       const s = sessionOf(tab);
       if (s && to !== from) moveToGroup(s, from, to);
-      layout(); // under its group's label: the new one, or back to its own
+      settleTabs(); // under its group's label: the new one, or back to its own
     };
     addEventListener('pointermove', move);
     addEventListener('pointerup', up);
@@ -131,7 +128,16 @@ function initDrag(el: HTMLElement): void {
   });
 }
 
+// A closed tab collapses, then goes (the timeout covers reduced motion,
+// where no transition runs); the fades are checked once it's gone.
+export const collapse = (node: Element): Promise<void> =>
+  new Promise<void>((done) => {
+    node.addEventListener('transitionend', (e) => (e as TransitionEvent).propertyName === 'max-width' && done());
+    setTimeout(done, 300);
+  }).then(() => void setTimeout(updateFades));
+
 export function initTabStrip(): void {
+  // The strip itself (groups.ts's TabStrip) draws the tabs from state.
   const el = strip();
   // Let a vertical mouse wheel scroll the tab strip sideways when it overflows.
   el.addEventListener(
