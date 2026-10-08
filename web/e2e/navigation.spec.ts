@@ -543,3 +543,25 @@ test('closing the palette gives the keyboard back to the terminal', async ({ pag
   await expect.poll(() => paletteOpen(page)).toBe(false);
   await expect.poll(() => inActiveTerm(page)).toBe(true);
 });
+
+// Closing the explorer while the keyboard is inside it must not strand focus
+// on <body>: the router resets nothing, so the explorer's step hands it back.
+test('closing the explorer from the tree gives the keyboard back to the terminal', async ({ page, daemon, project }) => {
+  const row = (name: string) => page.locator('#explorer').getByRole('treeitem', { name, exact: true });
+  const settled = () => page.evaluate(() => navigation.transition === null);
+  await openApp(page, daemon);
+  await cdInTerminal(page, project, 'in-project');
+  await page.locator('.term.active').click();
+
+  for (const close of ['key', 'back'] as const) {
+    await page.keyboard.press(explorerKey);
+    await expect(page.locator('#explorer')).toBeVisible();
+    await row('src').click();
+    await expect(row('src')).toBeFocused();
+    if (close === 'key') await page.keyboard.press(explorerKey);
+    else await page.goBack();
+    await expect(page.locator('#explorer')).toBeHidden();
+    await expect.poll(settled).toBe(true);
+    await expect.poll(() => inActiveTerm(page), { message: close }).toBe(true);
+  }
+});

@@ -106,10 +106,13 @@ export function initExplorer(): void {
   // Open or closed comes from the place; settings only give the width.
   onPlace('explorer', (to) => {
     const wasOpen = isOpen();
+    // Hiding the sidebar under the keyboard would leave it on <body>.
+    const heldFocus = wasOpen && !to.explorer && aside.contains(document.activeElement);
     aside.hidden = divider.hidden = !to.explorer;
     button.setAttribute('aria-pressed', String(to.explorer));
     if (to.explorer && !wasOpen) void refresh();
     watch();
+    if (heldFocus) store.active?.term.focus();
     if (to.explorer !== current.saved.explorerOpen) saveSetting('explorerOpen', to.explorer);
     return undefined;
   });
