@@ -68,7 +68,11 @@ function MoveMenu(s: () => Session | null, trigger: Record<string, string>, ...f
         const session = s();
         const card = session?.card.val;
         return session && card?.status === 'backlog' && card.prompt
-          ? div({ role: 'menuitem', onclick: () => editCard(session) }, icons.edit(), span('Edit card'))
+          ? div(
+              { role: 'menuitem', class: 'menu-edit', onclick: () => editCard(session) },
+              icons.edit(),
+              span('Edit card'),
+            )
           : span({ hidden: true });
       },
       hr({ role: 'separator' }),

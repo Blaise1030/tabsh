@@ -51,6 +51,9 @@ html.themed {
 #palette-menu.fade-bottom { --fade-b: 3rem; }
 .board-cards.fade-top { --fade-t: 4rem; }
 .board-cards.fade-bottom { --fade-b: 4rem; }
+/* A mask clips everything painted inside, fixed popovers too: a card's open
+   menu (and its Tags submenu) drops the fades rather than be cut off. */
+:is(#board, .board-cards):has(.move-menu [aria-expanded="true"]) { mask-image: none; }
 .command-dialog [role="menuitem"] .swatch { display: flex; gap: 2px; padding: 3px; border-radius: 4px; border: 1px solid var(--border); }
 .command-dialog [role="menuitem"] .swatch i { width: 6px; height: 10px; border-radius: 1px; }
 .about-table th { width: 1%; white-space: nowrap; font-weight: 400; color: var(--muted-foreground); }
@@ -444,7 +447,7 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .tags-submenu[hidden] { display: none; }
 .tags-submenu-list { display: flex; flex-direction: column; max-height: 14rem; overflow-y: auto; }
 .tags-submenu-empty { padding: .375rem .5rem; color: var(--muted-foreground); }
-.move-menu .menu-danger svg { width: 14px; height: 14px; }
+.move-menu :is(.menu-danger, .menu-edit) svg { width: 14px; height: 14px; }
 .status-glyph[data-status="needs_input"] { color: var(--needs-input); }
 .board-onboarding { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; padding: 1.5rem; text-align: center; text-wrap: balance; }
 .board-onboarding-header { max-width: 24rem; display: flex; flex-direction: column; align-items: center; gap: .5rem; }
