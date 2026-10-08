@@ -187,7 +187,7 @@ html.themed {
   #frame.in-drawer { flex-basis: 100%; }
   #stage:has(#frame.in-drawer) :is(#board, #drawer-divider) { display: none; }
 }
-.drawer-bar { display: flex; align-items: center; gap: .375rem; padding: .125rem .5rem; border-bottom: 1px solid var(--border); }
+.drawer-bar { display: flex; align-items: center; gap: .375rem; padding: .125rem .5rem; }
 .drawer-bar[hidden] { display: none; }
 .drawer-title { flex: 1; min-width: 0; font-size: .8125rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #workspace { flex: 1; min-height: 0; display: flex; position: relative; }
