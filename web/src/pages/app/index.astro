@@ -56,16 +56,21 @@ import '../../styles/app.css';
     <form method="dialog" id="new-card-form">
       <header><h2 id="new-card-title">New card</h2></header>
       <section class="new-card-fields">
-        <label class="label"><span>Title <span class="mark">(optional)</span></span>
-          <input class="input" name="name" maxlength="100" autocomplete="off"></label>
         <label class="label"><span>Folder</span>
-          <input class="input" name="cwd" list="new-card-folders" placeholder="~/code/app" autocomplete="off" spellcheck="false"></label>
-        <datalist id="new-card-folders"></datalist>
+          <span class="picker">
+            <input class="input" name="cwd" placeholder="~/code/app" autocomplete="off" spellcheck="false">
+            <ul id="new-card-folders" class="picker-options" role="listbox" aria-label="Folders" hidden></ul>
+          </span></label>
         <label class="label"><span>First prompt</span>
           <textarea class="textarea" name="prompt" rows="3" required></textarea></label>
         <label class="label"><span>Agent <span class="mark">({'{prompt}'} is replaced by the prompt)</span></span>
           <input class="input" name="command" list="new-card-commands" autocomplete="off" spellcheck="false"></label>
         <datalist id="new-card-commands"></datalist>
+        <div class="label"><label for="new-card-tag">Tags <span class="mark">(optional)</span></label>
+          <div class="picker">
+            <div class="input tag-field"><span id="new-card-chips"></span><input id="new-card-tag" placeholder="Add or pick tags…" maxlength="200" autocomplete="off" spellcheck="false"></div>
+            <ul id="new-card-tag-options" class="picker-options tag-options" role="listbox" aria-label="Tags" aria-multiselectable="true" hidden></ul>
+          </div></div>
         <p class="new-card-error" hidden></p>
       </section>
       <footer>

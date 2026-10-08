@@ -45,7 +45,9 @@ export function initDrop(): void {
   window.addEventListener('dragend', () => glow.classList.remove('active'));
   window.addEventListener('drop', async (e) => {
     glow.classList.remove('active');
-    if (!isDroppable(e.dataTransfer)) return;
+    // A drop the page already took (a card dropped on a board column, which
+    // carries its id as text) isn't for the terminal.
+    if (e.defaultPrevented || !isDroppable(e.dataTransfer)) return;
     e.preventDefault();
     const target = store.active;
     if (!target) return;

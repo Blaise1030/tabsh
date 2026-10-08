@@ -5,6 +5,7 @@ import { api } from '../daemon/client.ts';
 import { go, onPlace } from '../nav/router.ts';
 import { closeSession, newSession, openTab, type Session, sendSize, store } from '../sessions/store.ts';
 import { orderTabs } from '../sessions/tabs.ts';
+import { labelsOf, onTagsChange, tagBadge } from '../sessions/tags.ts';
 import { matchesKey } from '../settings/keys.ts';
 import { current, onSaved, saveSetting } from '../settings/settings.ts';
 import { el } from '../ui/dom.ts';
@@ -60,6 +61,8 @@ function cardEl(s: Session, now: number): HTMLElement {
   folder.innerHTML = FOLDER; // static icon
   folder.append(el('span', { textContent: shortPath(s.card.cwd) || '~' }));
   const kids: HTMLElement[] = [top, folder];
+  const { tags } = labelsOf(s);
+  if (tags.length) kids.push(el('div', { className: 'card-tags' }, ...tags.map((t) => tagBadge(t))));
   if (s.card.note) kids.push(el('div', { className: 'card-note', textContent: s.card.note }));
   kids.push(el('div', { className: 'card-meta', textContent: since(s.card.statusAt, now) }));
   const card = el('article', { className: 'board-card', draggable: true, tabIndex: 0 }, ...kids);
@@ -284,6 +287,7 @@ export function initBoard(): void {
     true,
   );
   onCardsChange(render);
+  onTagsChange(render);
   onSaved(render); // e.g. the setup screen, once it's dealt with
   setInterval(render, 30_000); // keep "time in status" fresh
 }
