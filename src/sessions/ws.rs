@@ -1,6 +1,6 @@
 //! The WebSocket a browser tab attaches to a running shell through.
 
-use super::{Event, Session, pty::get_or_spawn};
+use super::{Event, Output, Session, pty::get_or_spawn};
 use crate::{AppState, error::BoxError};
 use axum::{
     extract::{
@@ -43,15 +43,43 @@ pub(super) async fn ws_handler(
     })
 }
 
+/// What a client attaching gets: the history to replay, and the live output
+/// that follows it with nothing missed or repeated.
+struct Replay {
+    history: Vec<u8>,
+    exited: bool,
+    rx: broadcast::Receiver<Event>,
+}
+
+impl Output {
+    /// Taken under the `output` lock, which the shell's reader also needs
+    /// for every chunk, so it only copies.
+    fn replay(&self) -> Replay {
+        let mut history = self.trimmed_modes.replay_prefix();
+        // The ring buffer's two halves, copied whole: a byte-by-byte walk
+        // over 512KB holds the lock hundreds of times longer.
+        let (front, back) = self.scrollback.as_slices();
+        history.reserve_exact(front.len() + back.len());
+        history.extend_from_slice(front);
+        history.extend_from_slice(back);
+        Replay {
+            history,
+            exited: self.exited,
+            rx: self.tx.subscribe(),
+        }
+    }
+}
+
 async fn attach(socket: WebSocket, session: &Session) -> Result<(), BoxError> {
     let (mut sink, mut stream) = socket.split();
 
-    let (history, exited, mut rx) = {
-        let out = session.output.lock().unwrap();
-        let mut history = out.trimmed_modes.replay_prefix();
-        history.extend(out.scrollback.iter());
-        (history, out.exited, out.tx.subscribe())
-    };
+    // The lock is let go before anything is sent: a slow client never
+    // holds up the shell's output.
+    let Replay {
+        history,
+        exited,
+        mut rx,
+    } = session.output.lock().unwrap().replay();
     // Always sent, even empty: the page treats the first binary message as
     // replayed history (e.g. to skip old bells in it).
     sink.send(Message::Binary(history.into())).await?;
@@ -103,4 +131,125 @@ async fn attach(socket: WebSocket, session: &Session) -> Result<(), BoxError> {
 
     let _ = sink.close().await;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sessions::{Output, SCROLLBACK_BYTES};
+    use axum::body::Bytes;
+    use std::{
+        collections::VecDeque,
+        sync::{Arc, Mutex},
+        time::{Duration, Instant},
+    };
+
+    // A scrollback that's full and wrapped around in its ring buffer, as a
+    // busy shell's is.
+    fn full() -> Output {
+        let mut out = Output::new(VecDeque::new());
+        for _ in 0..SCROLLBACK_BYTES / 4096 + 10 {
+            out.append(Bytes::from(vec![b'x'; 4096]));
+        }
+        out
+    }
+
+    #[test]
+    fn a_replay_holds_the_output_lock_briefly() {
+        let output = Mutex::new(full());
+        // Best of a few, so a busy machine's one slow run doesn't count.
+        let held = (0..5)
+            .map(|_| {
+                let t = Instant::now();
+                let replay = output.lock().unwrap().replay();
+                let held = t.elapsed();
+                assert!(replay.history.len() >= SCROLLBACK_BYTES);
+                held
+            })
+            .min()
+            .unwrap();
+        // A copy of 512KB, not a walk over it byte by byte: the producer
+        // waits on this lock for every chunk it reads.
+        assert!(held < Duration::from_millis(1), "held {held:?}");
+    }
+
+    #[test]
+    fn a_replay_is_bounded_by_the_scrollback() {
+        let mut out = full();
+        out.append(Bytes::from_static(b"\x1b[?1049h"));
+        for _ in 0..64 {
+            out.append(Bytes::from(vec![b'y'; 8192]));
+        }
+        let replay = out.replay();
+        assert!(
+            replay.history.starts_with(b"\x1b[?1049h"),
+            "trimmed modes first"
+        );
+        assert_eq!(
+            replay.history.len(),
+            SCROLLBACK_BYTES + b"\x1b[?1049h".len()
+        );
+        assert!(
+            replay.history.ends_with(&[b'y'; 8192]),
+            "the newest bytes last"
+        );
+    }
+
+    #[test]
+    fn a_replay_releases_the_lock_before_its_client_reads() {
+        let output = Mutex::new(full());
+        let replay = output.lock().unwrap().replay();
+        // The client hasn't sent or read anything yet; the shell keeps going.
+        for _ in 0..100 {
+            output
+                .try_lock()
+                .expect("not held by the replay")
+                .append(Bytes::from_static(b"z"));
+        }
+        drop(replay);
+    }
+
+    // The seam between replay and live output: a client attaching while the
+    // shell writes gets every chunk exactly once, either in its history or
+    // on its receiver, in order.
+    #[test]
+    fn attaching_mid_stream_sees_every_chunk_once() {
+        let output = Arc::new(Mutex::new(Output::new(VecDeque::new())));
+        let producer = {
+            let output = output.clone();
+            std::thread::spawn(move || {
+                // Fewer chunks than the channel holds, so no receiver lags.
+                for i in 0..1000u32 {
+                    let chunk = Bytes::from(format!("<{i}>"));
+                    output.lock().unwrap().append(chunk);
+                    std::thread::sleep(Duration::from_micros(50));
+                }
+            })
+        };
+        let mut attaches = Vec::new();
+        while !producer.is_finished() {
+            attaches.push(output.lock().unwrap().replay());
+            std::thread::sleep(Duration::from_micros(200));
+        }
+        producer.join().unwrap();
+        assert!(attaches.len() > 2, "attached while the shell wrote");
+        for Replay {
+            history, mut rx, ..
+        } in attaches
+        {
+            let mut seen = history;
+            while let Ok(Event::Output(data)) = rx.try_recv() {
+                seen.extend_from_slice(&data);
+            }
+            let text = String::from_utf8(seen).unwrap();
+            let ticks: Vec<u32> = text
+                .split('<')
+                .filter_map(|t| t.strip_suffix('>')?.parse().ok())
+                .collect();
+            assert_eq!(*ticks.last().unwrap(), 999, "live output up to the end");
+            for w in ticks.windows(2) {
+                assert_eq!(w[1], w[0] + 1, "no gap or repeat at {}", w[0]);
+            }
+        }
+    }
 }

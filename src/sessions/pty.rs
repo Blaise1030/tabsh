@@ -169,6 +169,30 @@ pub(super) fn type_launch_line(st: &AppState, id: &str, session: &Session) {
     let _ = session.input.send(Bytes::from(line));
 }
 
+impl Output {
+    pub(super) fn new(scrollback: VecDeque<u8>) -> Self {
+        Output {
+            scrollback,
+            trimmed_modes: ModeTracker::default(),
+            tx: broadcast::channel(1024).0,
+            exited: false,
+            dirty: false,
+        }
+    }
+
+    /// One chunk the shell wrote: kept in the scrollback (its oldest bytes
+    /// trimmed, their modes remembered) and sent to attached clients. Both
+    /// happen under the `output` lock so a client attaching (`replay`) sees
+    /// each byte once, in its history or live; neither waits on a client.
+    pub(super) fn append(&mut self, chunk: Bytes) {
+        self.scrollback.extend(&chunk[..]);
+        let excess = self.scrollback.len().saturating_sub(SCROLLBACK_BYTES);
+        self.trimmed_modes.feed(self.scrollback.drain(..excess));
+        self.dirty = true;
+        let _ = self.tx.send(Event::Output(chunk));
+    }
+}
+
 fn spawn_session(
     st: AppState,
     id: String,
@@ -216,35 +240,23 @@ fn spawn_session(
     if !scrollback.is_empty() {
         scrollback.extend(RESTORE_MARKER);
     }
-    let (tx, _) = broadcast::channel(1024);
     let session = Arc::new(Session {
         master: Mutex::new(pair.master),
         input,
         killer: Mutex::new(child.clone_killer()),
         pid: child.process_id(),
         restarting: AtomicBool::new(false),
-        output: Mutex::new(Output {
-            scrollback,
-            trimmed_modes: ModeTracker::default(),
-            tx,
-            exited: false,
-            dirty: false,
-        }),
+        output: Mutex::new(Output::new(scrollback)),
     });
 
     let s = session.clone();
     std::thread::spawn(move || {
         let mut buf = [0u8; 8192];
         while let Ok(n @ 1..) = reader.read(&mut buf) {
-            let mut out = s.output.lock().unwrap();
-            let out = &mut *out;
-            out.scrollback.extend(&buf[..n]);
-            let excess = out.scrollback.len().saturating_sub(SCROLLBACK_BYTES);
-            out.trimmed_modes.feed(out.scrollback.drain(..excess));
-            out.dirty = true;
-            let _ = out
-                .tx
-                .send(Event::Output(Bytes::copy_from_slice(&buf[..n])));
+            // Copied before the lock: attaching clients and the flusher wait
+            // on it, so it covers only the append and the broadcast.
+            let chunk = Bytes::copy_from_slice(&buf[..n]);
+            s.output.lock().unwrap().append(chunk);
         }
         // Shell exited (or was killed): reap it, tell clients, forget the session.
         let _ = child.wait();
@@ -291,6 +303,28 @@ fn spawn_session(
 mod tests {
     use super::*;
     use crate::test_support::test_state;
+
+    #[test]
+    fn appending_keeps_the_newest_scrollback_and_the_modes_trimmed_off() {
+        let mut out = Output::new(VecDeque::new());
+        let mut rx = out.tx.subscribe();
+        out.append(Bytes::from_static(b"\x1b[?1049h"));
+        out.append(Bytes::from(vec![b'x'; SCROLLBACK_BYTES]));
+        assert_eq!(out.scrollback.len(), SCROLLBACK_BYTES);
+        assert!(out.scrollback.iter().all(|&b| b == b'x'));
+        assert_eq!(out.trimmed_modes.replay_prefix(), b"\x1b[?1049h");
+        assert!(out.dirty);
+        let sent: Vec<usize> = std::iter::from_fn(|| match rx.try_recv() {
+            Ok(Event::Output(data)) => Some(data.len()),
+            _ => None,
+        })
+        .collect();
+        assert_eq!(
+            sent,
+            [8, SCROLLBACK_BYTES],
+            "each chunk broadcast once, whole"
+        );
+    }
 
     #[test]
     fn shells_know_their_card_and_the_daemon() {
