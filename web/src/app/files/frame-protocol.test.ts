@@ -18,6 +18,7 @@ test('well-formed messages from the frame pass, rebuilt with only their fields',
   assert.deepEqual(parseFromFrame({ type: 'lost', id: 4 }), { type: 'lost', id: 4 });
   for (const type of ['clear', 'unhover', 'scroll']) assert.deepEqual(parseFromFrame({ type }), { type });
   assert.deepEqual(parseFromFrame({ ...select, nth: -1 }), { ...select, nth: -1 });
+  assert.deepEqual(parseFromFrame({ ...select, nth: 0, of: 2 }), { ...select, nth: 0, of: 2 });
 });
 
 test('malformed messages from the frame are dropped', () => {
@@ -42,6 +43,10 @@ test('malformed messages from the frame are dropped', () => {
     { type: 'hover', id: 1 },
     { type: 'located', id: 1, from: 3, to: 2 },
     { type: 'lost', id: '1' },
+    { ...select, nth: 1, of: 1 },
+    Object.assign([], { type: 'ready' }),
+    Object.assign(Object.create({ sel: 1 }), { type: 'select', quote: 'hi', from: 2, to: 3, nth: 0, of: 1, rect }),
+    Object.defineProperty({ ...select }, 'quote', { get: () => 'hi', enumerable: true }),
   ]) {
     assert.equal(parseFromFrame(bad), null, JSON.stringify(bad));
   }
@@ -64,6 +69,7 @@ test('malformed messages to the frame are dropped', () => {
     { type: 'drop', id: Number.POSITIVE_INFINITY },
     { type: 'locate', id: 1, quote: '', from: 3, nth: 0, of: 1 },
     { type: 'locate', id: 1, quote: 'q', from: 3, nth: 0 },
+    { type: 'locate', id: 1, quote: 'q', from: 3, nth: 2, of: 2 },
     { type: 'theme', css: 4 },
     { type: 'theme', css: 'x'.repeat(20_001) },
   ]) {
