@@ -3,6 +3,7 @@ name: Release
 # Runs when a merged release PR lands on main (package.json's version changed
 # and has no tag yet): builds the daemon for macOS and Linux, then publishes a
 # GitHub release tagged vX.Y.Z with that version's CHANGELOG.md section.
+# Last, it points the Homebrew tap at the new release.
 on:
   push:
     branches: [main]
@@ -88,3 +89,20 @@ jobs:
         run: |
           awk -v h="## v$VERSION" '$0 == h {on=1; next} on && /^## / {exit} on' CHANGELOG.md > notes.md
           gh release create "v$VERSION" dist/* --target "$GITHUB_SHA" --title "v$VERSION" --notes-file notes.md
+      - name: Update the Homebrew formula
+        # Blaise1030/homebrew-tap serves `brew install blaise1030/tap/tabsh`;
+        # its deploy key (write access to that repo only) is this secret.
+        env:
+          DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          install -m 600 /dev/null ~/tap_key
+          printf '%s\n' "$DEPLOY_KEY" > ~/tap_key
+          export GIT_SSH_COMMAND="ssh -i ~/tap_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          git clone --depth 1 git@github.com:Blaise1030/homebrew-tap.git tap
+          .github/scripts/homebrew-formula.sh "$VERSION" dist > tap/Formula/tabsh.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "tabsh $VERSION"
+          git push
