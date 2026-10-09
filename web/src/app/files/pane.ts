@@ -9,7 +9,7 @@ import { go, here } from '../nav/router.ts';
 import { isMac } from '../ui/dom.ts';
 import { icons } from '../ui/icons.ts';
 import { keyed } from '../ui/keyed.ts';
-import { createNotes, type Notes } from './annotate.ts';
+import { createNotes, type Notes, type PasteResult } from './annotate.ts';
 import {
   displayPath,
   type Fetcher,
@@ -46,6 +46,8 @@ export interface Host {
   layout(): void; // refit the active terminal (sendSize(active))
   newTabAt(cwd: string): void; // POST /api/sessions {cwd} then activate
   focusTerminal(): void;
+  // Pastes into a tab's terminal (bracketed, never pressing Enter).
+  paste(sessionId: string, text: string): PasteResult;
 }
 
 interface PaneState {
@@ -164,6 +166,25 @@ function EditToggle(st: PaneState): HTMLElement {
   );
 }
 
+// Shown while the preview has comments: pastes them into the tab's terminal.
+function SendButton(st: PaneState): HTMLElement {
+  const n = () => st.notes.comments.val.length;
+  const label = () => `Send ${n()} comment${n() === 1 ? '' : 's'} to Claude`;
+  return button(
+    {
+      type: 'button',
+      class: 'btn pane-send',
+      'data-variant': 'ghost',
+      'data-size': 'icon-sm',
+      title: label,
+      'aria-label': label,
+      hidden: () => n() === 0,
+      onclick: () => st.notes.send(),
+    },
+    icons.send(),
+  );
+}
+
 function PaneHead(st: PaneState): HTMLElement {
   return header(
     { class: () => (st.scrolled.val ? 'pane-head scrolled' : 'pane-head') },
@@ -171,6 +192,7 @@ function PaneHead(st: PaneState): HTMLElement {
     span({ class: 'pane-path', title: () => st.path.val.abs }, () => st.path.val.text),
     span({ class: 'pane-status', role: 'status' }, () => st.status.val),
     span({ class: 'pane-dot', title: 'Unsaved changes', hidden: () => !st.dirty.val }, '●'),
+    SendButton(st),
     EditToggle(st),
   );
 }
@@ -583,6 +605,7 @@ let made = 0;
 function newState(id: string, requested: string): PaneState {
   const notes = createNotes({
     path: () => st.path.val.text,
+    paste: (text) => host.paste(id, text),
     status: (text) => setStatus(st, text),
   });
   const st: PaneState = {

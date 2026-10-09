@@ -66,7 +66,9 @@ export const icons: Record<
   | 'shrink'
   | 'claude'
   | 'openai'
-  | 'gemini',
+  | 'gemini'
+  | 'send'
+  | 'messageSquarePlus',
   Icon
 > = {
   board: draw(({ path, rect, svg }) =>
@@ -249,6 +251,25 @@ export const icons: Record<
   agent: draw(({ path, svg }) => svg({ ...LUCIDE }, path({ d: 'm4 17 6-6-6-6' }), path({ d: 'M12 19h8' }))),
   info: draw(({ circle, path, svg }) =>
     svg({ ...LUCIDE }, circle({ cx: '12', cy: '12', r: '10' }), path({ d: 'M12 16v-4' }), path({ d: 'M12 8h.01' })),
+  ),
+  send: draw(({ path, svg }) =>
+    svg(
+      { ...LUCIDE },
+      path({
+        d: 'M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z',
+      }),
+      path({ d: 'm21.854 2.147-10.94 10.939' }),
+    ),
+  ),
+  messageSquarePlus: draw(({ path, svg }) =>
+    svg(
+      { ...LUCIDE },
+      path({
+        d: 'M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z',
+      }),
+      path({ d: 'M12 8v6' }),
+      path({ d: 'M9 11h6' }),
+    ),
   ),
   edit: draw(({ path, svg }) =>
     svg(

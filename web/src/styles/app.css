@@ -564,3 +564,24 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 #new-card-folders [role="option"][aria-selected="true"] { background: var(--accent); color: var(--accent-foreground); }
 .new-card-error { color: var(--destructive, #ef4444); font-size: .8125rem; margin: 0; }
 .new-card-error[hidden] { display: none; }
+
+/* Markdown comments (files/annotate.ts): the Comment button over a selection,
+   the comment box and the hover card, on the row menu's surface, and the
+   header's Send button. New classes only: nothing above is restyled. */
+.pane-send[hidden], .comment-menu[hidden], .comment-box[hidden], .comment-hover[hidden] { display: none; }
+.comment-menu, .comment-box, .comment-hover { position: absolute; z-index: 20; }
+.comment-menu { min-width: 0; padding: .1875rem; }
+.comment-menu [role="menuitem"] { display: flex; align-items: center; gap: .375rem; padding: .25rem .5rem .25rem .375rem; }
+.comment-menu svg { flex-shrink: 0; width: 1rem; height: 1rem; color: var(--muted-foreground); }
+.comment-menu [role="menuitem"]:hover svg { color: var(--foreground); }
+.comment-box { width: 20rem; gap: .375rem; padding: .375rem; }
+.comment-quote {
+  margin: 0; padding: 0 .125rem; font-size: .75rem; color: var(--muted-foreground);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.comment-box .textarea { min-height: 4rem; font-size: .8125rem; }
+.comment-box footer { display: flex; justify-content: flex-end; gap: .25rem; }
+.comment-hover { max-width: 20rem; padding: .375rem .5rem .25rem; gap: .25rem; }
+.comment-note { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.comment-hover footer { display: flex; align-items: center; gap: .125rem; }
+.comment-lines { flex: 1; font: .75rem ui-monospace, Menlo, monospace; color: var(--muted-foreground); }
