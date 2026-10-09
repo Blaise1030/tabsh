@@ -96,6 +96,7 @@ pub(crate) fn launch(st: &AppState, id: &str) {
 /// the old one is killed with its screen saved, and the next tab to attach
 /// spawns the replacement (in the saved cwd, with the scrollback replayed).
 pub(crate) fn restart(st: &AppState, id: &str) {
+    let _turn = st.starting.turn(id);
     let Some(session) = st.live.lock().unwrap().remove(id) else {
         return;
     };
@@ -317,6 +318,8 @@ async fn reorder_sessions(State(st): State<AppState>, Json(body): Json<Order>) -
 /// Close a tab. A running shell is killed and its reader thread removes the
 /// row (and tells attached clients); a not-yet-restored one is just deleted.
 async fn delete_session(State(st): State<AppState>, Path(id): Path<String>) -> StatusCode {
+    // Waits out a start of this tab's shell, so that shell is killed too.
+    let _turn = st.starting.turn(&id);
     let live = st.live.lock().unwrap();
     if let Some(session) = live.get(&id) {
         let _ = session.killer.lock().unwrap().kill();

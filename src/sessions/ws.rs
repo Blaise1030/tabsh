@@ -1,6 +1,6 @@
 //! The WebSocket a browser tab attaches to a running shell through.
 
-use super::{Event, Session, pty::get_or_spawn};
+use super::{Event, Session, pty};
 use crate::{AppState, error::BoxError};
 use axum::{
     extract::{
@@ -28,7 +28,7 @@ pub(super) async fn ws_handler(
         return StatusCode::FORBIDDEN.into_response();
     }
     let id = params.get("id").cloned().unwrap_or_default();
-    let session = match get_or_spawn(&st, &id) {
+    let session = match pty::open(st, id.clone()).await {
         Ok(Some(s)) => s,
         Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(e) => {

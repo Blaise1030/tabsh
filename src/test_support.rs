@@ -9,6 +9,7 @@ pub(crate) fn test_state() -> AppState {
     AppState {
         db: Arc::new(Mutex::new(db)),
         live: Default::default(),
+        starting: Default::default(),
         db_path: ":memory:".into(),
         started: std::time::Instant::now(),
         token: "t0k3n".into(),
@@ -24,4 +25,21 @@ pub(crate) fn scratch() -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("tabsh-test-{}", auth::random_hex(8).unwrap()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
+}
+
+/// Holds `st.db` on another thread for `hold`, returning once it is held:
+/// work that needs the database waits that long meanwhile.
+pub(crate) fn hold_db(
+    st: &crate::AppState,
+    hold: std::time::Duration,
+) -> std::thread::JoinHandle<()> {
+    let db = st.db.clone();
+    let (held, is_held) = std::sync::mpsc::channel();
+    let holder = std::thread::spawn(move || {
+        let _db = db.lock().unwrap();
+        held.send(()).unwrap();
+        std::thread::sleep(hold);
+    });
+    is_held.recv().unwrap();
+    holder
 }
