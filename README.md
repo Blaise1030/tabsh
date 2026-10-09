@@ -5,9 +5,12 @@ machine. Open them from any browser tab at https://tabsh.cc, and they survive
 reloads, restarts and closed laptops.
 
 ```sh
-cargo install --git https://github.com/Blaise1030/tabsh
+brew install blaise1030/tap/tabsh
 tabsh   # opens the app in your browser, paired
 ```
+
+Or build it with `cargo install --git https://github.com/Blaise1030/tabsh`.
+To keep the daemon running from login, `brew services start tabsh`.
 
 Safari (and every iOS browser) won't let https://tabsh.cc reach the daemon, so
 tabsh also serves the app itself, and tabsh.cc sends Safari there:
