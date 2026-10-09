@@ -7,6 +7,15 @@ import type { Page } from '@playwright/test';
 import { cdInTerminal, expect, newTab, openApp, pickTheme, test, typeInTerminal } from './fixture.ts';
 
 const shown = (page: Page) => page.locator('#pane .pane-view:not([hidden])');
+
+// The daemon is shared by the worker's specs, and the sidebar's state is a
+// saved setting: leave it closed, as it starts (the explorer specs toggle it).
+test.afterEach(async ({ page }) => {
+  if ((await page.locator('#explorer-btn').getAttribute('aria-pressed')) !== 'true') return;
+  const saved = page.waitForResponse((r) => r.url().includes('/api/settings') && r.request().method() === 'PUT');
+  await page.locator('#explorer-btn').click();
+  await saved;
+});
 const preview = (page: Page) => shown(page).frameLocator('.pane-frame');
 
 // Opens `name`, in `project`, from the explorer in the active tab. `cd:
@@ -512,6 +521,12 @@ test("each tab keeps its own comments, and Send pastes into its own terminal", a
   await page.locator('#tabs .tab:not(.mirror)').nth(1).click();
   await expect(rows(page)).not.toContainText('In tab one.');
   await page.keyboard.press('Control+C');
+  // The worker's daemon is shared, and the specs after this one expect a
+  // single tab: close the one this test opened.
+  const second = page.locator('#tabs .tab:not(.mirror)').nth(1);
+  await second.hover();
+  await second.getByRole('button', { name: 'Close terminal' }).click();
+  await expect(page.locator('#tabs .tab')).toHaveCount(1);
 });
 
 test('raw HTML around Markdown renders as it would without comments, and lines still count', async ({
