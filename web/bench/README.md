@@ -40,13 +40,15 @@ back to back on a quiet machine, and trust medians more than p95/max.
 | `background-flood` | 1 | `BENCH_BG_TABS` parked tabs print for `BENCH_BG_SECONDS` while the user types in the active tab, switches to a quiet tab and back, then into a flooding tab and back | `keystrokeEchoMs` (keydown → echo arrived and a frame painted), `tabSwitchQuietMs`, `tabSwitchToBusyMs` (click → replay arrived and painted), `longTaskTotalMs`/`longTaskMaxMs`, `maxFrameGapMs`, `unreadMs` (flood start → a parked tab shows `.unread`) and `unreadSeen` (share of runs where it did) |
 | `active-flood` | 2 | The visible tab `cat`s `BENCH_BURST_BYTES`; `BENCH_BURST_DELAY_MS` in, open the board; a second burst, switch tab and back | `boardOpenMs`, `tabSwitchMs`, `contentCompleteMs` (Enter → the burst's closing title is on the tab), long tasks, `maxFrameGapMs` |
 | `flush-contention` | 3 | `BENCH_FLUSH_SESSIONS` shells keep full (512KB) scrollback dirty for `BENCH_FLUSH_SECONDS` (several 2s flushes) | `patchStatusMs` (`PATCH /api/sessions/{id}/status`), `listSessionsMs` (`GET /api/sessions`), back to back |
-| `attach-under-load` | 4 | A shell prints `BENCH_ATTACH_BYTES` twice: once alone, once while Node reattaches over and over | `attachReplayMs` (WS open → replay received), `throughputQuietMBps`, `throughputUnderAttachMBps`, `throughputRatio` (1.0 = attaches cost the producer nothing) |
+| `attach-under-load` | 4 | Daemon: a shell prints `BENCH_ATTACH_BYTES` twice, once alone, once while Node reattaches over and over. Page: a tab floods while the user switches onto it `BENCH_ATTACH_SWITCHES` times, staying `BENCH_ATTACH_STAY_MS` each (a parked tab reattaches and replays on every switch) | Daemon: `daemonAttachReplayMs` (WS open → replay received), `throughputQuietMBps`, `throughputUnderAttachMBps`, `throughputRatio` (1.0 = attaches cost the producer nothing). Page: `pageTabSwitchMs` (click → replay painted), `pageReplayParsedMs` (socket open → xterm finished parsing the replay), `pageReplayLongTaskMs` (long tasks in that window), `pageStayLongTaskMs`/`pageStayMaxFrameGapMs` (while on the flooding tab), `pageReconnects` (sockets the page had to reopen per run: Lagged → close → full replay) |
 | `spawn-burst` | 5 | `BENCH_SPAWN_TABS` tabs created and attached at once (each attach spawns a shell) while `/api/settings` is polled | `settingsMs`, `tabUsableMs` (burst start → a typed command's output arrives), `allTabsUsableMs` |
 
 Browser scenarios time real UI interactions in the daemon's own app page: an
 init script (`installProbe` in `lib.ts`) records `PerformanceObserver('longtask')`
 entries, frame times, input event timestamps (which include queueing delay)
-and every terminal socket's messages. Daemon scenarios time real HTTP/WS calls
+every terminal socket's messages, and when xterm finishes parsing each
+replay (it wraps `Terminal#write`: the app passes a callback only for the
+replay). Daemon scenarios time real HTTP/WS calls
 from Node. Output comes from `cat` of prepared base64 files, so the producer
 itself is never the bottleneck.
 
@@ -57,7 +59,8 @@ or one per keystroke / request / attach where there are many).
 Knobs, with defaults: `BENCH_RUNS=5`, `BENCH_BG_TABS=4`, `BENCH_BG_SECONDS=6`,
 `BENCH_FLOOD_CHUNK=65536`, `BENCH_KEYSTROKES=20`, `BENCH_BURST_BYTES=2000000`,
 `BENCH_BURST_DELAY_MS=300`, `BENCH_FLUSH_SESSIONS=6`, `BENCH_FLUSH_SECONDS=7`,
-`BENCH_ATTACH_BYTES=64000000`, `BENCH_SPAWN_TABS=8`.
+`BENCH_ATTACH_BYTES=64000000`, `BENCH_ATTACH_SWITCHES=3`, `BENCH_ATTACH_STAY_MS=2000`,
+`BENCH_SPAWN_TABS=8`.
 
 ## Comparing a slice
 

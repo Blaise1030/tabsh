@@ -254,7 +254,11 @@ test('attach under load: reattach while a producer prints', async ({ daemon }) =
               while (busy) await during();
             })()
           : Promise.resolve();
-        while (!existsSync(file)) await sleep(10);
+        const deadline = performance.now() + 120_000;
+        while (!existsSync(file)) {
+          if (performance.now() > deadline) throw new Error(`producer did not finish (${flag})`);
+          await sleep(10);
+        }
         busy = false;
         await side;
         return (performance.now() - t0) / 1000;
@@ -265,7 +269,7 @@ test('attach under load: reattach while a producer prints', async ({ daemon }) =
       const loaded = await produce('loaded', async () => {
         const a = api.attach(id);
         const t = await a.replay;
-        s.add('attachReplayMs', 'ms', 'lower', t - a.opened);
+        s.add('daemonAttachReplayMs', 'ms', 'lower', t - a.opened);
         a.close();
         await sleep(10);
       });
@@ -276,7 +280,53 @@ test('attach under load: reattach while a producer prints', async ({ daemon }) =
     for (let run = 0; run < knobs.runs; run++)
       for (const f of ['quiet', 'loaded']) rmSync(path.join(dir, `${f}-${run}`), { force: true });
   }
-  results['attach-under-load'] = s.summary();
+  results['attach-under-load'] = { ...results['attach-under-load'], ...s.summary() };
+});
+
+// Where an attach costs in the shipped build: the page. Switching onto a tab
+// whose shell floods reattaches it (parked tabs hold no socket), and xterm
+// parses the whole replay on the main thread, live output on top.
+test('attach under load (page): switch onto a flooding tab', async ({ page, daemon }) => {
+  const api = new Api(daemon);
+  const s = new Samples();
+  await page.addInitScript(installProbe);
+  type Sock = { opened: number; first: number; parsed: number; closed: number };
+  const sockets = (id: string) =>
+    page.evaluate((x) => (window as unknown as { __sockets: (id: string) => Sock[] }).__sockets(x), id);
+  const floodSeconds = Math.ceil((knobs.attachSwitches * (knobs.attachStayMs + 1500)) / 1000) + 2;
+  for (let run = 0; run < knobs.runs; run++) {
+    await api.clear();
+    const quiet = await api.create('quiet');
+    const busy = await api.create('busy');
+    await freshPage(page, daemon, 2);
+    await untilEchoes(page, quiet);
+    await api.run(busy, timedFlood(floodSeconds, payloads.file(knobs.floodChunk)));
+    await sleep(500); // its scrollback is full
+
+    let reconnects = 0;
+    for (let i = 0; i < knobs.attachSwitches; i++) {
+      const before = (await sockets(busy)).length;
+      const click = await switchTo(page, 1, busy);
+      if (click !== null) s.add('pageTabSwitchMs', 'ms', 'lower', click);
+      // Stay on it while it floods: a socket the daemon drops (Lagged) is
+      // replaced by the page, with a full replay.
+      await sleep(knobs.attachStayMs);
+      const mine = (await sockets(busy)).slice(before);
+      const first = mine[0];
+      if (first && first.parsed >= 0) {
+        s.add('pageReplayParsedMs', 'ms', 'lower', first.parsed - first.opened);
+        const lt = await longtasks(page, first.opened, first.parsed);
+        s.add('pageReplayLongTaskMs', 'ms', 'lower', lt.total);
+      } else s.add('pageReplayNotParsed', 'count', 'lower', 1);
+      reconnects += Math.max(0, mine.length - 1);
+      const stay = await longtasks(page, first?.opened ?? 0, await pageNow(page));
+      s.add('pageStayLongTaskMs', 'ms', 'lower', stay.total);
+      s.add('pageStayMaxFrameGapMs', 'ms', 'lower', stay.frameGap);
+      await switchTo(page, 0, quiet);
+    }
+    s.add('pageReconnects', 'count', 'lower', reconnects);
+  }
+  results['attach-under-load'] = { ...results['attach-under-load'], ...s.summary() };
 });
 
 // ---------------------------------------------------------------- slice 5

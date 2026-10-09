@@ -27,7 +27,7 @@ function bench(bin: string, which: string): string {
   console.error(`\n== benchmarking ${which}: ${bin}`);
   const r = spawnSync('npx', ['playwright', 'test', '-c', 'playwright.bench.config.ts'], {
     cwd: web,
-    stdio: ['ignore', 'inherit', 'inherit'],
+    stdio: ['ignore', 2, 'inherit'], // its report to stderr: stdout is the table
     env: {
       ...process.env,
       TABSH_BIN: path.resolve(bin),

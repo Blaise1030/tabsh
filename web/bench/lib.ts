@@ -38,6 +38,9 @@ export const knobs = {
   flushSeconds: num('BENCH_FLUSH_SECONDS', 7),
   // Attach under load (slice 4): bytes the producer prints per phase.
   attachBytes: num('BENCH_ATTACH_BYTES', 64_000_000),
+  // …and in the page: switches onto a flooding tab, each staying this long.
+  attachSwitches: num('BENCH_ATTACH_SWITCHES', 3),
+  attachStayMs: num('BENCH_ATTACH_STAY_MS', 2000),
   // Spawn burst (slice 5): tabs opened at once.
   spawnTabs: num('BENCH_SPAWN_TABS', 8),
 };
@@ -346,7 +349,9 @@ export const timedFlood = (seconds: number, file: string) =>
 // arrived and a frame was painted after it".
 export function installProbe(): void {
   type Waiter = { test: (sock: Sock, text: string | null) => boolean; resolve: (t: number) => void };
-  type Sock = { id: string; opened: number; first: number; bytes: number };
+  // A terminal socket: opened, its replay arrived (`first`), xterm finished
+  // parsing that replay (`parsed`), and closed.
+  type Sock = { id: string; opened: number; first: number; parsed: number; closed: number; bytes: number };
   const w = window as unknown as Record<string, unknown>;
   const b = {
     longtasks: [] as { start: number; dur: number }[],
@@ -384,15 +389,21 @@ export function installProbe(): void {
         id: new URL(String(url)).searchParams.get('id') ?? '',
         opened: performance.now(),
         first: -1,
+        parsed: -1,
+        closed: -1,
         bytes: 0,
       };
       b.sockets.push(sock);
+      this.addEventListener('close', () => (sock.closed = performance.now()));
       this.addEventListener('message', (e: MessageEvent) => {
         if (typeof e.data === 'string') return;
         const now = performance.now();
         const data = e.data as ArrayBuffer;
         const isFirst = sock.first < 0;
-        if (isFirst) sock.first = now;
+        if (isFirst) {
+          sock.first = now;
+          replaying = sock; // the app's term.write for this message follows, same task
+        }
         sock.bytes += data.byteLength;
         if (!b.waiters.length) return;
         const text = isFirst ? null : latin1.decode(data);
@@ -405,6 +416,35 @@ export function installProbe(): void {
     }
   }
   w.WebSocket = Probe;
+
+  // The app writes a socket's replay with a callback (xterm calls it once the
+  // bytes are parsed) and live output without one: wrap Terminal#write to
+  // stamp the replay's `parsed`. xterm's UMD bundle sets window.Terminal
+  // after this script, so catch the assignment.
+  let replaying: Sock | null = null;
+  const wrap = (T: { prototype: { write: (d: unknown, cb?: () => void) => void } }) => {
+    const write = T.prototype.write;
+    T.prototype.write = function (this: unknown, data: unknown, cb?: () => void) {
+      const sock = replaying;
+      replaying = null;
+      if (!cb || !sock) return write.call(this, data, cb);
+      return write.call(this, data, () => {
+        sock.parsed = performance.now();
+        cb();
+      });
+    };
+  };
+  let Term: unknown;
+  Object.defineProperty(window, 'Terminal', {
+    configurable: true,
+    get: () => Term,
+    set: (v) => {
+      Term = v;
+      if (v) wrap(v);
+    },
+  });
+  // A session's sockets, oldest first.
+  w.__sockets = (id: string) => b.sockets.filter((x) => x.id === id);
 
   // Arm: live output on `id`'s socket containing `needle`.
   w.__armEcho = (id: string, needle: string) => {
