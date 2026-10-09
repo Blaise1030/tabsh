@@ -9,6 +9,7 @@ import { api } from '../daemon/client.ts';
 import { loadedPane } from '../files/open.ts';
 import { go, onPlace } from '../nav/router.ts';
 import { clearBell, updateBadge } from './bell.ts';
+import type { Coalescer } from './coalesce.ts';
 import { newTabGroup, scrollToTab, shownSessions, stepTab } from './groups.ts';
 import { coalesceAsync } from './reconnect.ts';
 import { orderTabs, setName } from './tabs.ts';
@@ -24,6 +25,8 @@ export interface Session {
   fit: Fit;
   el: HTMLDivElement;
   ws: WebSocket | null;
+  // Live output on its way to xterm, written once a frame.
+  out: Coalescer;
   closed: boolean;
   replaying: boolean;
   // xterm is still parsing the replay: its answers to queries in it go nowhere.
@@ -203,6 +206,7 @@ export function removeSession(s: Session): void {
   s.closed = true;
   loadedPane()?.forget(s.id);
   s.ws?.close();
+  s.out.drop(); // no frame writes to the disposed terminal
   s.term.dispose();
   s.el.remove();
   // Its tab collapses, then goes (the strip's exit).

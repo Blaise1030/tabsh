@@ -16,6 +16,7 @@ import { current, terminalOptions } from '../settings/settings.ts';
 import { scoped } from '../ui/keyed.ts';
 import { ring } from './bell.ts';
 import { scanBell } from './bell-scan.ts';
+import { coalescer } from './coalesce.ts';
 import { enqueueReconnect, nextReconnect, retryDelay, shouldDrainReconnects, terminalInView } from './reconnect.ts';
 import {
   active,
@@ -59,6 +60,8 @@ function watchWake(): void {
 function park(s: Session): void {
   reconnectQueue = reconnectQueue.filter((id) => id !== s.id);
   reconnectAttempts.delete(s.id);
+  // Output not yet painted goes: the next attach replays it.
+  s.out.drop();
   const ws = s.ws;
   if (!ws) return;
   // Drop the reference first so onclose does not queue a reconnect.
@@ -178,6 +181,11 @@ export function openSession(info: SessionInfo): Session {
     fit,
     el,
     ws: null,
+    out: coalescer(
+      (bytes, parsed) => term.write(bytes, parsed),
+      (fn) => requestAnimationFrame(fn),
+      (handle) => cancelAnimationFrame(handle),
+    ),
     closed: false,
     replaying: false,
     parsingReplay: false,
@@ -243,13 +251,15 @@ function connect(s: Session): Promise<boolean> {
       if (s.replaying) {
         s.replaying = false;
         s.parsingReplay = true;
-        s.term.write(bytes, () => {
+        s.out.replay(bytes, () => {
           if (s.ws === ws) s.parsingReplay = false; // not an older socket's replay
           finish(true);
         });
         return;
       }
-      s.term.write(bytes);
+      // A burst paints once a frame, not once a message; bell and unread
+      // still follow each chunk.
+      s.out.push(bytes);
       if (scanned.bell) ring(s);
       if (s !== store.active) s.unread.val = true;
     };
