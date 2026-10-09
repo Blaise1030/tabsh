@@ -72,6 +72,37 @@ test('oneLine makes control, zero-width and bidi characters spaces, and collapse
   assert.equal(oneLine('a\u2060b\u061cc\u180ed\u00ade', 100), 'a b c d e');
 });
 
+test('oneLine makes tag characters spaces, so no hidden ASCII reaches Claude', () => {
+  // "hi" spelled in tag characters, invisible in the file.
+  assert.equal(oneLine('a\u{E0068}\u{E0069}b', 100), 'a b');
+  assert.equal(oneLine('x\u{E0000}y\u{E0001}z\u{E007F}w', 100), 'x y z w');
+});
+
+test('oneLine makes every other invisible character a space', () => {
+  const invisible = [
+    '\u{FE00}', // variation selectors
+    '\u{FE0F}',
+    '\u{E0100}',
+    '\u{E01EF}',
+    '\u{115F}', // Hangul fillers
+    '\u{1160}',
+    '\u{3164}',
+    '\u{FFA0}',
+    '\u{034F}', // combining grapheme joiner
+    '\u{FFF9}', // interlinear annotation
+    '\u{FFFA}',
+    '\u{FFFB}',
+    '\u{06DD}', // Arabic end of ayah
+    '\u{2028}', // line and paragraph separators
+    '\u{2029}',
+  ];
+  for (const c of invisible) {
+    assert.equal(oneLine(`a${c}b`, 50), 'a b', `U+${c.codePointAt(0)!.toString(16).toUpperCase()}`);
+  }
+  // Visible text, accents and emoji are kept.
+  assert.equal(oneLine('café ñ 😀 日本', 50), 'café ñ 😀 日本');
+});
+
 test('oneLine cuts at max characters with an ellipsis', () => {
   assert.equal(oneLine('abcdef', 6), 'abcdef');
   assert.equal(oneLine('abcdefg', 6), 'abcde…');

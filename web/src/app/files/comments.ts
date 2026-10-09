@@ -40,34 +40,21 @@ export function renderBlocks(m: MarkedLike, src: string, mark: string): string {
   return out;
 }
 
-// Characters that must not reach the terminal: C0 and C1 controls and DEL
-// (an ESC could end a bracketed paste early, ESC [201~, and have the shell
-// run the rest), and the invisible format characters that make text read
-// differently from what it is: soft hyphen, Arabic letter mark, Mongolian
-// vowel separator, zero-width and invisible-operator characters, and the
-// bidi embedding, override and isolate controls.
-function hidden(code: number): boolean {
-  return (
-    code < 0x20 ||
-    (code >= 0x7f && code <= 0x9f) ||
-    code === 0xad ||
-    code === 0x61c ||
-    code === 0x180e ||
-    (code >= 0x200b && code <= 0x200f) ||
-    (code >= 0x202a && code <= 0x202e) ||
-    (code >= 0x2060 && code <= 0x2064) ||
-    (code >= 0x2066 && code <= 0x2069) ||
-    code === 0xfeff
-  );
-}
+// Characters that must not reach the terminal: controls (Cc: C0, C1 and DEL;
+// an ESC could end a bracketed paste early, ESC [201~, and have the shell run
+// the rest), and the invisible characters that make text read differently
+// from what it is: every format character (Cf: zero-width, bidi controls,
+// soft hyphen…), the tag characters that can spell hidden ASCII (assigned
+// or not), variation selectors, Hangul fillers and the combining grapheme
+// joiner.
+// (Combining marks in alternatives of their own, not in one class.)
+const HIDDEN =
+  /[\p{Cc}\p{Cf}\u{E0000}-\u{E007F}\u{115F}\u{1160}\u{3164}\u{FFA0}]|[\u{FE00}-\u{FE0F}]|[\u{E0100}-\u{E01EF}]|\u{034F}/gu;
 
 // `s` on one line and safe to paste: hidden characters become spaces,
 // whitespace runs one space, and past `max` characters it's cut with "…".
 export function oneLine(s: string, max: number): string {
-  const text = Array.from(s, (c) => (hidden(c.codePointAt(0)!) ? ' ' : c))
-    .join('')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const text = s.replace(HIDDEN, ' ').replace(/\s+/g, ' ').trim();
   const chars = Array.from(text);
   return chars.length > max ? chars.slice(0, max - 1).join('') + '…' : text;
 }
