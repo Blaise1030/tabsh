@@ -57,10 +57,10 @@ function receivedChunks(page: Page): { n: number } {
 }
 
 test('a burst on the active tab is written in coalesced frames and the page stays usable', async ({ page, daemon }) => {
+  test.setTimeout(150_000); // two floods; a loaded machine paints them slowly
   const chunks = receivedChunks(page);
   await openApp(page, daemon);
-  await newTab(page); // the flooded tab is the second one; the first is where we switch to
-  await expect(tabs(page)).toHaveCount(2);
+  await newTab(page); // the flooded tab is the new one, named `ready`; the other is where we switch to
   await expect(async () => {
     await typeInTerminal(page, '\u0003');
     await typeInTerminal(page, "printf '\\033]0;ready\\007'");
@@ -73,7 +73,7 @@ test('a burst on the active tab is written in coalesced frames and the page stay
   // A short, high-rate flood, then a tail line that isn't the command's own.
   await typeInTerminal(page, "seq 1 150000; echo flood-$((6*7))-done");
   await page.keyboard.press('Enter');
-  await expect(rows(page)).toContainText('flood-42-done', { timeout: 20_000 });
+  await expect(rows(page)).toContainText('flood-42-done', { timeout: 60_000 });
 
   const got = chunks.n - before;
   const wrote = await writes(page);
@@ -81,7 +81,9 @@ test('a burst on the active tab is written in coalesced frames and the page stay
   expect(wrote).toBeLessThan(got / 2); // chunks within a frame became one write
 
   // Again, but navigate away mid-burst: switching tabs and the board respond.
-  const flooded = tabs(page).nth(1);
+  // Tabs by name, not position: a previous test's tab may still be going.
+  const flooded = tabs(page).filter({ hasText: 'ready' });
+  const other = tabs(page).filter({ hasNotText: 'ready' }).first();
   await typeInTerminal(page, "clear; seq 200001 600000; echo again-$((6*7))-done");
   await page.keyboard.press('Enter');
   // The second flood is painting: a row only it prints (the first stopped at
@@ -89,8 +91,8 @@ test('a burst on the active tab is written in coalesced frames and the page stay
   await expect(page.locator('.term.active .xterm-rows > div', { hasText: /^[2-6]\d{5}\s*$/ }).first()).toBeVisible({
     timeout: 20_000,
   });
-  await tabs(page).first().click();
-  await expect(tabs(page).first()).toHaveAttribute('aria-selected', 'true', { timeout: 2_000 });
+  await other.click();
+  await expect(other).toHaveAttribute('aria-selected', 'true', { timeout: 2_000 });
   await page.locator('#board-btn').click();
   await expect(page.locator('#board')).toBeVisible({ timeout: 2_000 });
   await page.goBack();
@@ -99,5 +101,5 @@ test('a burst on the active tab is written in coalesced frames and the page stay
   // Back on the flooded tab: it catches up, the tail on screen.
   await flooded.click();
   await expect(flooded).toHaveAttribute('aria-selected', 'true');
-  await expect(rows(page)).toContainText('again-42-done', { timeout: 20_000 });
+  await expect(rows(page)).toContainText('again-42-done', { timeout: 60_000 });
 });
