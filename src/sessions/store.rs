@@ -34,6 +34,11 @@ pub(crate) fn open_db(path: &str) -> Result<Connection, BoxError> {
 }
 
 /// Write scrollback and cwd of every session whose output changed.
+///
+/// Each session's scrollback is copied out under its `output` lock alone, and
+/// the database is locked only for that session's write: never while waiting
+/// on a busy shell's output, nor across every session's copy, so hooks,
+/// status changes and the session list don't queue behind a flush.
 pub(crate) fn flush(state: &AppState) {
     let live: Vec<(String, Arc<Session>)> = state
         .live
@@ -42,7 +47,6 @@ pub(crate) fn flush(state: &AppState) {
         .iter()
         .map(|(id, s)| (id.clone(), s.clone()))
         .collect();
-    let db = state.db.lock().unwrap();
     for (id, session) in live {
         let scrollback: Vec<u8> = {
             let mut out = session.output.lock().unwrap();
@@ -50,10 +54,11 @@ pub(crate) fn flush(state: &AppState) {
                 continue;
             }
             out.dirty = false;
-            out.scrollback.iter().copied().collect()
+            let (front, back) = out.scrollback.as_slices();
+            [front, back].concat()
         };
         let cwd = session.pid.and_then(process_cwd);
-        if let Err(e) = db.execute(
+        if let Err(e) = state.db.lock().unwrap().execute(
             "UPDATE sessions SET scrollback = ?1, cwd = COALESCE(?2, cwd), updated_at = unixepoch()
              WHERE id = ?3",
             params![scrollback, cwd, id],
@@ -214,6 +219,100 @@ pub(crate) fn reorder(db: &mut Connection, ids: &[String]) -> rusqlite::Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn saved_scrollback(st: &AppState, id: &str) -> Vec<u8> {
+        st.db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT scrollback FROM sessions WHERE id = ?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .unwrap()
+    }
+
+    // A busy shell's reader holds its `output` while it appends: the flusher
+    // waiting on it must not hold the database, or every hook, status change
+    // and session list waits too.
+    #[test]
+    fn flush_never_holds_the_db_while_waiting_on_a_sessions_output() {
+        let st = crate::test_support::test_state();
+        let id = insert_session(&st.db.lock().unwrap(), None).unwrap().id;
+        let session = super::super::pty::get_or_spawn(&st, &id).unwrap().unwrap();
+
+        let mut out = session.output.lock().unwrap();
+        out.scrollback = vec![b'x'; super::super::SCROLLBACK_BYTES].into();
+        out.dirty = true;
+        let flusher = {
+            let st = st.clone();
+            std::thread::spawn(move || flush(&st))
+        };
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        // A hook's status change and a session list, while the output is held.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
+        let db_free = loop {
+            if let Ok(db) = st.db.try_lock() {
+                db.execute(
+                    "UPDATE sessions SET status = 'needs_input' WHERE id = ?1",
+                    params![id],
+                )
+                .unwrap();
+                assert!(info(&db, &id).unwrap().is_some());
+                break true;
+            }
+            if std::time::Instant::now() > deadline {
+                break false;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        };
+        drop(out);
+        flusher.join().unwrap();
+        let saved = saved_scrollback(&st, &id);
+        let _ = session.killer.lock().unwrap().kill();
+
+        assert!(db_free, "flush held the db while waiting on output");
+        assert!(saved.len() >= 1000 && saved[..1000].iter().all(|&b| b == b'x'));
+    }
+
+    // What a flush saves is what the shell started after a daemon restart
+    // replays.
+    #[test]
+    fn flushed_scrollback_is_restored_by_the_next_shell() {
+        let st = crate::test_support::test_state();
+        let id = insert_session(&st.db.lock().unwrap(), None).unwrap().id;
+        let first = super::super::pty::get_or_spawn(&st, &id).unwrap().unwrap();
+        {
+            let mut out = first.output.lock().unwrap();
+            out.scrollback = b"hello from before".to_vec().into();
+            out.dirty = true;
+        }
+        flush(&st);
+        assert!(saved_scrollback(&st, &id).starts_with(b"hello from before"));
+
+        // The shell goes, keeping its session (as a restart does).
+        first.restarting.store(true, Ordering::SeqCst);
+        let _ = first.killer.lock().unwrap().kill();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while st.live.lock().unwrap().contains_key(&id) {
+            assert!(std::time::Instant::now() < deadline, "shell did not exit");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        let again = super::super::pty::get_or_spawn(&st, &id).unwrap().unwrap();
+        let restored: Vec<u8> = again
+            .output
+            .lock()
+            .unwrap()
+            .scrollback
+            .iter()
+            .copied()
+            .collect();
+        again.restarting.store(true, Ordering::SeqCst);
+        let _ = again.killer.lock().unwrap().kill();
+        assert!(restored.starts_with(b"hello from before"));
+    }
 
     #[test]
     fn new_session_can_start_in_a_directory() {
