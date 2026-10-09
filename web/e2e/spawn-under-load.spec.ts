@@ -1,8 +1,14 @@
-// Opening tabs does not block other daemon work: a burst of new tabs, and
-// every one of their shells (re)attached at once, starts PTYs on the daemon
-// while settings round-trips and the board still answer promptly; then every
-// new tab's terminal takes input. The daemon starts each shell off its async
-// workers (`spawn_blocking`), so a slow fork or `openpty` never stalls them.
+// Opening tabs does not block other daemon work: several sessions made over
+// the API, with no shell yet, are all attached at once, so the daemon starts
+// every one of their PTYs together; meanwhile settings round-trips and the
+// board still answer promptly, and then every new tab's terminal takes input.
+// The daemon starts each shell off its async workers (`spawn_blocking`), so a
+// slow fork or `openpty` never stalls them.
+//
+// On a fast machine a spawn takes a few milliseconds, so this spec also
+// passes against a daemon that spawned inline on its workers: it pins the
+// flow end to end. The daemon's unit tests (`*_off_the_async_workers` in
+// `src/sessions` and `src/board`) are what fail without the change.
 import type { Page } from '@playwright/test';
 import type { Daemon } from './daemon.ts';
 import { expect, openApp, setOnboarded, test, typeInTerminal } from './fixture.ts';
@@ -13,12 +19,18 @@ const PROMPT_MS = 2_000;
 
 const tabs = (page: Page) => page.locator('#tabs .tab:not(.mirror)');
 
+// Closes every session and waits until their shells have ended (a running
+// shell's row goes when it exits): this spec starts several login shells at
+// once, and the specs after it share the daemon, so none may still be
+// winding down (saving history, say) when the next spec opens its tabs.
 async function dropSessions(page: Page, daemon: Daemon): Promise<void> {
   const headers = { Authorization: `Bearer ${daemon.token}` };
-  const list = await page.request.get(`${daemon.baseUrl}/api/sessions`, { headers });
-  for (const s of (await list.json()) as { id: string }[]) {
+  const list = async () =>
+    (await (await page.request.get(`${daemon.baseUrl}/api/sessions`, { headers })).json()) as { id: string }[];
+  for (const s of await list()) {
     await page.request.delete(`${daemon.baseUrl}/api/sessions/${s.id}`, { headers });
   }
+  await expect.poll(async () => (await list()).length, { timeout: 15_000 }).toBe(0);
 }
 
 test.beforeEach(async ({ page, daemon }) => {
@@ -33,19 +45,18 @@ test('opening several tabs at once leaves settings, the board and terminals resp
 }) => {
   await openApp(page, daemon);
 
-  // Several new tabs back to back, without waiting for their shells.
-  const newSession = page.locator('.tabbar [data-new-session]');
-  for (let i = 0; i < TABS; i++) await newSession.click();
-  await expect(tabs(page)).toHaveCount(TABS + 1);
+  // Several sessions, made without attaching: none has a shell yet.
+  const headers = { Authorization: `Bearer ${daemon.token}` };
+  const ids: string[] = [];
+  for (let i = 0; i < TABS; i++) {
+    const res = await page.request.post(`${daemon.baseUrl}/api/sessions`, { headers, data: {} });
+    expect(res.status()).toBe(200);
+    ids.push(((await res.json()) as { id: string }).id);
+  }
 
-  // Every session the daemon knows, (re)attached at once while settings
+  // All attached at once, which starts every shell, while settings
   // round-trip: each socket's first frame is its replay, sent once its shell
   // is running.
-  const headers = { Authorization: `Bearer ${daemon.token}` };
-  const ids = ((await (await page.request.get(`${daemon.baseUrl}/api/sessions`, { headers })).json()) as {
-    id: string;
-  }[]).map((s) => s.id);
-  expect(ids).toHaveLength(TABS + 1);
   const burst = page.evaluate(
     async ({ ids, token }) => {
       const base = location.origin;
@@ -81,9 +92,12 @@ test('opening several tabs at once leaves settings, the board and terminals resp
   expect(attached).toEqual(ids.map(() => true));
   for (const ms of settings) expect(ms).toBeLessThan(PROMPT_MS);
 
-  // Back to the terminals: each new tab's shell takes input.
+  // Back to the terminals, the new sessions synced in as tabs (as coming
+  // back to the window does): each new tab's shell takes input.
   await page.goBack();
   await expect(page.locator('#board')).toBeHidden();
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(tabs(page)).toHaveCount(TABS + 1);
   for (let i = 1; i <= TABS; i++) {
     await tabs(page).nth(i).click();
     const mark = `spawned-${i}`;

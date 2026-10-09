@@ -156,9 +156,11 @@ pub(crate) fn get_or_spawn(st: &AppState, id: &str) -> Result<Option<Arc<Session
     let Some((cwd, scrollback, status, prompt, pending, resume)) = row else {
         return Ok(None);
     };
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
     let session = spawn_session(
         st.clone(),
         id.to_owned(),
+        &shell,
         cwd,
         scrollback,
         prompt.as_deref(),
@@ -170,19 +172,23 @@ pub(crate) fn get_or_spawn(st: &AppState, id: &str) -> Result<Option<Arc<Session
         }
         Startup::Nothing => {}
     }
+    register(st, id, &session);
+    Ok(Some(session))
+}
+
+/// Puts a started shell in `live`. One that already ended found nothing
+/// there to forget when it did: it is forgotten here instead.
+fn register(st: &AppState, id: &str, session: &Arc<Session>) {
     st.live
         .lock()
         .unwrap()
         .insert(id.to_owned(), session.clone());
-    // A shell that already ended found nothing to forget in `live`: forget
-    // it here.
     if session.output.lock().unwrap().exited {
         let mut live = st.live.lock().unwrap();
-        if live.get(id).is_some_and(|x| Arc::ptr_eq(x, &session)) {
+        if live.get(id).is_some_and(|x| Arc::ptr_eq(x, session)) {
             live.remove(id);
         }
     }
-    Ok(Some(session))
 }
 
 #[derive(Debug, PartialEq)]
@@ -234,6 +240,7 @@ pub(super) fn type_launch_line(st: &AppState, id: &str, session: &Session) {
 fn spawn_session(
     st: AppState,
     id: String,
+    shell: &str,
     cwd: Option<String>,
     saved: Vec<u8>,
     prompt: Option<&str>,
@@ -245,7 +252,6 @@ fn spawn_session(
         pixel_height: 0,
     })?;
 
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
     let mut cmd = CommandBuilder::new(shell);
     cmd.arg("-l");
     for (k, v) in shell_env(&st, &id, prompt) {
@@ -506,26 +512,15 @@ mod tests {
     fn a_socket_starts_its_shell_off_the_async_workers() {
         let st = test_state();
         let id = new_card(&st);
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap();
-        let holder = crate::test_support::hold_db(&st, std::time::Duration::from_millis(400));
-        let (free, session) = rt.block_on(async {
-            let t0 = std::time::Instant::now();
-            let opening = tokio::spawn(open(st.clone(), id.clone()));
-            // Lets `opening` run: inline, it would block this worker on the
-            // held database until the holder lets go.
-            tokio::task::yield_now().await;
-            let free = t0.elapsed() < std::time::Duration::from_millis(200);
-            (free, opening.await.unwrap().unwrap().unwrap())
-        });
-        holder.join().unwrap();
-        kill(&session);
+        let (free, session) = crate::test_support::off_the_worker(&st, open(st.clone(), id));
+        kill(&session.unwrap().unwrap());
         assert!(free, "the worker was free while the shell started");
     }
 
     // Opening one tab's shell doesn't hold `live`, which every other tab's
-    // attach, cwd and close needs, while it reads its card or forks.
+    // attach, cwd and close needs, while it waits to read its card. (This
+    // covers the database wait only; fork and `openpty` hold no lock either,
+    // but aren't slow enough here to observe.)
     #[test]
     fn starting_a_shell_leaves_the_other_sessions_free() {
         let st = test_state();
@@ -535,15 +530,34 @@ mod tests {
             let (st, id) = (st.clone(), id.clone());
             std::thread::spawn(move || get_or_spawn(&st, &id).unwrap().unwrap())
         };
+        // Past the opener's brief look in `live`, to its wait for the card.
+        std::thread::sleep(std::time::Duration::from_millis(30));
         let t0 = std::time::Instant::now();
-        let mut free = true;
+        let mut busy = 0;
         while t0.elapsed() < std::time::Duration::from_millis(250) {
-            free &= st.live.try_lock().is_ok();
+            busy += usize::from(st.live.try_lock().is_err());
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         holder.join().unwrap();
         kill(&opening.join().unwrap());
-        assert!(free, "`live` stayed free while the shell started");
+        // Held throughout, `live` would be busy on every one of ~25 looks.
+        assert!(busy <= 1, "`live` stayed free while the shell started");
+    }
+
+    // A shell that ends before it is registered in `live` (here `true`,
+    // which exits at once) found nothing there to forget: registering it
+    // must not leave it there for good.
+    #[test]
+    fn a_shell_that_ended_before_it_was_registered_is_not_left_running() {
+        let st = test_state();
+        let id = new_card(&st);
+        let session = spawn_session(st.clone(), id.clone(), "true", None, vec![], None).unwrap();
+        assert!(eventually(|| session.output.lock().unwrap().exited));
+        register(&st, &id, &session);
+        assert!(
+            !st.live.lock().unwrap().contains_key(&id),
+            "the ended shell was forgotten"
+        );
     }
 
     // Tabs attaching to one session at once share one shell.

@@ -43,3 +43,29 @@ pub(crate) fn hold_db(
     is_held.recv().unwrap();
     holder
 }
+
+/// Runs `work` as a task on a one-worker runtime while `st.db` is held for
+/// 400ms, and says whether the worker stayed free meanwhile: work that waits
+/// on the database (or a shell's start) inline parks that worker; work on
+/// the blocking pool doesn't. Also returns what `work` returned.
+pub(crate) fn off_the_worker<F>(st: &crate::AppState, work: F) -> (bool, F::Output)
+where
+    F: std::future::Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    let holder = hold_db(st, std::time::Duration::from_millis(400));
+    let out = rt.block_on(async {
+        let t0 = std::time::Instant::now();
+        let task = tokio::spawn(work);
+        // Lets `task` run: inline, it would block this worker on the held
+        // database until the holder lets go.
+        tokio::task::yield_now().await;
+        let free = t0.elapsed() < std::time::Duration::from_millis(200);
+        (free, task.await.unwrap())
+    });
+    holder.join().unwrap();
+    out
+}

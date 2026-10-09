@@ -318,10 +318,17 @@ async fn reorder_sessions(State(st): State<AppState>, Json(body): Json<Order>) -
 /// Close a tab. A running shell is killed and its reader thread removes the
 /// row (and tells attached clients); a not-yet-restored one is just deleted.
 async fn delete_session(State(st): State<AppState>, Path(id): Path<String>) -> StatusCode {
+    // On the blocking pool: the close waits out a start of this tab's shell.
+    tokio::task::spawn_blocking(move || close(&st, &id))
+        .await
+        .unwrap_or_else(internal_error)
+}
+
+fn close(st: &AppState, id: &str) -> StatusCode {
     // Waits out a start of this tab's shell, so that shell is killed too.
-    let _turn = st.starting.turn(&id);
+    let _turn = st.starting.turn(id);
     let live = st.live.lock().unwrap();
-    if let Some(session) = live.get(&id) {
+    if let Some(session) = live.get(id) {
         let _ = session.killer.lock().unwrap().kill();
         return StatusCode::NO_CONTENT;
     }
@@ -341,6 +348,21 @@ async fn delete_session(State(st): State<AppState>, Path(id): Path<String>) -> S
 mod tests {
     use super::*;
     use crate::test_support::test_state;
+
+    // Closing a tab waits out a start of its shell: on the blocking pool, so
+    // the worker that took the request moves on.
+    #[test]
+    fn closing_a_tab_waits_off_the_async_workers() {
+        let st = test_state();
+        let id = insert_session(&st.db.lock().unwrap(), None).unwrap().id;
+        let (free, code) = crate::test_support::off_the_worker(
+            &st,
+            delete_session(State(st.clone()), Path(id.clone())),
+        );
+        assert_eq!(code, StatusCode::NO_CONTENT);
+        assert!(free, "the worker was free while the close waited");
+        assert!(!exists(&st, &id));
+    }
 
     #[test]
     fn cwd_falls_back_to_the_saved_column() {

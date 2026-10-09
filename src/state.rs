@@ -11,7 +11,8 @@ use std::{
 
 /// The database is the source of truth for which sessions exist; `live`
 /// holds the ones with a running shell. Lock order: `starting` (one
-/// session's turn) before `live` before `db`.
+/// session's turn), then `live`, then `db`, then a session's `output`
+/// (as `flush` takes them).
 #[derive(Clone)]
 pub(crate) struct AppState {
     pub(crate) db: Arc<Mutex<Connection>>,

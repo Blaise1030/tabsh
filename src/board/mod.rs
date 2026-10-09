@@ -370,6 +370,14 @@ async fn set_prompt(
     Path(id): Path<String>,
     Json(body): Json<SetPrompt>,
 ) -> Result<Json<SessionInfo>, StatusCode> {
+    // The restart waits out a start of the card's shell: on the blocking
+    // pool, so the worker moves on meanwhile.
+    tokio::task::spawn_blocking(move || edit_prompt(&st, &id, body))
+        .await
+        .map_err(internal_error)?
+}
+
+fn edit_prompt(st: &AppState, id: &str, body: SetPrompt) -> Result<Json<SessionInfo>, StatusCode> {
     let prompt = clean_prompt(&body.prompt);
     let command = body
         .command
@@ -453,12 +461,12 @@ async fn set_prompt(
         }
     };
     updated.map_err(internal_error)?;
-    let info = store::info(&db, &id)
+    let info = store::info(&db, id)
         .map_err(internal_error)?
         .ok_or(StatusCode::NOT_FOUND)?;
     drop(db);
     // The old shell was spawned with the old prompt in its environment.
-    crate::sessions::restart(&st, &id);
+    crate::sessions::restart(st, id);
     Ok(Json(info))
 }
 
@@ -640,43 +648,65 @@ mod tests {
         )
         .unwrap()
         .id;
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap();
-        let holder = crate::test_support::hold_db(&st, std::time::Duration::from_millis(400));
-        let (free, code) = rt.block_on(async {
-            let t0 = std::time::Instant::now();
-            let moving = {
-                let (st, id) = (st.clone(), id.clone());
-                tokio::spawn(async move {
-                    patch(
-                        &st,
-                        &id,
-                        serde_json::json!({"status": "in_progress", "source": "user"}),
-                    )
-                    .await
-                    .0
-                })
-            };
-            // Lets `moving` run: inline, it would block this worker on the
-            // held database until the holder lets go.
-            tokio::task::yield_now().await;
-            let free = t0.elapsed() < std::time::Duration::from_millis(200);
-            (free, moving.await.unwrap())
-        });
-        holder.join().unwrap();
+        let (free, code) = {
+            let (st2, id) = (st.clone(), id.clone());
+            crate::test_support::off_the_worker(&st, async move {
+                patch(
+                    &st2,
+                    &id,
+                    serde_json::json!({"status": "in_progress", "source": "user"}),
+                )
+                .await
+                .0
+            })
+        };
         assert_eq!(code, StatusCode::OK);
         assert!(
             st.live.lock().unwrap().contains_key(&id),
             "the drag started the shell"
         );
-        rt.block_on(req(
-            &st,
-            Method::DELETE,
-            &format!("/api/sessions/{id}"),
-            serde_json::Value::Null,
-        ));
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(req(
+                &st,
+                Method::DELETE,
+                &format!("/api/sessions/{id}"),
+                serde_json::Value::Null,
+            ));
         assert!(free, "the worker was free while the shell started");
+    }
+
+    // Editing a Backlog card's prompt restarts its shell, which waits out a
+    // start of that shell: on the blocking pool, so the worker moves on.
+    #[test]
+    fn a_prompt_edit_waits_off_the_async_workers() {
+        let st = test_state();
+        let id = crate::sessions::store::insert_card(
+            &st.db.lock().unwrap(),
+            &crate::sessions::store::NewCard {
+                pending: Some("true\r"),
+                prompt: Some("go"),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .id;
+        let (free, code) = {
+            let st2 = st.clone();
+            crate::test_support::off_the_worker(&st, async move {
+                req(
+                    &st2,
+                    Method::PATCH,
+                    &format!("/api/sessions/{id}/prompt"),
+                    serde_json::json!({"prompt": "go again"}),
+                )
+                .await
+                .0
+            })
+        };
+        assert_eq!(code, StatusCode::OK);
+        assert!(free, "the worker was free while the edit waited");
     }
 
     #[tokio::test]
