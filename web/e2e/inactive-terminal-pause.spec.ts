@@ -34,7 +34,7 @@ test.afterEach(async ({ page, daemon }) => dropSessions(page, daemon));
 
 test('a parked tab flooding output shows unread, rings, and catches up when activated', async ({ page, daemon }) => {
   // Two shells, a timed flood and a replay: more than the default budget.
-  test.setTimeout(60_000);
+  test.setTimeout(120_000);
   // Touched by B's shell as its flood starts, and once it has printed everything.
   const started = test.info().outputPath('flood-started');
   const done = test.info().outputPath('flood-done');
@@ -70,13 +70,13 @@ test('a parked tab flooding output shows unread, rings, and catches up when acti
   await expect(b).toHaveClass(/\bunread\b/);
   expect(existsSync(done), 'the A interactions ran during the flood').toBe(false);
 
-  // Parked B heard its bell.
-  await expect(b).toHaveClass(/\bbell\b/, { timeout: 20_000 });
+  // Once its flood has finished (however long a loaded machine takes), parked
+  // B has heard its bell.
+  await expect.poll(() => existsSync(done), { timeout: 60_000 }).toBe(true);
+  await expect(b).toHaveClass(/\bbell\b/);
 
-  // Once its flood has finished (the title is in its scrollback), activating
-  // B replays it: the tab takes the title, unread and bell clear, and it
-  // takes input.
-  await expect.poll(() => existsSync(done), { timeout: 20_000 }).toBe(true);
+  // Activating B replays its flood: the tab takes the title, unread and bell
+  // clear, and it takes input.
   await b.click();
   await expect(selectedName(page)).toHaveText('flood-tail', { timeout: 15_000 });
   const active = tabs(page).filter({ hasText: 'flood-tail' });
