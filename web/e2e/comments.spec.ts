@@ -531,3 +531,66 @@ test('raw HTML around Markdown renders as it would without comments, and lines s
   await expect(rows(page)).toContainText('- line 9, "After the fold.": Trim.');
   await page.keyboard.press('Control+C');
 });
+
+test('the comment box outlives a re-render, its text and all', async ({ page, daemon, project }) => {
+  const file = path.join(project, 'draft.md');
+  writeFileSync(file, PLAN);
+  await openApp(page, daemon);
+  await openFile(page, project, 'draft.md');
+  await select(page, 'First paragraph.');
+  await shown(page).locator('.comment-menu [role="menuitem"]').click();
+  const box = shown(page).locator('.comment-box');
+  await box.locator('textarea').fill('Keep typing.');
+  writeFileSync(file, PLAN.replace('# Plan\n', '# Plan\n\nNew line.\n'));
+  // The pane checks the disk every 2 s and re-renders the preview in place.
+  await expect(preview(page).locator('body')).toContainText('New line.', { timeout: 10_000 });
+  await expect(box).toBeVisible();
+  await expect(box.locator('textarea')).toHaveValue('Keep typing.');
+  await box.getByRole('button', { name: 'Comment' }).click();
+  await expect(box).toBeHidden();
+  // The new frame found the passage again, two lines down.
+  await expect.poll(() => highlights(page)).toBe(1);
+  await expect(status(page)).toHaveText('');
+  await catWithPasteMode(page, true);
+  await shown(page).locator('.pane-send').click();
+  await expect(rows(page)).toContainText('- line 5, "First paragraph.": Keep typing.');
+  await page.keyboard.press('Control+C');
+});
+
+test('editing a comment outlives a re-render too', async ({ page, daemon, project }) => {
+  const file = path.join(project, 'edit.md');
+  writeFileSync(file, PLAN);
+  await openApp(page, daemon);
+  await openFile(page, project, 'edit.md');
+  await comment(page, 'First paragraph.', 'Make it shorter.');
+  await hover(page, 'First paragraph.');
+  await shown(page).locator('.comment-hover').getByRole('button', { name: 'Edit comment' }).click();
+  const box = shown(page).locator('.comment-box');
+  await box.locator('textarea').fill('Cut it to one line.');
+  writeFileSync(file, PLAN.replace('# Plan\n', '# Plan\n\nNew line.\n'));
+  await expect(preview(page).locator('body')).toContainText('New line.', { timeout: 10_000 });
+  await expect(box).toBeVisible();
+  await expect(box.locator('textarea')).toHaveValue('Cut it to one line.');
+  await box.getByRole('button', { name: 'Save' }).click();
+  await hover(page, 'First paragraph.');
+  await expect(shown(page).locator('.comment-hover .comment-note')).toHaveText('Cut it to one line.');
+  await expect(shown(page).locator('.comment-hover .comment-lines')).toHaveText('L5');
+});
+
+test('Cmd/Ctrl-E and -S typed in the comment box stay in the box', async ({ page, daemon, project }) => {
+  writeFileSync(path.join(project, 'plan.md'), PLAN);
+  await openApp(page, daemon);
+  await openFile(page, project, 'plan.md');
+  await select(page, 'First paragraph.');
+  await shown(page).locator('.comment-menu [role="menuitem"]').click();
+  const box = shown(page).locator('.comment-box');
+  await box.locator('textarea').fill('Still here.');
+  await expect(box.locator('textarea')).toBeFocused();
+  await page.keyboard.press('ControlOrMeta+e');
+  await page.keyboard.press('ControlOrMeta+s');
+  await page.waitForTimeout(300);
+  await expect(shown(page).locator('.cm-editor')).toHaveCount(0);
+  await expect(shown(page).locator('.pane-frame')).toHaveCount(1);
+  await expect(box).toBeVisible();
+  await expect(box.locator('textarea')).toHaveValue('Still here.');
+});

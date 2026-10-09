@@ -39,6 +39,7 @@ interface Picked {
   nth: number;
   of: number;
   rect: Rect;
+  gen: number; // the frame it was made in (`gen` then)
 }
 
 interface Spot {
@@ -55,6 +56,7 @@ export function createNotes(host: NotesHost): Notes {
   const quote = van.state('');
   const saveLabel = van.state('Comment');
   let frame: HTMLIFrameElement | null = null;
+  let gen = 0; // counts frames: a selection is kept only by the frame it was made in
   let ready = false;
   let picked: Picked | null = null;
   let editing: Comment | null = null; // the comment the box edits; null for a new one
@@ -192,7 +194,10 @@ export function createNotes(host: NotesHost): Notes {
       const { sel, quote: q, from, to, nth, of } = picked;
       const id = nextId++;
       comments.val = [...comments.val, { id, quote: q, from, to, nth, of, note: text, lost: false }];
-      tell({ type: 'keep', id, sel });
+      // The preview was re-rendered while the box was open: the new frame
+      // finds the passage again (once it's listening, else when it says ready).
+      if (picked.gen === gen) tell({ type: 'keep', id, sel });
+      else if (ready) tell({ type: 'locate', id, quote: q, from, nth, of });
       picked = null;
     }
     hideAll();
@@ -217,6 +222,14 @@ export function createNotes(host: NotesHost): Notes {
   }
 
   box.addEventListener('keydown', (e) => {
+    const mod = (isMac ? e.metaKey : e.ctrlKey) && !e.altKey && !e.shiftKey;
+    const key = e.key.toLowerCase();
+    // Not the pane's: Mod-E would leave the preview, Mod-S save the file.
+    if (mod && (key === 'e' || key === 's')) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     // Handled here: the pane's own Esc (back to the terminal) skips a prevented one.
     if (e.key === 'Escape') {
       e.preventDefault();
@@ -250,7 +263,7 @@ export function createNotes(host: NotesHost): Notes {
         break;
       case 'select':
         if (!box.hidden) break; // a comment is being written: keep it
-        picked = { sel: m.sel, quote: m.quote, from: m.from, to: m.to, nth: m.nth, of: m.of, rect: m.rect };
+        picked = { sel: m.sel, quote: m.quote, from: m.from, to: m.to, nth: m.nth, of: m.of, rect: m.rect, gen };
         hideCard();
         menuAt = place(menu, m.rect, true);
         break;
@@ -291,12 +304,16 @@ export function createNotes(host: NotesHost): Notes {
     pieces: [menu, box, card],
     attach(f) {
       frame = f;
+      gen++;
       ready = false;
     },
+    // The box stays open, its text with it: a re-render (the file changed on
+    // disk) mustn't lose a comment being written.
     detach() {
       frame = null;
       ready = false;
-      hideAll();
+      menu.hidden = true;
+      hideCard();
     },
     theme(css) {
       if (!frame || !ready) return false;
