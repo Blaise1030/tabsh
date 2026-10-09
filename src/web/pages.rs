@@ -202,6 +202,41 @@ mod tests {
         }
     }
 
+    /// Markdown previews run tabsh's frame script, so a frame must never load
+    /// anything but a blob: a link or a refresh in the Markdown can't swap the
+    /// preview for a page of its own, with its own policy.
+    #[test]
+    fn frames_may_only_load_blobs() {
+        let frame_src = APP_CSP
+            .split(';')
+            .map(str::trim)
+            .find(|d| d.starts_with("frame-src"))
+            .expect("the CSP has a frame-src");
+        assert_eq!(frame_src, "frame-src blob:");
+    }
+
+    /// The Markdown preview's script is a file of its own, reached only by its
+    /// URL from the lazy pane chunk, never by the page itself.
+    #[test]
+    fn preview_frame_script_is_its_own_asset() {
+        let assets = crate::web::assets::app_assets();
+        let (name, _) = assets
+            .iter()
+            .find(|(n, _)| n.starts_with("preview-frame-") && n.ends_with(".js"))
+            .expect("no preview-frame asset: run npm run build in web/");
+        let url = format!("/_astro/{name}");
+        assert!(
+            assets
+                .iter()
+                .any(|(n, bytes)| n != name && String::from_utf8_lossy(bytes).contains(&url)),
+            "nothing refers to {url}"
+        );
+        assert!(
+            !APP_HTML.contains(&url),
+            "the page loads the frame script itself"
+        );
+    }
+
     /// Our copy of the page gets the same policy as the hosted one, apart
     /// from where it may connect.
     #[test]

@@ -124,7 +124,13 @@ A refactor must not change any of these.
   bar before any request. Nothing rendered from a file can read it.
 - **File previews:**
   - HTML renders in `<iframe sandbox="allow-scripts allow-popups">`.
-  - Markdown and SVG render in `<iframe sandbox="">`.
+  - SVG renders in `<iframe sandbox="">`.
+  - Markdown renders in `<iframe sandbox="allow-scripts">`. Its `srcdoc`
+    opens with its own CSP, whose `script-src` is exactly tabsh's frame
+    script (`files/preview-frame.ts`, built as its own asset). That is the
+    only script that runs there: the page's inherited CSP blocks inline
+    script and handlers, and its `frame-src blob:` keeps the frame from being
+    navigated to a page with a policy of its own (`frames_may_only_load_blobs`).
   - Images and PDFs load from `blob:` URLs.
   - File content never goes through `innerHTML`.
 - **No markup strings:** no `innerHTML`, `outerHTML` or `insertAdjacentHTML` in

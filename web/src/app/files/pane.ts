@@ -9,6 +9,7 @@ import { go, here } from '../nav/router.ts';
 import { isMac } from '../ui/dom.ts';
 import { icons } from '../ui/icons.ts';
 import { keyed } from '../ui/keyed.ts';
+import { createNotes, type Notes } from './annotate.ts';
 import {
   displayPath,
   type Fetcher,
@@ -22,8 +23,10 @@ import {
   saveFile,
   toDisk,
 } from './api.ts';
+import { frameCsp, highlightCss, renderBlocks } from './comments.ts';
 import { createEditor, type Editor } from './editor.ts';
 import { paneShown } from './open.ts';
+import frameScript from './preview-frame.ts?worker&url';
 import { rememberFile } from './remember.ts';
 
 const { button, div, header, iframe, img, p, section, span } = van.tags;
@@ -71,6 +74,8 @@ interface PaneState {
   blobUrl: string | null;
   markdown: string | null; // rendered HTML, re-wrapped when the theme changes
   frame: HTMLIFrameElement | null;
+  notes: Notes; // the comments on a Markdown preview (annotate.ts)
+  mark: string; // the Markdown preview's render mark (comments.ts's renderBlocks)
 }
 
 let host: Host;
@@ -185,6 +190,7 @@ function PaneView(st: PaneState): HTMLElement {
     PaneHead(st),
     () => st.body.val,
     ConflictBar(st),
+    ...st.notes.pieces,
   );
   // Scroll doesn't bubble, so catch the editor's or body's on the way down.
   view.addEventListener(
@@ -220,6 +226,7 @@ function Msg(text: string): HTMLElement {
 
 // Drops whatever the body shows, freeing the editor and any blob.
 function clear(st: PaneState): void {
+  st.notes.detach();
   st.editor?.destroy();
   st.editor = null;
   if (st.blobUrl) URL.revokeObjectURL(st.blobUrl);
@@ -239,6 +246,7 @@ export function forget(sessionId: string): void {
   const st = states.get(sessionId);
   if (!st) return;
   clear(st);
+  st.notes.dispose();
   clearTimeout(st.timer);
   states.delete(sessionId);
   panes.val = [...states.values()];
@@ -390,8 +398,9 @@ async function pull(st: PaneState): Promise<void> {
   else mountRich(st);
 }
 
-function markdownDoc(html: string, th: PaneTheme): string {
-  const style =
+// A Markdown preview's look: the theme's colours, and the comments' highlight.
+function previewCss(th: PaneTheme): string {
+  return (
     `body{margin:0;padding:1rem 1.5rem;font:14px/1.6 system-ui,sans-serif;background:${th.background};color:${th.foreground}}` +
     `a{color:${th.cursor}}pre,code{font-family:ui-monospace,Menlo,monospace;font-size:.9em}` +
     `pre{padding:.75rem;overflow:auto;background:color-mix(in srgb,${th.foreground} 8%,${th.background})}` +
@@ -401,8 +410,27 @@ function markdownDoc(html: string, th: PaneTheme): string {
     `body::before{content:"";position:fixed;top:0;left:0;right:0;height:1rem;z-index:1;pointer-events:none;` +
     `background:linear-gradient(${th.background},transparent);opacity:0;` +
     `animation:fade linear both;animation-timeline:scroll(root);animation-range:0 1px}` +
-    `@keyframes fade{to{opacity:1}}`;
-  return `<!doctype html><meta charset="utf-8"><style>${style}</style>${html}`;
+    `@keyframes fade{to{opacity:1}}` +
+    highlightCss(th.light, th.background)
+  );
+}
+
+// A fresh random mark for a render: 32 hex digits.
+const newMark = () =>
+  Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
+
+// A Markdown preview's document. Its first tag after the charset is its own
+// CSP: the one script that may run is tabsh's frame script, at its exact URL.
+// The script takes this render's mark from its query (CSP ignores the query).
+function markdownDoc(html: string, th: PaneTheme, mark: string): string {
+  const url = new URL(frameScript, location.href);
+  const policy = frameCsp(url.origin + url.pathname);
+  url.search = '';
+  url.searchParams.set('m', mark);
+  return (
+    `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}">` +
+    `<style id="tabsh-theme">${previewCss(th)}</style><script src="${url.href}"></script>${html}`
+  );
 }
 
 function svgDoc(svg: string): string {
@@ -446,6 +474,7 @@ function mountRich(st: PaneState): void {
   st.editor = null;
   st.frame = null;
   st.markdown = null;
+  st.notes.detach();
   body.replaceChildren();
   if (st.editing.val) {
     st.editor = newEditor(st, body, false);
@@ -467,13 +496,19 @@ function mountRich(st: PaneState): void {
     show(svgDoc(st.doc), '');
   } else {
     void import('marked')
-      .then(({ marked }) => marked.parse(st.doc))
+      .then(({ marked }) => {
+        const mark = newMark();
+        return { html: renderBlocks(marked, st.doc, mark), mark };
+      })
       .then(
-        (html) => {
+        ({ html, mark }) => {
           if (st.previewSeq !== seq || st.body.val !== body || st.editing.val) return;
-          // An empty sandbox: no scripts, an opaque origin.
+          // Scripts, but only tabsh's frame script (its own CSP); an opaque
+          // origin, away from the token.
           st.markdown = html;
-          st.frame = show(markdownDoc(html, host.theme()), '');
+          st.mark = mark;
+          st.frame = show(markdownDoc(html, host.theme(), mark), 'allow-scripts');
+          st.notes.attach(st.frame);
         },
         () => {
           if (st.previewSeq === seq) body.replaceChildren(Msg("Couldn't render the preview"));
@@ -547,7 +582,11 @@ export async function showFile(
 
 let made = 0;
 function newState(id: string, requested: string): PaneState {
-  return {
+  const notes = createNotes({
+    path: () => st.path.val.text,
+    status: (text) => setStatus(st, text),
+  });
+  const st: PaneState = {
     id,
     key: `${id}#${++made}`,
     path: van.state({ abs: requested, text: requested }),
@@ -571,7 +610,10 @@ function newState(id: string, requested: string): PaneState {
     blobUrl: null,
     markdown: null,
     frame: null,
+    notes,
+    mark: '',
   };
+  return st;
 }
 
 // `focus` is false for a load nobody asked for, which mustn't take the
@@ -665,6 +707,10 @@ export function applyTheme(): void {
   const th = host.theme();
   for (const st of states.values()) {
     st.editor?.setTheme(th);
-    if (st.frame && st.markdown !== null) st.frame.srcdoc = markdownDoc(st.markdown, th);
+    // In place when the frame script is listening (the comments' highlights
+    // stay), else by a new document.
+    if (st.frame && st.markdown !== null && !st.notes.theme(previewCss(th))) {
+      st.frame.srcdoc = markdownDoc(st.markdown, th, st.mark);
+    }
   }
 }

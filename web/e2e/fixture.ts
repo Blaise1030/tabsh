@@ -134,3 +134,17 @@ export async function setOnboarded(page: Page, daemon: Daemon, on: boolean): Pro
   });
   expect(res.status()).toBe(204);
 }
+
+// Picks `name` from the palette's theme page.
+export async function pickTheme(page: Page, name: string): Promise<void> {
+  await page.locator('#settings-btn').click();
+  await expect.poll(() => page.locator('#palette').evaluate((d) => (d as HTMLDialogElement).open)).toBe(true);
+  await page.locator('#palette-input').fill('theme');
+  await expect(page.locator('#palette-menu [role="menuitem"].active')).toHaveAttribute('data-filter', 'Theme…');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#palette-input')).toHaveAttribute('placeholder', /Search themes/);
+  await page.locator('#palette-input').fill(name);
+  await expect(page.locator('#palette-menu [role="menuitem"].active')).toHaveAttribute('data-filter', name);
+  await page.keyboard.press('Enter');
+  await expect.poll(() => page.locator('#palette').evaluate((d) => (d as HTMLDialogElement).open)).toBe(false);
+}

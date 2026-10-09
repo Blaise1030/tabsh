@@ -1,23 +1,9 @@
 // The file pane, end to end: a theme change re-themes the open file in
 // place, keeping its one frame or editor, the unsaved dot and the edit.
 import type { Page } from '@playwright/test';
-import { cdInTerminal, expect, openApp, test } from './fixture.ts';
+import { cdInTerminal, expect, openApp, pickTheme, test } from './fixture.ts';
 
 const shown = (page: Page) => page.locator('#pane .pane-view:not([hidden])');
-
-// Picks `name` from the palette's theme page.
-async function pickTheme(page: Page, name: string): Promise<void> {
-  await page.locator('#settings-btn').click();
-  await expect.poll(() => page.locator('#palette').evaluate((d) => (d as HTMLDialogElement).open)).toBe(true);
-  await page.locator('#palette-input').fill('theme');
-  await expect(page.locator('#palette-menu [role="menuitem"].active')).toHaveAttribute('data-filter', 'Theme…');
-  await page.keyboard.press('Enter');
-  await expect(page.locator('#palette-input')).toHaveAttribute('placeholder', /Search themes/);
-  await page.locator('#palette-input').fill(name);
-  await expect(page.locator('#palette-menu [role="menuitem"].active')).toHaveAttribute('data-filter', name);
-  await page.keyboard.press('Enter');
-  await expect.poll(() => page.locator('#palette').evaluate((d) => (d as HTMLDialogElement).open)).toBe(false);
-}
 
 // One frame or one editor, never both or two.
 async function oneBody(page: Page): Promise<void> {
@@ -31,7 +17,9 @@ test('a theme change keeps the edit and the dirty dot', async ({ page, daemon, p
 
   await openApp(page, daemon);
   await cdInTerminal(page, project, 'in-project');
-  await page.locator('#explorer-btn').click();
+  if ((await page.locator('#explorer-btn').getAttribute('aria-pressed')) !== 'true') {
+    await page.locator('#explorer-btn').click();
+  }
   await row('README.md').click();
   await expect(shown(page).locator('.pane-head')).toContainText('README.md');
   await expect(shown(page).locator('.pane-frame')).toHaveCount(1);
