@@ -235,6 +235,20 @@ mod tests {
             !APP_HTML.contains(&url),
             "the page loads the frame script itself"
         );
+        // Nor does the entry module (the page's one script) name it.
+        let entry = APP_HTML
+            .split(r#"<script type="module" src="/_astro/"#)
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .expect("the page loads one module script");
+        let (_, entry_js) = assets
+            .iter()
+            .find(|(n, _)| *n == entry)
+            .expect("the entry module is an asset");
+        assert!(
+            !String::from_utf8_lossy(entry_js).contains(&url),
+            "the entry module names the frame script"
+        );
     }
 
     /// Our copy of the page gets the same policy as the hosted one, apart

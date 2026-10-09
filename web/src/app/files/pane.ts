@@ -425,7 +425,6 @@ const newMark = () =>
 function markdownDoc(html: string, th: PaneTheme, mark: string): string {
   const url = new URL(frameScript, location.href);
   const policy = frameCsp(url.origin + url.pathname);
-  url.search = '';
   url.searchParams.set('m', mark);
   return (
     `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}">` +

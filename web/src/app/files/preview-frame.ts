@@ -19,6 +19,17 @@ function start(): void {
   const g = globalThis as unknown as Record<symbol, unknown>;
   if (g[RAN]) return;
   g[RAN] = true;
+  // Taken now, before the Markdown is parsed: a named element in it (a form
+  // control called parentElement, an <img name="querySelectorAll">) can shadow
+  // these on an element or the document later, and must not steer this script.
+  const parentOf = Object.getOwnPropertyDescriptor(Node.prototype, 'parentElement')?.get as (
+    this: Node,
+  ) => Element | null;
+  const attr = Element.prototype.getAttribute;
+  const closest = Element.prototype.closest;
+  const query = Document.prototype.querySelectorAll;
+  const walker = Document.prototype.createTreeWalker;
+  const newRange = Document.prototype.createRange;
   // Without the Custom Highlight API there are no comments; the preview still shows.
   if (typeof Highlight === 'undefined' || !('highlights' in CSS)) return;
   // Taken now, while this script is the last thing parsed: nothing in the
@@ -39,12 +50,14 @@ function start(): void {
 
   // The nearest enclosing block of this render, by its mark.
   const blockOf = (node: Node | null): Element | null => {
-    for (let el = node instanceof Element ? node : (node?.parentElement ?? null); el; el = el.parentElement) {
-      if (el.getAttribute('data-tabsh-block') === mark) return el;
+    let el = node instanceof Element ? node : node ? parentOf.call(node) : null;
+    // Bounded, as a belt and braces against any loop.
+    for (let steps = 0; el && steps < 10000; steps++, el = parentOf.call(el)) {
+      if (attr.call(el, 'data-tabsh-block') === mark) return el;
     }
     return null;
   };
-  const lineOf = (el: Element, which: 'from' | 'to') => Number(el.getAttribute(`data-${which}`));
+  const lineOf = (el: Element, which: 'from' | 'to') => Number(attr.call(el, `data-${which}`));
   const box = (r: DOMRect): Rect => ({ top: r.top, bottom: r.bottom, left: r.left, right: r.right });
   const squash = (s: string) => s.replace(/\s+/g, ' ').trim();
 
@@ -53,15 +66,17 @@ function start(): void {
   function index(): { flat: string; at: Spot[] } {
     let flat = '';
     const at: Spot[] = [];
-    for (const block of document.querySelectorAll(`[data-tabsh-block="${mark}"]`)) {
+    for (const block of query.call(document, `[data-tabsh-block="${mark}"]`)) {
       const line = lineOf(block, 'from');
       if (flat && !flat.endsWith(' ')) {
         flat += ' ';
         at.push(at[at.length - 1]);
       }
-      const walk = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, {
-        acceptNode: (n) =>
-          n.parentElement?.closest('script, style') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+      const walk = walker.call(document, block, NodeFilter.SHOW_TEXT, {
+        acceptNode: (n) => {
+          const p = parentOf.call(n);
+          return p && closest.call(p, 'script, style') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+        },
       });
       for (let n = walk.nextNode(); n; n = walk.nextNode()) {
         const text = (n as Text).data;
@@ -122,7 +137,7 @@ function start(): void {
     const near = found.reduce((a, b) => (Math.abs(at[b].line - from) < Math.abs(at[a].line - from) ? b : a));
     const first = nth >= 0 && found.length === of ? found[nth] : near;
     const last = at[first + want.length - 1];
-    const range = document.createRange();
+    const range = newRange.call(document);
     range.setStart(at[first].node, at[first].offset);
     range.setEnd(last.node, last.offset + 1);
     return range;
