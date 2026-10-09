@@ -1,17 +1,22 @@
 // A tab's terminal: xterm with right-click copy/paste and links, its
 // session, and the socket to its shell. The strip draws its tab from the
-// session (tab.ts). After sleep or a backgrounded browser tab, sockets drop
-// together; reconnects are queued and drained one at a time (active first)
-// so every tab's scrollback isn't replayed on the main thread at once.
+// session (tab.ts).
+//
+// Only the on-screen terminal holds a socket: the active tab while the
+// workspace shows (terms view, or the board's drawer). Others park, so a
+// drag that starts an agent (or a wake after sleep) does not replay every
+// tab's scrollback on the main thread. Reconnects still drain one at a time
+// with backoff if the visible socket drops.
 import van from 'vanjs-core';
 import { cardOf } from '../board/status.ts';
 import { socketUrl } from '../daemon/client.ts';
 import { linkProvider } from '../links/provider.ts';
+import { here } from '../nav/router.ts';
 import { current, terminalOptions } from '../settings/settings.ts';
 import { scoped } from '../ui/keyed.ts';
 import { ring } from './bell.ts';
 import { scanBell } from './bell-scan.ts';
-import { enqueueReconnect, nextReconnect, retryDelay, shouldDrainReconnects } from './reconnect.ts';
+import { enqueueReconnect, nextReconnect, retryDelay, shouldDrainReconnects, terminalInView } from './reconnect.ts';
 import {
   active,
   onActivate,
@@ -33,23 +38,36 @@ const reconnectAttempts = new Map<string, number>();
 let draining = false;
 let wakeWatched = false;
 
-function watchWake(): void {
-  if (wakeWatched) return;
-  wakeWatched = true;
-  // Lid open / back to this browser tab: drain what closed while we were away.
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) kickDrain();
-  });
-  // Switching to a tab whose socket is still down: put it first and drain.
-  onActivate(() => {
-    const s = store.active;
-    if (s && !s.closed && s.ws?.readyState !== WebSocket.OPEN) scheduleReconnect(s);
-    else kickDrain();
+function inView(s: Session): boolean {
+  const place = here();
+  return terminalInView({
+    sessionId: s.id,
+    activeId: store.active?.id ?? null,
+    view: place.view,
+    drawer: place.drawer,
+    documentHidden: document.hidden,
   });
 }
 
+function watchWake(): void {
+  if (wakeWatched) return;
+  wakeWatched = true;
+  document.addEventListener('visibilitychange', () => syncTerminalVisibility());
+  onActivate(() => syncTerminalVisibility());
+}
+
+function park(s: Session): void {
+  reconnectQueue = reconnectQueue.filter((id) => id !== s.id);
+  reconnectAttempts.delete(s.id);
+  const ws = s.ws;
+  if (!ws) return;
+  // Drop the reference first so onclose does not queue a reconnect.
+  s.ws = null;
+  ws.close();
+}
+
 function scheduleReconnect(s: Session): void {
-  if (s.closed) return;
+  if (s.closed || !inView(s)) return;
   watchWake();
   reconnectQueue = enqueueReconnect(reconnectQueue, s.id);
   kickDrain();
@@ -73,28 +91,44 @@ async function drainReconnects(): Promise<void> {
       reconnectQueue = rest;
       if (!next) break;
       const s = store.sessions.find((x) => x.id === next);
-      if (!s || s.closed) {
+      if (!s || s.closed || !inView(s)) {
         reconnectAttempts.delete(next);
         continue;
       }
-      if (s.ws?.readyState === WebSocket.OPEN) {
+      if (s.ws?.readyState === WebSocket.OPEN || s.ws?.readyState === WebSocket.CONNECTING) {
         reconnectAttempts.delete(next);
         continue;
       }
       const attempt = reconnectAttempts.get(next) ?? 0;
       if (attempt > 0) await sleep(retryDelay(attempt - 1));
       await sync().catch(() => {});
-      if (s.closed || s.ws?.readyState === WebSocket.OPEN) {
+      if (s.closed || !inView(s) || s.ws?.readyState === WebSocket.OPEN) {
         reconnectAttempts.delete(next);
         continue;
       }
       const ok = await connect(s);
       if (ok) reconnectAttempts.delete(next);
-      else if (!s.closed) reconnectAttempts.set(next, attempt + 1);
+      else if (!s.closed && inView(s)) reconnectAttempts.set(next, attempt + 1);
     }
   } finally {
     draining = false;
     if (reconnectQueue.length && shouldDrainReconnects(document.hidden)) kickDrain();
+  }
+}
+
+// Connect the on-screen terminal; park every other. Called when the active
+// tab, board/drawer place, or page visibility changes.
+export function syncTerminalVisibility(): void {
+  watchWake();
+  for (const s of store.sessions) {
+    if (s.closed) continue;
+    if (inView(s)) {
+      if (s.ws?.readyState !== WebSocket.OPEN && s.ws?.readyState !== WebSocket.CONNECTING) {
+        scheduleReconnect(s);
+      }
+    } else {
+      park(s);
+    }
   }
 }
 
@@ -164,7 +198,8 @@ export function openSession(info: SessionInfo): Session {
   term.onData((d) => !s.parsingReplay && s.ws?.readyState === WebSocket.OPEN && s.ws.send(enc.encode(d)));
   term.onTitleChange((t) => t && !s.pinned && setName(s, t));
   watchWake();
-  void connect(s);
+  // Only the on-screen tab attaches; a sync that opens others parks them.
+  syncTerminalVisibility();
   return s;
 }
 
@@ -218,7 +253,7 @@ function connect(s: Session): Promise<boolean> {
       if (s !== store.active) s.unread.val = true;
     };
     // Dropped without an exit message (network blip, client lagged, daemon
-    // restarting): reattach if the session still exists on the server.
+    // restarting): reattach only while this terminal is still on screen.
     ws.onclose = () => {
       if (s.ws !== ws) {
         finish(false);
@@ -229,7 +264,7 @@ function connect(s: Session): Promise<boolean> {
         return;
       }
       finish(false);
-      scheduleReconnect(s);
+      if (inView(s)) scheduleReconnect(s);
     };
   });
 }

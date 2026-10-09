@@ -50,3 +50,18 @@ export function retryDelay(attempt: number, firstMs = FIRST_RETRY_MS, maxMs = LA
 export function shouldDrainReconnects(documentHidden: boolean): boolean {
   return !documentHidden;
 }
+
+/** Whether this tab's terminal is on screen (and should hold a socket). */
+export function terminalInView(opts: {
+  sessionId: string;
+  activeId: string | null;
+  view: 'terms' | 'board';
+  drawer: boolean;
+  documentHidden: boolean;
+}): boolean {
+  if (opts.documentHidden) return false;
+  if (opts.activeId !== opts.sessionId) return false;
+  // The board alone hides the workspace; its drawer shows the terminal again.
+  if (opts.view === 'board' && !opts.drawer) return false;
+  return true;
+}

@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { coalesceAsync, enqueueReconnect, nextReconnect, retryDelay, shouldDrainReconnects } from './reconnect.ts';
+import {
+  coalesceAsync,
+  enqueueReconnect,
+  nextReconnect,
+  retryDelay,
+  shouldDrainReconnects,
+  terminalInView,
+} from './reconnect.ts';
 
 test('the active tab is reconnected before any other queued tab', () => {
   const { next, rest } = nextReconnect(['a', 'b', 'c'], 'b');
@@ -33,6 +40,21 @@ test('retry delay doubles up to a cap, like the explorer socket', () => {
 test('reconnects wait while the page is hidden', () => {
   assert.equal(shouldDrainReconnects(true), false);
   assert.equal(shouldDrainReconnects(false), true);
+});
+
+test('only the on-screen terminal is in view', () => {
+  const base = {
+    sessionId: 'a',
+    activeId: 'a',
+    view: 'terms' as const,
+    drawer: false,
+    documentHidden: false,
+  };
+  assert.equal(terminalInView(base), true);
+  assert.equal(terminalInView({ ...base, activeId: 'b' }), false);
+  assert.equal(terminalInView({ ...base, documentHidden: true }), false);
+  assert.equal(terminalInView({ ...base, view: 'board', drawer: false }), false);
+  assert.equal(terminalInView({ ...base, view: 'board', drawer: true }), true);
 });
 
 test('overlapping sync calls share one run and repeat if another arrived mid-flight', async () => {
