@@ -191,6 +191,17 @@ impl Output {
         self.dirty = true;
         let _ = self.tx.send(Event::Output(chunk));
     }
+
+    /// The scrollback as one buffer, for a replay or a save. Callers hold the
+    /// `output` lock, which the reader needs for every chunk, so the ring's
+    /// two halves are copied whole rather than walked byte by byte.
+    pub(super) fn scrollback_bytes(&self) -> Vec<u8> {
+        let (front, back) = self.scrollback.as_slices();
+        let mut bytes = Vec::with_capacity(front.len() + back.len());
+        bytes.extend_from_slice(front);
+        bytes.extend_from_slice(back);
+        bytes
+    }
 }
 
 fn spawn_session(
@@ -303,6 +314,20 @@ fn spawn_session(
 mod tests {
     use super::*;
     use crate::test_support::test_state;
+
+    #[test]
+    fn scrollback_bytes_are_the_wrapped_ring_in_order() {
+        // Bytes pushed in front of the start wrap to the end of the buffer.
+        let mut ring = VecDeque::with_capacity(64);
+        ring.extend(*b"world");
+        for &b in b"hello, ".iter().rev() {
+            ring.push_front(b);
+        }
+        let out = Output::new(ring);
+        let (front, back) = out.scrollback.as_slices();
+        assert!(!front.is_empty() && !back.is_empty(), "the ring wrapped");
+        assert_eq!(out.scrollback_bytes(), b"hello, world");
+    }
 
     #[test]
     fn appending_keeps_the_newest_scrollback_and_the_modes_trimmed_off() {

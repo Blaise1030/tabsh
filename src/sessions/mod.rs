@@ -99,10 +99,7 @@ pub(crate) fn restart(st: &AppState, id: &str) {
     let Some(session) = st.live.lock().unwrap().remove(id) else {
         return;
     };
-    let scrollback: Vec<u8> = {
-        let out = session.output.lock().unwrap();
-        out.scrollback.iter().copied().collect()
-    };
+    let scrollback = session.output.lock().unwrap().scrollback_bytes();
     let cwd = session.pid.and_then(pty::process_cwd);
     if let Err(e) = st.db.lock().unwrap().execute(
         "UPDATE sessions SET scrollback = ?1, cwd = COALESCE(?2, cwd) WHERE id = ?3",
