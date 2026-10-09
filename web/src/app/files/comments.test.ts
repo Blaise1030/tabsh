@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { marked } from 'marked';
+import { fromDisk } from './api.ts';
 import {
   type Comment,
   commentMessage,
@@ -90,6 +91,28 @@ test('the body of a <details> is marked inside it, and nothing closes it early',
   assert.deepEqual(ranges(html), [
     [1, 2],
     [4, 4],
+    [6, 6],
+    [8, 8],
+  ]);
+});
+
+test('CRLF input counts its lines the same (the pane passes LF: fromDisk)', () => {
+  const crlf = '# H\r\n\r\npara one\r\ntwo\r\n\r\n- a\r\n- b\r\n';
+  const want: [number, number][] = [
+    [1, 1],
+    [3, 4],
+    [6, 7],
+  ];
+  assert.deepEqual(ranges(renderBlocks(marked, crlf, MARK)), want);
+  assert.deepEqual(ranges(renderBlocks(marked, fromDisk(crlf), MARK)), want);
+});
+
+test('front matter takes its own lines, and the blocks after it keep theirs', () => {
+  // marked has no front matter: the fence is a rule and the fields a setext heading.
+  const src = '---\ntitle: x\nfoo: y\n---\n\n# H\n\npara\n';
+  assert.deepEqual(ranges(renderBlocks(marked, src, MARK)), [
+    [1, 1],
+    [2, 4],
     [6, 6],
     [8, 8],
   ]);

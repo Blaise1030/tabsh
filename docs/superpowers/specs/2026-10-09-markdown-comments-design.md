@@ -96,8 +96,9 @@ Make these changes to docs/architecture.md for me:
 - **The note** is joined onto one line.
 - **Order** is the order the comments were made in.
 - **Control and invisible characters are removed** from the quote, the note
-  and the path: C0, DEL, C1, zero-width and bidi controls each become a
-  space. Only the message's own line breaks remain.
+  and the path: every control and format character (C0, DEL, C1,
+  zero-width, bidi, tag characters…), variation selectors, Hangul fillers
+  and the combining grapheme joiner each become a space. Only the message's own line breaks remain.
 
 **Comments live with the tab's file view**, in the page:
 - They stay while you switch tabs.
@@ -128,7 +129,7 @@ All of it is in `files/`, which is already lazy: it's reached only through
 | `files/comments.ts` (pure, `node --test`) | The comment model, `blocks(src)` (the top-level Markdown tokens with their source line ranges, from `marked`'s lexer), and `message(path, comments)` (the text pasted) | `marked` types only |
 | `files/preview-frame.ts` | The script that runs **inside** the preview frame. It reports selections (quote, start and end block lines, a rect) and hovers to the pane, draws and removes highlights, re-finds quotes after a re-render, and swaps the theme style. It holds no comment text: only ranges by id | nothing; it is built as its own asset |
 | `files/annotate.ts` | The pane side. It listens to one frame's messages, places the Comment button, the box and the hover card over the frame, keeps a view's comments as a `van.state`, and sends. Components follow the architecture rules: VanJS tags, user text as child strings, never markup | `ui/icons.ts`, `comments.ts` |
-| `files/pane.ts` (changed) | Markdown previews render through `blocks()`. Each block is wrapped in `<div data-from data-to>`, and the frame gets the new sandbox, its own CSP and `preview-frame` (see Security). It mounts `annotate.ts` on a Markdown view, adds the Send button to the header, counts comments in `hasUnsaved` and `confirmDiscard`, and swaps the theme in place | |
+| `files/pane.ts` (changed) | Markdown previews render through `blocks()`. Each block is preceded by an empty marker, `<template data-from data-to>` (not wrapped, so raw HTML spanning blocks renders as before), and the frame gets the new sandbox, its own CSP and `preview-frame` (see Security). It mounts `annotate.ts` on a Markdown view, adds the Send button to the header, counts comments in `hasUnsaved` and `confirmDiscard`, and swaps the theme in place | |
 | `Host.paste(sessionId, text): boolean` (new) | `main.ts` finds the session in `store.sessions`; when it's open, it calls `term.paste(text)`, focuses it and returns `true`. `files` stays below `sessions`: it gets this through `Host`, like `newTabAt` | `sessions/store.ts` (in `main.ts` only) |
 | `ui/icons.ts` | Adds `send` and `messageSquarePlus` (Lucide) | |
 | `styles/app.css` | Appends one block for `.comment-menu`, `.comment-box`, `.comment-hover`. No existing rule changes | |
@@ -208,7 +209,7 @@ This changes one invariant in `docs/architecture.md`.
     tests pin it.
 - **Line numbers can't be faked.** Each render picks a random mark. Only
   blocks carrying it count as blocks, and the frame script reads it from its
-  own `src`. A `<div data-from>` written in the Markdown is ignored.
+  own `src`. A `<template data-from>` written in the Markdown is ignored.
 - **The frame script runs once.** The Markdown can name tabsh's own frame
   script again, and the frame's CSP allows it. A guard keyed on a symbol,
   which the page can't clobber, stops the second copy. The script also takes

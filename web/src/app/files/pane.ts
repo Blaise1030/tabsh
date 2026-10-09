@@ -618,6 +618,7 @@ function newState(id: string, requested: string): PaneState {
     path: () => st.path.val.text,
     paste: (text) => host.paste(id, text),
     status: (text) => setStatus(st, text),
+    shownStatus: () => st.status.val,
   });
   const st: PaneState = {
     id,

@@ -9,9 +9,10 @@ import { cdInTerminal, expect, newTab, openApp, pickTheme, test, typeInTerminal 
 const shown = (page: Page) => page.locator('#pane .pane-view:not([hidden])');
 const preview = (page: Page) => shown(page).frameLocator('.pane-frame');
 
-// Opens `name`, in `project`, from the explorer in the active tab.
-async function openFile(page: Page, project: string, name: string): Promise<void> {
-  await cdInTerminal(page, project, `in-${name}`);
+// Opens `name`, in `project`, from the explorer in the active tab. `cd:
+// false` when the tab is already in `project` (a second `cd` can race the first's title).
+async function openFile(page: Page, project: string, name: string, { cd = true } = {}): Promise<void> {
+  if (cd) await cdInTerminal(page, project, `in-${name}`);
   if ((await page.locator('#explorer-btn').getAttribute('aria-pressed')) !== 'true') {
     await page.locator('#explorer-btn').click();
   }
@@ -86,6 +87,15 @@ async function hover(page: Page, text: string): Promise<void> {
 
 const PLAN = '# Plan\n\nFirst paragraph.\n\nSecond paragraph\nspans two lines.\n';
 
+// Switches the pane to the source view and back to the preview, by its button.
+async function roundTrip(page: Page): Promise<void> {
+  const toggle = () => shown(page).locator('.pane-head button[title^="Edit"], .pane-head button[title^="Preview"]');
+  await toggle().click();
+  await expect(shown(page).locator('.cm-editor')).toBeVisible();
+  await toggle().click();
+  await expect(shown(page).locator('.pane-frame')).toHaveCount(1);
+}
+
 test("a Markdown preview runs tabsh's frame script and nothing from the file", async ({ page, daemon, project }) => {
   await openApp(page, daemon);
   // Other scripts the page's CSP would let a frame reach: this app's entry
@@ -133,7 +143,7 @@ test("a Markdown preview runs tabsh's frame script and nothing from the file", a
       if (e.data?.type === 'ready') (window as any).__readyCount++;
     });
   });
-  await openFile(page, project, 'hostile.md');
+  await openFile(page, project, 'hostile.md', { cd: false });
   const frame = shown(page).locator('.pane-frame');
   await expect(frame).toHaveAttribute('sandbox', 'allow-scripts');
   await expect(frame).toHaveAttribute(
@@ -593,4 +603,51 @@ test('Cmd/Ctrl-E and -S typed in the comment box stay in the box', async ({ page
   await expect(shown(page).locator('.pane-frame')).toHaveCount(1);
   await expect(box).toBeVisible();
   await expect(box.locator('textarea')).toHaveValue('Still here.');
+});
+
+test("a re-render that loses nothing leaves another status alone", async ({ page, daemon, project }) => {
+  writeFileSync(path.join(project, 'plan.md'), PLAN);
+  await openApp(page, daemon);
+  await openFile(page, project, 'plan.md');
+  await comment(page, 'First paragraph.', 'Make it shorter.');
+  await catWithPasteMode(page, false);
+  await shown(page).locator('.pane-send').click();
+  const refused = "Not sent: the terminal isn't at a prompt that takes a paste safely";
+  await expect(status(page)).toHaveText(refused);
+  await roundTrip(page);
+  await expect.poll(() => highlights(page)).toBe(1);
+  await page.waitForTimeout(300);
+  await expect(status(page)).toHaveText(refused);
+  await typeInTerminal(page, '\u0003');
+});
+
+test('a comment across a hard line break is found again', async ({ page, daemon, project }) => {
+  writeFileSync(path.join(project, 'hard.md'), '# Hard\n\nhard  \nbreak here\n');
+  await openApp(page, daemon);
+  await openFile(page, project, 'hard.md');
+  await comment(page, 'break here', 'Join these.');
+  await expect.poll(() => highlights(page)).toBe(1);
+  await roundTrip(page);
+  await expect.poll(() => highlights(page)).toBe(1);
+  await expect(status(page)).toHaveText('');
+});
+
+test('a javascript: link in the Markdown is inert', async ({ page, daemon, project }) => {
+  writeFileSync(
+    path.join(project, 'link.md'),
+    "# Link\n\n[click me](javascript:document.body.dataset.md='ran')\n\n" +
+      '<a href="javascript:document.body.dataset.raw=\'ran\'">raw link</a>\n',
+  );
+  await openApp(page, daemon);
+  await openFile(page, project, 'link.md');
+  await expect(preview(page).locator('body')).toContainText('raw link');
+  const frames = page.frames().length;
+  await preview(page).getByText('click me').click();
+  await preview(page).getByText('raw link').click();
+  await page.waitForTimeout(500);
+  const body = preview(page).locator('body');
+  await expect(body).toContainText('click me');
+  expect(await body.evaluate((el) => Object.keys((el as HTMLElement).dataset))).toEqual([]);
+  expect(await body.evaluate(() => location.href)).toBe('about:srcdoc');
+  expect(page.frames().length).toBe(frames);
 });

@@ -17,6 +17,7 @@ export interface NotesHost {
   path(): string; // the file's path as the pane header shows it
   paste(text: string): PasteResult; // into this tab's terminal
   status(text: string): void; // the pane header's status line
+  shownStatus(): string; // what the status line shows now
 }
 
 export interface Notes {
@@ -58,6 +59,7 @@ export function createNotes(host: NotesHost): Notes {
   let frame: HTMLIFrameElement | null = null;
   let gen = 0; // counts frames: a selection is kept only by the frame it was made in
   let ready = false;
+  let lostText = ''; // the lost-comments message this put in the status line
   let picked: Picked | null = null;
   let editing: Comment | null = null; // the comment the box edits; null for a new one
   let hoverRect: Rect | null = null;
@@ -207,11 +209,16 @@ export function createNotes(host: NotesHost): Notes {
     comments.val = comments.val.map((c) => (c.id === id ? { ...c, ...change } : c));
   }
 
+  // Shows how many comments are lost, or clears that message; never another one.
   function reportLost(): void {
     const n = comments.val.filter((c) => c.lost).length;
-    host.status(
-      n === 0 ? '' : n === 1 ? '1 comment no longer matches the file' : `${n} comments no longer match the file`,
-    );
+    if (n === 0) {
+      if (lostText && host.shownStatus() === lostText) host.status('');
+      lostText = '';
+      return;
+    }
+    lostText = n === 1 ? '1 comment no longer matches the file' : `${n} comments no longer match the file`;
+    host.status(lostText);
   }
 
   function remove(id: number): void {
@@ -329,6 +336,7 @@ export function createNotes(host: NotesHost): Notes {
         tell({ type: 'dropAll' });
         hideAll();
         host.status('');
+        lostText = '';
       } else {
         host.status(
           result === 'closed'
@@ -341,6 +349,7 @@ export function createNotes(host: NotesHost): Notes {
       comments.val = [];
       tell({ type: 'dropAll' });
       hideAll();
+      reportLost();
     },
     dispose() {
       window.removeEventListener('message', onMessage);

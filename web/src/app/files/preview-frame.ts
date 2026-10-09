@@ -15,6 +15,7 @@ interface Spot {
   line: number; // the source line its block starts on
 }
 
+const KEYUP_MS = 150; // a held Shift-arrow reports once it rests
 
 function start(): void {
   const g = globalThis as unknown as Record<symbol, unknown>;
@@ -32,6 +33,7 @@ function start(): void {
   const closest = Element.prototype.closest;
   const walker = Document.prototype.createTreeWalker;
   const newRange = Document.prototype.createRange;
+  const Br = HTMLBRElement;
   // Without the Custom Highlight API there are no comments; the preview still shows.
   if (typeof Highlight === 'undefined' || !('highlights' in CSS)) return;
   // Taken now, while this script is the last thing parsed: nothing in the
@@ -85,7 +87,7 @@ function start(): void {
   const squash = (s: string) => s.replace(/\s+/g, ' ').trim();
 
   // The rendered text, in document order, with whitespace runs as one space
-  // (blocks apart by one), and where each of its characters
+  // (blocks apart by one, and a <br> one), and where each of its characters
   // came from: each text node takes the line of the marker before it.
   function index(): { flat: string; at: Spot[] } {
     let flat = '';
@@ -100,7 +102,7 @@ function start(): void {
     const walk = walker.call(document, document, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
       acceptNode: (n) => {
         if (n instanceof Element) {
-          return isMarker(n) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+          return n instanceof Br || isMarker(n) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
         }
         const p = parentOf.call(n);
         return p && closest.call(p, 'script, style') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
@@ -194,8 +196,12 @@ function start(): void {
   document.addEventListener('mousedown', () => post({ type: 'clear' }));
   // After the browser has settled the selection.
   document.addEventListener('mouseup', () => setTimeout(report));
+  // Once a Shift-extended selection rests: index() reads the whole document.
+  let keyTimer: ReturnType<typeof setTimeout> | undefined;
   document.addEventListener('keyup', (e) => {
-    if (e.shiftKey) report();
+    if (!e.shiftKey) return;
+    clearTimeout(keyTimer);
+    keyTimer = setTimeout(report, KEYUP_MS);
   });
   document.addEventListener('mousemove', (e) => {
     cancelAnimationFrame(frame);
