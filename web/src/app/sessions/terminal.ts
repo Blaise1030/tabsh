@@ -117,15 +117,16 @@ async function drainReconnects(): Promise<void> {
 }
 
 // Connect the on-screen terminal; park every other. Called when the active
-// tab, board/drawer place, or page visibility changes.
+// tab, board/drawer place, or page visibility changes. The visible tab
+// attaches at once (no drain delay), so typing and the explorer's cd mark
+// are not racing a queued reconnect after startup or a tab switch.
 export function syncTerminalVisibility(): void {
   watchWake();
   for (const s of store.sessions) {
     if (s.closed) continue;
     if (inView(s)) {
-      if (s.ws?.readyState !== WebSocket.OPEN && s.ws?.readyState !== WebSocket.CONNECTING) {
-        scheduleReconnect(s);
-      }
+      const state = s.ws?.readyState;
+      if (state !== WebSocket.OPEN && state !== WebSocket.CONNECTING) void connect(s);
     } else {
       park(s);
     }

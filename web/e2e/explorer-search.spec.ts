@@ -14,7 +14,9 @@ test('search filters the tree by name, opens a match and restores the tree', asy
   await openApp(page, daemon);
   await cdInTerminal(page, project, 'in-project');
   await page.locator('#explorer-btn').click();
-  await expect(row('docs')).toBeVisible();
+  // First listing after open can trail the cwd mark; wait for the repo root.
+  await expect(row('README.md')).toBeVisible({ timeout: 10_000 });
+  await expect(row('docs')).toBeVisible({ timeout: 10_000 });
   await row('docs').click(); // open, so that Escape has folders to restore
   await expect(row('docs')).toHaveAttribute('aria-expanded', 'true');
 
@@ -89,7 +91,7 @@ test('the search shortcut focuses the field, opening the sidebar first if needed
   await openApp(page, daemon);
   await cdInTerminal(page, project, 'in-project');
   await page.locator('#explorer-btn').click();
-  await expect(row('README.md')).toBeVisible();
+  await expect(row('README.md')).toBeVisible({ timeout: 10_000 });
 
   await test.step('from the terminal, with the sidebar open', async () => {
     await page.locator('.term.active').click();
