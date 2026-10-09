@@ -41,6 +41,11 @@ interface Picked {
   rect: Rect;
 }
 
+interface Spot {
+  top: number;
+  left: number;
+}
+
 const GAP = 6; // between a floating piece and the text it's for
 const HIDE_MS = 250; // the hover card's grace, to reach it from the highlight
 
@@ -54,6 +59,7 @@ export function createNotes(host: NotesHost): Notes {
   let picked: Picked | null = null;
   let editing: Comment | null = null; // the comment the box edits; null for a new one
   let hoverRect: Rect | null = null;
+  let menuAt: Spot | null = null; // where the Comment button went, for the box that replaces it
   let nextId = 1;
   let hideTimer = 0;
 
@@ -108,20 +114,36 @@ export function createNotes(host: NotesHost): Notes {
   );
 
   // Puts a floating piece over the frame at `rect` (in the frame's
-  // coordinates): above it when `above` and there's room under the pane
-  // header, else below; inside the pane's width. Shown first, so it has a size.
-  function place(el: HTMLElement, rect: Rect, above: boolean): void {
+  // coordinates, cut to the part of the frame in view): above it when `above`
+  // and there's room under the pane header, else below; or exactly at `at`
+  // (the view's coordinates). Then kept inside the pane's view. Shown first,
+  // so it has a size. Returns where it went.
+  function place(el: HTMLElement, rect: Rect, above: boolean, at?: Spot): Spot {
     el.hidden = false;
     const view = el.offsetParent;
-    if (!frame || !(view instanceof HTMLElement)) return;
+    if (!frame || !(view instanceof HTMLElement)) return { top: 0, left: 0 };
     const f = frame.getBoundingClientRect();
     const v = view.getBoundingClientRect();
     const head = view.querySelector<HTMLElement>('.pane-head')?.offsetHeight ?? 0;
-    let top = f.top - v.top + rect.top - el.offsetHeight - GAP;
-    if (!above || top < head + GAP) top = f.top - v.top + rect.bottom + GAP;
-    const left = Math.min(f.left - v.left + rect.left, v.width - el.offsetWidth - 8);
+    const seen = frame.clientHeight;
+    // The part of the rect in view; a rect wholly out of view counts as its nearer edge.
+    const clip = (y: number) => Math.min(Math.max(y, 0), seen);
+    const rTop = clip(rect.top);
+    const rBottom = clip(rect.bottom);
+    let top: number;
+    let left: number;
+    if (at) {
+      ({ top, left } = at);
+    } else {
+      top = f.top - v.top + rTop - el.offsetHeight - GAP;
+      if (!above || top < head + GAP) top = f.top - v.top + rBottom + GAP;
+      left = f.left - v.left + rect.left;
+    }
+    top = Math.max(head + GAP, Math.min(top, v.height - el.offsetHeight - 8));
+    left = Math.max(8, Math.min(left, v.width - el.offsetWidth - 8));
     el.style.top = `${top}px`;
-    el.style.left = `${Math.max(left, 8)}px`;
+    el.style.left = `${left}px`;
+    return { top, left };
   }
 
   function hideCard(): void {
@@ -153,7 +175,9 @@ export function createNotes(host: NotesHost): Notes {
     hideCard();
     // After VanJS has applied the quote and label (a microtask queued before this one).
     queueMicrotask(() => {
-      place(box, at, false);
+      // A new comment's box opens where the Comment button was.
+      if (c || !menuAt) place(box, at, false);
+      else place(box, at, false, menuAt);
       note.focus();
     });
   }
@@ -228,7 +252,7 @@ export function createNotes(host: NotesHost): Notes {
         if (!box.hidden) break; // a comment is being written: keep it
         picked = { sel: m.sel, quote: m.quote, from: m.from, to: m.to, nth: m.nth, of: m.of, rect: m.rect };
         hideCard();
-        place(menu, m.rect, true);
+        menuAt = place(menu, m.rect, true);
         break;
       case 'clear':
         menu.hidden = true;

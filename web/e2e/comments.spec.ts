@@ -45,7 +45,7 @@ async function select(page: Page, text: string, nth = 0): Promise<void> {
         document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
       });
     await expect(shown(page).locator('.comment-menu')).toBeVisible({ timeout: 1000 });
-  }).toPass();
+  }).toPass({ timeout: 10_000 });
 }
 
 // Comments `note` on the `nth` element holding `text`.
@@ -369,19 +369,33 @@ test('a whole-document selection pastes a cut quote', async ({ page, daemon, pro
   writeFileSync(path.join(project, 'long.md'), `# Long\n\n${'word '.repeat(2000)}\n`);
   await openApp(page, daemon);
   await openFile(page, project, 'long.md');
-  await preview(page)
-    .locator('body')
-    .evaluate(() => {
-      const blocks = document.querySelectorAll('[data-tabsh-block]');
-      const last = blocks[blocks.length - 1];
-      const range = document.createRange();
-      range.setStart(blocks[0], 0);
-      range.setEnd(last, last.childNodes.length);
-      getSelection()?.removeAllRanges();
-      getSelection()?.addRange(range);
-      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-    });
+  await expect(async () => {
+    await preview(page)
+      .locator('body')
+      .evaluate(() => {
+        const blocks = document.querySelectorAll('[data-tabsh-block]');
+        const last = blocks[blocks.length - 1];
+        const range = new Range();
+        range.setStart(blocks[0], 0);
+        range.setEnd(last, last.childNodes.length);
+        getSelection()?.removeAllRanges();
+        getSelection()?.addRange(range);
+        document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      });
+    await expect(shown(page).locator('.comment-menu')).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 10_000 });
+  // Fully inside the pane, before anything scrolls it into view.
+  const pane = (await page.locator('#pane').boundingBox())!;
+  const m = (await shown(page).locator('.comment-menu').boundingBox())!;
+  expect(m.x).toBeGreaterThanOrEqual(pane.x);
+  expect(m.x + m.width).toBeLessThanOrEqual(pane.x + pane.width);
+  expect(m.y).toBeGreaterThanOrEqual(pane.y);
+  expect(m.y + m.height).toBeLessThanOrEqual(pane.y + pane.height);
   await shown(page).locator('.comment-menu [role="menuitem"]').click();
+  // The box opens where the button was, inside the pane.
+  const b = (await shown(page).locator('.comment-box').boundingBox())!;
+  expect(b.y).toBeGreaterThanOrEqual(pane.y);
+  expect(b.y + b.height).toBeLessThanOrEqual(pane.y + pane.height);
   await shown(page).locator('.comment-box textarea').fill('Trim.');
   await page.keyboard.press('ControlOrMeta+Enter');
   await catWithPasteMode(page, true);
