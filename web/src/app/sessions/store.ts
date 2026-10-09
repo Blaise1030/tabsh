@@ -10,6 +10,7 @@ import { loadedPane } from '../files/open.ts';
 import { go, onPlace } from '../nav/router.ts';
 import { clearBell, updateBadge } from './bell.ts';
 import { newTabGroup, scrollToTab, shownSessions, stepTab } from './groups.ts';
+import { coalesceAsync } from './reconnect.ts';
 import { orderTabs, setName } from './tabs.ts';
 import { adoptTag } from './tags.ts';
 import { openSession } from './terminal.ts';
@@ -122,8 +123,10 @@ export async function newTabAt(cwd: string): Promise<void> {
 }
 
 // Bring the tab list in line with the server: picks up tabs opened or
-// closed from another browser, and drops ones whose shell is gone.
-export async function sync(): Promise<void> {
+// closed from another browser, and drops ones whose shell is gone. Overlapping
+// callers (every socket dropping after sleep, window focus, board events)
+// share one run so the page doesn't stampede the daemon.
+export const sync = coalesceAsync(async () => {
   // Only tabs open before the list was asked for can be missing from it: one
   // opened while it was on its way is new, not gone.
   const asked = new Set(store.sessions);
@@ -140,7 +143,7 @@ export async function sync(): Promise<void> {
   }
   orderTabs(list.map((s) => s.id));
   if (!store.active && store.sessions.length) go({ tab: (shownSessions()[0] ?? store.sessions[0]).id }, 'replace');
-}
+});
 
 export function sendSize(s: Session): void {
   if (s !== store.active) return;
