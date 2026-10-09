@@ -59,6 +59,42 @@ test('every block carries the mark; blank lines and link definitions render noth
   assert.ok(html.includes('href="https://example.com"'), 'a reference link still resolves');
 });
 
+// The output with its markers taken out.
+const unmarked = (html: string) =>
+  html.replace(/<template data-tabsh-block="[0-9a-f]{32}" data-from="\d+" data-to="\d+"><\/template>/g, '');
+
+test('blocks are marked, not wrapped: raw HTML spanning blocks renders as it does without comments', () => {
+  const docs = [
+    '# T\n\n<details>\n<summary>More</summary>\n\nHidden **body**.\n\n</details>\n\nAfter.\n',
+    '<div align="center">\n\n# Title\n\n</div>\n\npara\n',
+    '<table>\n<tr>\n<td>\n\n**bold** cell\n\n</td>\n</tr>\n</table>\n',
+  ];
+  for (const src of docs) {
+    const html = renderBlocks(marked, src, MARK);
+    assert.equal(unmarked(html), marked.parse(src), src);
+    // Every marker is empty: nothing of a block is inside one.
+    assert.equal(html.match(/<template /g)?.length, html.match(/><\/template>/g)?.length);
+    assert.ok(!html.includes('<div data-tabsh-block'));
+  }
+});
+
+test('the body of a <details> is marked inside it, and nothing closes it early', () => {
+  const src = '<details>\n<summary>More</summary>\n\nHidden body.\n\n</details>\n\nAfter.\n';
+  const html = renderBlocks(marked, src, MARK);
+  const open = html.indexOf('<details>');
+  const body = html.indexOf('data-from="4"');
+  const close = html.indexOf('</details>');
+  assert.ok(open !== -1 && open < body && body < close, html);
+  assert.equal(html.match(/<\/details>/g)?.length, 1);
+  assert.ok(html.slice(open, close).includes('<p>Hidden body.</p>'));
+  assert.deepEqual(ranges(html), [
+    [1, 2],
+    [4, 4],
+    [6, 6],
+    [8, 8],
+  ]);
+});
+
 test('a mark that is not long hex is refused', () => {
   assert.throws(() => renderBlocks(marked, 'x', 'abc'));
   assert.throws(() => renderBlocks(marked, 'x', `${MARK}" onclick="x`));

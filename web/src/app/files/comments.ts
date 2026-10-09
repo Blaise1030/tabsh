@@ -22,9 +22,13 @@ export interface MarkedLike {
 
 const newlines = (s: string) => s.split('\n').length - 1;
 
-// The Markdown rendered block by block, each top-level block in a <div>
-// carrying its source lines. `mark` is this render's random mark: the frame
-// script trusts only blocks carrying it, so a <div data-from> written in the
+// The Markdown rendered block by block, each top-level block's HTML just
+// after an empty marker carrying its source lines. A marker, not a wrapper:
+// raw HTML may span blocks (a <details> around a paragraph, a centring <div>
+// around a heading), and a wrapper would close it early. A <template> parses
+// in any context the next block may be in (inside a table, a <details>, the
+// document's head) and renders nothing. `mark` is this render's random mark:
+// the frame script trusts only markers carrying it, so one written in the
 // Markdown can't pass for one. Blank lines and link definitions render nothing.
 export function renderBlocks(m: MarkedLike, src: string, mark: string): string {
   if (!/^[0-9a-f]{32}$/.test(mark)) throw new Error('renderBlocks: the mark must be 32 hex digits');
@@ -33,7 +37,7 @@ export function renderBlocks(m: MarkedLike, src: string, mark: string): string {
   for (const t of m.lexer(src)) {
     const to = line + newlines(t.raw.replace(/\n+$/, ''));
     if (t.type !== 'space' && t.type !== 'def') {
-      out += `<div data-tabsh-block="${mark}" data-from="${line}" data-to="${to}">${m.parser([t])}</div>`;
+      out += `<template data-tabsh-block="${mark}" data-from="${line}" data-to="${to}"></template>${m.parser([t])}`;
     }
     line += newlines(t.raw);
   }

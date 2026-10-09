@@ -15,6 +15,7 @@ interface Spot {
   line: number; // the source line its block starts on
 }
 
+
 function start(): void {
   const g = globalThis as unknown as Record<symbol, unknown>;
   if (g[RAN]) return;
@@ -22,12 +23,13 @@ function start(): void {
   // Taken now, before the Markdown is parsed: a named element in it (a form
   // control called parentElement, an <img name="querySelectorAll">) can shadow
   // these on an element or the document later, and must not steer this script.
-  const parentOf = Object.getOwnPropertyDescriptor(Node.prototype, 'parentElement')?.get as (
-    this: Node,
-  ) => Element | null;
+  const getter = <T>(proto: object, key: string) =>
+    Object.getOwnPropertyDescriptor(proto, key)?.get as (this: Node) => T;
+  const parentOf = getter<Element | null>(Node.prototype, 'parentElement');
+  const kidsOf = getter<NodeListOf<ChildNode>>(Node.prototype, 'childNodes');
+  const lastKid = getter<ChildNode | null>(Node.prototype, 'lastChild');
   const attr = Element.prototype.getAttribute;
   const closest = Element.prototype.closest;
-  const query = Document.prototype.querySelectorAll;
   const walker = Document.prototype.createTreeWalker;
   const newRange = Document.prototype.createRange;
   // Without the Custom Highlight API there are no comments; the preview still shows.
@@ -48,44 +50,75 @@ function start(): void {
   let over: number | null = null;
   let frame = 0;
 
-  // The nearest enclosing block of this render, by its mark.
-  const blockOf = (node: Node | null): Element | null => {
-    let el = node instanceof Element ? node : node ? parentOf.call(node) : null;
-    // Bounded, as a belt and braces against any loop.
-    for (let steps = 0; el && steps < 10000; steps++, el = parentOf.call(el)) {
-      if (attr.call(el, 'data-tabsh-block') === mark) return el;
+  // A block marker of this render (comments.ts's renderBlocks): an empty
+  // element just before its block's HTML, carrying the mark.
+  const isMarker = (n: Node): n is Element => n instanceof Element && attr.call(n, 'data-tabsh-block') === mark;
+  const markers = walker.call(document, document, NodeFilter.SHOW_ELEMENT, {
+    acceptNode: (n) => (isMarker(n) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP),
+  });
+  // The marker before `n` in document order (`n` itself when `self` and it is one).
+  const markerBefore = (n: Node, self: boolean): Element | null => {
+    if (self && isMarker(n)) return n;
+    markers.currentNode = n;
+    return markers.previousNode() as Element | null;
+  };
+  // `n`'s last descendant, or `n`. Bounded, as a belt and braces against any loop.
+  const lastIn = (n: Node): Node => {
+    for (let k = lastKid.call(n), steps = 0; k && steps < 10000; k = lastKid.call(k), steps++) n = k;
+    return n;
+  };
+  // The block a range's boundary is in: the marker before the content just
+  // after it (`start`) or just before it. A point before every block counts as the first.
+  const blockAt = (node: Node, offset: number, start: boolean): Element | null => {
+    let found: Element | null;
+    if (node instanceof CharacterData) found = markerBefore(node, false);
+    else {
+      const next = kidsOf.call(node)[offset];
+      found = next ? markerBefore(next, start) : markerBefore(lastIn(node), true);
     }
-    return null;
+    if (found) return found;
+    markers.currentNode = document;
+    return markers.nextNode() as Element | null;
   };
   const lineOf = (el: Element, which: 'from' | 'to') => Number(attr.call(el, `data-${which}`));
   const box = (r: DOMRect): Rect => ({ top: r.top, bottom: r.bottom, left: r.left, right: r.right });
   const squash = (s: string) => s.replace(/\s+/g, ' ').trim();
 
-  // The text of this render's blocks with whitespace runs as one space (blocks
-  // apart by one), and where each of its characters came from.
+  // The rendered text, in document order, with whitespace runs as one space
+  // (blocks apart by one), and where each of its characters
+  // came from: each text node takes the line of the marker before it.
   function index(): { flat: string; at: Spot[] } {
     let flat = '';
     const at: Spot[] = [];
-    for (const block of query.call(document, `[data-tabsh-block="${mark}"]`)) {
-      const line = lineOf(block, 'from');
+    let line = 0; // before the first marker: nothing of the Markdown
+    const space = () => {
       if (flat && !flat.endsWith(' ')) {
         flat += ' ';
         at.push(at[at.length - 1]);
       }
-      const walk = walker.call(document, block, NodeFilter.SHOW_TEXT, {
-        acceptNode: (n) => {
-          const p = parentOf.call(n);
-          return p && closest.call(p, 'script, style') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
-        },
-      });
-      for (let n = walk.nextNode(); n; n = walk.nextNode()) {
-        const text = (n as Text).data;
-        for (let i = 0; i < text.length; i++) {
-          const space = /\s/.test(text[i]);
-          if (space && (flat === '' || flat.endsWith(' '))) continue;
-          flat += space ? ' ' : text[i];
-          at.push({ node: n as Text, offset: i, line });
+    };
+    const walk = walker.call(document, document, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+      acceptNode: (n) => {
+        if (n instanceof Element) {
+          return isMarker(n) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
         }
+        const p = parentOf.call(n);
+        return p && closest.call(p, 'script, style') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      if (n instanceof Element) {
+        if (isMarker(n)) line = lineOf(n, 'from');
+        space();
+        continue;
+      }
+      if (!line) continue;
+      const text = (n as Text).data;
+      for (let i = 0; i < text.length; i++) {
+        const white = /\s/.test(text[i]);
+        if (white && (flat === '' || flat.endsWith(' '))) continue;
+        flat += white ? ' ' : text[i];
+        at.push({ node: n as Text, offset: i, line });
       }
     }
     return { flat, at };
@@ -103,8 +136,8 @@ function start(): void {
     const quote = sel.toString().slice(0, MAX_QUOTE);
     if (!quote.trim()) return;
     const range = sel.getRangeAt(0);
-    const a = blockOf(range.startContainer);
-    const b = blockOf(range.endContainer);
+    const a = blockAt(range.startContainer, range.startOffset, true);
+    const b = blockAt(range.endContainer, range.endOffset, false);
     if (!a || !b) return;
     // Which of the quote's matches this is, so it can be found again after
     // lines are added above it.
@@ -119,7 +152,7 @@ function start(): void {
       sel: picked,
       quote,
       from: lineOf(a, 'from'),
-      to: lineOf(b, 'to'),
+      to: Math.max(lineOf(a, 'from'), lineOf(b, 'to')),
       nth,
       of: found.length,
       rect: box(range.getBoundingClientRect()),
@@ -215,15 +248,16 @@ function start(): void {
       case 'locate': {
         if (kept.has(m.id)) break;
         const range = locate(m.quote, m.from, m.nth, m.of);
-        const a = range && blockOf(range.startContainer);
-        const b = range && blockOf(range.endContainer);
+        const a = range && blockAt(range.startContainer, range.startOffset, true);
+        const b = range && blockAt(range.endContainer, range.endOffset, false);
         if (!range || !a || !b) {
           post({ type: 'lost', id: m.id });
           break;
         }
         kept.set(m.id, range);
         highlight.add(range);
-        post({ type: 'located', id: m.id, from: lineOf(a, 'from'), to: lineOf(b, 'to') });
+        const from = lineOf(a, 'from');
+        post({ type: 'located', id: m.id, from, to: Math.max(from, lineOf(b, 'to')) });
         break;
       }
       case 'theme':

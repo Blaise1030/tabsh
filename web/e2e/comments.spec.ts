@@ -373,11 +373,8 @@ test('a whole-document selection pastes a cut quote', async ({ page, daemon, pro
     await preview(page)
       .locator('body')
       .evaluate(() => {
-        const blocks = document.querySelectorAll('[data-tabsh-block]');
-        const last = blocks[blocks.length - 1];
         const range = new Range();
-        range.setStart(blocks[0], 0);
-        range.setEnd(last, last.childNodes.length);
+        range.selectNodeContents(document.body);
         getSelection()?.removeAllRanges();
         getSelection()?.addRange(range);
         document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
@@ -504,5 +501,33 @@ test("each tab keeps its own comments, and Send pastes into its own terminal", a
   await page.keyboard.press('Control+C');
   await page.locator('#tabs .tab:not(.mirror)').nth(1).click();
   await expect(rows(page)).not.toContainText('In tab one.');
+  await page.keyboard.press('Control+C');
+});
+
+test('raw HTML around Markdown renders as it would without comments, and lines still count', async ({
+  page,
+  daemon,
+  project,
+}) => {
+  writeFileSync(
+    path.join(project, 'fold.md'),
+    '# Readme\n\n<details><summary>More</summary>\n\nHidden body.\n\n</details>\n\nAfter the fold.\n',
+  );
+  await openApp(page, daemon);
+  await openFile(page, project, 'fold.md');
+  await expect(preview(page).locator('body')).toContainText('After the fold.');
+  // The body is inside the <details>, as a plain Markdown render has it.
+  const inside = await preview(page)
+    .locator('body')
+    .evaluate(() => {
+      const d = document.querySelector('details');
+      const p = [...document.querySelectorAll('p')].find((x) => x.textContent === 'Hidden body.');
+      return !!d && !!p && d.contains(p);
+    });
+  expect(inside).toBe(true);
+  await comment(page, 'After the fold.', 'Trim.');
+  await catWithPasteMode(page, true);
+  await shown(page).locator('.pane-send').click();
+  await expect(rows(page)).toContainText('- line 9, "After the fold.": Trim.');
   await page.keyboard.press('Control+C');
 });
