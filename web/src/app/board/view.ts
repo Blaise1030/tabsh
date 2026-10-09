@@ -9,6 +9,7 @@ import { tagColor } from '../sessions/labels.ts';
 import { newSession, openTab, type Session, sendSize, sessionList, store } from '../sessions/store.ts';
 import { orderTabs } from '../sessions/tabs.ts';
 import { onTagsChange, tagBadge } from '../sessions/tags.ts';
+import { syncTerminalVisibility } from '../sessions/terminal.ts';
 import { matchesKey } from '../settings/keys.ts';
 import { current, keyHint, onSaved, saveSetting } from '../settings/settings.ts';
 import { glyph, icons, providerIcon } from '../ui/icons.ts';
@@ -515,10 +516,17 @@ export function Board(): HTMLElement {
 }
 
 export function initBoard(): void {
-  onPlace('view', (to) => void showBoard(to.view === 'board'));
+  onPlace('view', (to) => {
+    showBoard(to.view === 'board');
+    // Board alone parks terminals so a drag that launches an agent does not
+    // flood xterm while the cards are on screen.
+    syncTerminalVisibility();
+    return undefined;
+  });
   onPlace('drawer', (to) => {
     drawer.val = to.drawer;
     if (to.drawer) queueMicrotask(() => store.active?.term.focus()); // once VanJS shows it
+    syncTerminalVisibility();
     return undefined;
   });
   const boardButton = document.getElementById('board-btn') as HTMLButtonElement;

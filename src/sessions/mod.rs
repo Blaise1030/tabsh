@@ -79,13 +79,16 @@ pub(crate) fn exists(st: &AppState, id: &str) -> bool {
             .is_ok_and(|row| row.is_some())
 }
 
-/// Starts a card's agent: types its pending launch line into its running
-/// shell, once. A shell that isn't running yet types it when it starts.
+/// Starts a card's agent: types its pending launch line into its shell, once.
+/// Spawns the shell if it isn't running yet, so a board drag (or New card in
+/// In progress) can start the agent with no browser socket attached.
 pub(crate) fn launch(st: &AppState, id: &str) {
-    let live = st.live.lock().unwrap();
-    if let Some(session) = live.get(id) {
-        pty::type_launch_line(st, id, session);
-    }
+    let Ok(Some(session)) = pty::get_or_spawn(st, id) else {
+        return;
+    };
+    // A fresh spawn already typed via startup_input when pending was set; a
+    // shell that was already live still needs the line (pending then clears).
+    pty::type_launch_line(st, id, &session);
 }
 
 /// Replaces a card's shell with a fresh one. The first prompt rides in the
