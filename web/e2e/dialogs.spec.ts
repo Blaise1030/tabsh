@@ -18,6 +18,10 @@ test('New card: a folder that is not there shows the error, and reopening clears
   const dialog = page.locator('#new-card');
   const error = dialog.locator('.new-card-error');
   await expect(error).toBeHidden();
+  // What the folder starts as: a recent folder from the tabs earlier specs
+  // left in this worker's daemon, or nothing.
+  const folder = dialog.locator('input[name="cwd"]');
+  const initial = await folder.inputValue();
   await dialog.locator('button[aria-label="Folder"]').click();
   await dialog.locator('input[name="cwd"]').fill('/no/such/folder/here');
   await dialog.locator('textarea[name="prompt"]').fill('Go');
@@ -27,7 +31,7 @@ test('New card: a folder that is not there shows the error, and reopening clears
   await expect(dialog).toBeHidden();
   await page.locator('[aria-label="New card in Backlog"]').click();
   await expect(error).toBeHidden();
-  await expect(dialog.locator('input[name="cwd"]')).toHaveValue('');
+  await expect(folder).toHaveValue(initial);
 });
 
 const newCardKey = process.platform === 'darwin' ? 'Meta+Shift+KeyC' : 'Alt+Shift+KeyN';
