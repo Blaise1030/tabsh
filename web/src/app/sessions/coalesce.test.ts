@@ -107,3 +107,33 @@ test('a replay is written at once with its parsed callback, after dropping stale
   for (const fn of frames) fn();
   assert.deepEqual(written, ['history', 'live']); // live output follows the replay
 });
+
+test('a push after drop schedules a frame again', () => {
+  const { c, written, frame, pendingFrames } = rig();
+  c.push(enc.encode('stale'));
+  c.drop();
+  assert.equal(pendingFrames(), 0);
+  c.push(enc.encode('next'));
+  assert.equal(pendingFrames(), 1);
+  frame();
+  assert.deepEqual(written, ['next']);
+});
+
+test('a replay cancels a scheduled frame: it never fires later', () => {
+  const written: string[] = [];
+  const scheduled = new Map<number, () => void>();
+  let id = 0;
+  const c = coalescer(
+    (b) => written.push(dec.decode(b)),
+    (fn) => {
+      scheduled.set(++id, fn);
+      return id;
+    },
+    (h) => scheduled.delete(h),
+  );
+  c.push(enc.encode('old socket'));
+  assert.equal(scheduled.size, 1);
+  c.replay(enc.encode('history'), () => {});
+  assert.equal(scheduled.size, 0); // the frame was cancelled, not left to run
+  assert.deepEqual(written, ['history']);
+});

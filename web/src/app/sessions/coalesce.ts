@@ -2,6 +2,12 @@
 // joined and handed to xterm as one write when the frame comes, so a burst
 // costs one parse per frame instead of one per socket message. No DOM here:
 // the caller passes requestAnimationFrame (or a test's frames).
+//
+// No size cap: a frame's batch is only what the socket delivered within one
+// frame, and xterm's own write buffer parses a large write in time slices,
+// so a big batch never blocks the page longer than many small writes would.
+// Replies xterm sends as it parses (DA, DSR cursor reports) are delayed by
+// at most a frame; their order relative to typed input is unchanged.
 export interface Coalescer {
   // Queue a chunk; the next frame writes it after the ones before it.
   push(bytes: Uint8Array): void;

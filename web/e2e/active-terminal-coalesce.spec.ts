@@ -2,6 +2,15 @@
 // socket receives within a frame reach xterm as one write. During the burst
 // the page still switches tabs and opens the board; back on the flooded tab,
 // the flood's tail is on screen.
+//
+// The proof here is the mechanism (write calls per received chunk), not a
+// responsiveness metric. Measured against the base build in headless
+// chromium (2026-10-10), none of these told the two apart: long tasks (none
+// in either build), event-loop lag, max rAF gap (16.8ms in both), tab-click
+// and board-open latency mid-flood, and time to paint the whole flood. xterm's
+// own write buffer already parses in time slices, so the navigation half
+// below passes on the base build too: it guards that coalescing doesn't
+// break it.
 import type { Page } from '@playwright/test';
 import type { Daemon } from './daemon.ts';
 import { expect, newTab, openApp, test, typeInTerminal } from './fixture.ts';
@@ -73,9 +82,13 @@ test('a burst on the active tab is written in coalesced frames and the page stay
 
   // Again, but navigate away mid-burst: switching tabs and the board respond.
   const flooded = tabs(page).nth(1);
-  await typeInTerminal(page, "clear; seq 1 400000; echo again-$((6*7))-done");
+  await typeInTerminal(page, "clear; seq 200001 600000; echo again-$((6*7))-done");
   await page.keyboard.press('Enter');
-  await expect(rows(page)).toContainText(/\d{3,}/); // the flood is painting
+  // The second flood is painting: a row only it prints (the first stopped at
+  // 150000; the command line is not a bare number).
+  await expect(page.locator('.term.active .xterm-rows > div', { hasText: /^[2-6]\d{5}\s*$/ }).first()).toBeVisible({
+    timeout: 20_000,
+  });
   await tabs(page).first().click();
   await expect(tabs(page).first()).toHaveAttribute('aria-selected', 'true', { timeout: 2_000 });
   await page.locator('#board-btn').click();

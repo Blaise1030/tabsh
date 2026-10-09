@@ -231,6 +231,7 @@ function connect(s: Session): Promise<boolean> {
     // The first binary message is that replay (always sent, maybe empty);
     // bells inside it already rang.
     ws.onopen = () => {
+      s.out.drop(); // an older socket's unpainted bytes: the replay holds them
       s.term.reset();
       s.replaying = true;
       s.parsingReplay = false;
@@ -238,6 +239,7 @@ function connect(s: Session): Promise<boolean> {
       sendSize(s);
     };
     ws.onmessage = (e) => {
+      if (s.ws !== ws) return; // a parked or replaced socket's late message
       if (typeof e.data === 'string') {
         if (JSON.parse(e.data).exit) {
           removeSession(s);
