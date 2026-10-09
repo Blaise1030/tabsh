@@ -1,7 +1,7 @@
 # Busy tabs stay responsive — Slice Plan
 
 - Spec: `docs/superpowers/specs/2026-10-09-busy-tabs-responsive-design.md` (approach A approved 2026-10-09)
-- Base SHA: `bd23536`
+- Base SHA: `bd23536` (re-based 2026-10-09 on `ae92dd2`; feature branch `features/busy-tabs-responsive`)
 - Tracker: GitHub Issues, repo `Blaise1030/tabsh` — parent: [#71](https://github.com/Blaise1030/tabsh/issues/71)
 - CI checks on PR: `.github/workflows/ci.yml` → `daemon`, `site`, `e2e`
 - E2E: Playwright, specs in `web/e2e/`, run with `cd web && TABSH_BIN=../target/debug/tabsh npm run test:e2e`, conventions at `web/e2e/README.md`
@@ -14,38 +14,40 @@
 - Any slice touching `web/` runs `npm run build` in `web/` and commits `src/app.html` + `src/app-assets/`.
 - Every slice's PR closes its tracker issue; main stays releasable after each merge.
 
-## Slice 1: walking skeleton — inactive tabs stop painting into xterm
+## Slice 1: walking skeleton — parked tabs still show unread and ring
+
+> Re-scoped 2026-10-09: `main` now parks every off-screen terminal's socket (`f9eaaf9`, `738d27e`), so inactive tabs already stop painting. Parked tabs therefore get no output, and unread/bell (set from socket messages in `terminal.ts`) silently stopped working for them. This slice restores that signal cheaply.
 
 - Issue: [#72](https://github.com/Blaise1030/tabsh/issues/72)
 - Depends on: none
-- Flow (REQUIRED): With two tabs open, flood the inactive tab with output (e.g. a long `yes` / agent-style dump in that shell) while using the active tab → the active tab stays usable (focus, type, switch). The inactive tab shows unread. Activate the flooded tab → its terminal shows the caught-up output (via buffer flush or reconnect+replay) and accepts input.
+- Flow (REQUIRED): With two tabs open, flood the inactive (parked) tab with output while using the active tab → the active tab stays usable (focus, type, switch). The inactive tab shows unread; a BEL printed in it rings that tab as before. Activate the flooded tab → it reconnects, replay shows the caught-up output, unread clears, and it accepts input.
 - E2E spec (REQUIRED): `web/e2e/inactive-terminal-pause.spec.ts` —
-  1. Open the app; create tabs A and B; keep A active.
-  2. In B, start a high-volume printer that would previously keep the main thread busy (fixture-driven: write a large payload through the session or run a bounded flood command).
-  3. While B floods, on A: type a marker command / switch to board and back / click A's terminal — interactions succeed within the suite's timeout (page does not wedge).
-  4. Assert B's tab shows unread while inactive.
-  5. Activate B → terminal content includes the flood (or post-replay content); typing in B works.
+  1. Open the app; create tabs A and B; keep A active (B is parked).
+  2. Make B print a large bounded flood plus a BEL (e.g. via the session's shell started before switching away, or `tabsh`/daemon API the fixtures already use).
+  3. While B floods, on A: type a marker command / switch to board and back — interactions succeed within the suite's timeout.
+  4. Assert B's tab shows unread (and the bell mark, if the tab chrome shows one) while parked.
+  5. Activate B → terminal content includes the flood tail; unread clears; typing in B works.
 - Unit tests (REQUIRED):
-  - App (`npm test`): pure pause/buffer policy (when paused, bytes enqueue; on activate flush or signal reconnect; cap exceeded → reconnect) in a DOM-free module beside `terminal.ts`.
-  - Daemon: none required for this slice unless a reconnect path needs a small assert.
+  - Daemon (`cargo test`): activity throttle — many output chunks within the window publish one activity event; a chunk with a bare BEL publishes a bell event immediately; a BEL inside an OSC sequence (e.g. title set terminated by BEL) does not.
+  - App (`npm test`): pure handler deciding what an activity/bell event does to a session (parked & not active → unread / ring; active → nothing; closed/unknown → nothing), DOM-free beside its caller.
 - Layers touched:
-  - App: `web/src/app/sessions/terminal.ts`, `store.ts` (activate/deactivate hooks), new pure buffer/pause helper + test, possibly `bell-scan` wiring so unread/bell still update while paused.
-  - Daemon: none for the minimal path (WS may stay open).
-- Out of scope for this slice: rAF coalescing on the active tab (Slice 2); flush/DB (Slice 3); PTY lock (Slice 4); spawn_blocking (Slice 5).
+  - Daemon: `src/sessions/pty.rs` (reader loop publishes on `st.events`), `src/board/` event type (additive variant), tests.
+  - App: `web/src/app/board/events.ts` (or sessions) dispatching activity/bell to sessions; small pure helper + test; `terminal.ts` untouched beyond what's needed.
+- Out of scope for this slice: rAF coalescing on the active tab (Slice 2); flush/DB (Slice 3); PTY lock scope (Slice 4) — keep the publish outside the `output` lock or trivially cheap; spawn_blocking (Slice 5).
 - Done when: e2e + unit tests pass locally, all CI checks green, PR closes the issue.
 
 ## Slice 2: active tab coalesces bursty writes
 
 - Issue: [#73](https://github.com/Blaise1030/tabsh/issues/73)
-- Depends on: 1 (#72)
+- Depends on: none (re-scoped Slice 1 no longer provides a client buffer module; this slice owns its helper)
 - Flow (REQUIRED): On the *active* tab, a burst of output is painted in coalesced frames → switching to another tab or opening the board during the burst still responds; after the burst settles, the active terminal shows the full output.
 - E2E spec (REQUIRED): `web/e2e/active-terminal-coalesce.spec.ts` —
-  1. One active tab; drive a short high-rate binary/text flood on its socket (or shell).
+  1. One active tab; drive a short high-rate text flood in its shell.
   2. During the flood, switch to another tab (or board) within timeout → navigation succeeds.
-  3. Return to the flooded tab → content is complete (no permanent gaps vs a control run without coalesce, within scrollback).
-- Unit tests (REQUIRED): coalesce helper — multiple chunks before rAF flush become one write; deactivate flushes pending; order preserved.
-- Layers touched: app terminal write path + coalesce helper/test from Slice 1's module or sibling.
-- Out of scope: daemon changes; inactive-path changes beyond what Slice 1 shipped.
+  3. Return to the flooded tab → content is complete (tail of the flood present, within scrollback).
+- Unit tests (REQUIRED): coalesce helper — multiple chunks before the frame flush become one write; park/close flushes or drops pending correctly; order preserved; replay path is not coalesced in a way that breaks `parsingReplay`.
+- Layers touched: app terminal write path in `web/src/app/sessions/terminal.ts` + new pure coalesce helper and test beside it.
+- Out of scope: daemon changes; parking/unread behaviour (Slice 1).
 - Done when: e2e + unit tests pass locally, all CI checks green, PR closes the issue.
 
 ## Slice 3: scrollback flush no longer hitches board and hooks
@@ -95,10 +97,7 @@
 ## Dependency sketch
 
 ```
-1 ──► 2
-3 (parallel)
-4 (parallel)
-5 (parallel)
+1, 2, 3, 4, 5 — all independent
 ```
 
-Slices 3–5 can proceed in parallel with each other and with 1; Slice 2 follows 1. Parent closes only when all slices are done and a short regression pass (existing e2e + new specs) is green on `main`.
+All slices can proceed in parallel. Expected overlaps: 1, 4 and 5 touch `src/sessions/pty.rs`; 4 and 5 touch `src/sessions/ws.rs`; 1 and 2 touch the app's sessions code. Whichever merges second rebases onto `features/busy-tabs-responsive`. Parent closes only when all slices are done and a short regression pass (existing e2e + new specs) is green on `main`.

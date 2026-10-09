@@ -5,7 +5,9 @@
 
 ## Problem
 
-Today every open session keeps a live xterm and WebSocket. Inactive terminals are only CSS-hidden; each output chunk still runs through `term.write`. On the daemon, the PTY reader holds the session `output` mutex across scrollback append, mode trim, and broadcast; the 2s flusher holds the global SQLite mutex while copying up to ~512KB scrollback per dirty session. Opening a tab runs `openpty`/spawn on the async runtime before the WebSocket upgrades.
+> **Update (2026-10-09, after `f9eaaf9` / `738d27e` landed on main):** only the on-screen terminal now holds a socket; every other tab is *parked* (socket closed) and reconnects with scrollback replay when it comes into view. That already stops inactive tabs painting, but parked tabs no longer receive output, so they never show unread or ring a bell (`terminal.ts` sets both from socket messages). Slice 1 is re-scoped to restore that signal; the original buffer/pause design below is superseded by parking. Every tab switch now replays scrollback, which raises the stakes of Slice 4.
+
+Originally, every open session kept a live xterm and WebSocket. Inactive terminals were only CSS-hidden; each output chunk still ran through `term.write`. On the daemon, the PTY reader holds the session `output` mutex across scrollback append, mode trim, and broadcast; the 2s flusher holds the global SQLite mutex while copying up to ~512KB scrollback per dirty session. Opening a tab runs `openpty`/spawn on the async runtime before the WebSocket upgrades.
 
 ## Non-goals (this feature)
 
@@ -24,7 +26,7 @@ Today every open session keeps a live xterm and WebSocket. Inactive terminals ar
 
 ## Design
 
-### Client — pause inactive terminal paint
+### Client — pause inactive terminal paint (superseded by parking on main; see Update above)
 
 - Keep the session, xterm instance, and tab chrome for every open session (no dispose in this feature).
 - When a session is not the active tab (and, when the board is up without the drawer, terminals are not on screen): do not call `term.write` for live chunks.
@@ -33,6 +35,12 @@ Today every open session keeps a live xterm and WebSocket. Inactive terminals ar
 - Optional in a later slice: rAF/microtask coalescing of writes for the *active* session under bursty output.
 
 Security / architecture invariants unchanged: token handling, no `innerHTML`, URLs select-only, CSP.
+
+### Activity signal for parked tabs (re-scoped Slice 1)
+
+- The daemon publishes a per-session **activity** event on the existing `/api/board/events` stream when a session produces output: throttled (at most one event per session per short window, e.g. ~1s) so a flood costs O(1) events, plus an immediate event when the output contains a bell (BEL outside an escape/OSC sequence, matching the client's `bell-scan.ts` semantics).
+- The page marks a parked, non-active tab unread on activity and rings it on a bell event, exactly as a connected tab would. The active, connected tab keeps using its socket path (no double ring).
+- Event shape is additive JSON on the existing stream; no new route, no change to the pairing guard.
 
 ### Daemon — shorter critical sections
 
