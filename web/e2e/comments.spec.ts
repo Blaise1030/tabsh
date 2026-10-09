@@ -4,7 +4,7 @@
 import { existsSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
-import { cdInTerminal, expect, openApp, pickTheme, test, typeInTerminal } from './fixture.ts';
+import { cdInTerminal, expect, newTab, openApp, pickTheme, test, typeInTerminal } from './fixture.ts';
 
 const shown = (page: Page) => page.locator('#pane .pane-view:not([hidden])');
 const preview = (page: Page) => shown(page).frameLocator('.pane-frame');
@@ -402,5 +402,107 @@ test('a whole-document selection pastes a cut quote', async ({ page, daemon, pro
   await shown(page).locator('.pane-send').click();
   await expect(rows(page)).toContainText('- lines 1-3, "Long word word');
   await expect(rows(page)).toContainText('…": Trim.');
+  await page.keyboard.press('Control+C');
+});
+
+test('comments are found again after the file changes on disk', async ({ page, daemon, project }) => {
+  const file = path.join(project, 'moving.md');
+  writeFileSync(file, '# Moving\n\nKeep me.\n\nChange me.\n');
+  await openApp(page, daemon);
+  await openFile(page, project, 'moving.md');
+  await comment(page, 'Keep me.', 'A');
+  await comment(page, 'Change me.', 'B');
+  writeFileSync(file, '# Moving\n\nNew intro.\n\nKeep me.\n\nSomething else.\n');
+  // The pane checks the disk every 2 s and re-renders the preview in place.
+  await expect(preview(page).locator('body')).toContainText('New intro.', { timeout: 10_000 });
+  await expect(status(page)).toHaveText('1 comment no longer matches the file');
+  expect(await highlights(page)).toBe(1);
+  await catWithPasteMode(page, true);
+  await shown(page).locator('.pane-send').click();
+  await expect(rows(page)).toContainText('- line 5, "Keep me.": A');
+  await expect(rows(page)).toContainText('- line 5, "Change me.": B');
+  await page.keyboard.press('Control+C');
+});
+
+test('a repeated passage keeps its comment on the one picked', async ({ page, daemon, project }) => {
+  const file = path.join(project, 'twice.md');
+  writeFileSync(file, '# Twice\n\nSame line.\n\nSame line.\n');
+  await openApp(page, daemon);
+  await openFile(page, project, 'twice.md');
+  await comment(page, 'Same line.', 'The second one.', 1);
+  writeFileSync(file, '# Twice\n\nTop.\n\nSame line.\n\nSame line.\n');
+  await expect(preview(page).locator('body')).toContainText('Top.', { timeout: 10_000 });
+  await catWithPasteMode(page, true);
+  await shown(page).locator('.pane-send').click();
+  await expect(rows(page)).toContainText('- line 7, "Same line.": The second one.');
+  await page.keyboard.press('Control+C');
+});
+
+test('comments survive the source view and a theme change', async ({ page, daemon, project }) => {
+  writeFileSync(path.join(project, 'plan.md'), PLAN);
+  await openApp(page, daemon);
+  await openFile(page, project, 'plan.md');
+  await comment(page, 'First paragraph.', 'Make it shorter.');
+  const toggle = () =>
+    shown(page).locator('.pane-head button[title^="Edit"], .pane-head button[title^="Preview"]');
+  await toggle().click();
+  await expect(shown(page).locator('.cm-editor')).toBeVisible();
+  await expect(shown(page).locator('.pane-send')).toBeVisible();
+  await toggle().click();
+  await expect.poll(() => highlights(page)).toBe(1);
+  await pickTheme(page, 'GitHub Light');
+  expect(await highlights(page)).toBe(1);
+  await hover(page, 'First paragraph.');
+  await expect(shown(page).locator('.comment-hover .comment-note')).toHaveText('Make it shorter.');
+});
+
+test('unsent comments ask before the file goes', async ({ page, daemon, project }) => {
+  writeFileSync(path.join(project, 'plan.md'), PLAN);
+  writeFileSync(path.join(project, 'other.md'), '# Other\n');
+  await openApp(page, daemon);
+  await openFile(page, project, 'plan.md');
+  await comment(page, 'First paragraph.', 'Make it shorter.');
+  const other = page.locator('#explorer').getByRole('treeitem', { name: 'other.md', exact: true });
+
+  page.once('dialog', (d) => {
+    expect(d.message()).toBe('Discard 1 unsent comment?');
+    void d.dismiss();
+  });
+  await other.click();
+  await expect(shown(page).locator('.pane-head')).toContainText('plan.md');
+  await expect(shown(page).locator('.pane-send')).toBeVisible();
+
+  page.once('dialog', (d) => void d.accept());
+  await other.click();
+  await expect(shown(page).locator('.pane-head')).toContainText('other.md');
+  await expect(shown(page).locator('.pane-send')).toBeHidden();
+});
+
+test("each tab keeps its own comments, and Send pastes into its own terminal", async ({
+  page,
+  daemon,
+  project,
+}) => {
+  writeFileSync(path.join(project, 'plan.md'), PLAN);
+  writeFileSync(path.join(project, 'other.md'), '# Other\n\nOther text.\n');
+  await openApp(page, daemon);
+  await openFile(page, project, 'plan.md');
+  await comment(page, 'First paragraph.', 'In tab one.');
+  const first = page.locator('#tabs .tab:not(.mirror)').first();
+
+  await newTab(page);
+  await openFile(page, project, 'other.md');
+  await expect(shown(page).locator('.pane-send')).toBeHidden();
+  await catWithPasteMode(page, true);
+
+  await first.click();
+  await expect(shown(page).locator('.pane-head')).toContainText('plan.md');
+  await expect(shown(page).locator('.pane-send')).toHaveAttribute('title', 'Send 1 comment to Claude');
+  await catWithPasteMode(page, true);
+  await shown(page).locator('.pane-send').click();
+  await expect(rows(page)).toContainText('In tab one.');
+  await page.keyboard.press('Control+C');
+  await page.locator('#tabs .tab:not(.mirror)').nth(1).click();
+  await expect(rows(page)).not.toContainText('In tab one.');
   await page.keyboard.press('Control+C');
 });

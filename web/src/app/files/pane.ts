@@ -274,16 +274,25 @@ export function forget(sessionId: string): void {
   panes.val = [...states.values()];
 }
 
+const unsent = (st: PaneState) => st.notes.comments.val.length;
+
 export function hasUnsaved(): boolean {
-  for (const st of states.values()) if (st.dirty.val) return true;
+  for (const st of states.values()) if (st.dirty.val || unsent(st) > 0) return true;
   return false;
 }
 
+// Asks before unsaved edits or unsent comments are dropped.
 export function confirmDiscard(sessionId: string): boolean {
   const st = states.get(sessionId);
-  if (!st?.dirty.val) return true;
+  if (!st) return true;
+  const n = unsent(st);
+  if (!st.dirty.val && n === 0) return true;
   const name = (st.info?.path ?? st.requested).split('/').pop();
-  return confirm(`Discard unsaved changes to ${name}?`);
+  const parts = [
+    st.dirty.val ? `unsaved changes to ${name}` : '',
+    n > 0 ? `${n} unsent comment${n === 1 ? '' : 's'}` : '',
+  ].filter(Boolean);
+  return confirm(`Discard ${parts.join(' and ')}?`);
 }
 
 export function hasFile(sessionId: string): boolean {
@@ -295,8 +304,10 @@ export function fileOf(sessionId: string): string | null {
   return states.get(sessionId)?.info?.path ?? null;
 }
 
+// Unsaved edits or unsent comments: the router asks before they go.
 export function isDirty(sessionId: string): boolean {
-  return !!states.get(sessionId)?.dirty.val;
+  const st = states.get(sessionId);
+  return !!st && (st.dirty.val || unsent(st) > 0);
 }
 
 // A relative path is shown relative to the directory it was resolved from.
@@ -675,6 +686,9 @@ async function load(
   st.epoch++;
   st.previewSeq++;
   const editable = !!info && info.content !== undefined && EDITABLE.has(info.kind);
+  // Another file drops the comments (the router asked first); the same file
+  // loaded again keeps them, to be found in its new preview.
+  if (!info || st.info?.path !== info.path) st.notes.clear();
   Object.assign(st, {
     info,
     requested: path,
