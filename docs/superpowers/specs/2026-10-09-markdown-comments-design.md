@@ -72,8 +72,12 @@ These are the behaviours tried in the mockup.
      is pressed.
    - Focus moves to the terminal, and the comments and highlights are
      cleared.
-   - If the tab's terminal is closed, the button is disabled, and its
-     tooltip says why.
+   - Nothing is pasted, and the comments are kept, when:
+     - the tab's terminal is closed. The header's status says "Not sent:
+       this tab's terminal is closed";
+     - the terminal isn't in bracketed-paste mode (see Security). The
+       status says "Not sent: the terminal isn't at a prompt that takes a
+       paste safely".
 
 **The message:**
 
@@ -91,6 +95,9 @@ Make these changes to docs/architecture.md for me:
   with "…".
 - **The note** is joined onto one line.
 - **Order** is the order the comments were made in.
+- **Control and invisible characters are removed** from the quote, the note
+  and the path: C0, DEL, C1, zero-width and bidi controls each become a
+  space. Only the message's own line breaks remain.
 
 **Comments live with the tab's file view**, in the page:
 - They stay while you switch tabs.
@@ -133,6 +140,7 @@ The pane checks `e.source === frame.contentWindow` and the frame checks
 else.
 
 - From the frame:
+  - `ready` (the document is parsed; sent once per load)
   - `select {quote, from, to, rect}`
   - `clear`
   - `hover {id, rect}`
@@ -188,6 +196,24 @@ This changes one invariant in `docs/architecture.md`.
 - **Nothing is typed without you.** The pane only pastes on your click of
   Send, and only into the tab's own terminal. It never presses Enter. A
   quote is text from the file you're already reading.
+- **A paste can't become a command.**
+  - The quote comes from the file, so it is untrusted. A shell without
+    bracketed paste runs each pasted line as a command, so Send pastes only
+    when the terminal's `bracketedPasteMode` is on. Claude Code, zsh and
+    bash 5.1 and later turn it on at their prompt.
+  - xterm's `paste()` wraps the text in `ESC[200~` … `ESC[201~` and doesn't
+    clean what's inside it. A quote holding `ESC[201~` could end the paste
+    early and have the rest run. So every control and invisible character
+    in the quote, the note and the path is replaced before pasting, and the
+    tests pin it.
+- **Line numbers can't be faked.** Each render picks a random mark. Only
+  blocks carrying it count as blocks, and the frame script reads it from its
+  own `src`. A `<div data-from>` written in the Markdown is ignored.
+- **The frame script runs once.** The Markdown can name tabsh's own frame
+  script again, and the frame's CSP allows it. A guard keyed on a symbol,
+  which the page can't clobber, stops the second copy. The script also takes
+  its references (the theme `<style>`, its own `src`) before any of the
+  Markdown below it has been parsed.
 - **The daemon's guard doesn't change.** The script request carries no
   `Origin`, and `/_astro/{name}` is already served without the token.
 - **The page CSP doesn't change.** `web/public/_headers` and `APP_CSP` stay
