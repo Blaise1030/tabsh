@@ -77,7 +77,7 @@ pub(super) fn shell_env(
 
 /// Return the running shell for `id`, starting it (in its saved cwd, with its
 /// saved scrollback) if the session exists but isn't running yet.
-pub(super) fn get_or_spawn(st: &AppState, id: &str) -> Result<Option<Arc<Session>>, BoxError> {
+pub(crate) fn get_or_spawn(st: &AppState, id: &str) -> Result<Option<Arc<Session>>, BoxError> {
     let mut live = st.live.lock().unwrap();
     if let Some(s) = live.get(id) {
         return Ok(Some(s.clone()));
@@ -347,6 +347,34 @@ mod tests {
             .unwrap();
         crate::sessions::launch(&st, &id);
         assert_eq!(pending(&st, &id), None, "typed once");
+        let _ = session.killer.lock().unwrap().kill();
+    }
+
+    // A board drag (or New card in In progress) launches with no browser
+    // socket attached: the shell must start then, so the agent runs while the
+    // page shows only the board.
+    #[test]
+    fn launch_starts_a_shell_that_was_not_running() {
+        let st = test_state();
+        let id = crate::sessions::store::insert_card(
+            &st.db.lock().unwrap(),
+            &crate::sessions::store::NewCard {
+                pending: Some("true\r"),
+                prompt: Some("go"),
+                status: "in_progress",
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .id;
+        assert!(st.live.lock().unwrap().get(&id).is_none());
+        crate::sessions::launch(&st, &id);
+        assert!(
+            st.live.lock().unwrap().get(&id).is_some(),
+            "launch spawned the shell"
+        );
+        assert_eq!(pending(&st, &id), None, "typed the launch line");
+        let session = st.live.lock().unwrap().get(&id).unwrap().clone();
         let _ = session.killer.lock().unwrap().kill();
     }
 
