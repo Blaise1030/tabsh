@@ -276,6 +276,9 @@ function connect(s: Session): Promise<boolean> {
         finish(false);
         return;
       }
+      // Dropped without park(): from now on, its output reaches the page as
+      // activity, as for a parked tab.
+      parkedAt.set(s, performance.now());
       finish(false);
       if (inView(s)) scheduleReconnect(s);
     };

@@ -250,6 +250,8 @@ fn spawn_session(
                 .tx
                 .send(Event::Output(Bytes::copy_from_slice(&buf[..n])));
         }
+        // Sends output held back in its last second; stops its sweeper.
+        drop(signals);
         // Shell exited (or was killed): reap it, tell clients, forget the session.
         let _ = child.wait();
         if SHUTTING_DOWN.load(Ordering::SeqCst) {
