@@ -42,14 +42,20 @@ export function renderBlocks(m: MarkedLike, src: string, mark: string): string {
 
 // Characters that must not reach the terminal: C0 and C1 controls and DEL
 // (an ESC could end a bracketed paste early, ESC [201~, and have the shell
-// run the rest), and the zero-width and bidi controls that make text read
-// differently from what it is.
+// run the rest), and the invisible format characters that make text read
+// differently from what it is: soft hyphen, Arabic letter mark, Mongolian
+// vowel separator, zero-width and invisible-operator characters, and the
+// bidi embedding, override and isolate controls.
 function hidden(code: number): boolean {
   return (
     code < 0x20 ||
     (code >= 0x7f && code <= 0x9f) ||
+    code === 0xad ||
+    code === 0x61c ||
+    code === 0x180e ||
     (code >= 0x200b && code <= 0x200f) ||
     (code >= 0x202a && code <= 0x202e) ||
+    (code >= 0x2060 && code <= 0x2064) ||
     (code >= 0x2066 && code <= 0x2069) ||
     code === 0xfeff
   );

@@ -67,8 +67,9 @@ test('a mark that is not long hex is refused', () => {
 test('oneLine makes control, zero-width and bidi characters spaces, and collapses whitespace', () => {
   assert.equal(oneLine('a\u001b[201~b', 100), 'a [201~b');
   assert.equal(oneLine('a\u0000b\u007fc\u0085d', 100), 'a b c d');
-  assert.equal(oneLine('x​y‮z⁦w﻿v', 100), 'x y z w v');
+  assert.equal(oneLine('x\u200by\u202ez\u2066w\ufeffv', 100), 'x y z w v');
   assert.equal(oneLine('  one\n\n two\tthree  ', 100), 'one two three');
+  assert.equal(oneLine('a\u2060b\u061cc\u180ed\u00ade', 100), 'a b c d e');
 });
 
 test('oneLine cuts at max characters with an ellipsis', () => {
