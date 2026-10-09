@@ -1,5 +1,6 @@
 //! Shells that run in PTYs and outlive the browser tabs attached to them.
 
+mod activity;
 mod modes;
 pub(crate) mod pty;
 pub(crate) mod store;
@@ -30,6 +31,7 @@ use std::{
 use store::insert_session;
 use tokio::sync::broadcast;
 
+pub(crate) use activity::Activity;
 pub(crate) use pty::SHUTTING_DOWN;
 pub(crate) use store::{flush, open_db};
 

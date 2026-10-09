@@ -143,9 +143,25 @@ pub(crate) fn resume_line(
     Some(format!("{}\r", template.replace("{session}", session)))
 }
 
+/// What `/api/board/events` sends every open page.
+#[derive(Serialize, Clone, Debug)]
+#[serde(untagged)]
+pub(crate) enum BoardEvent {
+    Status(StatusEvent),
+    Activity(ActivityEvent),
+}
+
+/// A session printed (throttled) or rang its bell: pages mark a parked tab,
+/// which has no socket of its own to hear it.
+#[derive(Serialize, Clone, Debug)]
+pub(crate) struct ActivityEvent {
+    pub(crate) id: String,
+    pub(crate) activity: crate::sessions::Activity,
+}
+
 /// A card's status changed; sent to every open page.
 #[derive(Serialize, Clone, Debug)]
-pub(crate) struct BoardEvent {
+pub(crate) struct StatusEvent {
     pub(crate) id: String,
     pub(crate) status: String,
     pub(crate) status_at: i64,
@@ -294,7 +310,7 @@ fn apply_status(
         crate::sessions::launch(st, id);
     }
     if apply {
-        let _ = st.events.send(BoardEvent {
+        let _ = st.events.send(BoardEvent::Status(StatusEvent {
             id: info.id.clone(),
             status: info.status.clone(),
             status_at: info.status_at,
@@ -303,7 +319,7 @@ fn apply_status(
                 Source::User => "user",
                 Source::Hook => "hook",
             },
-        });
+        }));
     }
     Ok(Json(info))
 }
@@ -611,6 +627,38 @@ mod tests {
         assert_eq!(order(&st), [c, d, b, a], "same status: stays put");
     }
 
+    #[test]
+    fn events_on_the_stream_keep_their_shapes() {
+        let status = BoardEvent::Status(StatusEvent {
+            id: "a".into(),
+            status: "completed".into(),
+            status_at: 7,
+            note: None,
+            source: "hook",
+        });
+        assert_eq!(
+            serde_json::to_value(&status).unwrap(),
+            serde_json::json!({"id": "a", "status": "completed", "status_at": 7, "note": null, "source": "hook"}),
+            "a status change is sent as before"
+        );
+        let bell = BoardEvent::Activity(ActivityEvent {
+            id: "b".into(),
+            activity: crate::sessions::Activity::Bell,
+        });
+        assert_eq!(
+            serde_json::to_value(&bell).unwrap(),
+            serde_json::json!({"id": "b", "activity": "bell"})
+        );
+    }
+
+    /// The status change a test's patch sent.
+    fn status_event(ev: BoardEvent) -> StatusEvent {
+        match ev {
+            BoardEvent::Status(ev) => ev,
+            other => panic!("expected a status change, got {other:?}"),
+        }
+    }
+
     #[tokio::test]
     async fn a_hook_moves_a_card_and_the_board_hears_it() {
         let st = test_state();
@@ -625,7 +673,7 @@ mod tests {
         assert_eq!(code, StatusCode::OK);
         assert_eq!(body["status"], "needs_input");
         assert_eq!(body["note"], "needs Bash");
-        let ev = rx.try_recv().unwrap();
+        let ev = status_event(rx.try_recv().unwrap());
         assert_eq!(
             (ev.id.as_str(), ev.status.as_str(), ev.source),
             (id.as_str(), "needs_input", "hook")
@@ -643,7 +691,7 @@ mod tests {
             serde_json::json!({"status": "completed", "source": "user"}),
         )
         .await;
-        assert_eq!(rx.try_recv().unwrap().source, "user");
+        assert_eq!(status_event(rx.try_recv().unwrap()).source, "user");
     }
 
     #[tokio::test]

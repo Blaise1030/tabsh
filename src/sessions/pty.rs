@@ -2,9 +2,14 @@
 
 use super::{
     Event, Output, SCROLLBACK_BYTES, Session,
+    activity::Throttle,
     modes::{ModeTracker, RESTORE_MARKER},
 };
-use crate::{AppState, error::BoxError};
+use crate::{
+    AppState,
+    board::{ActivityEvent, BoardEvent},
+    error::BoxError,
+};
 use axum::body::Bytes;
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use rusqlite::{OptionalExtension, params};
@@ -15,6 +20,7 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
+    time::Instant,
 };
 use tokio::sync::broadcast;
 
@@ -235,7 +241,15 @@ fn spawn_session(
     let s = session.clone();
     std::thread::spawn(move || {
         let mut buf = [0u8; 8192];
+        let mut activity = Throttle::default();
         while let Ok(n @ 1..) = reader.read(&mut buf) {
+            // Parked tabs hear this instead of the output; outside the lock.
+            if let Some(activity) = activity.feed(&buf[..n], Instant::now()) {
+                let _ = st.events.send(BoardEvent::Activity(ActivityEvent {
+                    id: id.clone(),
+                    activity,
+                }));
+            }
             let mut out = s.output.lock().unwrap();
             let out = &mut *out;
             out.scrollback.extend(&buf[..n]);
@@ -478,5 +492,40 @@ mod tests {
         };
         let _ = session.killer.lock().unwrap().kill();
         assert!(ran, "the resume line was typed into the fresh shell");
+    }
+
+    // A parked tab has no socket: the page hears its shell through the board
+    // events stream instead, as one output signal and an immediate bell.
+    #[test]
+    fn output_and_bells_reach_the_board_events_stream() {
+        use crate::{board::BoardEvent, sessions::Activity};
+        let st = test_state();
+        let mut rx = st.events.subscribe();
+        let id = crate::sessions::store::insert_card(
+            &st.db.lock().unwrap(),
+            &crate::sessions::store::NewCard::default(),
+        )
+        .unwrap()
+        .id;
+        let session = get_or_spawn(&st, &id).unwrap().unwrap();
+        let start = std::time::Instant::now();
+        let deadline = start + std::time::Duration::from_secs(20);
+        let mut typed = start - std::time::Duration::from_secs(2);
+        let mut seen = Vec::new();
+        while !seen.contains(&Activity::Bell) && std::time::Instant::now() < deadline {
+            // A login shell may drop what's typed before its prompt: retype.
+            if typed.elapsed() >= std::time::Duration::from_secs(2) {
+                typed = std::time::Instant::now();
+                let _ = session.input.send(Bytes::from_static(b"printf 'x\\007'\r"));
+            }
+            match rx.try_recv() {
+                Ok(BoardEvent::Activity(ev)) if ev.id == id => seen.push(ev.activity),
+                Ok(_) => {}
+                Err(_) => std::thread::sleep(std::time::Duration::from_millis(20)),
+            }
+        }
+        let _ = session.killer.lock().unwrap().kill();
+        assert!(seen.contains(&Activity::Output), "{seen:?}");
+        assert!(seen.contains(&Activity::Bell), "{seen:?}");
     }
 }
