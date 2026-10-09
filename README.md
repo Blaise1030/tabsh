@@ -9,8 +9,13 @@ brew install blaise1030/tap/tabsh
 tabsh   # opens the app in your browser, paired
 ```
 
-Or build it with `cargo install --git https://github.com/Blaise1030/tabsh`.
-To keep the daemon running from login, `brew services start tabsh`.
+That runs tabsh until you close the terminal. To keep it running from login
+instead, stop it and run `brew services start tabsh`, then open
+http://127.0.0.1:7681 to pair this browser. Upgrade with `brew upgrade tabsh`
+(then `brew services restart tabsh` if you use the service).
+
+No Homebrew? Build it with Rust:
+`cargo install --git https://github.com/Blaise1030/tabsh`.
 
 Safari (and every iOS browser) won't let https://tabsh.cc reach the daemon, so
 tabsh also serves the app itself, and tabsh.cc sends Safari there:
@@ -121,6 +126,14 @@ Releases are automatic:
    `Cargo.toml`).
 2. Merging that PR builds the daemon for macOS and Linux and publishes a GitHub
    release with the changelog section as its notes.
+3. The same run regenerates `Formula/tabsh.rb` in
+   [Blaise1030/homebrew-tap](https://github.com/Blaise1030/homebrew-tap) from
+   the release's checksums (`.github/scripts/homebrew-formula.sh`), so
+   `brew upgrade tabsh` picks it up. It pushes with the
+   `HOMEBREW_TAP_DEPLOY_KEY` secret, a deploy key that can write to the tap only.
+   Change the formula in that script, never in the tap. If this step fails, the
+   release is already out; rerun the script against the release's `.sha256`
+   files and push the result to the tap by hand.
 
 Before 1.0, `feat` and `fix` bump the patch version and breaking changes bump the
 minor version. To release a specific version, run the **Release PR** workflow by
