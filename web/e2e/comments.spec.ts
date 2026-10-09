@@ -8,13 +8,29 @@ import { cdInTerminal, expect, newTab, openApp, pickTheme, test, typeInTerminal 
 
 const shown = (page: Page) => page.locator('#pane .pane-view:not([hidden])');
 
-// The daemon is shared by the worker's specs, and the sidebar's state is a
-// saved setting: leave it closed, as it starts (the explorer specs toggle it).
-test.afterEach(async ({ page }) => {
-  if ((await page.locator('#explorer-btn').getAttribute('aria-pressed')) !== 'true') return;
-  const saved = page.waitForResponse((r) => r.url().includes('/api/settings') && r.request().method() === 'PUT');
-  await page.locator('#explorer-btn').click();
-  await saved;
+// The daemon is shared by the worker's specs, and the sidebar's state and the
+// theme are saved settings: leave them as they were (the explorer specs toggle
+// the sidebar; the palette spec expects the theme it started with).
+let themeBefore = '';
+const settingsUrl = (daemon: { baseUrl: string }) => `${daemon.baseUrl}/api/settings`;
+const auth = (daemon: { token: string }) => ({ Authorization: `Bearer ${daemon.token}` });
+test.beforeEach(async ({ page, daemon }) => {
+  themeBefore = (await (await page.request.get(settingsUrl(daemon), { headers: auth(daemon) })).json()).theme;
+});
+test.afterEach(async ({ page, daemon }) => {
+  if ((await page.locator('#explorer-btn').getAttribute('aria-pressed')) === 'true') {
+    const saved = page.waitForResponse((r) => r.url().includes('/api/settings') && r.request().method() === 'PUT');
+    await page.locator('#explorer-btn').click();
+    await saved;
+  }
+  const now = await (await page.request.get(settingsUrl(daemon), { headers: auth(daemon) })).json();
+  if (now.theme !== themeBefore) {
+    const put = await page.request.put(settingsUrl(daemon), {
+      headers: auth(daemon),
+      data: { ...now, theme: themeBefore },
+    });
+    expect(put.status()).toBe(204);
+  }
 });
 const preview = (page: Page) => shown(page).frameLocator('.pane-frame');
 
