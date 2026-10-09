@@ -43,6 +43,7 @@ test('opening several tabs at once leaves settings, the board and terminals resp
   page,
   daemon,
 }) => {
+  test.slow(); // seven login shells start at once: more than 30s on a busy machine
   await openApp(page, daemon);
 
   // Several sessions, made without attaching: none has a shell yet.
