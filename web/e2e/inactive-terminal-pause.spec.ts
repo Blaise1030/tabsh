@@ -35,7 +35,8 @@ test.afterEach(async ({ page, daemon }) => dropSessions(page, daemon));
 test('a parked tab flooding output shows unread, rings, and catches up when activated', async ({ page, daemon }) => {
   // Two shells, a timed flood and a replay: more than the default budget.
   test.setTimeout(60_000);
-  // Touched by B's shell once it has printed everything.
+  // Touched by B's shell as its flood starts, and once it has printed everything.
+  const started = test.info().outputPath('flood-started');
   const done = test.info().outputPath('flood-done');
   mkdirSync(path.dirname(done), { recursive: true });
   await openApp(page, daemon);
@@ -45,12 +46,12 @@ test('a parked tab flooding output shows unread, rings, and catches up when acti
   const a = tabs(page).filter({ hasText: 'tab-a' });
   const b = tabs(page).filter({ hasText: 'tab-b' });
 
-  // B waits, then floods well past its scrollback, rings once (a bare BEL),
-  // and ends by renaming itself; the title's OSC is BEL-terminated too, and
-  // must not ring on its own. Its tab is parked by then.
+  // B waits until it's parked, then floods for several seconds (well past
+  // its scrollback), rings once with a bare BEL, and ends by renaming itself.
   await typeInTerminal(
     page,
-    `sleep 3; seq 1 200000; printf 'done\\a\\n'; sleep 1; printf '\\033]0;flood-tail\\007'; touch '${done}'`,
+    `sleep 3; touch '${started}'; for i in $(seq 1 40); do seq 1 20000; sleep 0.2; done; ` +
+      `printf 'done\\a\\n'; sleep 1; printf '\\033]0;flood-tail\\007'; touch '${done}'`,
   );
   await page.keyboard.press('Enter');
   await a.click();
@@ -59,16 +60,18 @@ test('a parked tab flooding output shows unread, rings, and catches up when acti
   await expect(b).not.toHaveClass(/\bbell\b/);
 
   // While B floods: A takes input, and the board opens and closes.
+  await expect.poll(() => existsSync(started), { timeout: 15_000 }).toBe(true);
   await renameByShell(page, 'tab-a-typed');
   await page.locator('#board-btn').click();
   await expect(page.locator('#tabs')).toBeHidden();
   await page.locator('#board-btn').click();
   await expect(page.locator('#tabs')).toBeVisible();
   await renameByShell(page, 'tab-a-back');
+  await expect(b).toHaveClass(/\bunread\b/);
+  expect(existsSync(done), 'the A interactions ran during the flood').toBe(false);
 
-  // Parked B heard its output and its bell.
-  await expect(b).toHaveClass(/\bunread\b/, { timeout: 15_000 });
-  await expect(b).toHaveClass(/\bbell\b/, { timeout: 15_000 });
+  // Parked B heard its bell.
+  await expect(b).toHaveClass(/\bbell\b/, { timeout: 20_000 });
 
   // Once its flood has finished (the title is in its scrollback), activating
   // B replays it: the tab takes the title, unread and bell clear, and it

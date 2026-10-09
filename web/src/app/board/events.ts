@@ -5,17 +5,21 @@
 // It also carries each session's activity (output, throttled, and bells), so
 // a parked tab, which has no socket, still shows unread and rings.
 import { boardEventsUrl } from '../daemon/client.ts';
-import { activityEffect } from '../sessions/activity.ts';
+import { type ActivityKind, activityEffect } from '../sessions/activity.ts';
 import { ring } from '../sessions/bell.ts';
 import { store, sync } from '../sessions/store.ts';
 import { orderTabs } from '../sessions/tabs.ts';
+import { parkedMs } from '../sessions/terminal.ts';
 import { asStatus, dropOrder } from './model.ts';
 import { notifyStatus } from './notify.ts';
 import { applyCard } from './status.ts';
 
+// Keyed by `session`, not `id`, so pages from before it ignore it.
 interface ActivityEvent {
-  id: string;
-  activity: string;
+  session: string;
+  activity: ActivityKind;
+  /** How long ago the output it reports came (a trailing signal). */
+  age_ms: number;
 }
 
 interface BoardEvent {
@@ -49,12 +53,10 @@ export function initBoardEvents(): void {
 }
 
 function onActivity(ev: ActivityEvent): void {
-  const s = store.sessions.find((x) => x.id === ev.id);
-  const effect = activityEffect(
-    s && { closed: s.closed, parked: !s.ws || s.ws.readyState >= WebSocket.CLOSING, active: s === store.active },
-    ev.activity,
-  );
+  const s = store.sessions.find((x) => x.id === ev.session);
   if (!s) return;
+  const target = { closed: s.closed, parkedMs: parkedMs(s), active: s === store.active };
+  const effect = activityEffect(target, ev.activity, ev.age_ms ?? 0);
   if (effect.unread) s.unread.val = true;
   if (effect.ring) ring(s);
 }

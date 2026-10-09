@@ -155,8 +155,14 @@ pub(crate) enum BoardEvent {
 /// which has no socket of its own to hear it.
 #[derive(Serialize, Clone, Debug)]
 pub(crate) struct ActivityEvent {
-    pub(crate) id: String,
+    /// Not `id`: pages older than this event look cards up by `id`, and
+    /// would read one without a status as a move to Backlog.
+    pub(crate) session: String,
     pub(crate) activity: crate::sessions::Activity,
+    /// How long ago the output it reports came (a trailing signal reports
+    /// output held back by the throttle): output from before a tab parked
+    /// was already on its screen.
+    pub(crate) age_ms: u64,
 }
 
 /// A card's status changed; sent to every open page.
@@ -642,12 +648,14 @@ mod tests {
             "a status change is sent as before"
         );
         let bell = BoardEvent::Activity(ActivityEvent {
-            id: "b".into(),
+            session: "b".into(),
             activity: crate::sessions::Activity::Bell,
+            age_ms: 0,
         });
         assert_eq!(
             serde_json::to_value(&bell).unwrap(),
-            serde_json::json!({"id": "b", "activity": "bell"})
+            serde_json::json!({"session": "b", "activity": "bell", "age_ms": 0}),
+            "no `id`: a page from before activity finds no card in it"
         );
     }
 
