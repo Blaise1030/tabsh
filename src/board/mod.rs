@@ -163,6 +163,10 @@ pub(crate) struct ActivityEvent {
     /// output held back by the throttle): output from before a tab parked
     /// was already on its screen.
     pub(crate) age_ms: u64,
+    /// The title the shell set since the last signal, if it changed: a
+    /// parked tab has no xterm to read it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) title: Option<String>,
 }
 
 /// A card's status changed; sent to every open page.
@@ -749,11 +753,23 @@ mod tests {
             session: "b".into(),
             activity: crate::sessions::Activity::Bell,
             age_ms: 0,
+            title: None,
         });
         assert_eq!(
             serde_json::to_value(&bell).unwrap(),
             serde_json::json!({"session": "b", "activity": "bell", "age_ms": 0}),
             "no `id`: a page from before activity finds no card in it"
+        );
+        let titled = BoardEvent::Activity(ActivityEvent {
+            session: "b".into(),
+            activity: crate::sessions::Activity::Output,
+            age_ms: 0,
+            title: Some("✳ Claude Code".into()),
+        });
+        assert_eq!(
+            serde_json::to_value(&titled).unwrap(),
+            serde_json::json!({"session": "b", "activity": "output", "age_ms": 0, "title": "✳ Claude Code"}),
+            "a title rides along only when there is one"
         );
     }
 
