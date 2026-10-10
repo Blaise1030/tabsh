@@ -59,6 +59,15 @@ it in `state::router()`, and add its routes to `every_route_is_guarded`.
 | `palette/` | `pages.ts` (what the palette offers), `palette.ts` (dialog, preview, shortcuts, a text edit in its input (the agent providers' pages), the grouping page the group button and its keybinding open; Esc on a page returns to the page that opened it, the providers list from a provider; About tabsh is a page too, its rows (version, shell, state path, uptime, sessions) copied on click) |
 | `ui/` | `dom.ts` (`isMac`), `icons.ts` (every icon, as SVG tags), `keyed.ts` (lists by key), `app.ts` (the page shell: the board replaces the workspace — file sidebar, terminals, file pane — and the tab bar keeps only its Board button, the Filter button once the board is onboarded, and Settings; a clicked card (or the open tab, when the board is opened) shows the workspace in a drawer beside the board, and a click on the board's empty space closes it, `drawer=1` in the URL, with its own bar and a divider whose width is the `drawerWidth` setting; the drawer's close is arrow-right-to-line, in front of the file sidebar), `gate.ts` (the connection gate's screens, from `daemon/client.ts`'s `gateMode`), `divider.ts`, `about.ts` (About tabsh's rows, fetched from `/api/about` each time the palette's About page opens), `drop.ts` and `drop-paths.ts`, `no-markup.test.ts` (the guard: no `innerHTML` in the app) |
 
+**The demo (`web/src/demo/`, `web/src/pages/demo/`).** The landing page
+frames `/demo/`: the same app, built into a second page, on a pretend daemon.
+`demo/daemon.ts` loads before `main.ts` and answers the app's requests and
+sockets from memory (scripted shells, files, board events), keeps browser
+storage in memory, and holds off focus until the visitor clicks in.
+`demo/origin.ts` is the never-resolving origin the page's meta tag names. The
+app itself knows nothing of the demo: a change to the app shows up there as is,
+and a new daemon endpoint may need an answer in `demo/daemon.ts`.
+
 The page's CSS is in `web/src/styles/app.css`. The page's `<head>` is in
 `web/src/pages/app/index.astro`; its body is one mount point, `#app`, and
 `main.ts` mounts `ui/app.ts`'s `App()` into it first, so the markup comes from
@@ -134,6 +143,11 @@ A refactor must not change any of these.
   holds the place; the router never reads the fragment (the token's), and
   the daemon's app page sends `Referrer-Policy: no-referrer`
   (`local_app_sends_no_referrer`).
+- **The demo holds nothing:** `/demo/` never reaches a daemon. It answers
+  only its own `.invalid` origin, refuses every other request and socket,
+  never reads real storage (so no token), and its CSP in `web/public/_headers`
+  allows `connect-src 'self'` alone. Only `/demo/` may be framed, and only by
+  this site; `/app/` keeps `frame-ancestors 'none'`.
 - **CSP:** `web/public/_headers` and `APP_CSP` (`web/pages.rs`) stay in step.
   Neither allows `'unsafe-inline'` scripts, so the page has no inline
   `<script>` or `on…=` attributes. Tests in `web/pages.rs` enforce both.
