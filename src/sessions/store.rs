@@ -4,7 +4,7 @@ use super::{Session, SessionInfo, pty::process_cwd};
 use crate::{AppState, error::BoxError};
 use rusqlite::{Connection, params};
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicU64, Ordering},
 };
 
@@ -34,7 +34,17 @@ pub(crate) fn open_db(path: &str) -> Result<Connection, BoxError> {
 }
 
 /// Write scrollback and cwd of every session whose output changed.
+///
+/// Each session's scrollback is copied out under its `output` lock alone, and
+/// the database is locked only for that session's write: never while waiting
+/// on a busy shell's output, nor across every session's copy, so hooks,
+/// status changes and the session list don't queue behind a flush.
+///
+/// Whole flushes run one at a time: the shutdown flush waits for a periodic
+/// one still holding a copy it has yet to write.
 pub(crate) fn flush(state: &AppState) {
+    static FLUSHING: Mutex<()> = Mutex::new(());
+    let _turn = FLUSHING.lock().unwrap_or_else(|e| e.into_inner());
     let live: Vec<(String, Arc<Session>)> = state
         .live
         .lock()
@@ -42,24 +52,45 @@ pub(crate) fn flush(state: &AppState) {
         .iter()
         .map(|(id, s)| (id.clone(), s.clone()))
         .collect();
-    let db = state.db.lock().unwrap();
     for (id, session) in live {
-        let scrollback: Vec<u8> = {
-            let mut out = session.output.lock().unwrap();
-            if !out.dirty {
-                continue;
-            }
-            out.dirty = false;
-            out.scrollback.iter().copied().collect()
-        };
-        let cwd = session.pid.and_then(process_cwd);
-        if let Err(e) = db.execute(
+        if let Some(scrollback) = take_dirty(&session) {
+            save(state, &id, &session, scrollback);
+        }
+    }
+}
+
+/// A copy of the session's scrollback if it changed since the last flush,
+/// taken under its `output` lock alone.
+fn take_dirty(session: &Session) -> Option<Vec<u8>> {
+    let mut out = session.output.lock().unwrap();
+    if !out.dirty {
+        return None;
+    }
+    out.dirty = false;
+    let (front, back) = out.scrollback.as_slices();
+    Some([front, back].concat())
+}
+
+/// Writes one session's copied scrollback and its cwd, holding `db` for that
+/// write alone. A session being restarted is skipped: `restart` flags it
+/// before saving its newer screen, so this copy is stale. A failed write
+/// leaves the session dirty for the next flush.
+fn save(state: &AppState, id: &str, session: &Session, scrollback: Vec<u8>) {
+    let cwd = session.pid.and_then(process_cwd);
+    let saved = {
+        let db = state.db.lock().unwrap();
+        if session.restarting.load(Ordering::SeqCst) {
+            return;
+        }
+        db.execute(
             "UPDATE sessions SET scrollback = ?1, cwd = COALESCE(?2, cwd), updated_at = unixepoch()
              WHERE id = ?3",
             params![scrollback, cwd, id],
-        ) {
-            eprintln!("failed to save session {id}: {e}");
-        }
+        )
+    };
+    if let Err(e) = saved {
+        eprintln!("failed to save session {id}: {e}");
+        session.output.lock().unwrap().dirty = true;
     }
 }
 
@@ -214,6 +245,230 @@ pub(crate) fn reorder(db: &mut Connection, ids: &[String]) -> rusqlite::Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn saved_scrollback(st: &AppState, id: &str) -> Vec<u8> {
+        st.db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT scrollback FROM sessions WHERE id = ?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .unwrap()
+    }
+
+    // A busy shell's reader holds its `output` while it appends: the flusher
+    // waiting on it must not hold the database, or every hook, status change
+    // and session list waits too.
+    #[test]
+    fn flush_never_holds_the_db_while_waiting_on_a_sessions_output() {
+        let st = crate::test_support::test_state();
+        let id = insert_session(&st.db.lock().unwrap(), None).unwrap().id;
+        let session = super::super::pty::get_or_spawn(&st, &id).unwrap().unwrap();
+
+        let mut out = session.output.lock().unwrap();
+        out.scrollback = vec![b'x'; super::super::SCROLLBACK_BYTES].into();
+        out.dirty = true;
+        let flusher = {
+            let st = st.clone();
+            std::thread::spawn(move || flush(&st))
+        };
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        // A hook's status change and a session list, while the output is held.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
+        let db_free = loop {
+            if let Ok(db) = st.db.try_lock() {
+                db.execute(
+                    "UPDATE sessions SET status = 'needs_input' WHERE id = ?1",
+                    params![id],
+                )
+                .unwrap();
+                assert!(info(&db, &id).unwrap().is_some());
+                break true;
+            }
+            if std::time::Instant::now() > deadline {
+                break false;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        };
+        drop(out);
+        flusher.join().unwrap();
+        let saved = saved_scrollback(&st, &id);
+        let _ = session.killer.lock().unwrap().kill();
+
+        assert!(db_free, "flush held the db while waiting on output");
+        assert!(saved.len() >= 1000 && saved[..1000].iter().all(|&b| b == b'x'));
+    }
+
+    /// A live session whose screen is `scrollback` alone and dirty, once its
+    /// shell has gone quiet (no prompt still on its way to dirty it again).
+    fn spawn_dirty(st: &AppState, scrollback: &[u8]) -> (String, Arc<Session>) {
+        let id = insert_session(&st.db.lock().unwrap(), None).unwrap().id;
+        let session = super::super::pty::get_or_spawn(st, &id).unwrap().unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        loop {
+            session.output.lock().unwrap().dirty = false;
+            std::thread::sleep(std::time::Duration::from_millis(400));
+            if !session.output.lock().unwrap().dirty {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "shell never went quiet"
+            );
+        }
+        let mut out = session.output.lock().unwrap();
+        out.scrollback = scrollback.to_vec().into();
+        out.dirty = true;
+        drop(out);
+        (id, session)
+    }
+
+    /// Ends a test's shell, keeping its row (as a restart does).
+    fn end(session: &Session) {
+        session.restarting.store(true, Ordering::SeqCst);
+        let _ = session.killer.lock().unwrap().kill();
+    }
+
+    fn pause() {
+        std::thread::sleep(std::time::Duration::from_millis(150));
+    }
+
+    // The shutdown flush must not finish while the periodic one still holds
+    // a copy it has yet to write: the daemon exits right after it.
+    #[test]
+    fn a_flush_waits_for_the_one_still_writing() {
+        let st = crate::test_support::test_state();
+        let (id, session) = spawn_dirty(&st, b"latest screen");
+
+        let db = st.db.lock().unwrap();
+        let periodic = {
+            let st = st.clone();
+            std::thread::spawn(move || flush(&st))
+        };
+        pause(); // it has copied the screen and waits on the db
+        let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let shutdown = {
+            let (st, done) = (st.clone(), done.clone());
+            std::thread::spawn(move || {
+                flush(&st);
+                done.store(true, Ordering::SeqCst);
+            })
+        };
+        pause();
+        let finished_early = done.load(Ordering::SeqCst);
+        drop(db);
+        periodic.join().unwrap();
+        shutdown.join().unwrap();
+        let saved = saved_scrollback(&st, &id);
+        end(&session);
+
+        assert!(
+            !finished_early,
+            "the second flush returned before the first wrote"
+        );
+        assert!(saved.starts_with(b"latest screen"));
+    }
+
+    // A flush that copied the screen before a restart must not overwrite the
+    // newer screen the restart saved: the replacement shell replays it.
+    #[test]
+    fn a_flush_copied_before_a_restart_keeps_the_restarts_screen() {
+        let st = crate::test_support::test_state();
+        let (id, session) = spawn_dirty(&st, b"older screen");
+        let stale = take_dirty(&session).unwrap();
+        session.output.lock().unwrap().scrollback = b"newer screen".to_vec().into();
+        super::super::restart(&st, &id);
+        save(&st, &id, &session, stale);
+        assert!(
+            saved_scrollback(&st, &id).starts_with(b"newer screen"),
+            "a stale flush overwrote the restart's save"
+        );
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !session.output.lock().unwrap().exited {
+            assert!(std::time::Instant::now() < deadline, "shell did not exit");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let again = super::super::pty::get_or_spawn(&st, &id).unwrap().unwrap();
+        let replay: Vec<u8> = again
+            .output
+            .lock()
+            .unwrap()
+            .scrollback
+            .iter()
+            .copied()
+            .collect();
+        end(&again);
+        assert!(replay.starts_with(b"newer screen"));
+    }
+
+    // A write that fails leaves the screen dirty, so the next flush retries.
+    #[test]
+    fn a_failed_write_is_retried_by_the_next_flush() {
+        let st = crate::test_support::test_state();
+        let (id, session) = spawn_dirty(&st, b"unsaved screen");
+        st.db
+            .lock()
+            .unwrap()
+            .execute_batch(
+                "CREATE TRIGGER no_save BEFORE UPDATE OF scrollback ON sessions
+                 BEGIN SELECT RAISE(FAIL, 'disk full'); END;",
+            )
+            .unwrap();
+        flush(&st);
+        let dirty = session.output.lock().unwrap().dirty;
+        st.db
+            .lock()
+            .unwrap()
+            .execute_batch("DROP TRIGGER no_save;")
+            .unwrap();
+        flush(&st);
+        let saved = saved_scrollback(&st, &id);
+        end(&session);
+        assert!(dirty, "a failed write must leave the screen dirty");
+        assert!(saved.starts_with(b"unsaved screen"));
+    }
+
+    // What a flush saves is what the shell started after a daemon restart
+    // replays.
+    #[test]
+    fn flushed_scrollback_is_restored_by_the_next_shell() {
+        let st = crate::test_support::test_state();
+        let id = insert_session(&st.db.lock().unwrap(), None).unwrap().id;
+        let first = super::super::pty::get_or_spawn(&st, &id).unwrap().unwrap();
+        {
+            let mut out = first.output.lock().unwrap();
+            out.scrollback = b"hello from before".to_vec().into();
+            out.dirty = true;
+        }
+        flush(&st);
+        assert!(saved_scrollback(&st, &id).starts_with(b"hello from before"));
+
+        // The shell goes, keeping its session (as a restart does).
+        first.restarting.store(true, Ordering::SeqCst);
+        let _ = first.killer.lock().unwrap().kill();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while st.live.lock().unwrap().contains_key(&id) {
+            assert!(std::time::Instant::now() < deadline, "shell did not exit");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        let again = super::super::pty::get_or_spawn(&st, &id).unwrap().unwrap();
+        let restored: Vec<u8> = again
+            .output
+            .lock()
+            .unwrap()
+            .scrollback
+            .iter()
+            .copied()
+            .collect();
+        again.restarting.store(true, Ordering::SeqCst);
+        let _ = again.killer.lock().unwrap().kill();
+        assert!(restored.starts_with(b"hello from before"));
+    }
 
     #[test]
     fn new_session_can_start_in_a_directory() {
