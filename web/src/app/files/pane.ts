@@ -22,11 +22,22 @@ import {
   saveFile,
   toDisk,
 } from './api.ts';
-import { createEditor, type Editor } from './editor.ts';
+import {
+  type Comment,
+  caretInSpan,
+  oneLine,
+  previewHtml,
+  type SpanMarked,
+  shortLines,
+  sourceQuote,
+  withSourceSpans,
+} from './comments.ts';
+import { createEditor, type Editor, type Rect } from './editor.ts';
+import { createNotes, type Notes, type PasteResult } from './notes.ts';
 import { paneShown } from './open.ts';
 import { rememberFile } from './remember.ts';
 
-const { button, div, header, iframe, img, p, section, span } = van.tags;
+const { button, code, div, header, iframe, img, p, section, span } = van.tags;
 
 export interface PaneTheme {
   background: string;
@@ -43,6 +54,8 @@ export interface Host {
   layout(): void; // refit the active terminal (sendSize(active))
   newTabAt(cwd: string): void; // POST /api/sessions {cwd} then activate
   focusTerminal(): void;
+  // Pastes into a tab's terminal (bracketed, never pressing Enter).
+  paste(sessionId: string, text: string): PasteResult;
 }
 
 interface PaneState {
@@ -71,6 +84,9 @@ interface PaneState {
   blobUrl: string | null;
   markdown: string | null; // rendered HTML, re-wrapped when the theme changes
   frame: HTMLIFrameElement | null;
+  notes: Notes; // comments on the source selection (notes.ts)
+  commentsOpen: State<boolean>; // the header's comment list
+  commentsWrap: HTMLElement | null;
 }
 
 let host: Host;
@@ -121,7 +137,23 @@ export function init(h: Host): void {
         if (key === 's') void save(st);
         else toggleMode(st);
       }
-    } else if (e.key === 'Escape' && !e.defaultPrevented) host.focusTerminal();
+    } else if (e.key === 'Escape' && !e.defaultPrevented) {
+      if (st?.commentsOpen.val) {
+        st.commentsOpen.val = false;
+        return;
+      }
+      host.focusTerminal();
+    }
+  });
+  // A click outside a comment list closes it.
+  document.addEventListener('mousedown', (e) => {
+    const t = e.target;
+    const node = t instanceof Node ? t : null;
+    for (const st of states.values()) {
+      if (!st.commentsOpen.val) continue;
+      if (node && st.commentsWrap?.contains(node)) continue;
+      st.commentsOpen.val = false;
+    }
   });
   // Only while the page is visible; coming back checks at once.
   window.setInterval(() => void poll(), POLL_MS);
@@ -159,6 +191,119 @@ function EditToggle(st: PaneState): HTMLElement {
   );
 }
 
+// The source, so a comment in the list can be shown. Text files already have
+// the editor; a preview is switched over to it.
+function ensureEditor(st: PaneState): void {
+  if (st.editor || !st.editable.val || !st.info || st.info.kind === 'text') return;
+  st.editing.val = true;
+  mountRich(st);
+}
+
+function baseName(path: string): string {
+  const i = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  return i >= 0 ? path.slice(i + 1) : path;
+}
+
+function revealComment(st: PaneState, path: string, c: Comment): void {
+  if (path !== st.path.val.abs) {
+    st.notes.armJump(c.id);
+    go({ file: path, line: c.fromLine });
+    return;
+  }
+  ensureEditor(st);
+  const ed = st.editor;
+  if (!ed) return;
+  if (c.lost) ed.goTo(c.fromLine);
+  else ed.reveal(c.from, c.to);
+  ed.view.focus();
+}
+
+// The paper plane, with how many comments are waiting. It opens the list;
+// Send to terminal is the first row of that list.
+function SendButton(st: PaneState): HTMLElement {
+  const listed = () =>
+    st.notes.files.val.flatMap((f) => f.comments.map((c) => ({ ...c, path: f.path, label: f.label })));
+  type Listed = ReturnType<typeof listed>[number];
+  const n = () => listed().length;
+  const label = () => `${n()} comment${n() === 1 ? '' : 's'}`;
+  const rows = div({ class: 'pane-comment-rows' });
+  const current = (c: Listed): Listed => listed().find((x) => x.id === c.id && x.path === c.path) ?? c;
+  keyed(
+    rows,
+    listed,
+    (c) => `${c.path}\0${c.id}`,
+    (c) =>
+      button(
+        {
+          type: 'button',
+          class: () => (current(c).lost ? 'comment-row lost' : 'comment-row'),
+          onclick: () => revealComment(st, c.path, current(c)),
+        },
+        span(
+          { class: 'comment-top' },
+          span({ class: 'comment-file', title: () => current(c).path }, () => baseName(current(c).path)),
+          code({ class: 'comment-lines' }, () => shortLines(current(c))),
+        ),
+        span({ class: 'comment-note' }, () => oneLine(current(c).note, 160)),
+        span({ class: 'comment-quote' }, () => `“${oneLine(current(c).quote, 160)}”`),
+      ),
+  );
+  // While the preview is showing, sending or clearing comments redraws it.
+  // The first run matches the list as it is and does nothing.
+  let shown = st.notes.comments.val;
+  van.derive(() => {
+    const list = st.notes.comments.val;
+    if (n() === 0) st.commentsOpen.val = false;
+    if (list === shown) return;
+    shown = list;
+    if (!st.frame || st.editing.val || st.info?.kind !== 'markdown') return;
+    const seq = ++st.previewSeq;
+    const frame = st.frame;
+    const doc = st.doc;
+    void import('marked').then((marked) => {
+      if (seq !== st.previewSeq || st.frame !== frame) return;
+      const html = previewHtml(withSourceSpans(marked as unknown as SpanMarked), doc, list);
+      st.markdown = html;
+      setPreview(frame, html);
+    });
+  });
+  const wrap = div(
+    { class: 'pane-send-wrap' },
+    button(
+      {
+        type: 'button',
+        class: 'btn pane-send',
+        'data-variant': 'ghost',
+        'data-size': 'icon-sm',
+        title: label,
+        'aria-label': label,
+        'aria-expanded': () => st.commentsOpen.val,
+        hidden: () => n() === 0,
+        onclick: () => {
+          st.commentsOpen.val = !st.commentsOpen.val;
+        },
+      },
+      icons.send(),
+      span({ class: 'pane-send-badge' }, () => String(n())),
+    ),
+    div(
+      {
+        class: 'row-menu pane-comments',
+        role: 'menu',
+        'aria-label': 'Comments',
+        hidden: () => !st.commentsOpen.val,
+      },
+      div(
+        { class: 'pane-comments-send' },
+        button({ type: 'button', class: 'btn', 'data-size': 'sm', onclick: () => st.notes.send() }, 'Send to terminal'),
+      ),
+      rows,
+    ),
+  );
+  st.commentsWrap = wrap;
+  return wrap;
+}
+
 function PaneHead(st: PaneState): HTMLElement {
   return header(
     { class: () => (st.scrolled.val ? 'pane-head scrolled' : 'pane-head') },
@@ -166,6 +311,7 @@ function PaneHead(st: PaneState): HTMLElement {
     span({ class: 'pane-path', title: () => st.path.val.abs }, () => st.path.val.text),
     span({ class: 'pane-status', role: 'status' }, () => st.status.val),
     span({ class: 'pane-dot', title: 'Unsaved changes', hidden: () => !st.dirty.val }, '●'),
+    SendButton(st),
     EditToggle(st),
   );
 }
@@ -185,6 +331,7 @@ function PaneView(st: PaneState): HTMLElement {
     PaneHead(st),
     () => st.body.val,
     ConflictBar(st),
+    ...st.notes.pieces,
   );
   // Scroll doesn't bubble, so catch the editor's or body's on the way down.
   view.addEventListener(
@@ -218,10 +365,16 @@ function Msg(text: string): HTMLElement {
   return div({ class: 'pane-msg' }, p(text));
 }
 
-// Drops whatever the body shows, freeing the editor and any blob.
-function clear(st: PaneState): void {
+// Drops the editor. Comments stay, to be drawn again when it comes back.
+function dropEditor(st: PaneState): void {
+  st.notes.detach();
   st.editor?.destroy();
   st.editor = null;
+}
+
+// Drops whatever the body shows, freeing the editor and any blob.
+function clear(st: PaneState): void {
+  dropEditor(st);
   if (st.blobUrl) URL.revokeObjectURL(st.blobUrl);
   st.blobUrl = null;
   st.markdown = null;
@@ -239,21 +392,42 @@ export function forget(sessionId: string): void {
   const st = states.get(sessionId);
   if (!st) return;
   clear(st);
+  st.notes.dispose();
   clearTimeout(st.timer);
   states.delete(sessionId);
   panes.val = [...states.values()];
 }
 
+const unsent = (st: PaneState) => st.notes.files.val.reduce((n, f) => n + f.comments.length, 0);
+
 export function hasUnsaved(): boolean {
-  for (const st of states.values()) if (st.dirty.val) return true;
+  for (const st of states.values()) if (st.dirty.val || unsent(st) > 0) return true;
   return false;
 }
 
-export function confirmDiscard(sessionId: string): boolean {
-  const st = states.get(sessionId);
-  if (!st?.dirty.val) return true;
+// Unsaved edits, unsent comments, or both. Null when there is nothing to drop.
+function discardQuestion(st: PaneState, scope: 'all' | 'edits'): string | null {
+  const n = unsent(st);
   const name = (st.info?.path ?? st.requested).split('/').pop();
-  return confirm(`Discard unsaved changes to ${name}?`);
+  if (scope === 'edits') return st.dirty.val ? `Discard unsaved changes to ${name}?` : null;
+  if (st.dirty.val && n > 0) return `Discard unsaved changes to ${name} and ${n} unsent comment${n === 1 ? '' : 's'}?`;
+  if (st.dirty.val) return `Discard unsaved changes to ${name}?`;
+  if (n === 1) return 'Discard 1 unsent comment?';
+  if (n > 1) return `Discard ${n} unsent comments?`;
+  return null;
+}
+
+export function confirmDiscard(sessionId: string, scope: 'all' | 'edits' = 'all'): boolean {
+  const st = states.get(sessionId);
+  const question = st && discardQuestion(st, scope);
+  if (!question) return true;
+  return confirm(question);
+}
+
+// Unsaved edits in the open file. Comments are kept across files, so a file
+// switch asks about edits only.
+export function hasEdits(sessionId: string): boolean {
+  return !!states.get(sessionId)?.dirty.val;
 }
 
 export function hasFile(sessionId: string): boolean {
@@ -266,7 +440,8 @@ export function fileOf(sessionId: string): string | null {
 }
 
 export function isDirty(sessionId: string): boolean {
-  return !!states.get(sessionId)?.dirty.val;
+  const st = states.get(sessionId);
+  return !!st && (st.dirty.val || unsent(st) > 0);
 }
 
 // A relative path is shown relative to the directory it was resolved from.
@@ -401,7 +576,14 @@ function markdownDoc(html: string, th: PaneTheme): string {
     `body::before{content:"";position:fixed;top:0;left:0;right:0;height:1rem;z-index:1;pointer-events:none;` +
     `background:linear-gradient(${th.background},transparent);opacity:0;` +
     `animation:fade linear both;animation-timeline:scroll(root);animation-range:0 1px}` +
-    `@keyframes fade{to{opacity:1}}`;
+    `@keyframes fade{to{opacity:1}}` +
+    // A comment made in the source, drawn on the block it covers. No script:
+    // the preview stays sandboxed.
+    `.tabsh-comment{margin:.5rem 0;padding:.375rem .625rem;` +
+    `background:${th.light ? 'oklch(0.93 0.08 85)' : `color-mix(in oklab, oklch(0.8 0.15 75) 30%, ${th.background})`};` +
+    `box-shadow:inset 0 -2px 0 ${th.light ? 'oklch(0.72 0.16 70)' : 'oklch(0.8 0.15 75)'}}` +
+    `.tabsh-comment-note{margin:0 0 .35rem;font-size:.75rem;line-height:1.4;user-select:none}` +
+    `.tabsh-comment-quote{display:block;color:color-mix(in srgb,${th.foreground} 65%,${th.background})}`;
   return `<!doctype html><meta charset="utf-8"><style>${style}</style>${html}`;
 }
 
@@ -414,7 +596,7 @@ function svgDoc(svg: string): string {
 }
 
 function newEditor(st: PaneState, body: HTMLElement, readOnly: boolean): Editor {
-  return createEditor(body, {
+  const editor = createEditor(body, {
     doc: st.doc,
     path: st.info!.path,
     readOnly,
@@ -425,7 +607,13 @@ function newEditor(st: PaneState, body: HTMLElement, readOnly: boolean): Editor 
     },
     onSave: () => void save(st),
     onCursor: (line) => reportLine(st, line),
+    onSelection: (sel) => st.notes.pick(sel),
+    onDoc: (doc, changes, list) => st.notes.mapped(doc, changes, list),
+    onHover: (hit) => st.notes.hover(hit),
+    onScroll: () => st.notes.scrolled(),
   });
+  st.notes.attach(editor);
+  return editor;
 }
 
 // The cursor's line goes in the place, by a replace, while this file is the
@@ -437,13 +625,158 @@ function reportLine(st: PaneState, line: number): void {
   go({ line }, 'replace');
 }
 
+// Replacing the preview document jumps to the top and then back, which also
+// dismisses the Comment menu. The same document is updated in place instead.
+function setPreview(frame: HTMLIFrameElement, html: string): void {
+  const doc = frame.contentDocument;
+  const scrolling = doc?.scrollingElement;
+  if (!doc?.body || !scrolling) {
+    frame.srcdoc = markdownDoc(html, host.theme());
+    return;
+  }
+  const top = scrolling.scrollTop;
+  const parsed = new DOMParser().parseFromString(markdownDoc(html, host.theme()), 'text/html');
+  const nextStyle = parsed.querySelector('style');
+  if (nextStyle) {
+    let style = doc.querySelector('style');
+    if (!style) {
+      style = doc.createElement('style');
+      doc.head.append(style);
+    }
+    style.textContent = nextStyle.textContent;
+  }
+  doc.body.replaceChildren(...[...parsed.body.childNodes].map((node) => doc.importNode(node, true)));
+  if (scrolling.scrollTop !== top) scrolling.scrollTop = top;
+}
+
+// The Comment button follows a selection in the Markdown preview. The frame
+// has no script of its own; these listeners are added by the pane. A fast
+// release often never delivers mouseup to the frame, so the selection itself
+// is what schedules the button. The range's box can also lag a frame behind
+// the selection; those attempts are dropped once a newer gesture starts.
+function watchPreviewSelection(st: PaneState, frame: HTMLIFrameElement): void {
+  let timer = 0;
+  let generation = 0;
+  let bound: Document | null = null;
+  const read = (gen: number, attempt: number) => {
+    if (gen !== generation) return;
+    const doc = frame.contentDocument;
+    if (!doc) return;
+    const sel = doc.getSelection();
+    const picked = previewSelection(st.doc, sel);
+    const rect = picked && sel ? selectionRect(frame, sel) : null;
+    const pending = !!sel && !sel.isCollapsed && (!picked || !rect);
+    if (pending && attempt < 4) {
+      requestAnimationFrame(() => read(gen, attempt + 1));
+      return;
+    }
+    st.notes.pick(picked, rect);
+  };
+  const schedule = () => {
+    window.clearTimeout(timer);
+    const gen = ++generation;
+    timer = window.setTimeout(() => read(gen, 0), 150);
+  };
+  const bind = () => {
+    const doc = frame.contentDocument;
+    if (!doc || doc === bound) return;
+    bound = doc;
+    doc.addEventListener('selectionchange', schedule);
+    doc.addEventListener('mouseup', schedule);
+    doc.addEventListener('keyup', schedule);
+    doc.addEventListener('mousedown', () => {
+      window.clearTimeout(timer);
+      generation++;
+      st.notes.pick(null);
+    });
+    doc.addEventListener('scroll', () => st.notes.scrolled(), true);
+  };
+  frame.addEventListener('load', bind);
+}
+
+function selectionRect(frame: HTMLIFrameElement, sel: Selection): Rect | null {
+  if (sel.rangeCount === 0) return null;
+  const r = sel.getRangeAt(0).getBoundingClientRect();
+  if (r.width === 0 && r.height === 0) return null;
+  const f = frame.getBoundingClientRect();
+  return { top: f.top + r.top, left: f.left + r.left, bottom: f.top + r.bottom, right: f.left + r.right };
+}
+
+function previewSelection(src: string, sel: Selection | null): ReturnType<typeof sourceQuote> {
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
+  const range = sel.getRangeAt(0);
+  if (insideNote(range.startContainer) || insideNote(range.endContainer)) return null;
+  const start = caretPoint(range.startContainer, range.startOffset);
+  const end = caretPoint(range.endContainer, range.endOffset);
+  if (start == null || end == null) return null;
+  return sourceQuote(src, Math.min(start, end), Math.max(start, end));
+}
+
+function insideNote(node: Node): boolean {
+  const el = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
+  return !!el?.closest('.tabsh-comment-note');
+}
+
+// `instanceof` is false for a node from the preview frame: it has its own
+// window. `nodeType` is the same number in both.
+function caretPoint(node: Node, offset: number): number | null {
+  if (node.nodeType === Node.TEXT_NODE) {
+    const text = node as Text;
+    const span = text.parentElement?.closest<HTMLElement>('.src');
+    if (!span) return null;
+    return spanCaret(span, offset + textBefore(span, text));
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE) return null;
+  const el = node as HTMLElement;
+  if (el.classList.contains('src')) return spanCaret(el, offset <= 0 ? 0 : (el.textContent?.length ?? 0));
+  if (offset >= el.childNodes.length) {
+    const last = lastSourceSpan(el);
+    return last ? spanCaret(last, last.textContent?.length ?? 0) : null;
+  }
+  const span = firstSourceSpan(el.childNodes[offset]);
+  return span ? spanCaret(span, 0) : null;
+}
+
+function spanCaret(span: HTMLElement, textOffset: number): number | null {
+  const from = Number(span.dataset.from);
+  const to = Number(span.dataset.to);
+  if (!Number.isInteger(from) || !Number.isInteger(to)) return null;
+  return caretInSpan(from, to, span.textContent?.length ?? 0, textOffset);
+}
+
+function firstSourceSpan(node: Node): HTMLElement | null {
+  if (node.nodeType === Node.ELEMENT_NODE) {
+    const el = node as HTMLElement;
+    if (el.classList.contains('src')) return el;
+    return el.querySelector<HTMLElement>('.src');
+  }
+  return node.parentElement?.closest<HTMLElement>('.src') ?? null;
+}
+
+function lastSourceSpan(node: Element): HTMLElement | null {
+  const el = node as HTMLElement;
+  if (el.classList.contains('src')) return el;
+  const all = el.querySelectorAll<HTMLElement>('.src');
+  return all.length ? all[all.length - 1] : null;
+}
+
+function textBefore(root: HTMLElement, target: Text): number {
+  const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let count = 0;
+  let cur = walker.nextNode();
+  while (cur && cur !== target) {
+    count += cur.textContent?.length ?? 0;
+    cur = walker.nextNode();
+  }
+  return count;
+}
+
 // Markdown, HTML and SVG: sandboxed preview of the current text, or its source in CodeMirror.
 function mountRich(st: PaneState): void {
   const body = st.body.val,
     kind = st.info!.kind;
   const seq = ++st.previewSeq;
-  st.editor?.destroy();
-  st.editor = null;
+  dropEditor(st);
   st.frame = null;
   st.markdown = null;
   body.replaceChildren();
@@ -467,13 +800,19 @@ function mountRich(st: PaneState): void {
     show(svgDoc(st.doc), '');
   } else {
     void import('marked')
-      .then(({ marked }) => marked.parse(st.doc))
+      .then((marked) => previewHtml(withSourceSpans(marked as unknown as SpanMarked), st.doc, st.notes.comments.val))
       .then(
         (html) => {
           if (st.previewSeq !== seq || st.body.val !== body || st.editing.val) return;
-          // An empty sandbox: no scripts, an opaque origin.
+          // Scripts stay off, so the frame cannot read the token. Same origin
+          // is only so this pane can read a text selection and offer Comment.
           st.markdown = html;
-          st.frame = show(markdownDoc(html, host.theme()), '');
+          const frame = iframe({ class: 'pane-frame', title });
+          frame.setAttribute('sandbox', 'allow-same-origin');
+          watchPreviewSelection(st, frame);
+          frame.srcdoc = markdownDoc(html, host.theme());
+          body.append(frame);
+          st.frame = frame;
         },
         () => {
           if (st.previewSeq === seq) body.replaceChildren(Msg("Couldn't render the preview"));
@@ -514,7 +853,7 @@ async function renderBody(st: PaneState, info: FileInfo, body: HTMLElement, isCu
         return;
       }
       st.editor = newEditor(st, body, true);
-      st.editor.goTo(st.line ?? 1);
+      if (!st.notes.jumped()) st.editor.goTo(st.line ?? 1);
       return;
     }
   }
@@ -547,7 +886,14 @@ export async function showFile(
 
 let made = 0;
 function newState(id: string, requested: string): PaneState {
-  return {
+  let st!: PaneState;
+  const notes = createNotes({
+    file: () => ({ path: st.path.val.abs, label: st.path.val.text }),
+    paste: (text) => host.paste(id, text),
+    status: (text) => setStatus(st, text),
+    shownStatus: () => st.status.val,
+  });
+  st = {
     id,
     key: `${id}#${++made}`,
     path: van.state({ abs: requested, text: requested }),
@@ -571,7 +917,11 @@ function newState(id: string, requested: string): PaneState {
     blobUrl: null,
     markdown: null,
     frame: null,
+    notes,
+    commentsOpen: van.state(false),
+    commentsWrap: null,
   };
+  return st;
 }
 
 // `focus` is false for a load nobody asked for, which mustn't take the
@@ -622,8 +972,9 @@ async function load(
   });
   const abs = info?.path ?? path;
   st.path.val = { abs, text: info ? shownPath(st, abs) : abs };
+  st.notes.openedFile();
   st.editable.val = editable;
-  st.editing.val = false;
+  st.editing.val = !!editable && st.notes.willJump();
   st.dirty.val = false;
   st.conflict.val = null;
   st.status.val = '';
@@ -665,6 +1016,6 @@ export function applyTheme(): void {
   const th = host.theme();
   for (const st of states.values()) {
     st.editor?.setTheme(th);
-    if (st.frame && st.markdown !== null) st.frame.srcdoc = markdownDoc(st.markdown, th);
+    if (st.frame && st.markdown !== null) setPreview(st.frame, st.markdown);
   }
 }

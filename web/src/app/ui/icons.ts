@@ -51,6 +51,8 @@ export const icons: Record<
   | 'forward'
   | 'edit'
   | 'preview'
+  | 'send'
+  | 'messageSquarePlus'
   | 'collapse'
   | 'folder'
   | 'boardOnboarding'
@@ -249,6 +251,17 @@ export const icons: Record<
   agent: draw(({ path, svg }) => svg({ ...LUCIDE }, path({ d: 'm4 17 6-6-6-6' }), path({ d: 'M12 19h8' }))),
   info: draw(({ circle, path, svg }) =>
     svg({ ...LUCIDE }, circle({ cx: '12', cy: '12', r: '10' }), path({ d: 'M12 16v-4' }), path({ d: 'M12 8h.01' })),
+  ),
+  send: draw(({ path, svg }) =>
+    svg({ ...LUCIDE, 'aria-hidden': 'true' }, path({ d: 'm22 2-7 20-4-9-9-4Z' }), path({ d: 'M22 2 11 13' })),
+  ),
+  messageSquarePlus: draw(({ path, svg }) =>
+    svg(
+      { ...LUCIDE, 'aria-hidden': 'true' },
+      path({ d: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' }),
+      path({ d: 'M12 7v6' }),
+      path({ d: 'M9 10h6' }),
+    ),
   ),
   edit: draw(({ path, svg }) =>
     svg(
