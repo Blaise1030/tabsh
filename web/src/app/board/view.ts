@@ -3,6 +3,7 @@
 // order. Its columns, cards and setup screen follow the sessions' states.
 // Names and notes are user text: child strings only.
 import van, { type State } from 'vanjs-core';
+import { DOCS_URL } from '../../site.ts';
 import { api } from '../daemon/client.ts';
 import { go, onPlace } from '../nav/router.ts';
 import { tagColor } from '../sessions/labels.ts';
@@ -538,7 +539,7 @@ function Column(status: Status, name: string, columns: State<Columns>, asList: b
 // instead of its columns: one button opens a Claude Code card that wires its
 // own hooks through `tabsh setup`, the other skips it. Either one marks the
 // board onboarded.
-const BOARD_DOCS = 'https://github.com/Blaise1030/tabsh#the-board';
+const BOARD_DOCS = DOCS_URL;
 
 function Onboarding(): HTMLElement {
   const busy = van.state(false);

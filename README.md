@@ -68,6 +68,8 @@ default, or any command, such as `gemini -i {prompt}`.
 
 `tabsh status <status> [--note <text>]` sets the card by hand.
 
+The walkthrough is at https://tabsh.cc/docs/.
+
 ## How it connects
 
 The app is a plain web page. It talks to the daemon on your own machine at

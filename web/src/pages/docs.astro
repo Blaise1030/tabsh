@@ -1,0 +1,210 @@
+---
+import Site from '../layouts/Site.astro';
+import { DAEMON_URL, INSTALL_COMMAND, REPO_URL } from '../site';
+
+// The line the board's "Set up with Claude Code" button sends (board/model.ts).
+const SETUP_PROMPT =
+  'Run `tabsh setup` and follow the guide it prints, so your hooks keep your card on the tabsh board current.';
+const CARGO_INSTALL = `cargo install --git ${REPO_URL}`;
+---
+
+<Site
+  title="Docs · tabsh"
+  description="Install tabsh, connect a coding agent, and see the hooks it adds so its card stays current."
+>
+  <h1><span class="mark">#</span> DOCS</h1>
+  <p>
+    A card moves on its own once the agent in that terminal reports what it is doing.
+    You do not edit the agent's settings. The agent does, and it tells you which file it changed.
+  </p>
+
+  <nav class="toc" aria-label="Contents">
+    <p><span class="mark">&gt;</span> CONTENTS</p>
+    <ol>
+      <li><a href="#start">Getting started</a></li>
+      <li><a href="#setup">Connect an agent</a></li>
+      <li><a href="#hooks">Hooks the agent runs</a></li>
+      <li><a href="#done">What you should see</a></li>
+      <li><a href="#undo">Undo</a></li>
+    </ol>
+  </nav>
+
+  <h2 id="start"><span class="mark">##</span> GETTING STARTED</h2>
+  <p>
+    Install tabsh and start it. It opens the app in your browser, already paired
+    with the daemon on your machine.
+  </p>
+  <pre class="cmd"><span class="mark">$</span> {INSTALL_COMMAND}  <button type="button" class="copy" data-copy={INSTALL_COMMAND} aria-label="Copy install command">[copy]</button>
+<span class="mark">$</span> tabsh
+<span class="mark"># no Homebrew? {CARGO_INSTALL}</span></pre>
+  <p>
+    That process runs until you close its terminal. To keep the daemon running from
+    login, stop it and run <code>brew services start tabsh</code>, then open <code>{DAEMON_URL}</code> once in this browser.
+  </p>
+  <p>
+    Safari, and every iOS browser, cannot reach the daemon from this site. The daemon
+    serves the app at <code>http://tabsh.localhost:7681</code>, and this site sends Safari there.
+  </p>
+  <p class="muted"><span class="mark">&gt;</span> Next, <a href="#setup">connect an agent</a> so its card moves on its own.</p>
+
+  <h2 id="setup"><span class="mark">##</span> CONNECT AN AGENT</h2>
+  <p>
+    Open the board (⌘B). The first time, choose <b>Set up with Claude Code</b>.
+    That opens a card and hands the agent the setup guide.
+  </p>
+  <p>
+    Already past that screen, or you use another agent? In a tabsh terminal, paste this to
+    Claude Code, Codex, Gemini CLI or OpenCode:
+  </p>
+  <pre class="cmd"><span class="mark">&gt;</span> {SETUP_PROMPT}  <button type="button" class="copy" data-copy={SETUP_PROMPT} aria-label="Copy setup prompt">[copy]</button></pre>
+  <p>
+    Run it inside a tabsh terminal. The hooks look for that terminal's card, and outside
+    tabsh they do nothing.
+  </p>
+
+  <h2 id="hooks"><span class="mark">##</span> HOOKS THE AGENT RUNS</h2>
+  <p>
+    <code>tabsh setup</code> prints the guide, and the agent follows it. It backs up the
+    config file first, then adds the commands below. It keeps every hook you already have.
+    Run the setup again and it updates those tabsh lines instead of adding a second copy.
+  </p>
+  <div class="scroll"><table>
+    <thead>
+      <tr><th>When</th><th>Command</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td data-label="When">You send a prompt</td>
+        <td data-label="Command"><code>tabsh status in_progress --hook</code></td>
+      </tr>
+      <tr>
+        <td data-label="When">The agent needs your permission or a reply</td>
+        <td data-label="Command"><code>tabsh status needs_input --hook --if-not completed</code></td>
+      </tr>
+      <tr>
+        <td data-label="When">The agent's turn ends</td>
+        <td data-label="Command"><code>tabsh status needs_input --hook --if-not completed --note 'Agent finished its turn'</code></td>
+      </tr>
+      <tr>
+        <td data-label="When">The task is done</td>
+        <td data-label="Command"><code>tabsh status completed --note '&lt;one line: what it did&gt;'</code></td>
+      </tr>
+    </tbody>
+  </table></div>
+  <p>
+    The last row is not a hook. The agent adds one rule to the instructions it reads
+    every session, and runs that command itself when it decides the task is done.
+    It never sets another status, and it never archives a card. Archiving stays yours.
+  </p>
+  <p>
+    <code>--hook</code> prints nothing and always exits 0, including outside a tabsh
+    terminal, so the same lines are safe in every shell. It reads the event's JSON.
+    A <code>message</code> field becomes the card's note. A <code>session_id</code>
+    is how tabsh resumes that conversation after a restart. <code>--if-not completed</code> leaves a finished card where it is when a later hook fires.
+  </p>
+  <p>Each agent writes those commands into its own file:</p>
+  <div class="scroll"><table>
+    <thead>
+      <tr><th>Agent</th><th>File</th><th>Events</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td data-label="Agent">Claude Code</td>
+        <td data-label="File"><code>~/.claude/settings.json</code></td>
+        <td data-label="Events">UserPromptSubmit, Notification, Stop</td>
+      </tr>
+      <tr>
+        <td data-label="Agent">Gemini CLI</td>
+        <td data-label="File"><code>~/.gemini/settings.json</code></td>
+        <td data-label="Events">BeforeAgent, Notification, AfterAgent</td>
+      </tr>
+      <tr>
+        <td data-label="Agent">Codex</td>
+        <td data-label="File"><code>~/.codex/config.toml</code></td>
+        <td data-label="Events"><code>notify</code></td>
+      </tr>
+      <tr>
+        <td data-label="Agent">OpenCode</td>
+        <td data-label="File"><code>~/.config/opencode/plugins/tabsh.ts</code></td>
+        <td data-label="Events">session started, permission asked, execution ended</td>
+      </tr>
+    </tbody>
+  </table></div>
+  <p>
+    For Claude Code and Gemini CLI those events follow the table above, in order:
+    your prompt, the agent needing you, then the turn ending. Codex has a single <code>notify</code> hook and no event for the moment you send a prompt, so the
+    agent leaves that command out. OpenCode's file is a plugin. Its server never
+    sees the terminal, so the plugin finds the card by the conversation tabsh named.
+    Permission asked uses the note <code>OpenCode needs your permission</code>.
+  </p>
+  <p>
+    The agent checks its own current docs for those event names, and the commands
+    use the <code>tabsh</code> binary it found. Its report names the path it wrote.
+    If that path is a build folder under <code>target/</code>, the report says so,
+    because the hooks would point at it.
+  </p>
+  <p>
+    A desktop notification and a chime fire when a hook moves a card to Needs input
+    or Completed and that terminal is not the one on screen.
+  </p>
+
+  <h2 id="done"><span class="mark">##</span> WHAT YOU SHOULD SEE</h2>
+  <p>The agent reports back:</p>
+  <ol class="steps">
+    <li><b>The file it changed</b>, and a <code>.bak</code> copy beside it.</li>
+    <li><b>Which of those commands it connected</b>, and which its agent has no way to report.</li>
+    <li><b>How to undo it.</b></li>
+  </ol>
+  <p>
+    While it checks the connection, the card moves to Needs input with the note <code>setup test</code>, then back to In progress. If the card never moves, paste
+    that report back into the same terminal and ask the agent to fix the connection.
+  </p>
+
+  <h2 id="undo"><span class="mark">##</span> UNDO</h2>
+  <p>
+    Ask the agent to remove the tabsh hooks. Its report names the file.
+    The entries to remove are the ones whose command contains <code> status </code>, <code>--hook</code> and the word <code>tabsh</code>, plus the instruction that
+    marks a card completed. OpenCode's wiring is the one plugin: delete <code>~/.config/opencode/plugins/tabsh.ts</code>.
+  </p>
+
+  <p class="sig end">~*~ EOF ~*~</p>
+</Site>
+
+<Fragment slot="after">
+  <script>
+    for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-copy]')) {
+      btn.addEventListener('click', async () => {
+        await navigator.clipboard.writeText(btn.dataset.copy ?? '');
+        btn.textContent = '[copied]';
+        setTimeout(() => (btn.textContent = '[copy]'), 1500);
+      });
+    }
+  </script>
+</Fragment>
+
+<style>
+  .cmd { padding: .75rem 1rem; border-radius: 4px; background: var(--code-bg); white-space: pre-wrap; }
+  .copy {
+    padding: 0; border: 0; background: none; color: var(--link); font: inherit; letter-spacing: inherit; cursor: pointer;
+  }
+  .copy:hover { color: var(--fg); }
+  .toc ol, .steps { padding-left: 2.25rem; }
+  .toc li::marker, .steps li::marker { color: var(--muted); }
+  .toc li + li, .steps li + li { margin-top: .5rem; }
+  .toc { margin-bottom: 2.5rem; }
+  .scroll { overflow-x: auto; margin: 0 0 1rem; }
+  table { width: 100%; border-collapse: collapse; margin: 0; }
+  th, td { text-align: left; vertical-align: top; padding: .5rem 1rem .5rem 0; border-bottom: 1px solid var(--line); font-weight: 400; }
+  th { color: var(--muted); font-weight: 600; }
+  td code { white-space: normal; }
+  @media (max-width: 520px) {
+    .scroll { overflow-x: visible; }
+    table, tbody, tr, td { display: block; min-width: 0; width: auto; }
+    thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+    tr { padding: .75rem 0; border-bottom: 1px solid var(--line); }
+    td { border: 0; padding: 0; }
+    td + td { margin-top: .35rem; }
+    td::before { content: attr(data-label); display: block; color: var(--muted); font-weight: 600; }
+    td code { white-space: normal; }
+  }
+</style>

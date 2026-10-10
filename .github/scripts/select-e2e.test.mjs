@@ -39,7 +39,7 @@ test('a changed spec runs itself', () => {
 });
 
 test('docs and landing-only changes run smoke', () => {
-  assert.deepEqual(selectE2e(['README.md', 'web/src/pages/index.astro']), {
+  assert.deepEqual(selectE2e(['README.md', 'web/src/pages/index.astro', 'web/src/pages/docs.astro', 'web/src/layouts/Site.astro']), {
     mode: 'selected',
     specs: ['e2e/smoke.spec.ts'],
   });

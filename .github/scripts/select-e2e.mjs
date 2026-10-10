@@ -40,6 +40,7 @@ const noAppE2e = (path) =>
   path === 'README.md' || path === 'CHANGELOG.md' || path.startsWith('docs/') ||
   path.startsWith('web/src/demo/') || path.startsWith('web/src/pages/demo/') ||
   path === 'web/src/pages/index.astro' || path === 'web/src/pages/changelog.astro' ||
+  path === 'web/src/pages/docs.astro' || path === 'web/src/layouts/Site.astro' ||
   path === 'web/src/site.ts';
 
 export function missingEmbeddedAssets(paths) {
