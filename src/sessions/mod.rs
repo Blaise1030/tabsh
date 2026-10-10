@@ -1,5 +1,6 @@
 //! Shells that run in PTYs and outlive the browser tabs attached to them.
 
+mod activity;
 mod modes;
 pub(crate) mod pty;
 pub(crate) mod store;
@@ -30,6 +31,7 @@ use std::{
 use store::insert_session;
 use tokio::sync::broadcast;
 
+pub(crate) use activity::Activity;
 pub(crate) use pty::SHUTTING_DOWN;
 pub(crate) use store::{flush, open_db};
 
@@ -96,13 +98,13 @@ pub(crate) fn launch(st: &AppState, id: &str) {
 /// the old one is killed with its screen saved, and the next tab to attach
 /// spawns the replacement (in the saved cwd, with the scrollback replayed).
 pub(crate) fn restart(st: &AppState, id: &str) {
+    let _turn = st.starting.turn(id);
     let Some(session) = st.live.lock().unwrap().remove(id) else {
         return;
     };
-    let scrollback: Vec<u8> = {
-        let out = session.output.lock().unwrap();
-        out.scrollback.iter().copied().collect()
-    };
+    // Flagged before the save, so a flush holding an older copy skips it.
+    session.restarting.store(true, Ordering::SeqCst);
+    let scrollback = session.output.lock().unwrap().scrollback_bytes();
     let cwd = session.pid.and_then(pty::process_cwd);
     if let Err(e) = st.db.lock().unwrap().execute(
         "UPDATE sessions SET scrollback = ?1, cwd = COALESCE(?2, cwd) WHERE id = ?3",
@@ -110,7 +112,6 @@ pub(crate) fn restart(st: &AppState, id: &str) {
     ) {
         eprintln!("failed to save session {id}: {e}");
     }
-    session.restarting.store(true, Ordering::SeqCst);
     let _ = session.killer.lock().unwrap().kill();
 }
 
@@ -317,8 +318,17 @@ async fn reorder_sessions(State(st): State<AppState>, Json(body): Json<Order>) -
 /// Close a tab. A running shell is killed and its reader thread removes the
 /// row (and tells attached clients); a not-yet-restored one is just deleted.
 async fn delete_session(State(st): State<AppState>, Path(id): Path<String>) -> StatusCode {
+    // On the blocking pool: the close waits out a start of this tab's shell.
+    tokio::task::spawn_blocking(move || close(&st, &id))
+        .await
+        .unwrap_or_else(internal_error)
+}
+
+fn close(st: &AppState, id: &str) -> StatusCode {
+    // Waits out a start of this tab's shell, so that shell is killed too.
+    let _turn = st.starting.turn(id);
     let live = st.live.lock().unwrap();
-    if let Some(session) = live.get(&id) {
+    if let Some(session) = live.get(id) {
         let _ = session.killer.lock().unwrap().kill();
         return StatusCode::NO_CONTENT;
     }
@@ -338,6 +348,21 @@ async fn delete_session(State(st): State<AppState>, Path(id): Path<String>) -> S
 mod tests {
     use super::*;
     use crate::test_support::test_state;
+
+    // Closing a tab waits out a start of its shell: on the blocking pool, so
+    // the worker that took the request moves on.
+    #[test]
+    fn closing_a_tab_waits_off_the_async_workers() {
+        let st = test_state();
+        let id = insert_session(&st.db.lock().unwrap(), None).unwrap().id;
+        let (free, code) = crate::test_support::off_the_worker(
+            &st,
+            delete_session(State(st.clone()), Path(id.clone())),
+        );
+        assert_eq!(code, StatusCode::NO_CONTENT);
+        assert!(free, "the worker was free while the close waited");
+        assert!(!exists(&st, &id));
+    }
 
     #[test]
     fn cwd_falls_back_to_the_saved_column() {

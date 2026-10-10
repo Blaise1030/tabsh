@@ -143,9 +143,31 @@ pub(crate) fn resume_line(
     Some(format!("{}\r", template.replace("{session}", session)))
 }
 
+/// What `/api/board/events` sends every open page.
+#[derive(Serialize, Clone, Debug)]
+#[serde(untagged)]
+pub(crate) enum BoardEvent {
+    Status(StatusEvent),
+    Activity(ActivityEvent),
+}
+
+/// A session printed (throttled) or rang its bell: pages mark a parked tab,
+/// which has no socket of its own to hear it.
+#[derive(Serialize, Clone, Debug)]
+pub(crate) struct ActivityEvent {
+    /// Not `id`: pages older than this event look cards up by `id`, and
+    /// would read one without a status as a move to Backlog.
+    pub(crate) session: String,
+    pub(crate) activity: crate::sessions::Activity,
+    /// How long ago the output it reports came (a trailing signal reports
+    /// output held back by the throttle): output from before a tab parked
+    /// was already on its screen.
+    pub(crate) age_ms: u64,
+}
+
 /// A card's status changed; sent to every open page.
 #[derive(Serialize, Clone, Debug)]
-pub(crate) struct BoardEvent {
+pub(crate) struct StatusEvent {
     pub(crate) id: String,
     pub(crate) status: String,
     pub(crate) status_at: i64,
@@ -185,7 +207,7 @@ async fn set_status(
     Path(id): Path<String>,
     Json(body): Json<SetStatus>,
 ) -> Result<Json<SessionInfo>, StatusCode> {
-    apply_status(&st, &id, body, true)
+    apply_status_blocking(st, id, body, true).await
 }
 
 /// A hook that can't tell which terminal it runs in (an OpenCode plugin runs
@@ -216,7 +238,20 @@ async fn set_agent_status(
         .map_err(internal_error)?;
     let id = id.ok_or(StatusCode::NOT_FOUND)?;
     // The card already knows this conversation.
-    apply_status(&st, &id, body, false)
+    apply_status_blocking(st, id, body, false).await
+}
+
+/// [`apply_status`] on the blocking pool: a move to In progress starts the
+/// card's shell, and the worker moves on meanwhile.
+async fn apply_status_blocking(
+    st: AppState,
+    id: String,
+    body: SetStatus,
+    record_agent: bool,
+) -> Result<Json<SessionInfo>, StatusCode> {
+    tokio::task::spawn_blocking(move || apply_status(&st, &id, body, record_agent))
+        .await
+        .map_err(internal_error)?
 }
 
 /// Sets card `id`'s status. With `record_agent`, a hook that names its agent
@@ -294,7 +329,7 @@ fn apply_status(
         crate::sessions::launch(st, id);
     }
     if apply {
-        let _ = st.events.send(BoardEvent {
+        let _ = st.events.send(BoardEvent::Status(StatusEvent {
             id: info.id.clone(),
             status: info.status.clone(),
             status_at: info.status_at,
@@ -303,7 +338,7 @@ fn apply_status(
                 Source::User => "user",
                 Source::Hook => "hook",
             },
-        });
+        }));
     }
     Ok(Json(info))
 }
@@ -357,6 +392,14 @@ async fn set_prompt(
     Path(id): Path<String>,
     Json(body): Json<SetPrompt>,
 ) -> Result<Json<SessionInfo>, StatusCode> {
+    // The restart waits out a start of the card's shell: on the blocking
+    // pool, so the worker moves on meanwhile.
+    tokio::task::spawn_blocking(move || edit_prompt(&st, &id, body))
+        .await
+        .map_err(internal_error)?
+}
+
+fn edit_prompt(st: &AppState, id: &str, body: SetPrompt) -> Result<Json<SessionInfo>, StatusCode> {
     let prompt = clean_prompt(&body.prompt);
     let command = body
         .command
@@ -440,12 +483,12 @@ async fn set_prompt(
         }
     };
     updated.map_err(internal_error)?;
-    let info = store::info(&db, &id)
+    let info = store::info(&db, id)
         .map_err(internal_error)?
         .ok_or(StatusCode::NOT_FOUND)?;
     drop(db);
     // The old shell was spawned with the old prompt in its environment.
-    crate::sessions::restart(&st, &id);
+    crate::sessions::restart(st, id);
     Ok(Json(info))
 }
 
@@ -611,6 +654,117 @@ mod tests {
         assert_eq!(order(&st), [c, d, b, a], "same status: stays put");
     }
 
+    // A drag to In progress starts the card's shell (no tab need be
+    // attached) on the blocking pool: the worker that took the request (here,
+    // the only one) moves on while it waits on the database or on `openpty`.
+    #[test]
+    fn a_launching_move_starts_its_shell_off_the_async_workers() {
+        let st = test_state();
+        let id = crate::sessions::store::insert_card(
+            &st.db.lock().unwrap(),
+            &crate::sessions::store::NewCard {
+                pending: Some("true\r"),
+                prompt: Some("go"),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .id;
+        let (free, code) = {
+            let (st2, id) = (st.clone(), id.clone());
+            crate::test_support::off_the_worker(&st, async move {
+                patch(
+                    &st2,
+                    &id,
+                    serde_json::json!({"status": "in_progress", "source": "user"}),
+                )
+                .await
+                .0
+            })
+        };
+        assert_eq!(code, StatusCode::OK);
+        assert!(
+            st.live.lock().unwrap().contains_key(&id),
+            "the drag started the shell"
+        );
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(req(
+                &st,
+                Method::DELETE,
+                &format!("/api/sessions/{id}"),
+                serde_json::Value::Null,
+            ));
+        assert!(free, "the worker was free while the shell started");
+    }
+
+    // Editing a Backlog card's prompt restarts its shell, which waits out a
+    // start of that shell: on the blocking pool, so the worker moves on.
+    #[test]
+    fn a_prompt_edit_waits_off_the_async_workers() {
+        let st = test_state();
+        let id = crate::sessions::store::insert_card(
+            &st.db.lock().unwrap(),
+            &crate::sessions::store::NewCard {
+                pending: Some("true\r"),
+                prompt: Some("go"),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .id;
+        let (free, code) = {
+            let st2 = st.clone();
+            crate::test_support::off_the_worker(&st, async move {
+                req(
+                    &st2,
+                    Method::PATCH,
+                    &format!("/api/sessions/{id}/prompt"),
+                    serde_json::json!({"prompt": "go again"}),
+                )
+                .await
+                .0
+            })
+        };
+        assert_eq!(code, StatusCode::OK);
+        assert!(free, "the worker was free while the edit waited");
+    }
+
+    #[test]
+    fn events_on_the_stream_keep_their_shapes() {
+        let status = BoardEvent::Status(StatusEvent {
+            id: "a".into(),
+            status: "completed".into(),
+            status_at: 7,
+            note: None,
+            source: "hook",
+        });
+        assert_eq!(
+            serde_json::to_value(&status).unwrap(),
+            serde_json::json!({"id": "a", "status": "completed", "status_at": 7, "note": null, "source": "hook"}),
+            "a status change is sent as before"
+        );
+        let bell = BoardEvent::Activity(ActivityEvent {
+            session: "b".into(),
+            activity: crate::sessions::Activity::Bell,
+            age_ms: 0,
+        });
+        assert_eq!(
+            serde_json::to_value(&bell).unwrap(),
+            serde_json::json!({"session": "b", "activity": "bell", "age_ms": 0}),
+            "no `id`: a page from before activity finds no card in it"
+        );
+    }
+
+    /// The status change a test's patch sent.
+    fn status_event(ev: BoardEvent) -> StatusEvent {
+        match ev {
+            BoardEvent::Status(ev) => ev,
+            other => panic!("expected a status change, got {other:?}"),
+        }
+    }
+
     #[tokio::test]
     async fn a_hook_moves_a_card_and_the_board_hears_it() {
         let st = test_state();
@@ -625,7 +779,7 @@ mod tests {
         assert_eq!(code, StatusCode::OK);
         assert_eq!(body["status"], "needs_input");
         assert_eq!(body["note"], "needs Bash");
-        let ev = rx.try_recv().unwrap();
+        let ev = status_event(rx.try_recv().unwrap());
         assert_eq!(
             (ev.id.as_str(), ev.status.as_str(), ev.source),
             (id.as_str(), "needs_input", "hook")
@@ -643,7 +797,7 @@ mod tests {
             serde_json::json!({"status": "completed", "source": "user"}),
         )
         .await;
-        assert_eq!(rx.try_recv().unwrap().source, "user");
+        assert_eq!(status_event(rx.try_recv().unwrap()).source, "user");
     }
 
     #[tokio::test]

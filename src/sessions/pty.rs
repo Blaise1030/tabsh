@@ -2,6 +2,7 @@
 
 use super::{
     Event, Output, SCROLLBACK_BYTES, Session,
+    activity::Signals,
     modes::{ModeTracker, RESTORE_MARKER},
 };
 use crate::{AppState, error::BoxError};
@@ -9,10 +10,10 @@ use axum::body::Bytes;
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use rusqlite::{OptionalExtension, params};
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     io::{Read, Write},
     sync::{
-        Arc, Mutex,
+        Arc, Condvar, Mutex,
         atomic::{AtomicBool, Ordering},
     },
 };
@@ -75,12 +76,63 @@ pub(super) fn shell_env(
     env
 }
 
+/// Sessions whose shell is being started, restarted or closed, one at a time
+/// per session: two attaches never start two shells, and a close or restart
+/// never misses a shell mid-start. Other sessions never wait on it, nor on
+/// the slow part of a start (`openpty`, fork), which holds no other lock.
+#[derive(Default)]
+pub(crate) struct Starting {
+    busy: Mutex<HashSet<String>>,
+    done: Condvar,
+}
+
+/// One session's turn at [`Starting`], until dropped.
+pub(super) struct Turn<'a> {
+    starting: &'a Starting,
+    id: String,
+}
+
+impl Starting {
+    /// Waits for `id`'s turn: until no one else starts, restarts or closes
+    /// its shell.
+    pub(super) fn turn(&self, id: &str) -> Turn<'_> {
+        let mut busy = self.busy.lock().unwrap();
+        while busy.contains(id) {
+            busy = self.done.wait(busy).unwrap();
+        }
+        busy.insert(id.to_owned());
+        Turn {
+            starting: self,
+            id: id.to_owned(),
+        }
+    }
+}
+
+impl Drop for Turn<'_> {
+    fn drop(&mut self) {
+        self.starting.busy.lock().unwrap().remove(&self.id);
+        self.starting.done.notify_all();
+    }
+}
+
+/// [`get_or_spawn`] for async handlers: on the blocking pool, so the worker
+/// moves on while the shell starts.
+pub(crate) async fn open(st: AppState, id: String) -> Result<Option<Arc<Session>>, BoxError> {
+    tokio::task::spawn_blocking(move || get_or_spawn(&st, &id)).await?
+}
+
 /// Return the running shell for `id`, starting it (in its saved cwd, with its
-/// saved scrollback) if the session exists but isn't running yet.
+/// saved scrollback) if the session exists but isn't running yet. Blocks:
+/// async code calls [`open`].
 pub(crate) fn get_or_spawn(st: &AppState, id: &str) -> Result<Option<Arc<Session>>, BoxError> {
-    let mut live = st.live.lock().unwrap();
-    if let Some(s) = live.get(id) {
-        return Ok(Some(s.clone()));
+    let running = || st.live.lock().unwrap().get(id).cloned();
+    if let Some(s) = running() {
+        return Ok(Some(s));
+    }
+    let _turn = st.starting.turn(id);
+    // Started by whoever had the turn before.
+    if let Some(s) = running() {
+        return Ok(Some(s));
     }
     let row = st
         .db
@@ -105,9 +157,11 @@ pub(crate) fn get_or_spawn(st: &AppState, id: &str) -> Result<Option<Arc<Session
     let Some((cwd, scrollback, status, prompt, pending, resume)) = row else {
         return Ok(None);
     };
+    let shell = user_shell();
     let session = spawn_session(
         st.clone(),
         id.to_owned(),
+        &shell,
         cwd,
         scrollback,
         prompt.as_deref(),
@@ -119,8 +173,23 @@ pub(crate) fn get_or_spawn(st: &AppState, id: &str) -> Result<Option<Arc<Session
         }
         Startup::Nothing => {}
     }
-    live.insert(id.to_owned(), session.clone());
+    register(st, id, &session);
     Ok(Some(session))
+}
+
+/// Puts a started shell in `live`. One that already ended found nothing
+/// there to forget when it did: it is forgotten here instead.
+fn register(st: &AppState, id: &str, session: &Arc<Session>) {
+    st.live
+        .lock()
+        .unwrap()
+        .insert(id.to_owned(), session.clone());
+    if session.output.lock().unwrap().exited {
+        let mut live = st.live.lock().unwrap();
+        if live.get(id).is_some_and(|x| Arc::ptr_eq(x, session)) {
+            live.remove(id);
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -169,6 +238,41 @@ pub(super) fn type_launch_line(st: &AppState, id: &str, session: &Session) {
     let _ = session.input.send(Bytes::from(line));
 }
 
+impl Output {
+    pub(super) fn new(scrollback: VecDeque<u8>) -> Self {
+        Output {
+            scrollback,
+            trimmed_modes: ModeTracker::default(),
+            tx: broadcast::channel(1024).0,
+            exited: false,
+            dirty: false,
+        }
+    }
+
+    /// One chunk the shell wrote: kept in the scrollback (its oldest bytes
+    /// trimmed, their modes remembered) and sent to attached clients. Both
+    /// happen under the `output` lock so a client attaching (`replay`) sees
+    /// each byte once, in its history or live; neither waits on a client.
+    pub(super) fn append(&mut self, chunk: Bytes) {
+        self.scrollback.extend(&chunk[..]);
+        let excess = self.scrollback.len().saturating_sub(SCROLLBACK_BYTES);
+        self.trimmed_modes.feed(self.scrollback.drain(..excess));
+        self.dirty = true;
+        let _ = self.tx.send(Event::Output(chunk));
+    }
+
+    /// The scrollback as one buffer, for a replay or a save. Callers hold the
+    /// `output` lock, which the reader needs for every chunk, so the ring's
+    /// two halves are copied whole rather than walked byte by byte.
+    pub(super) fn scrollback_bytes(&self) -> Vec<u8> {
+        let (front, back) = self.scrollback.as_slices();
+        let mut bytes = Vec::with_capacity(front.len() + back.len());
+        bytes.extend_from_slice(front);
+        bytes.extend_from_slice(back);
+        bytes
+    }
+}
+
 /// The shell terminals run: `$SHELL`, else the account's login shell (a
 /// launchd service such as `brew services start tabsh` has no `$SHELL`),
 /// else /bin/sh.
@@ -204,6 +308,7 @@ fn login_shell() -> Option<String> {
 fn spawn_session(
     st: AppState,
     id: String,
+    shell: &str,
     cwd: Option<String>,
     saved: Vec<u8>,
     prompt: Option<&str>,
@@ -215,7 +320,7 @@ fn spawn_session(
         pixel_height: 0,
     })?;
 
-    let mut cmd = CommandBuilder::new(user_shell());
+    let mut cmd = CommandBuilder::new(shell);
     cmd.arg("-l");
     for (k, v) in shell_env(&st, &id, prompt) {
         cmd.env(k, v);
@@ -247,36 +352,29 @@ fn spawn_session(
     if !scrollback.is_empty() {
         scrollback.extend(RESTORE_MARKER);
     }
-    let (tx, _) = broadcast::channel(1024);
     let session = Arc::new(Session {
         master: Mutex::new(pair.master),
         input,
         killer: Mutex::new(child.clone_killer()),
         pid: child.process_id(),
         restarting: AtomicBool::new(false),
-        output: Mutex::new(Output {
-            scrollback,
-            trimmed_modes: ModeTracker::default(),
-            tx,
-            exited: false,
-            dirty: false,
-        }),
+        output: Mutex::new(Output::new(scrollback)),
     });
 
     let s = session.clone();
     std::thread::spawn(move || {
         let mut buf = [0u8; 8192];
+        let signals = Signals::start(st.events.clone(), id.clone());
         while let Ok(n @ 1..) = reader.read(&mut buf) {
-            let mut out = s.output.lock().unwrap();
-            let out = &mut *out;
-            out.scrollback.extend(&buf[..n]);
-            let excess = out.scrollback.len().saturating_sub(SCROLLBACK_BYTES);
-            out.trimmed_modes.feed(out.scrollback.drain(..excess));
-            out.dirty = true;
-            let _ = out
-                .tx
-                .send(Event::Output(Bytes::copy_from_slice(&buf[..n])));
+            // Parked tabs hear this instead of the output; outside the lock.
+            signals.feed(&buf[..n]);
+            // Copied before the lock: attaching clients and the flusher wait
+            // on it, so it covers only the append and the broadcast.
+            let chunk = Bytes::copy_from_slice(&buf[..n]);
+            s.output.lock().unwrap().append(chunk);
         }
+        // Sends output held back in its last second; stops its sweeper.
+        drop(signals);
         // Shell exited (or was killed): reap it, tell clients, forget the session.
         let _ = child.wait();
         if SHUTTING_DOWN.load(Ordering::SeqCst) {
@@ -322,6 +420,42 @@ fn spawn_session(
 mod tests {
     use super::*;
     use crate::test_support::test_state;
+
+    #[test]
+    fn scrollback_bytes_are_the_wrapped_ring_in_order() {
+        // Bytes pushed in front of the start wrap to the end of the buffer.
+        let mut ring = VecDeque::with_capacity(64);
+        ring.extend(*b"world");
+        for &b in b"hello, ".iter().rev() {
+            ring.push_front(b);
+        }
+        let out = Output::new(ring);
+        let (front, back) = out.scrollback.as_slices();
+        assert!(!front.is_empty() && !back.is_empty(), "the ring wrapped");
+        assert_eq!(out.scrollback_bytes(), b"hello, world");
+    }
+
+    #[test]
+    fn appending_keeps_the_newest_scrollback_and_the_modes_trimmed_off() {
+        let mut out = Output::new(VecDeque::new());
+        let mut rx = out.tx.subscribe();
+        out.append(Bytes::from_static(b"\x1b[?1049h"));
+        out.append(Bytes::from(vec![b'x'; SCROLLBACK_BYTES]));
+        assert_eq!(out.scrollback.len(), SCROLLBACK_BYTES);
+        assert!(out.scrollback.iter().all(|&b| b == b'x'));
+        assert_eq!(out.trimmed_modes.replay_prefix(), b"\x1b[?1049h");
+        assert!(out.dirty);
+        let sent: Vec<usize> = std::iter::from_fn(|| match rx.try_recv() {
+            Ok(Event::Output(data)) => Some(data.len()),
+            _ => None,
+        })
+        .collect();
+        assert_eq!(
+            sent,
+            [8, SCROLLBACK_BYTES],
+            "each chunk broadcast once, whole"
+        );
+    }
 
     #[test]
     fn the_login_shell_comes_from_the_account() {
@@ -450,6 +584,175 @@ mod tests {
             .unwrap();
         assert_eq!(alive, 1, "the card survives its shell");
         let _ = second.killer.lock().unwrap().kill();
+    }
+
+    fn new_card(st: &AppState) -> String {
+        crate::sessions::store::insert_session(&st.db.lock().unwrap(), None)
+            .unwrap()
+            .id
+    }
+
+    fn kill(session: &Session) {
+        let _ = session.killer.lock().unwrap().kill();
+    }
+
+    /// Waits up to 10s for `done`.
+    fn eventually(done: impl Fn() -> bool) -> bool {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !done() {
+            if std::time::Instant::now() > deadline {
+                return false;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        true
+    }
+
+    // A tab's socket starts its shell on the blocking pool: the async worker
+    // that took the request moves on (here, the only one) while the spawn
+    // waits on the database or on `openpty`.
+    #[test]
+    fn a_socket_starts_its_shell_off_the_async_workers() {
+        let st = test_state();
+        let id = new_card(&st);
+        let (free, session) = crate::test_support::off_the_worker(&st, open(st.clone(), id));
+        kill(&session.unwrap().unwrap());
+        assert!(free, "the worker was free while the shell started");
+    }
+
+    // Opening one tab's shell doesn't hold `live`, which every other tab's
+    // attach, cwd and close needs, while it waits to read its card. (This
+    // covers the database wait only; fork and `openpty` hold no lock either,
+    // but aren't slow enough here to observe.)
+    #[test]
+    fn starting_a_shell_leaves_the_other_sessions_free() {
+        let st = test_state();
+        let id = new_card(&st);
+        let holder = crate::test_support::hold_db(&st, std::time::Duration::from_millis(400));
+        let opening = {
+            let (st, id) = (st.clone(), id.clone());
+            std::thread::spawn(move || get_or_spawn(&st, &id).unwrap().unwrap())
+        };
+        // Past the opener's brief look in `live`, to its wait for the card.
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        let t0 = std::time::Instant::now();
+        let mut busy = 0;
+        while t0.elapsed() < std::time::Duration::from_millis(250) {
+            busy += usize::from(st.live.try_lock().is_err());
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        holder.join().unwrap();
+        kill(&opening.join().unwrap());
+        // Held throughout, `live` would be busy on every one of ~25 looks.
+        assert!(busy <= 1, "`live` stayed free while the shell started");
+    }
+
+    // A shell that ends before it is registered in `live` (here `true`,
+    // which exits at once) found nothing there to forget: registering it
+    // must not leave it there for good.
+    #[test]
+    fn a_shell_that_ended_before_it_was_registered_is_not_left_running() {
+        let st = test_state();
+        let id = new_card(&st);
+        let session = spawn_session(st.clone(), id.clone(), "true", None, vec![], None).unwrap();
+        // Marked here rather than awaited: under the parallel suite the
+        // reader can take seconds to see `true` end (#91), and this test is
+        // about `register`, not exit detection.
+        session.output.lock().unwrap().exited = true;
+        register(&st, &id, &session);
+        assert!(
+            !st.live.lock().unwrap().contains_key(&id),
+            "the ended shell was forgotten"
+        );
+    }
+
+    // Tabs attaching to one session at once share one shell.
+    #[test]
+    fn concurrent_opens_of_a_session_start_one_shell() {
+        let st = test_state();
+        let id = new_card(&st);
+        let opens: Vec<_> = (0..8)
+            .map(|_| {
+                let (st, id) = (st.clone(), id.clone());
+                std::thread::spawn(move || get_or_spawn(&st, &id).unwrap().unwrap())
+            })
+            .collect();
+        let shells: Vec<_> = opens.into_iter().map(|t| t.join().unwrap()).collect();
+        let first = &shells[0];
+        assert!(shells.iter().all(|s| Arc::ptr_eq(s, first)), "one shell");
+        assert!(Arc::ptr_eq(
+            st.live.lock().unwrap().get(&id).unwrap(),
+            first
+        ));
+        kill(first);
+    }
+
+    // A tab closed while its shell is starting doesn't leave that shell
+    // running with no card.
+    #[test]
+    fn closing_a_tab_while_its_shell_starts_ends_that_shell() {
+        let st = test_state();
+        let id = new_card(&st);
+        let holder = crate::test_support::hold_db(&st, std::time::Duration::from_millis(300));
+        let opening = {
+            let (st, id) = (st.clone(), id.clone());
+            std::thread::spawn(move || get_or_spawn(&st, &id))
+        };
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let closing = {
+            let (st, id) = (st.clone(), id.clone());
+            std::thread::spawn(move || {
+                tokio::runtime::Builder::new_current_thread()
+                    .build()
+                    .unwrap()
+                    .block_on(crate::sessions::delete_session(
+                        axum::extract::State(st),
+                        axum::extract::Path(id),
+                    ))
+            })
+        };
+        holder.join().unwrap();
+        let _ = opening.join().unwrap();
+        closing.join().unwrap();
+        assert!(
+            eventually(|| !st.live.lock().unwrap().contains_key(&id)),
+            "no shell left running"
+        );
+        assert!(!crate::sessions::exists(&st, &id), "the card is gone");
+    }
+
+    // A restart (an edited first prompt) while the shell is starting
+    // replaces the shell that started.
+    #[test]
+    fn a_restart_while_the_shell_starts_replaces_it() {
+        let st = test_state();
+        let id = new_card(&st);
+        let holder = crate::test_support::hold_db(&st, std::time::Duration::from_millis(300));
+        let opening = {
+            let (st, id) = (st.clone(), id.clone());
+            std::thread::spawn(move || get_or_spawn(&st, &id).unwrap().unwrap())
+        };
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let restarting = {
+            let (st, id) = (st.clone(), id.clone());
+            std::thread::spawn(move || crate::sessions::restart(&st, &id))
+        };
+        holder.join().unwrap();
+        let started = opening.join().unwrap();
+        restarting.join().unwrap();
+        assert!(
+            started.restarting.load(Ordering::SeqCst),
+            "the shell that started was restarted"
+        );
+        assert!(
+            !st.live
+                .lock()
+                .unwrap()
+                .get(&id)
+                .is_some_and(|s| Arc::ptr_eq(s, &started)),
+            "and is no longer the live one"
+        );
+        kill(&started);
     }
 
     #[test]
