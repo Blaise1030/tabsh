@@ -188,13 +188,17 @@ export function FilterButton(): HTMLElement {
   );
 }
 
+// The Board button's icon: the list's while the board shows as a list, else
+// the columns'.
+export const boardIcon = (): SVGSVGElement => (shown.val && layout.val === 'list' ? icons.rows() : icons.board());
+
 // The board's other layout: columns or list.
 export function toggleBoardLayout(): void {
   saveSetting('boardLayout', layout.val === 'list' ? 'columns' : 'list');
 }
 
-// The board shortcut's three steps: the terminals, the board as columns, the
-// board as a list, and back to the terminals.
+// The Board button's and its shortcut's three steps: the terminals, the board
+// as columns, the board as a list, and back to the terminals.
 export function cycleBoard(): void {
   if (!boardOpen()) {
     if (layout.val !== 'columns') saveSetting('boardLayout', 'columns');
@@ -654,7 +658,7 @@ export function initBoard(): void {
   });
   const boardButton = document.getElementById('board-btn') as HTMLButtonElement;
   keyHint(boardButton, 'Board', 'keyToggleBoard');
-  boardButton.onclick = () => toggleBoard();
+  boardButton.onclick = () => cycleBoard(); // as its shortcut: terminals, columns, list
   addEventListener('pointerdown', (e) => {
     const t = e.target as Node;
     const btn = document.getElementById('board-filter-btn');

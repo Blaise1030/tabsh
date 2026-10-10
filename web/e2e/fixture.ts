@@ -137,6 +137,16 @@ export const TEST_PROVIDERS = ['true', 'touch launched', 'touch dragged'].map((c
 
 // Sets the stored `boardOnboarded` flag and the test providers, keeping the
 // other settings.
+// Back to the terminals from the board: the Board button steps through the
+// board as columns, then as a list, then the terminals.
+export async function leaveBoard(page: Page): Promise<void> {
+  const board = page.locator('#board');
+  if (!(await board.evaluate((b) => b.classList.contains('list')))) await page.locator('#board-btn').click();
+  await expect(board).toHaveClass(/\blist\b/);
+  await page.locator('#board-btn').click();
+  await expect(board).toBeHidden();
+}
+
 export async function setOnboarded(page: Page, daemon: Daemon, on: boolean): Promise<void> {
   const headers = { Authorization: `Bearer ${daemon.token}` };
   const now = await (await page.request.get(`${daemon.baseUrl}/api/settings`, { headers })).json();

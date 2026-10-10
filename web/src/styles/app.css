@@ -59,7 +59,9 @@ html.themed {
 .command-dialog [role="menuitem"] .swatch { display: flex; gap: 2px; padding: 3px; border-radius: 4px; border: 1px solid var(--border); }
 .command-dialog [role="menuitem"] .swatch i { width: 6px; height: 10px; border-radius: 1px; }
 
-.tabbar { display: flex; align-items: center; gap: .375rem; padding: .125rem .5rem; }
+/* As tall with the board shown (its buttons only) as with the tab strip, so
+   switching between terminals, columns and list doesn't move the buttons. */
+.tabbar { display: flex; align-items: center; gap: .375rem; padding: .125rem .5rem; min-height: 2.625rem; box-sizing: border-box; }
 .tabbar.on-board > :not(#board-btn, .settings-btn, #board-filter-btn) { display: none; }
 .tabbar.on-board .settings-btn { margin-left: auto; }
 .tabbar.on-board #board-filter-btn:not([hidden]) { margin-left: auto; }

@@ -4,7 +4,7 @@
 import van from 'vanjs-core';
 import { DrawerMoveButton } from '../board/move-menu.ts';
 import { NewCard } from '../board/new-card.ts';
-import { Board, drawer, FilterButton, shown } from '../board/view.ts';
+import { Board, boardIcon, drawer, FilterButton, shown } from '../board/view.ts';
 import { open as explorerOpen, toggleExplorer } from '../explorer/explorer.ts';
 import { Sidebar } from '../explorer/sidebar.ts';
 import { paneShown } from '../files/open.ts';
@@ -49,12 +49,19 @@ const barButton = (icon: Icon, props: Record<string, string | (() => string) | (
 function TabBar(): HTMLElement {
   return div(
     { class: () => (shown.val ? 'tabbar on-board' : 'tabbar') },
-    barButton(icons.board, {
-      'aria-label': 'Board',
-      title: 'Board',
-      id: 'board-btn',
-      'aria-pressed': () => String(shown.val),
-    }),
+    button(
+      {
+        type: 'button',
+        class: 'btn',
+        'data-variant': 'ghost',
+        'data-size': 'icon-sm',
+        'aria-label': 'Board',
+        title: 'Board',
+        id: 'board-btn',
+        'aria-pressed': () => String(shown.val),
+      },
+      boardIcon, // the list's while the board shows as a list
+    ),
     barButton(icons.explorer, {
       'aria-label': 'Toggle file explorer',
       title: 'Toggle file explorer',

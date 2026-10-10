@@ -6,7 +6,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import type { Daemon } from './daemon.ts';
-import { expect, newTab, openApp, test, typeInTerminal } from './fixture.ts';
+import { expect, leaveBoard, newTab, openApp, test, typeInTerminal } from './fixture.ts';
 
 const tabs = (page: Page) => page.locator('#tabs .tab:not(.mirror)');
 const selectedName = (page: Page) => page.locator('#tabs .tab:not(.mirror)[aria-selected="true"] .tab-name');
@@ -64,7 +64,7 @@ test('a parked tab flooding output shows unread, rings, and catches up when acti
   await renameByShell(page, 'tab-a-typed');
   await page.locator('#board-btn').click();
   await expect(page.locator('#tabs')).toBeHidden();
-  await page.locator('#board-btn').click();
+  await leaveBoard(page);
   await expect(page.locator('#tabs')).toBeVisible();
   await renameByShell(page, 'tab-a-back');
   await expect(b).toHaveClass(/\bunread\b/);

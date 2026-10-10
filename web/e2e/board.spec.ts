@@ -14,6 +14,7 @@ import type { Daemon } from './daemon.ts';
 import {
   cdInTerminal,
   expect,
+  leaveBoard,
   newTab,
   openApp,
   setOnboarded,
@@ -211,7 +212,7 @@ test('the board hides the tabs, and shows the open tab in its drawer', async ({ 
   // Closed, the board has the whole page: no workspace.
   await page.locator('#drawer-close').click();
   await expect(page.locator('#workspace')).toBeHidden();
-  await page.locator('#board-btn').click();
+  await leaveBoard(page);
   await expect(page.locator('#workspace')).toBeVisible();
   await expect(page.locator('#tabs')).toBeVisible();
 });
@@ -562,7 +563,7 @@ test("the group's tag starts as a chip, and taking it off leaves the card untagg
   await expect(card(page, 'No group')).toBeVisible();
   await expect(card(page, 'No group').locator('.tag-badge')).toHaveCount(0);
 
-  await page.locator('#board-btn').click();
+  await leaveBoard(page);
   await page.locator('#tab-group-btn').click();
   await grouping('No grouping').click();
 });
@@ -576,7 +577,7 @@ test('the board filters cards by tag and folder', async ({ page, daemon, twins }
   await col(page, 'backlog').locator('header .btn').click();
   await newCard(page, 'Beta', twins.beta);
   await expect(page.locator('#tabs')).toBeHidden();
-  await page.locator('#board-btn').click();
+  await leaveBoard(page);
 
   await alphaTab.click({ button: 'right' });
   const menu = page.locator('.tab-menu[aria-label="Tab tags"]');
@@ -705,7 +706,7 @@ test("an archived card's tab leaves the strip, grouped or not", async ({ page, d
   await col(page, 'backlog').locator('header .btn').click();
   await newCard(page, 'Old work', project);
   await expect(oldTab).toBeHidden(); // the board stays open after a new card, its tabs hidden
-  await page.locator('#board-btn').click();
+  await leaveBoard(page);
   await expect(oldTab).toBeVisible();
   await newTab(page); // another tab is active: an active archived tab stays shown
 
