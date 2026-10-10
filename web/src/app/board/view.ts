@@ -11,10 +11,12 @@ import { orderTabs } from '../sessions/tabs.ts';
 import { onTagsChange, tagBadge } from '../sessions/tags.ts';
 import { syncTerminalVisibility } from '../sessions/terminal.ts';
 import { matchesKey } from '../settings/keys.ts';
+import type { BoardLayout } from '../settings/schema.ts';
 import { current, keyHint, onSaved, saveSetting } from '../settings/settings.ts';
 import { glyph, icons, providerIcon } from '../ui/icons.ts';
 import { keyed } from '../ui/keyed.ts';
 import {
+  asStatus,
   type BoardFilter,
   COLUMNS,
   DEFAULT_COMMAND,
@@ -64,6 +66,26 @@ const filterTags: State<string[]> = van.state(saved.tags);
 const filterFolders: State<string[]> = van.state(saved.folders);
 const filterOpen: State<boolean> = van.state(false);
 let filterMenu: HTMLElement | null = null;
+// Columns side by side, or one list of rows under each status's heading.
+const layout: State<BoardLayout> = van.state(current.saved.boardLayout);
+// The list layout's folded statuses, kept in this browser.
+const COLLAPSED_KEY = 'tabsh.boardCollapsed';
+function loadCollapsed(): Status[] {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? '[]');
+    return Array.isArray(raw) ? raw.map(asStatus) : [];
+  } catch {
+    return [];
+  }
+}
+const collapsed: State<Status[]> = van.state(loadCollapsed());
+function toggleCollapsed(status: Status): void {
+  const rest = collapsed.val.filter((x) => x !== status);
+  collapsed.val = rest.length < collapsed.val.length ? rest : [...rest, status];
+  try {
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify(collapsed.val));
+  } catch {}
+}
 
 const board = () => document.getElementById('board') as HTMLElement;
 // A dragged card's data type: its own, so the page's file drop
@@ -166,6 +188,25 @@ export function FilterButton(): HTMLElement {
   );
 }
 
+// The Board button's icon: the list's while the board shows as a list, else
+// the columns'.
+export const boardIcon = (): SVGSVGElement => (shown.val && layout.val === 'list' ? icons.rows() : icons.board());
+
+// The board's other layout: columns or list.
+export function toggleBoardLayout(): void {
+  saveSetting('boardLayout', layout.val === 'list' ? 'columns' : 'list');
+}
+
+// The Board button's and its shortcut's three steps: the terminals, the board
+// as columns, the board as a list, and back to the terminals.
+export function cycleBoard(): void {
+  if (!boardOpen()) {
+    if (layout.val !== 'columns') saveSetting('boardLayout', 'columns');
+    toggleBoard(true);
+  } else if (layout.val === 'columns') saveSetting('boardLayout', 'list');
+  else toggleBoard(false);
+}
+
 // Opening the board with a tab open keeps that tab in view, in the drawer.
 export function toggleBoard(open = !boardOpen()): void {
   go(open ? { view: 'board', drawer: !!store.active } : { view: 'terms' });
@@ -194,13 +235,17 @@ const statusGlyph = (status: Status | (() => Status)) =>
 // board's size changes (shown, hidden, the window resized).
 const measures = new WeakMap<Element, () => void>();
 
-// Fade whichever edge has columns hidden beyond it, as the tab strip does.
+// Fade whichever edge has columns hidden beyond it, as the tab strip does;
+// in the list layout, the top or bottom with rows hidden beyond it.
 function updateBoardFades(): void {
   const el = board();
   if (!el) return;
   const end = el.scrollWidth - el.clientWidth;
   el.classList.toggle('fade-left', el.scrollLeft > 1);
   el.classList.toggle('fade-right', el.scrollLeft < end - 1);
+  const bottom = el.scrollHeight - el.clientHeight;
+  el.classList.toggle('fade-top', el.scrollTop > 1);
+  el.classList.toggle('fade-bottom', el.scrollTop < bottom - 1);
 }
 
 // Fade a column's top or bottom while cards are scrolled out past it.
@@ -224,6 +269,63 @@ const resized = new ResizeObserver(() => {
   for (const c of board().querySelectorAll('.board-card')) measures.get(c)?.();
 });
 
+// What a card and a row share: a click or Enter opens its terminal in the
+// drawer, and it drags to a new status or place.
+function cardProps(s: Session, cls: string, el: () => HTMLElement) {
+  return {
+    class: cls,
+    draggable: true,
+    tabindex: '0',
+    'data-id': s.id,
+    onclick: () => go({ tab: s.id, drawer: true }),
+    onkeydown: (e: KeyboardEvent) => e.target === el() && e.key === 'Enter' && el().click(),
+    ondragstart: (e: DragEvent) => {
+      e.dataTransfer?.setData(CARD_DRAG, s.id);
+      el().classList.add('dragging');
+    },
+    ondragend: () => {
+      el().classList.remove('dragging');
+      clearDropMarks();
+    },
+  };
+}
+
+const agentIcon = (s: Session) => () => {
+  const agent = s.card.val.agent;
+  return agent ? span({ class: 'card-agent', title: agent }, providerIcon(agent)()) : '';
+};
+
+// A card in the list layout: one line, as Linear's list rows: its status,
+// name and note, then its tags, folder, agent, time in status and menu.
+function Row(s: Session): HTMLElement {
+  const status = van.derive(() => s.card.val.status);
+  const row: HTMLElement = article(
+    cardProps(s, 'board-card board-row', () => row),
+    statusGlyph(() => status.val),
+    span({ class: 'card-title', title: () => s.name.val }, () => s.name.val),
+    () => (s.card.val.note ? span({ class: 'row-note' }, s.card.val.note) : ''),
+    div(
+      { class: 'row-end' },
+      () =>
+        s.tags.val.length
+          ? span(
+              { class: 'card-tags' },
+              s.tags.val.map((t) => tagBadge(t)),
+            )
+          : '',
+      span(
+        { class: 'card-meta row-folder' },
+        icons.folder(),
+        span(() => shortPath(s.card.val.cwd) || '~'),
+      ),
+      span({ class: 'card-meta' }, agentIcon(s)),
+      span({ class: 'card-meta row-since' }, () => since(s.card.val.statusAt, now.val)),
+      CardMenuButton(s),
+    ),
+  );
+  return row;
+}
+
 // A card: its session's name, status, folder, note and time in status. Its
 // title and note are clamped to two lines, with Show more when either is cut
 // off.
@@ -234,22 +336,7 @@ function Card(s: Session): HTMLElement {
   const open = van.state(false);
   const cut = van.state(false);
   const card: HTMLElement = article(
-    {
-      class: 'board-card',
-      draggable: true,
-      tabindex: '0',
-      'data-id': s.id,
-      onclick: () => go({ tab: s.id, drawer: true }),
-      onkeydown: (e: KeyboardEvent) => e.target === card && e.key === 'Enter' && card.click(),
-      ondragstart: (e: DragEvent) => {
-        e.dataTransfer?.setData(CARD_DRAG, s.id);
-        card.classList.add('dragging');
-      },
-      ondragend: () => {
-        card.classList.remove('dragging');
-        clearDropMarks();
-      },
-    },
+    cardProps(s, 'board-card', () => card),
     div(
       { class: 'card-top' },
       span({ class: 'card-title' }, () => s.name.val),
@@ -284,14 +371,7 @@ function Card(s: Session): HTMLElement {
             () => (open.val ? 'Show less' : 'Show more'),
           )
         : '',
-    div(
-      { class: 'card-meta' },
-      () => {
-        const agent = s.card.val.agent;
-        return agent ? span({ class: 'card-agent', title: agent }, providerIcon(agent)()) : '';
-      },
-      () => since(s.card.val.statusAt, now.val),
-    ),
+    div({ class: 'card-meta' }, agentIcon(s), () => since(s.card.val.statusAt, now.val)),
   );
   // A clamped box reports no overflow in scrollHeight, so this compares its
   // text's height with the clamp lifted. Hidden (height 0), nothing is cut.
@@ -326,7 +406,9 @@ function cardBefore(list: HTMLElement, y: number): HTMLElement | null {
 }
 
 function clearDropMarks(): void {
-  for (const x of board().querySelectorAll('.drop-before, .drop-end')) x.classList.remove('drop-before', 'drop-end');
+  for (const x of board().querySelectorAll('.drop-before, .drop-end, .drop-into')) {
+    x.classList.remove('drop-before', 'drop-end', 'drop-into');
+  }
 }
 
 // A drop ends the drag here, not at dragend: the drop may move the dragged
@@ -378,13 +460,16 @@ function newCardButton(status: Status, name: string): HTMLButtonElement {
   return btn;
 }
 
-function Column(status: Status, name: string, columns: State<Columns>): HTMLElement {
-  const list = div({ class: 'board-cards' });
+// A status's cards: a column of cards, or in the list layout a heading over
+// its rows, which the heading folds away.
+function Column(status: Status, name: string, columns: State<Columns>, asList: boolean): HTMLElement {
+  const folded = () => asList && collapsed.val.includes(status);
+  const list = div({ class: 'board-cards', hidden: folded });
   keyed(
     list,
     () => columns.val[status],
     (s) => s.id,
-    (s) => Card(s),
+    (s) => (asList ? Row(s) : Card(s)),
   );
   list.addEventListener('scroll', () => updateListFades(list), { passive: true });
   listSized.observe(list);
@@ -404,6 +489,7 @@ function Column(status: Status, name: string, columns: State<Columns>): HTMLElem
       ondragover: (e: DragEvent) => {
         e.preventDefault();
         clearDropMarks();
+        if (folded()) return void col.classList.add('drop-into');
         const before = cardBefore(list, e.clientY);
         if (before) before.classList.add('drop-before');
         else list.classList.add('drop-end');
@@ -418,15 +504,33 @@ function Column(status: Status, name: string, columns: State<Columns>): HTMLElem
       },
     },
     header(
-      statusGlyph(status),
-      span({ class: 'col-name' }, name),
-      span({ class: 'col-count' }, () => String(columns.val[status].length)),
+      asList
+        ? button(
+            {
+              type: 'button',
+              class: 'col-toggle',
+              'aria-expanded': () => String(!folded()),
+              onclick: () => toggleCollapsed(status),
+            },
+            icons.chevronDown(),
+            statusGlyph(status),
+            span({ class: 'col-name' }, name),
+            span({ class: 'col-count' }, () => String(columns.val[status].length)),
+          )
+        : [
+            statusGlyph(status),
+            span({ class: 'col-name' }, name),
+            span({ class: 'col-count' }, () => String(columns.val[status].length)),
+          ],
       // New cards start in Backlog or In progress; the others are reached by
       // moving a card.
       ADDABLE.includes(status) ? newCardButton(status, name) : '',
     ),
     list,
   );
+  // In the list layout, rows coming, going or folding move the board's own
+  // scroll end.
+  if (asList) resized.observe(col);
   return col;
 }
 
@@ -491,8 +595,9 @@ function Onboarding(): HTMLElement {
 // or by a drop, never by a new card).
 const BOARD_COLUMNS: typeof COLUMNS = [...COLUMNS, { status: 'archived', name: 'Archived' }];
 
-// The board's parts: its setup screen, or its columns.
-const PARTS = BOARD_COLUMNS.map((c) => c.status);
+// The board's parts: its setup screen, or its columns (keyed by layout too,
+// so switching layouts redraws them).
+const parts = () => BOARD_COLUMNS.map((c) => `${layout.val}:${c.status}`);
 
 export function Board(): HTMLElement {
   const sessions = van.derive((): Columns => {
@@ -505,6 +610,7 @@ export function Board(): HTMLElement {
     id: 'board',
     'aria-label': 'Board',
     hidden: () => !shown.val,
+    class: () => (layout.val === 'list' ? 'list' : ''),
     // A click on the board's empty space closes the drawer; one on a card
     // opens that card in it instead, and controls keep their own clicks.
     onclick: (e: MouseEvent) => {
@@ -519,16 +625,18 @@ export function Board(): HTMLElement {
   van.derive(() => {
     onboarded.val;
     shown.val;
+    layout.val;
     requestAnimationFrame(updateBoardFades);
   });
   keyed(
     el,
-    () => (onboarded.val ? PARTS : ['onboarding']),
+    () => (onboarded.val ? parts() : ['onboarding']),
     (part) => part,
     (part) => {
       if (part === 'onboarding') return Onboarding();
-      const c = BOARD_COLUMNS.find((x) => x.status === part) as (typeof COLUMNS)[number];
-      return Column(c.status, c.name, sessions);
+      const [kind, status] = part.split(':');
+      const c = BOARD_COLUMNS.find((x) => x.status === status) as (typeof COLUMNS)[number];
+      return Column(c.status, c.name, sessions, kind === 'list');
     },
   );
   return el;
@@ -550,7 +658,7 @@ export function initBoard(): void {
   });
   const boardButton = document.getElementById('board-btn') as HTMLButtonElement;
   keyHint(boardButton, 'Board', 'keyToggleBoard');
-  boardButton.onclick = () => toggleBoard();
+  boardButton.onclick = () => cycleBoard(); // as its shortcut: terminals, columns, list
   addEventListener('pointerdown', (e) => {
     const t = e.target as Node;
     const btn = document.getElementById('board-filter-btn');
@@ -569,7 +677,7 @@ export function initBoard(): void {
       if (!matchesKey(e, current.saved.keyToggleBoard) || document.querySelector('dialog[open]')) return;
       e.preventDefault();
       e.stopPropagation(); // capture phase: keep it away from the terminal
-      toggleBoard();
+      cycleBoard();
     },
     true,
   );
@@ -585,6 +693,7 @@ export function initBoard(): void {
   );
   onSaved((s) => {
     onboarded.val = s.boardOnboarded; // e.g. the setup screen, once it's dealt with
+    layout.val = s.boardLayout;
     if (!s.boardOnboarded) closeFilterMenu();
   });
   setInterval(() => (now.val = Math.floor(Date.now() / 1000)), 30_000);

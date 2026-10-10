@@ -14,6 +14,7 @@ import type { Daemon } from './daemon.ts';
 import {
   cdInTerminal,
   expect,
+  leaveBoard,
   newTab,
   openApp,
   setOnboarded,
@@ -100,6 +101,57 @@ test('cards move through the board', async ({ page, daemon, project }) => {
   await expect(col(page, 'archived').locator('.board-card').filter({ hasText: 'Fix login' })).toBeVisible();
 });
 
+// The board shortcut steps through the terminals, the board as columns and the
+// board as a list. The list has the same statuses as headings over one-line
+// rows, as Linear's list view: dragging a row moves it on, a heading folds its
+// rows away, and the layout is saved.
+const BOARD_KEY = process.platform === 'darwin' ? 'Meta+KeyB' : 'Control+Shift+KeyB';
+
+test('the board shortcut steps through columns and a list', async ({ page, daemon, project }) => {
+  await openApp(page, daemon);
+  await boardAlone(page);
+  await col(page, 'backlog').locator('header .btn').click();
+  await newCard(page, 'List me', project);
+
+  await expect(page.locator('#board')).not.toHaveClass(/\blist\b/);
+  await expect(page.locator('dialog[open]')).toHaveCount(0); // the shortcut does nothing while a dialog is open
+  await page.keyboard.press(BOARD_KEY);
+  await expect(page.locator('#board')).toHaveClass(/\blist\b/);
+  await expect(col(page, 'backlog').locator('.board-row').filter({ hasText: 'List me' })).toBeVisible();
+  const settings = await page.request.get(`${daemon.baseUrl}/api/settings`, {
+    headers: { Authorization: `Bearer ${daemon.token}` },
+  });
+  expect((await settings.json()).boardLayout).toBe('list');
+
+  // The headings stack: In progress sits under Backlog, not beside it.
+  const backlog = await col(page, 'backlog').boundingBox();
+  const inProgress = await col(page, 'in_progress').boundingBox();
+  expect(inProgress?.y).toBeGreaterThan((backlog?.y ?? 0) + (backlog?.height ?? 0) - 1);
+
+  await card(page, 'List me').dragTo(col(page, 'needs_input').locator('header'));
+  await expect(col(page, 'needs_input').locator('.board-row').filter({ hasText: 'List me' })).toBeVisible();
+
+  const toggle = col(page, 'needs_input').locator('.col-toggle');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(card(page, 'List me')).toBeHidden();
+  await expect(col(page, 'needs_input').locator('.col-count')).toHaveText('1');
+  await toggle.click();
+  await expect(card(page, 'List me')).toBeVisible();
+
+  await card(page, 'List me').click();
+  await expect(page.locator('.drawer-title')).toHaveText('List me');
+  await page.locator('#drawer-close').click();
+
+  // Then the terminals, and the board again, as columns.
+  await page.keyboard.press(BOARD_KEY);
+  await expect(page.locator('#board')).toBeHidden();
+  await page.keyboard.press(BOARD_KEY);
+  await expect(page.locator('#board')).toBeVisible();
+  await expect(page.locator('#board')).not.toHaveClass(/\blist\b/);
+  await expect(col(page, 'needs_input').locator('.board-card:not(.board-row)')).toHaveCount(1);
+});
+
 test("a card made from In progress's + starts its agent at once", async ({ page, daemon, project }) => {
   const mark = join(project, 'launched');
   await openApp(page, daemon);
@@ -160,7 +212,7 @@ test('the board hides the tabs, and shows the open tab in its drawer', async ({ 
   // Closed, the board has the whole page: no workspace.
   await page.locator('#drawer-close').click();
   await expect(page.locator('#workspace')).toBeHidden();
-  await page.locator('#board-btn').click();
+  await leaveBoard(page);
   await expect(page.locator('#workspace')).toBeVisible();
   await expect(page.locator('#tabs')).toBeVisible();
 });
@@ -511,7 +563,7 @@ test("the group's tag starts as a chip, and taking it off leaves the card untagg
   await expect(card(page, 'No group')).toBeVisible();
   await expect(card(page, 'No group').locator('.tag-badge')).toHaveCount(0);
 
-  await page.locator('#board-btn').click();
+  await leaveBoard(page);
   await page.locator('#tab-group-btn').click();
   await grouping('No grouping').click();
 });
@@ -525,7 +577,7 @@ test('the board filters cards by tag and folder', async ({ page, daemon, twins }
   await col(page, 'backlog').locator('header .btn').click();
   await newCard(page, 'Beta', twins.beta);
   await expect(page.locator('#tabs')).toBeHidden();
-  await page.locator('#board-btn').click();
+  await leaveBoard(page);
 
   await alphaTab.click({ button: 'right' });
   const menu = page.locator('.tab-menu[aria-label="Tab tags"]');
@@ -654,7 +706,7 @@ test("an archived card's tab leaves the strip, grouped or not", async ({ page, d
   await col(page, 'backlog').locator('header .btn').click();
   await newCard(page, 'Old work', project);
   await expect(oldTab).toBeHidden(); // the board stays open after a new card, its tabs hidden
-  await page.locator('#board-btn').click();
+  await leaveBoard(page);
   await expect(oldTab).toBeVisible();
   await newTab(page); // another tab is active: an active archived tab stays shown
 

@@ -78,6 +78,11 @@ test('the board shows its setup screen until it is marked as onboarded', () => {
   assert.equal(cleanSettings({ boardOnboarded: true }, true).boardOnboarded, true);
   assert.equal(cleanSettings({ boardOnboarded: 'yes' }, true).boardOnboarded, false);
 });
+test('the board is laid out in columns unless list is saved', () => {
+  assert.equal(defaults(true).boardLayout, 'columns');
+  assert.equal(cleanSettings({ boardLayout: 'list' }, true).boardLayout, 'list');
+  assert.equal(cleanSettings({ boardLayout: 'grid' }, true).boardLayout, 'columns');
+});
 test('cleanSettings fills keyBack and keyForward', () => {
   assert.equal(cleanSettings({}, true).keyBack, 'ctrl+shift+Minus');
   assert.equal(cleanSettings({}, true).keyForward, 'ctrl+shift+Equal');
