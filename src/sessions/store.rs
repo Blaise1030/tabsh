@@ -67,8 +67,7 @@ fn take_dirty(session: &Session) -> Option<Vec<u8>> {
         return None;
     }
     out.dirty = false;
-    let (front, back) = out.scrollback.as_slices();
-    Some([front, back].concat())
+    Some(out.scrollback_bytes())
 }
 
 /// Writes one session's copied scrollback and its cwd, holding `db` for that
