@@ -76,6 +76,7 @@ async fn daemon() {
     let state = AppState {
         db: Arc::new(Mutex::new(db)),
         live: Default::default(),
+        starting: Default::default(),
         db_path: db_path.as_str().into(),
         started: std::time::Instant::now(),
         token: token.into(),

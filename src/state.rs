@@ -10,11 +10,15 @@ use std::{
 };
 
 /// The database is the source of truth for which sessions exist; `live`
-/// holds the ones with a running shell. Lock order: `live` before `db`.
+/// holds the ones with a running shell. Lock order: `starting` (one
+/// session's turn), then `live`, then `db`, then a session's `output`
+/// (as `flush` takes them).
 #[derive(Clone)]
 pub(crate) struct AppState {
     pub(crate) db: Arc<Mutex<Connection>>,
     pub(crate) live: Arc<Mutex<HashMap<String, Arc<Session>>>>,
+    /// Sessions whose shell is being started, restarted or closed.
+    pub(crate) starting: Arc<sessions::pty::Starting>,
     pub(crate) db_path: Arc<str>,
     pub(crate) started: std::time::Instant,
     /// Secret the hosted UI must present.
