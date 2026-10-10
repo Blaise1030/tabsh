@@ -8,6 +8,7 @@ import {
   foldersOf,
   group,
   matchesFilter,
+  parseFilter,
   recentFolders,
   shortPath,
   since,
@@ -84,6 +85,12 @@ test('a filter keeps cards in any checked folder that have any checked tag', () 
   ]);
   assert.deepEqual(kept({ tags: [], folders: [] }).length, 4);
   assert.deepEqual(kept({ tags: ['missing'], folders: [] }), []);
+});
+
+test('a saved filter reads back, dropping anything malformed', () => {
+  assert.deepEqual(parseFilter({ tags: ['ide', 3], folders: ['/app'] }), { tags: ['ide'], folders: ['/app'] });
+  assert.deepEqual(parseFilter({ tags: 'ide' }), { tags: [], folders: [] });
+  assert.deepEqual(parseFilter(null), { tags: [], folders: [] });
 });
 
 test('tags in use follow the order they first appear', () => {

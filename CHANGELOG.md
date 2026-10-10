@@ -1,5 +1,47 @@
 # Changelog
 
+## v0.1.15
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.14...v0.1.15)
+
+### Fixes
+
+- **web:** Refresh the daemon's embedded app after the board filter ([80dfa26](https://github.com/Blaise1030/tabsh/commit/80dfa26))
+
+## v0.1.14
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.13...v0.1.14)
+
+### Features
+
+- **app:** Show About tabsh as a page of the palette ([8c8fc2b](https://github.com/Blaise1030/tabsh/commit/8c8fc2b))
+- Install with brew install blaise1030/tap/tabsh ([871fa04](https://github.com/Blaise1030/tabsh/commit/871fa04))
+- **app:** Coalesce the active tab's bursty output into one write a frame ([2891c35](https://github.com/Blaise1030/tabsh/commit/2891c35))
+- Parked tabs still show unread and ring ([f06c0e4](https://github.com/Blaise1030/tabsh/commit/f06c0e4))
+- **web:** Frame the real app on the landing page ([f7e48ed](https://github.com/Blaise1030/tabsh/commit/f7e48ed))
+
+### Performance
+
+- **daemon:** Start shells on the blocking pool, one start per session ([38fe0be](https://github.com/Blaise1030/tabsh/commit/38fe0be))
+
+### Fixes
+
+- **app:** Serialize terminal reconnects after sleep or tab switch ([a6258cc](https://github.com/Blaise1030/tabsh/commit/a6258cc))
+- **app:** Attach terminal sockets only while on screen ([f9eaaf9](https://github.com/Blaise1030/tabsh/commit/f9eaaf9))
+- **daemon:** Spawn shell on launch when none is attached ([1a1b327](https://github.com/Blaise1030/tabsh/commit/1a1b327))
+- **app:** Connect visible terminals immediately; harden explorer e2e wait ([738d27e](https://github.com/Blaise1030/tabsh/commit/738d27e))
+- **sessions:** Flush never holds the db while copying scrollback ([8d30985](https://github.com/Blaise1030/tabsh/commit/8d30985))
+- **daemon:** Fall back to the account's login shell when $SHELL is unset ([81a2f41](https://github.com/Blaise1030/tabsh/commit/81a2f41))
+- **sessions:** Copy replay history by slices, not byte by byte ([717cc4f](https://github.com/Blaise1030/tabsh/commit/717cc4f))
+- **app:** Soften the board's horizontal scroll fade ([7fc0ba2](https://github.com/Blaise1030/tabsh/commit/7fc0ba2))
+- **sessions:** Close the flush/shutdown and flush/restart scrollback races ([4383f41](https://github.com/Blaise1030/tabsh/commit/4383f41))
+- Review of parked-tab activity (bells, throttle, upgrade, flake) ([828d913](https://github.com/Blaise1030/tabsh/commit/828d913))
+- **app:** Review fixes for active-tab write coalescing ([6b2003d](https://github.com/Blaise1030/tabsh/commit/6b2003d))
+- **daemon:** Close and prompt edits wait off the async workers ([b9b3d4b](https://github.com/Blaise1030/tabsh/commit/b9b3d4b))
+- Park idle activity sweepers; send held output on exit ([d5f5e24](https://github.com/Blaise1030/tabsh/commit/d5f5e24))
+- **app:** Draw the board's drop marker as a straight line ([8b56da0](https://github.com/Blaise1030/tabsh/commit/8b56da0))
+- **web:** Keep the board filter across reloads ([bc467ac](https://github.com/Blaise1030/tabsh/commit/bc467ac))
+
 ## v0.1.13
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.12...v0.1.13)
