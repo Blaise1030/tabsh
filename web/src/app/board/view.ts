@@ -15,12 +15,14 @@ import { current, keyHint, onSaved, saveSetting } from '../settings/settings.ts'
 import { glyph, icons, providerIcon } from '../ui/icons.ts';
 import { keyed } from '../ui/keyed.ts';
 import {
+  type BoardFilter,
   COLUMNS,
   DEFAULT_COMMAND,
   dropOrder,
   foldersOf,
   group,
   matchesFilter,
+  parseFilter,
   SETUP_PROMPT,
   type Status,
   shortPath,
@@ -42,9 +44,24 @@ export const drawer: State<boolean> = van.state(false);
 const now = van.state(Math.floor(Date.now() / 1000));
 // Until the board is onboarded it shows its setup screen.
 const onboarded = van.state(current.saved.boardOnboarded);
-// Checked tags (a card needs any of them) and checked folders. Nothing checked shows every card.
-const filterTags: State<string[]> = van.state([]);
-const filterFolders: State<string[]> = van.state([]);
+// Checked tags (a card needs any of them) and checked folders, kept in this
+// browser. Nothing checked shows every card.
+const FILTER_KEY = 'tabsh.boardFilter';
+function loadFilter(): BoardFilter {
+  try {
+    return parseFilter(JSON.parse(localStorage.getItem(FILTER_KEY) ?? '{}'));
+  } catch {
+    return { tags: [], folders: [] };
+  }
+}
+function saveFilter(): void {
+  try {
+    localStorage.setItem(FILTER_KEY, JSON.stringify({ tags: filterTags.val, folders: filterFolders.val }));
+  } catch {}
+}
+const saved = loadFilter();
+const filterTags: State<string[]> = van.state(saved.tags);
+const filterFolders: State<string[]> = van.state(saved.folders);
 const filterOpen: State<boolean> = van.state(false);
 let filterMenu: HTMLElement | null = null;
 
@@ -77,6 +94,7 @@ function toggleFilter(kind: 'tags' | 'folders', value: string, on: boolean): voi
   const cur = kind === 'tags' ? filterTags : filterFolders;
   const list = cur.val.filter((x) => x !== value);
   cur.val = on ? [...list, value] : list;
+  saveFilter();
 }
 
 // Beside Settings: tags and folders in use, each a checkbox. Checking one
@@ -88,6 +106,7 @@ function openFilterMenu(): void {
   const folders = foldersOf(items);
   filterTags.val = filterTags.val.filter((t) => tags.includes(t));
   filterFolders.val = filterFolders.val.filter((f) => folders.includes(f));
+  saveFilter();
   const parts: HTMLElement[] = [];
   if (tags.length) {
     parts.push(
