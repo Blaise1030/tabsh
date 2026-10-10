@@ -1,9 +1,9 @@
 name: Release
 
 # Runs when a merged release PR lands on main (package.json's version changed
-# and has no tag yet): builds the daemon for macOS and Linux, then publishes a
-# GitHub release tagged vX.Y.Z with that version's CHANGELOG.md section.
-# Last, it points the Homebrew tap at the new release.
+# and has no tag yet): checks and builds the site, builds the daemon for macOS
+# and Linux, and runs full e2e before publishing the GitHub release. Then it
+# updates Homebrew and deploys the site to Cloudflare.
 on:
   push:
     branches: [main]
@@ -67,12 +67,73 @@ jobs:
           shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
       - uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.target }}
+          name: binary-${{ matrix.target }}
           path: tabsh-*.tar.gz*
+
+  e2e:
+    name: Full E2E before release
+    needs: check
+    if: needs.check.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the daemon
+        working-directory: .
+        run: cargo build --locked
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+        env:
+          TABSH_BIN: ../target/debug/tabsh
+
+  site:
+    name: Build site for release
+    needs: check
+    if: needs.check.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - run: npm run lint
+      - run: npm test
+      - run: node --test ../.github/scripts/select-e2e.test.mjs
+      - run: npm run build
+      # The build also writes the daemon's embedded copy of the app.
+      - name: Check the daemon's copy of the app page
+        run: |
+          if ! git diff --exit-code -- ../src/app.html ../src/app-assets \
+            || [ -n "$(git status --porcelain -- ../src/app-assets)" ]; then
+            echo "::error file=src/app.html::Out of date. Run 'npm run build' in web/ and commit src/app.html and src/app-assets."
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: site
+          path: web/dist
+          retention-days: 7
 
   publish:
     name: Publish v${{ needs.check.outputs.version }}
-    needs: [check, build]
+    needs: [check, build, e2e, site]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -80,6 +141,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
+          pattern: binary-*
           path: dist
           merge-multiple: true
       - name: Create the tag and GitHub release
@@ -89,6 +151,18 @@ jobs:
         run: |
           awk -v h="## v$VERSION" '$0 == h {on=1; next} on && /^## / {exit} on' CHANGELOG.md > notes.md
           gh release create "v$VERSION" dist/* --target "$GITHUB_SHA" --title "v$VERSION" --notes-file notes.md
+
+  homebrew:
+    name: Update Homebrew
+    needs: [check, publish]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: binary-*
+          path: dist
+          merge-multiple: true
       - name: Update the Homebrew formula
         # Blaise1030/homebrew-tap serves `brew install blaise1030/tap/tabsh`;
         # its deploy key (write access to that repo only) is this secret.
@@ -106,3 +180,50 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "tabsh $VERSION"
           git push
+
+  deploy:
+    name: Deploy site
+    needs: [check, site, publish]
+    if: needs.check.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://tabsh.cc
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      # Deploy exactly what the release site job built and checked.
+      - uses: actions/download-artifact@v8
+        with:
+          name: site
+          path: web/dist
+      # Skip (with a warning) until Cloudflare credentials are set.
+      - name: Check Cloudflare credentials
+        id: creds
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are not set; skipping deploy."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Deploy to Cloudflare
+        if: steps.creds.outputs.ready == 'true'
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
