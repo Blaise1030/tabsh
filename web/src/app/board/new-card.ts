@@ -41,6 +41,7 @@ type Start = 'backlog' | 'in_progress';
 type Image = { file: File; url: string };
 
 let host: HTMLDialogElement;
+let pressedBackdrop = false;
 let formEl: HTMLFormElement;
 let promptEl: HTMLTextAreaElement;
 let folder: FolderPicker;
@@ -536,8 +537,14 @@ export function NewCard(): HTMLDialogElement {
       class: () => `dialog new-card${big.val ? ' big' : ''}${dragging.val ? ' dragging' : ''}`,
       'aria-labelledby': 'new-card-title',
       // The dialog is the overlay; a click on it, not on the form, is the backdrop.
+      // The press must start there too: a text selection dragged out of the
+      // form and released on the backdrop also clicks the dialog.
+      onpointerdown: (e: PointerEvent) => {
+        pressedBackdrop = e.target === e.currentTarget;
+      },
       onclick: (e: MouseEvent) => {
-        if (e.target === e.currentTarget) (e.currentTarget as HTMLDialogElement).close();
+        if (pressedBackdrop && e.target === e.currentTarget) (e.currentTarget as HTMLDialogElement).close();
+        pressedBackdrop = false;
       },
       onclose: () => {
         dragging.val = false;
