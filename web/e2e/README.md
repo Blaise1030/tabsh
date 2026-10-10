@@ -17,6 +17,16 @@ npm run test:e2e                     # or: TABSH_BIN=/path/to/tabsh npm run test
 `../target/debug/tabsh` relative to `web/`. CI builds it with
 `cargo build --locked` and sets `TABSH_BIN` the same way.
 
+## CI selection
+
+Ordinary CI changes run `smoke.spec.ts` plus specs chosen by
+`.github/scripts/select-e2e.mjs` from the changed paths. Add a feature rule
+there when introducing a new area. Shared or unmapped paths run the full
+suite. A release-metadata-only change runs smoke in CI; the release workflow
+runs the full suite before publishing. Because e2e uses the daemon's embedded
+app, CI rejects app source changes that omit `src/app.html` or
+`src/app-assets/`. The release build verifies that the committed assets match.
+
 ## The daemon fixture
 
 `daemon.ts` (`startDaemon()`) gives every worker its own daemon:

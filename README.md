@@ -99,7 +99,8 @@ same browser and the daemon sends you back to the app, paired.
 ## Working on the app page
 
 The daemon embeds a copy of the app page (`src/app.html`). `npm run build` in
-`web/` refreshes it; commit it along with your changes, or CI fails.
+`web/` refreshes it; commit it along with your changes. The release build
+checks that the committed copy matches the web source.
 
 To build the app page and start a development daemon, run from the repo root:
 
@@ -124,8 +125,10 @@ Releases are automatic:
    [changelogen](https://github.com/unjs/changelogen) writes the new
    `CHANGELOG.md` section and bumps the version (in `package.json`, copied into
    `Cargo.toml`).
-2. Merging that PR builds the daemon for macOS and Linux and publishes a GitHub
-   release with the changelog section as its notes.
+2. Merging that PR runs the full end-to-end suite, builds the web site and the
+   daemon for macOS and Linux, and publishes a GitHub release with the
+   changelog section as its notes. The site deploys to tabsh.cc after the
+   release is published; ordinary pushes to `main` do not deploy it.
 3. The same run regenerates `Formula/tabsh.rb` in
    [Blaise1030/homebrew-tap](https://github.com/Blaise1030/homebrew-tap) from
    the release's checksums (`.github/scripts/homebrew-formula.sh`), so
