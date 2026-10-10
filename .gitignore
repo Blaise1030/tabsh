@@ -7,3 +7,7 @@ web/.wrangler/
 web/test-results/
 .playwright-mcp/
 .claude/
+
+# Benchmark results (web/bench/README.md); only the baseline is kept.
+web/bench/results/*
+!web/bench/results/baseline.json

@@ -57,6 +57,17 @@ function watchWake(): void {
   onActivate(() => syncTerminalVisibility());
 }
 
+// When each parked tab last let go of its socket (performance.now()).
+const parkedAt = new WeakMap<Session, number>();
+
+// How long ago a tab parked: null while its socket is up, Infinity if it
+// never had one. Board events' activity uses it (sessions/activity.ts).
+export function parkedMs(s: Session): number | null {
+  if (s.ws && s.ws.readyState < WebSocket.CLOSING) return null;
+  const at = parkedAt.get(s);
+  return at === undefined ? Number.POSITIVE_INFINITY : performance.now() - at;
+}
+
 function park(s: Session): void {
   reconnectQueue = reconnectQueue.filter((id) => id !== s.id);
   reconnectAttempts.delete(s.id);
@@ -64,6 +75,7 @@ function park(s: Session): void {
   s.out.drop();
   const ws = s.ws;
   if (!ws) return;
+  parkedAt.set(s, performance.now());
   // Drop the reference first so onclose does not queue a reconnect.
   s.ws = null;
   ws.close();
@@ -276,6 +288,9 @@ function connect(s: Session): Promise<boolean> {
         finish(false);
         return;
       }
+      // Dropped without park(): from now on, its output reaches the page as
+      // activity, as for a parked tab.
+      parkedAt.set(s, performance.now());
       finish(false);
       if (inView(s)) scheduleReconnect(s);
     };
