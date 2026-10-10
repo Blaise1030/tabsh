@@ -3,12 +3,14 @@
 // hook moving a card to Needs input or Completed notifies (notify.ts). A
 // hook's move puts the card last in its new column, as the daemon does.
 // It also carries each session's activity (output, throttled, and bells), so
-// a parked tab, which has no socket, still shows unread and rings.
+// a parked tab, which has no socket, still shows unread and rings, and is
+// renamed by the title its shell sets (a card dragged to In progress starts
+// its agent with no terminal on screen).
 import { boardEventsUrl } from '../daemon/client.ts';
 import { type ActivityKind, activityEffect } from '../sessions/activity.ts';
 import { ring } from '../sessions/bell.ts';
 import { store, sync } from '../sessions/store.ts';
-import { orderTabs } from '../sessions/tabs.ts';
+import { orderTabs, setName } from '../sessions/tabs.ts';
 import { parkedMs } from '../sessions/terminal.ts';
 import { asStatus, dropOrder } from './model.ts';
 import { notifyStatus } from './notify.ts';
@@ -20,6 +22,8 @@ interface ActivityEvent {
   activity: ActivityKind;
   /** How long ago the output it reports came (a trailing signal). */
   age_ms: number;
+  /** The title its shell set since the last signal, if it changed. */
+  title?: string;
 }
 
 interface BoardEvent {
@@ -59,4 +63,6 @@ function onActivity(ev: ActivityEvent): void {
   const effect = activityEffect(target, ev.activity, ev.age_ms ?? 0);
   if (effect.unread) s.unread.val = true;
   if (effect.ring) ring(s);
+  // As terminal.ts does with xterm's title, which a parked tab doesn't have.
+  if (ev.title && !s.closed && !s.pinned && parkedMs(s) !== null) setName(s, ev.title);
 }

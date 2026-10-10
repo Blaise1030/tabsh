@@ -180,6 +180,25 @@ test("dragging a card doesn't type its id into the active terminal", async ({ pa
   await expect.poll(() => existsSync(mark), { timeout: 10_000 }).toBe(true);
 });
 
+test('a card dragged to In progress takes the title its agent sets, unopened', async ({ page, daemon, project }) => {
+  // An agent that names its terminal, as Claude Code does, then keeps running.
+  const TITLED = "printf '\\033]0;Agent at work\\007'; sleep 30";
+  const headers = { Authorization: `Bearer ${daemon.token}` };
+  const now = await (await page.request.get(`${daemon.baseUrl}/api/settings`, { headers })).json();
+  const providers = [...TEST_PROVIDERS, { name: TITLED, command: TITLED, resume: '' }];
+  await page.request.put(`${daemon.baseUrl}/api/settings`, { headers, data: { ...now, providers } });
+  await openApp(page, daemon);
+  await boardAlone(page);
+  await col(page, 'backlog').locator('header .btn').click();
+  await newCard(page, 'Name me', project, TITLED);
+  await card(page, 'Name me').dragTo(col(page, 'in_progress').locator('.board-cards'));
+  // Never opened, so its tab has no socket: the title comes from the daemon.
+  await expect(col(page, 'in_progress').locator('.board-card').filter({ hasText: 'Agent at work' })).toBeVisible({
+    timeout: 10_000,
+  });
+  await expect(page.locator('#tabs .tab:has-text("Agent at work")')).toHaveAttribute('aria-selected', 'false');
+});
+
 test("a completed card is archived from its menu, and has no Archive button", async ({ page, daemon, project }) => {
   await openApp(page, daemon);
   await page.locator('#board-btn').click();

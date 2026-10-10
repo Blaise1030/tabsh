@@ -1,7 +1,8 @@
 // A busy tab off screen: its socket is parked (only the on-screen terminal
 // attaches), so the page hears its output through the board events stream
 // instead. While it floods, the active tab stays usable; the parked tab
-// shows unread and rings on a BEL; activating it replays what it printed.
+// shows unread, rings on a BEL and takes the title its shell sets;
+// activating it replays what it printed.
 import { existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
@@ -71,15 +72,16 @@ test('a parked tab flooding output shows unread, rings, and catches up when acti
   expect(existsSync(done), 'the A interactions ran during the flood').toBe(false);
 
   // Once its flood has finished (however long a loaded machine takes), parked
-  // B has heard its bell.
+  // B has heard its bell, and taken the title its shell set, still parked.
   await expect.poll(() => existsSync(done), { timeout: 60_000 }).toBe(true);
-  await expect(b).toHaveClass(/\bbell\b/);
+  const tail = tabs(page).filter({ hasText: 'flood-tail' });
+  await expect(tail).toHaveClass(/\bbell\b/);
+  await expect(tail).toHaveAttribute('aria-selected', 'false');
 
-  // Activating B replays its flood: the tab takes the title, unread and bell
-  // clear, and it takes input.
-  await b.click();
+  // Activating B replays its flood: unread and bell clear, and it takes input.
+  await tail.click();
   await expect(selectedName(page)).toHaveText('flood-tail', { timeout: 15_000 });
-  const active = tabs(page).filter({ hasText: 'flood-tail' });
+  const active = tail;
   await expect(active).not.toHaveClass(/\bunread\b/);
   await expect(active).not.toHaveClass(/\bbell\b/);
   await renameByShell(page, 'tab-b-typed');
