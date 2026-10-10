@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.1.16
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.15...v0.1.16)
+
+### Features
+
+- **web:** Show the board, keys and an FAQ on the landing page ([d7c08ce](https://github.com/Blaise1030/tabsh/commit/d7c08ce))
+- **app:** Comment on a selection and paste it into the terminal ([2c21b55](https://github.com/Blaise1030/tabsh/commit/2c21b55))
+
+### Fixes
+
+- **app:** Keep New card open when a selection is dragged onto the backdrop ([d6228b7](https://github.com/Blaise1030/tabsh/commit/d6228b7))
+- **web:** Start the landing demo after its fetch replacement ([f02698b](https://github.com/Blaise1030/tabsh/commit/f02698b))
+
 ## v0.1.15
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.14...v0.1.15)
