@@ -2,6 +2,7 @@
 
 use super::{
     Event, Output, SCROLLBACK_BYTES, Session,
+    activity::Signals,
     modes::{ModeTracker, RESTORE_MARKER},
 };
 use crate::{AppState, error::BoxError};
@@ -235,7 +236,10 @@ fn spawn_session(
     let s = session.clone();
     std::thread::spawn(move || {
         let mut buf = [0u8; 8192];
+        let signals = Signals::start(st.events.clone(), id.clone());
         while let Ok(n @ 1..) = reader.read(&mut buf) {
+            // Parked tabs hear this instead of the output; outside the lock.
+            signals.feed(&buf[..n]);
             let mut out = s.output.lock().unwrap();
             let out = &mut *out;
             out.scrollback.extend(&buf[..n]);
@@ -246,6 +250,8 @@ fn spawn_session(
                 .tx
                 .send(Event::Output(Bytes::copy_from_slice(&buf[..n])));
         }
+        // Sends output held back in its last second; stops its sweeper.
+        drop(signals);
         // Shell exited (or was killed): reap it, tell clients, forget the session.
         let _ = child.wait();
         if SHUTTING_DOWN.load(Ordering::SeqCst) {

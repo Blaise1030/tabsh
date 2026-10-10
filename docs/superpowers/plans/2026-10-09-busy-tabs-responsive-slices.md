@@ -29,7 +29,7 @@
   5. Activate B → terminal content includes the flood tail; unread clears; typing in B works.
 - Unit tests (REQUIRED):
   - Daemon (`cargo test`): activity throttle — many output chunks within the window publish one activity event; a chunk with a bare BEL publishes a bell event immediately; a BEL inside an OSC sequence (e.g. title set terminated by BEL) does not.
-  - App (`npm test`): pure handler deciding what an activity/bell event does to a session (parked & not active → unread / ring; active → nothing; closed/unknown → nothing), DOM-free beside its caller.
+  - App (`npm test`): pure handler deciding what an activity/bell event does to a session (parked & not active → unread, and ring on a bell; parked & active → no unread, but a bell still rings and `ring()` decides whether you're looking, exactly as a connected tab would; connected → nothing, its socket handles it; closed/unknown → nothing), DOM-free beside its caller.
 - Layers touched:
   - Daemon: `src/sessions/pty.rs` (reader loop publishes on `st.events`), `src/board/` event type (additive variant), tests.
   - App: `web/src/app/board/events.ts` (or sessions) dispatching activity/bell to sessions; small pure helper + test; `terminal.ts` untouched beyond what's needed.
