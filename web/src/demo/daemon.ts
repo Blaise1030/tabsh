@@ -1,7 +1,7 @@
 // A pretend daemon for /demo/, the copy of the app framed on the landing
 // page. It answers the app's requests and sockets from memory, so the demo is
-// the real app, never a drawing of it. It must load before the app: it swaps
-// in fetch, WebSocket and localStorage first.
+// the real app, never a drawing of it. It swaps in fetch, WebSocket and
+// localStorage, then starts the app (a dynamic import, so that runs after).
 //
 // Nothing here reaches a real daemon: the page's meta tag names DEMO, only
 // DEMO is answered, any other request to a daemon is refused, browser
@@ -524,3 +524,7 @@ window.fetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {
   const body = typeof init.body === 'string' ? JSON.parse(init.body) : undefined;
   return answer(method, url, body);
 };
+
+// After the replacements above. A static import would run first, so the app's
+// opening /api/about would leave the page and the CSP would refuse it.
+await import('../app/main.ts');

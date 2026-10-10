@@ -61,9 +61,12 @@ it in `state::router()`, and add its routes to `every_route_is_guarded`.
 
 **The demo (`web/src/demo/`, `web/src/pages/demo/`).** The landing page
 frames `/demo/`: the same app, built into a second page, on a pretend daemon.
-`demo/daemon.ts` loads before `main.ts` and answers the app's requests and
-sockets from memory (scripted shells, files, board events), keeps browser
-storage in memory, and holds off focus until the visitor clicks in.
+`demo/daemon.ts` answers the app's requests and sockets from memory (scripted
+shells, files, board events), keeps browser storage in memory, and holds off
+focus until the visitor clicks in. It starts `main.ts` with a dynamic import
+after those replacements: a static import is evaluated first, and the app's
+opening `/api/about` would then be a real request, which `/demo/`'s
+`connect-src` refuses.
 `demo/origin.ts` is the never-resolving origin the page's meta tag names. The
 app itself knows nothing of the demo: a change to the app shows up there as is,
 and a new daemon endpoint may need an answer in `demo/daemon.ts`.
