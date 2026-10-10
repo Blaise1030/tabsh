@@ -2,12 +2,25 @@
 // dropped socket reconnects and re-reads the list, so nothing is missed. A
 // hook moving a card to Needs input or Completed notifies (notify.ts). A
 // hook's move puts the card last in its new column, as the daemon does.
+// It also carries each session's activity (output, throttled, and bells), so
+// a parked tab, which has no socket, still shows unread and rings.
 import { boardEventsUrl } from '../daemon/client.ts';
+import { type ActivityKind, activityEffect } from '../sessions/activity.ts';
+import { ring } from '../sessions/bell.ts';
 import { store, sync } from '../sessions/store.ts';
 import { orderTabs } from '../sessions/tabs.ts';
+import { parkedMs } from '../sessions/terminal.ts';
 import { asStatus, dropOrder } from './model.ts';
 import { notifyStatus } from './notify.ts';
 import { applyCard } from './status.ts';
+
+// Keyed by `session`, not `id`, so pages from before it ignore it.
+interface ActivityEvent {
+  session: string;
+  activity: ActivityKind;
+  /** How long ago the output it reports came (a trailing signal). */
+  age_ms: number;
+}
 
 interface BoardEvent {
   id: string;
@@ -22,7 +35,8 @@ export function initBoardEvents(): void {
   const ws = new WebSocket(boardEventsUrl());
   ws.onopen = () => void sync().catch(() => {});
   ws.onmessage = (e) => {
-    const ev = JSON.parse(e.data) as BoardEvent;
+    const ev = JSON.parse(e.data) as BoardEvent | ActivityEvent;
+    if ('activity' in ev) return onActivity(ev);
     if (ev.resync) return void sync().catch(() => {});
     const s = store.sessions.find((x) => x.id === ev.id);
     if (!s) return;
@@ -36,4 +50,13 @@ export function initBoardEvents(): void {
     if (ev.source === 'hook' && status !== before) notifyStatus(s, status, ev.note);
   };
   ws.onclose = () => setTimeout(initBoardEvents, 1000);
+}
+
+function onActivity(ev: ActivityEvent): void {
+  const s = store.sessions.find((x) => x.id === ev.session);
+  if (!s) return;
+  const target = { closed: s.closed, parkedMs: parkedMs(s), active: s === store.active };
+  const effect = activityEffect(target, ev.activity, ev.age_ms ?? 0);
+  if (effect.unread) s.unread.val = true;
+  if (effect.ring) ring(s);
 }
