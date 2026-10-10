@@ -115,7 +115,7 @@ pub(crate) async fn about(
     let (running, total) = crate::sessions::counts(&st).map_err(crate::error::internal_error)?;
     Ok(axum::Json(serde_json::json!({
         "version": env!("CARGO_PKG_VERSION"),
-        "shell": std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into()),
+        "shell": crate::sessions::pty::user_shell(),
         "state_path": &*st.db_path,
         "uptime_secs": st.started.elapsed().as_secs(),
         "sessions_running": running,

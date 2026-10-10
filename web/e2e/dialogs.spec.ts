@@ -1,5 +1,5 @@
 // The two dialogs, end to end: New card's error is gone when it opens again,
-// and About says so when the daemon doesn't answer.
+// and the palette's About page says so when the daemon doesn't answer.
 import { expect, openApp, setOnboarded, test } from './fixture.ts';
 
 const PALETTE = process.platform === 'darwin' ? 'Meta+KeyK' : 'Control+Shift+KeyK';
@@ -60,21 +60,22 @@ test('New card closes when its backdrop is clicked', async ({ page, daemon }) =>
   await expect(dialog).toBeHidden();
 });
 
-test('About says so when the daemon does not answer, and lists the rows when it does', async ({ page, daemon }) => {
+test('About is a palette page: it says so when the daemon does not answer, and lists the rows when it does', async ({
+  page,
+  daemon,
+}) => {
   await openApp(page, daemon);
   await page.route('**/api/about', (route) => route.abort());
   await page.keyboard.press(PALETTE);
   await page.locator('#palette-input').fill('About');
-  await page.locator('#palette [role="menuitem"][data-filter="About tabsh"]').click();
-  const rows = page.locator('#about-list tr');
+  await page.locator('#palette [role="menuitem"][data-filter="About tabsh…"]').click();
+  const rows = page.locator('#palette-menu [role="menuitem"]');
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toHaveText(/Could not reach the tabsh daemon\./);
-  await page.locator('#about footer button').click();
-  await expect(page.locator('#about')).toBeHidden();
   await page.unroute('**/api/about');
-  await page.keyboard.press(PALETTE);
+  await page.keyboard.press('Escape');
   await page.locator('#palette-input').fill('About');
-  await page.locator('#palette [role="menuitem"][data-filter="About tabsh"]').click();
-  await expect(page.locator('#about-list tr').first()).toContainText('Version');
-  await expect(page.locator('#about-list tr')).toHaveCount(8);
+  await page.locator('#palette [role="menuitem"][data-filter="About tabsh…"]').click();
+  await expect(rows.first()).toContainText('Version');
+  await expect(rows).toHaveCount(6);
 });

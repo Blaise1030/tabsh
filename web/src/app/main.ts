@@ -19,6 +19,7 @@ import { initTabGroups } from './sessions/groups.ts';
 import { initTabRouting, newSession, newTabAt, savedActive, sendSize, store, sync } from './sessions/store.ts';
 import { initTabStrip } from './sessions/tabs.ts';
 import { initTabLabels } from './sessions/tags.ts';
+import { syncTerminalVisibility } from './sessions/terminal.ts';
 import { FONTS, fontStack, prefersLight, THEMES } from './settings/catalog.ts';
 import { applySettings, current, loadSettings, onApply, terminalOptions } from './settings/settings.ts';
 import { initChime } from './sound/chime.ts';
@@ -134,5 +135,8 @@ window.addEventListener('focus', () => {
     file: (tab && rememberedFiles()[tab]) || null,
     explorer: current.saved.explorerOpen,
   });
+  // The router has picked the active tab: attach its socket (sessions opened
+  // during sync had no active tab yet, so they stayed parked).
+  syncTerminalVisibility();
   restoreFiles(store.sessions.map((s) => s.id));
 })();

@@ -12,7 +12,7 @@ import type { Settings } from '../settings/schema.ts';
 import { applySettings, current, keyHint, saveSetting, setPreviewing } from '../settings/settings.ts';
 import { previewChime } from '../sound/chime.ts';
 import { previewSound } from '../sound/packs.ts';
-import { openAbout } from '../ui/about.ts';
+import { aboutRows, loadAbout } from '../ui/about.ts';
 import { isMac } from '../ui/dom.ts';
 import { icons } from '../ui/icons.ts';
 import { keyed } from '../ui/keyed.ts';
@@ -35,7 +35,7 @@ function palettePages(): ReturnType<typeof pages> {
   return pages({
     hasFile: !!active && !!loadedPane()?.hasFile(active.id),
     closeFile: () => go({ file: null }),
-    openAbout,
+    about: aboutRows,
     toggleExplorer,
     toggleBoard: () => toggleBoard(),
     searchFiles,
@@ -85,7 +85,8 @@ function PaletteRow({ id, item }: MenuGroup['items'][number]): HTMLElement {
     'data-keywords': item.keywords ?? '',
   };
   if (item.disabled) props['aria-disabled'] = 'true';
-  if (item.go || item.record || item.edit || item.disabled) props['data-keep-command-open'] = '';
+  if (item.go || item.record || item.edit || item.copy !== undefined || item.disabled)
+    props['data-keep-command-open'] = '';
   if ((item.key && current.saved[item.key] === item.value) || item.checked) props['data-checked'] = 'true';
   const { swatch } = item;
   return div(
@@ -203,10 +204,14 @@ function showPalette(at: string | null): void {
     return;
   }
   if (!paletteEl().open) {
-    (document.getElementById('about') as HTMLDialogElement).close();
     paletteEl().showModal();
     setPreviewing(true);
   } else if (page.val === at) return;
+  // About's rows are fetched afresh each time it opens, and drawn once they land.
+  if (at === 'about')
+    loadAbout().then(() => {
+      if (page.val === 'about') showPage('about');
+    });
   showPage(at);
 }
 
@@ -269,6 +274,11 @@ export function initPalette(): void {
       go({ palette: item.go }, 'replace');
     } else if (item.record) startRecording(item.record);
     else if (item.edit) startEditing(item.edit);
+    else if (item.copy !== undefined)
+      navigator.clipboard.writeText(item.copy).then(
+        () => (paletteInput().placeholder = `Copied ${item.label}  (Esc to go back)`),
+        () => {},
+      );
     else if (item.key) saveSetting(item.key, item.value as never);
     else item.run?.();
   });

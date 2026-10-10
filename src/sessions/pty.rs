@@ -77,7 +77,7 @@ pub(super) fn shell_env(
 
 /// Return the running shell for `id`, starting it (in its saved cwd, with its
 /// saved scrollback) if the session exists but isn't running yet.
-pub(super) fn get_or_spawn(st: &AppState, id: &str) -> Result<Option<Arc<Session>>, BoxError> {
+pub(crate) fn get_or_spawn(st: &AppState, id: &str) -> Result<Option<Arc<Session>>, BoxError> {
     let mut live = st.live.lock().unwrap();
     if let Some(s) = live.get(id) {
         return Ok(Some(s.clone()));
@@ -169,6 +169,38 @@ pub(super) fn type_launch_line(st: &AppState, id: &str, session: &Session) {
     let _ = session.input.send(Bytes::from(line));
 }
 
+/// The shell terminals run: `$SHELL`, else the account's login shell (a
+/// launchd service such as `brew services start tabsh` has no `$SHELL`),
+/// else /bin/sh.
+pub(crate) fn user_shell() -> String {
+    match std::env::var("SHELL") {
+        Ok(shell) if !shell.is_empty() => shell,
+        _ => login_shell().unwrap_or_else(|| "/bin/sh".into()),
+    }
+}
+
+fn login_shell() -> Option<String> {
+    let mut pw: libc::passwd = unsafe { std::mem::zeroed() };
+    let mut buf = vec![0 as libc::c_char; 4096];
+    let mut found = std::ptr::null_mut();
+    let rc = unsafe {
+        libc::getpwuid_r(
+            libc::getuid(),
+            &mut pw,
+            buf.as_mut_ptr(),
+            buf.len(),
+            &mut found,
+        )
+    };
+    if rc != 0 || found.is_null() || pw.pw_shell.is_null() {
+        return None;
+    }
+    let shell = unsafe { std::ffi::CStr::from_ptr(pw.pw_shell) }
+        .to_str()
+        .ok()?;
+    (!shell.is_empty()).then(|| shell.to_owned())
+}
+
 fn spawn_session(
     st: AppState,
     id: String,
@@ -183,8 +215,7 @@ fn spawn_session(
         pixel_height: 0,
     })?;
 
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
-    let mut cmd = CommandBuilder::new(shell);
+    let mut cmd = CommandBuilder::new(user_shell());
     cmd.arg("-l");
     for (k, v) in shell_env(&st, &id, prompt) {
         cmd.env(k, v);
@@ -293,6 +324,12 @@ mod tests {
     use crate::test_support::test_state;
 
     #[test]
+    fn the_login_shell_comes_from_the_account() {
+        let shell = login_shell().expect("this account has a login shell");
+        assert!(std::path::Path::new(&shell).is_absolute(), "{shell}");
+    }
+
+    #[test]
     fn shells_know_their_card_and_the_daemon() {
         let st = test_state();
         let env = shell_env(&st, "abc-1", None);
@@ -347,6 +384,34 @@ mod tests {
             .unwrap();
         crate::sessions::launch(&st, &id);
         assert_eq!(pending(&st, &id), None, "typed once");
+        let _ = session.killer.lock().unwrap().kill();
+    }
+
+    // A board drag (or New card in In progress) launches with no browser
+    // socket attached: the shell must start then, so the agent runs while the
+    // page shows only the board.
+    #[test]
+    fn launch_starts_a_shell_that_was_not_running() {
+        let st = test_state();
+        let id = crate::sessions::store::insert_card(
+            &st.db.lock().unwrap(),
+            &crate::sessions::store::NewCard {
+                pending: Some("true\r"),
+                prompt: Some("go"),
+                status: "in_progress",
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .id;
+        assert!(st.live.lock().unwrap().get(&id).is_none());
+        crate::sessions::launch(&st, &id);
+        assert!(
+            st.live.lock().unwrap().get(&id).is_some(),
+            "launch spawned the shell"
+        );
+        assert_eq!(pending(&st, &id), None, "typed the launch line");
+        let session = st.live.lock().unwrap().get(&id).unwrap().clone();
         let _ = session.killer.lock().unwrap().kill();
     }
 
