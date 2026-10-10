@@ -183,6 +183,28 @@ mod tests {
             && String::from_utf8_lossy(b).contains("file-tree-container")));
     }
 
+    /// The bundled demo replaces fetch before it starts the app. A static
+    /// import runs first, so the opening /api/about leaves the page and
+    /// connect-src refuses demo.tabsh.invalid.
+    #[test]
+    fn demo_bundle_patches_fetch_before_the_app() {
+        let js = crate::web::assets::app_assets()
+            .iter()
+            .find_map(|(_, bytes)| {
+                let text = String::from_utf8_lossy(bytes);
+                text.contains("http://demo.tabsh.invalid")
+                    .then(|| text.into_owned())
+            })
+            .expect("demo bundle");
+        let fetch_at = js.find("window.fetch=").expect("fetch replacement");
+        let start = js.find("import(").expect("dynamic import of the app");
+        assert!(fetch_at < start, "the app starts before fetch is replaced");
+        assert!(
+            !js.contains("import\"./main") && !js.contains("import \"./main"),
+            "the app is a static import"
+        );
+    }
+
     /// The CSP allows no inline script, so the page must have none.
     #[test]
     fn app_page_has_no_inline_code() {

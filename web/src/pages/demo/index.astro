@@ -27,9 +27,10 @@ import '../../styles/app.css';
 <body>
   <div id="app"></div>
   <script>
-    // The pretend daemon first: it replaces fetch, WebSocket and storage.
+    // Replaces fetch, WebSocket and storage, then starts the app. The app is
+    // not imported here: a static import is evaluated first, and its opening
+    // /api/about would be a real request, which this page's connect-src refuses.
     import '../../demo/daemon.ts';
-    import '../../app/main.ts';
   </script>
 </body>
 </html>
