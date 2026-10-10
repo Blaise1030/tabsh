@@ -47,6 +47,6 @@
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
     "typescript": "^5.9.3",
-    "wrangler": "^4.147.0"
+    "wrangler": "^4.149.0"
   }
 }
