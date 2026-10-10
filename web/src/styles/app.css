@@ -200,6 +200,8 @@ html.themed {
   /* It fades in from the top, so it doesn't meet the tab bar at a hard corner. */
   mask-image: linear-gradient(to bottom, transparent, #000 4rem);
 }
+/* The list layout has no columns cut off at the drawer's edge: no fade. */
+#stage:has(#board.list) #frame.in-drawer::before { display: none; }
 /* Too narrow to share: the drawer covers the board. */
 @media (max-width: 799px) {
   #frame.in-drawer { flex-basis: 100%; }
