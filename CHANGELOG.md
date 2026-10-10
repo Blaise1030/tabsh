@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.1.17
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.15...v0.1.17)
+
+### Features
+
+- **web:** Show the board, keys and an FAQ on the landing page ([d7c08ce](https://github.com/Blaise1030/tabsh/commit/d7c08ce))
+- **board:** List layout beside the columns, as Linear's list view ([3257820](https://github.com/Blaise1030/tabsh/commit/3257820))
+- **board:** Fade the list layout's top and bottom while rows are scrolled out ([560d731](https://github.com/Blaise1030/tabsh/commit/560d731))
+- **board:** ⌘B steps through columns and list; no layout button ([b0aa984](https://github.com/Blaise1030/tabsh/commit/b0aa984))
+- **board:** The Board button steps through terminals, columns and list ([8e17d81](https://github.com/Blaise1030/tabsh/commit/8e17d81))
+- **app:** Comment on a selection and paste it into the terminal ([2c21b55](https://github.com/Blaise1030/tabsh/commit/2c21b55))
+
+### Fixes
+
+- **app:** Keep New card open when a selection is dragged onto the backdrop ([d6228b7](https://github.com/Blaise1030/tabsh/commit/d6228b7))
+- **board:** No drawer-edge fade over the list layout ([6e62422](https://github.com/Blaise1030/tabsh/commit/6e62422))
+- **web:** Start the landing demo after its fetch replacement ([f02698b](https://github.com/Blaise1030/tabsh/commit/f02698b))
+
 ## v0.1.16
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.15...v0.1.16)
