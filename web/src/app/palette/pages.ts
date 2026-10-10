@@ -9,13 +9,14 @@ import {
   type TabGrouping,
 } from '../settings/schema.ts';
 import { current, KEYBINDINGS, saveSetting } from '../settings/settings.ts';
+import type { AboutRow } from '../ui/about.ts';
 import { isMac } from '../ui/dom.ts';
 import { type Icon, icons, providerIcon } from '../ui/icons.ts';
 
 // An item either opens another page (`go`, after running `run` if it has
 // one), picks a setting (`key` + `value`, previewed while highlighted),
 // records a keybinding (`record`), edits a text (`edit`) or runs code.
-// `preview` rides along with `run` for a choice the palette previews while
+// `copy` puts its text on the clipboard. `preview` rides along with `run` for a choice the palette previews while
 // highlighted, and `checked` marks the current such choice.
 export interface PaletteItem {
   label: string;
@@ -32,6 +33,7 @@ export interface PaletteItem {
   checked?: boolean;
   disabled?: boolean; // greyed out and not selectable
   edit?: TextEdit;
+  copy?: string;
 }
 // The palette's input becomes a text box holding `value`. Enter saves:
 // `save` says why it can't (the input stays open), or the page to show.
@@ -54,7 +56,7 @@ const GROUPINGS: Record<TabGrouping, string> = { none: 'No grouping', repo: 'By 
 export function pages(ctx: {
   hasFile: boolean;
   closeFile(): void;
-  openAbout(): void;
+  about: AboutRow[] | null;
   toggleExplorer(): void;
   toggleBoard(): void;
   searchFiles(): void;
@@ -196,7 +198,7 @@ export function pages(ctx: {
         },
         {
           heading: 'Help',
-          items: [{ label: 'About tabsh', icon: icons.info, keywords: 'version info', run: ctx.openAbout }],
+          items: [{ label: 'About tabsh…', icon: icons.info, keywords: 'version info uptime shell', go: 'about' }],
         },
       ],
     }),
@@ -239,6 +241,21 @@ export function pages(ctx: {
               },
             ]
           : []),
+      ],
+    }),
+    // Each row copies its value; until the daemon answers, one says so.
+    about: () => ({
+      placeholder: 'Search about tabsh…',
+      groups: [
+        {
+          heading: 'About tabsh',
+          items:
+            ctx.about === null
+              ? [{ label: 'Loading…', disabled: true }]
+              : ctx.about.length
+                ? ctx.about.map(([label, value]) => ({ label, hint: value, keywords: value, copy: value }))
+                : [{ label: 'Could not reach the tabsh daemon.', disabled: true }],
+        },
       ],
     }),
     ...Object.fromEntries(saved.providers.map((_, i) => [`provider:${i}`, () => providerPage(saved.providers, i)])),

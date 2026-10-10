@@ -11,7 +11,6 @@ import { paneShown } from '../files/open.ts';
 import { go } from '../nav/router.ts';
 import { grouping, TabStrip } from '../sessions/groups.ts';
 import { active, noTab } from '../sessions/store.ts';
-import { About } from './about.ts';
 import { Gate } from './gate.ts';
 import { type Icon, icons } from './icons.ts';
 
@@ -147,5 +146,5 @@ function Stage(): HTMLElement {
 }
 
 export function App(): HTMLElement[] {
-  return [Palette(), About(), NewCard(), TabBar(), Stage(), div({ id: 'drop-glow', 'aria-hidden': 'true' })];
+  return [Palette(), NewCard(), TabBar(), Stage(), div({ id: 'drop-glow', 'aria-hidden': 'true' })];
 }
