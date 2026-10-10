@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.15
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.14...v0.1.15)
+
+### Fixes
+
+- **web:** Refresh the daemon's embedded app after the board filter ([80dfa26](https://github.com/Blaise1030/tabsh/commit/80dfa26))
+
 ## v0.1.14
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.13...v0.1.14)
