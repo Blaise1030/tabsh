@@ -3,20 +3,47 @@ import Site from '../layouts/Site.astro';
 import { DAEMON_URL, INSTALL_COMMAND, REPO_URL } from '../site';
 
 const features = [
-  ['Shells outlive the tab', 'Close, reload, quit: they reattach'],
-  ['Survives restarts', 'Tabs, folders, scrollback restored'],
-  ['Drop files in', 'Dragged files type their path'],
-  ['Bells you notice', 'Tab rings, favicon badges'],
-  ['Themes and fonts', '10 themes, 9 fonts, ⌘K palette'],
-  ['Nothing leaves localhost', 'Keystrokes stay on 127.0.0.1'],
+  ['Shells outlive the tab', 'Close, reload, quit: they reattach', ''],
+  ['Survives restarts', 'Tabs, folders, scrollback restored', ''],
+  ['A board of your agents', 'Every terminal is a card', '⌘B'],
+  ['New card, new agent', 'Start one from a prompt', '⌘⇧C'],
+  ['File explorer', "Follows your shell's folder", '⌘⇧E'],
+  ['Search files', 'By name, across the project', '⌘⇧F'],
+  ['Click paths and URLs', 'Open, edit and save in a pane', ''],
+  ['Group tabs', 'By repo or by tag', '⌘⇧Y'],
+  ['Back and Forward', 'Reload keeps your place', '⌃⇧- ⌃⇧='],
+  ['Drop files in', 'Dragged files type their path', ''],
+  ['Bells you notice', 'Tab rings, favicon badges', ''],
+  ['Typing sounds', 'Four sampled switch packs', ''],
+  ['Themes and fonts', '12 themes, 9 fonts', '⌘K'],
+  ['Nothing leaves localhost', 'Keystrokes stay on 127.0.0.1', ''],
 ];
 
 // Draw the features as an ASCII table, padded to the widest cell in each column.
 // The script below redraws it at runtime with a wider second column to fill the page.
-const w0 = Math.max(...features.map(([a]) => a.length));
-const w1 = Math.max(...features.map(([, b]) => b.length));
-const rule = `+${'-'.repeat(w0 + 2)}+${'-'.repeat(w1 + 2)}+`;
-const table = [rule, ...features.map(([a, b]) => `| ${a.padEnd(w0)} | ${b.padEnd(w1)} |`), rule].join('\n');
+const drawTable = (rows: string[][], widths: number[]) => {
+  const rule = `+${widths.map((w) => '-'.repeat(w + 2)).join('+')}+`;
+  const line = (row: string[]) => `|${row.map((c, i) => ` ${c.padEnd(widths[i])} `).join('|')}|`;
+  return [rule, ...rows.map(line), rule].join('\n');
+};
+const widths = features[0].map((_, i) => Math.max(...features.map((r) => r[i].length)));
+const table = drawTable(features, widths);
+
+// The board, as ASCII: one card per column, the agent under its title.
+const board = [
+  ['BACKLOG', 'IN PROGRESS', 'NEEDS INPUT', 'COMPLETED'],
+  ['Dark mode', 'Fix refunds', 'Bump deps', 'Add search'],
+  ['claude', 'codex', 'gemini', 'opencode'],
+];
+const cell = 14;
+const boardRule = Array(4).fill(`+${'-'.repeat(cell)}+`).join(' ');
+const boardRow = (row: string[], box: boolean) =>
+  row.map((c) => (box ? `| ${c.padEnd(cell - 2)} |` : ` ${c.padEnd(cell)} `)).join(' ');
+const boardArt = [boardRow(board[0], false), boardRule, boardRow(board[1], true), boardRow(board[2], true), boardRule].join(
+  '\n',
+);
+const SETUP_PROMPT = 'Run `tabsh setup` and follow it.';
+
 ---
 
 <Site
@@ -102,8 +129,37 @@ const table = [rule, ...features.map(([a, b]) => `| ${a.padEnd(w0)} | ${b.padEnd
         </li>
       </ol>
 
-      <h2><span class="mark">##</span> FEATURES</h2>
+      <h2 id="features"><span class="mark">##</span> FEATURES</h2>
       <pre class="table" data-rows={JSON.stringify(features)}>{table}</pre>
+      <p class="muted"><span class="mark">&gt;</span> Keys are the Mac defaults. Change any of them from ⌘K.</p>
+
+      <h2 id="board"><span class="mark">##</span> THE BOARD</h2>
+      <p>
+        Every terminal is a card on a kanban board (⌘B). Start an agent from a new
+        card's prompt, then watch it move across the board on its own.
+      </p>
+      <p class="caption board-fig">
+        <span class="mark">fig. 2</span> the board, live. Keep watching: two agents are about to report&nbsp;in.
+      </p>
+      <figure class="shot board-fig">
+        <div class="browser board" role="group" aria-label="Interactive demo: the tabsh board">
+          <div class="urlbar" aria-hidden="true">
+            <span class="lights"><i></i><i></i><i></i></span>
+            <span class="url">tabsh.cc/app/?view=board</span>
+          </div>
+          <!-- The same demo as fig. 1, opened on the board: a fuller one, with scripted hooks. -->
+          <div class="app"><iframe src="/demo/?view=board" title="tabsh demo: the board" loading="lazy"></iframe></div>
+        </div>
+      </figure>
+      <pre class="art" aria-label="A board with four columns: Backlog, In progress, Needs input and Completed, one agent's card in each">{boardArt}</pre>
+      <p>Tell Claude Code, Codex, Gemini CLI, OpenCode or any agent with hooks:</p>
+      <pre class="cmd"><span class="mark">&gt;</span> {SETUP_PROMPT}  <button type="button" class="copy" data-copy={SETUP_PROMPT} aria-label="Copy setup prompt">[copy]</button></pre>
+      <ol class="steps">
+        <li><b>It wires its own hooks</b> to <code>tabsh status</code>. Outside tabsh they do nothing.</li>
+        <li><b>A prompt moves the card to In progress.</b> A question or a stop moves it to Needs input; finished work lands in Completed.</li>
+        <li><b>You hear about it.</b> A desktop notification and a chime when an agent needs you or is done.</li>
+        <li><b>Agents pick up where they left off</b> when tabsh restarts.</li>
+      </ol>
 
       <h2 id="how"><span class="mark">##</span> HOW IT CONNECTS</h2>
       <p>
@@ -130,6 +186,64 @@ const table = [rule, ...features.map(([a, b]) => `| ${a.padEnd(w0)} | ${b.padEnd
         this browser and the daemon sends you here, paired.
       </p>
 
+      <h2 id="faq"><span class="mark">##</span> FAQ</h2>
+      <div class="faq">
+        <details>
+          <summary>Does it work in Safari?</summary>
+          <p>
+            Safari (and every iOS browser) won't let this site reach the daemon, so the daemon serves
+            the app itself at <code>http://tabsh.localhost:7681</code>, and this site sends Safari there.
+            File → Add to Dock opens it like an app.
+          </p>
+        </details>
+        <details>
+          <summary>Why does Chrome ask to access apps on my device?</summary>
+          <p>That's the connection to the daemon on your machine. Allow it once.</p>
+        </details>
+        <details>
+          <summary>Is it safe?</summary>
+          <p>
+            The daemon listens on 127.0.0.1 only and answers only the tabsh app carrying your token. The
+            token rides in the URL fragment, which browsers never send to a server. Keystrokes never
+            leave your machine.
+          </p>
+        </details>
+        <details>
+          <summary>Can it keep running after I close the terminal?</summary>
+          <p>
+            Yes: <code>brew services start tabsh</code> runs it from login. Then open
+            <code>{DAEMON_URL}</code> once to pair this browser.
+          </p>
+        </details>
+        <details>
+          <summary>Which agents does the board work with?</summary>
+          <p>
+            Claude Code, Codex, Gemini CLI and OpenCode out of the box, resumed after restarts. Any other
+            command works for a new card, and any agent with hooks can keep its card current.
+          </p>
+        </details>
+        <details>
+          <summary>Which systems does it run on?</summary>
+          <p>macOS and Linux. There's no Windows build.</p>
+        </details>
+        <details>
+          <summary>How do I upgrade?</summary>
+          <p><code>brew upgrade tabsh</code>, then <code>brew services restart tabsh</code> if you run it as a service.</p>
+        </details>
+        <details>
+          <summary>Lost the link?</summary>
+          <p>Open <code>{DAEMON_URL}</code> in the same browser and the daemon sends you back to the app, paired.</p>
+        </details>
+        <details>
+          <summary>Is it free?</summary>
+          <p>Yes. It's open source under the MIT license, on <a href={REPO_URL}>GitHub</a>.</p>
+        </details>
+      </div>
+
+      <h2 id="install"><span class="mark">##</span> GET IT</h2>
+      <pre class="cmd"><span class="mark">$</span> {INSTALL_COMMAND}  <button type="button" class="copy" data-copy={INSTALL_COMMAND} aria-label="Copy install command">[copy]</button>
+<span class="mark">$</span> tabsh</pre>
+
       <p class="sig end">~*~ EOF ~*~</p>
 
   <Fragment slot="after">
@@ -139,9 +253,8 @@ const table = [rule, ...features.map(([a, b]) => `| ${a.padEnd(w0)} | ${b.padEnd
       // the second column with however many fit. Never narrower than the content.
       const tablePre = document.querySelector<HTMLPreElement>('.table');
       if (tablePre) {
-        const rows: [string, string][] = JSON.parse(tablePre.dataset.rows ?? '[]');
-        const w0 = Math.max(...rows.map(([a]) => a.length));
-        const w1 = Math.max(...rows.map(([, b]) => b.length));
+        const rows: string[][] = JSON.parse(tablePre.dataset.rows ?? '[]');
+        const widths = rows[0].map((_, i) => Math.max(...rows.map((r) => r[i].length)));
         const probe = document.createElement('span');
         probe.textContent = 'x'.repeat(100);
         probe.style.cssText = 'position:absolute;visibility:hidden';
@@ -150,9 +263,12 @@ const table = [rule, ...features.map(([a, b]) => `| ${a.padEnd(w0)} | ${b.padEnd
           const charWidth = probe.getBoundingClientRect().width / 100;
           probe.remove();
           const fit = Math.floor(tablePre.clientWidth / charWidth);
-          const c1 = Math.max(w1, fit - w0 - 7); // 7 = the borders and padding around both cells
-          const rule = `+${'-'.repeat(w0 + 2)}+${'-'.repeat(c1 + 2)}+`;
-          tablePre.textContent = [rule, ...rows.map(([a, b]) => `| ${a.padEnd(w0)} | ${b.padEnd(c1)} |`), rule].join('\n');
+          // Each column costs its width plus 3 (a border and a space either side), plus the last border.
+          const others = widths.reduce((sum, w, i) => (i === 1 ? sum : sum + w + 3), 1);
+          const w = widths.map((x, i) => (i === 1 ? Math.max(x, fit - others - 3) : x));
+          const rule = `+${w.map((x) => '-'.repeat(x + 2)).join('+')}+`;
+          const line = (row: string[]) => `|${row.map((c, i) => ` ${c.padEnd(w[i])} `).join('|')}|`;
+          tablePre.textContent = [rule, ...rows.map(line), rule].join('\n');
         };
         document.fonts.ready.then(() => {
           draw();
@@ -209,12 +325,36 @@ const table = [rule, ...features.map(([a, b]) => `| ${a.padEnd(w0)} | ${b.padEnd
   .url { display: block; padding: .125rem .75rem; border-radius: 999px; background: var(--chrome); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .app { flex: 1; min-height: 0; }
   .app iframe { display: block; width: 100%; height: 100%; border: 0; }
+  /* fig. 2: fig. 1's 16:10, but in the text column and with no tab strip. */
+  .browser.board .urlbar { display: flex; align-items: center; gap: .75rem; }
+  .browser.board .lights { padding-bottom: 0; }
+  /* Zoomed out to 70%, like ⌘- in the browser, so more of the board fits. */
+  .browser.board .app { overflow: hidden; }
+  .browser.board iframe { width: calc(100% / .7); height: calc(100% / .7); transform: scale(.7); transform-origin: 0 0; }
+  .browser.board .url { flex: 1; max-width: 28rem; }
   /* 16:10 is too short to use on a phone. */
   @media (max-width: 520px) { .browser { aspect-ratio: auto; } .app { flex: none; height: 28rem; } .lights { display: none; } }
 </style>
 
 <style>
-  .table, .diagram { white-space: pre; }
+  .table, .diagram, .art { white-space: pre; }
+  /* A phone gets the ASCII board: four columns of the real one are too narrow to read there. */
+  .art { display: none; }
+  @media (max-width: 520px) { .board-fig { display: none; } .art { display: block; } }
+  /* The board is 67 characters wide: shrink it on narrow screens so it never scrolls. */
+  .art { line-height: 1.3; }
+  @media (max-width: 720px) { .art { font-size: min(1em, calc((100vw - 2rem) / 41)); } }
+
+  /* FAQ: each question a [+] line that opens to [-]. */
+  .faq { margin-bottom: 1rem; }
+  .faq details + details { margin-top: .25rem; }
+  .faq summary { cursor: pointer; list-style: none; padding-left: 4ch; text-indent: -4ch; }
+  .faq summary::-webkit-details-marker { display: none; }
+  .faq summary::before { content: '[+] '; color: var(--muted); }
+  .faq details[open] summary::before { content: '[-] '; }
+  .faq summary:hover { color: var(--link); }
+  .faq details p { margin: .25rem 0 .75rem 4ch; color: var(--muted); }
+  .faq details p code { color: var(--fg); }
   /* Centred and never scrolled; slightly smaller on phones so the longest line fits. */
   .diagram { line-height: 1.2; width: fit-content; margin-inline: auto; overflow: visible; }
   @media (max-width: 420px) { .diagram { font-size: min(.875em, calc((100vw - 2rem) / 26)); } }
@@ -228,6 +368,7 @@ const table = [rule, ...features.map(([a, b]) => `| ${a.padEnd(w0)} | ${b.padEnd
   /* fig. 1's caption sits over the preview, tight to it. */
   .caption { position: relative; margin: 3rem 0 .5rem; color: var(--muted); font-size: .85em; }
   .caption + .shot { margin-top: 0; }
+  .shot.board-fig { width: auto; margin-left: 0; }
   .how { margin-left: .5ch; white-space: nowrap; }
   .how button {
     padding: 0; border: 0; background: none; color: var(--link); font: inherit; letter-spacing: inherit; cursor: help;
