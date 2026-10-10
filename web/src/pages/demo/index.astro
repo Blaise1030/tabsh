@@ -1,0 +1,35 @@
+---
+import { DEMO } from '../../demo/origin.ts';
+import '../../styles/app.css';
+---
+<!doctype html>
+<html class="dark">
+<head>
+  <meta charset="utf-8">
+  <!-- The app, framed on the landing page, talking to a pretend daemon in
+       memory (demo/daemon.ts) instead of the visitor's. -->
+  <meta name="tabsh-daemon" content={DEMO}>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>tabsh demo</title>
+  <link rel="icon" id="favicon" type="image/svg+xml" href="data:,">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;600&display=swap">
+  <!-- Pinned with integrity: this page holds a token that opens shells. -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/basecoat-css@1.0.2/dist/basecoat.cdn.min.css" integrity="sha384-XWKdrxzE2X33lI8Q03C9fIbqdLWV11whVNycR2/3bMNJY73EEQOa7rmN+SeiSCor" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css" integrity="sha384-tStR1zLfWgsiXCF3IgfB3lBa8KmBe/lG287CL9WCeKgQYcp1bjb4/+mwN6oti4Co" crossorigin="anonymous">
+  <script src="https://cdn.jsdelivr.net/npm/basecoat-css@1.0.2/dist/js/basecoat.min.js" integrity="sha384-K1w/8BZNQc+02JnyibbylrLXh4mBzvzNIl0PZduEsb7JPR5GhJyrmsEVGQV7JTa+" crossorigin="anonymous" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/basecoat-css@1.0.2/dist/js/command.min.js" integrity="sha384-i7Raf25qcUmot+J0dl2Hn1aKTz8JFiyFSRou847lNsO/CY+hA8SemZyxteOLd1hm" crossorigin="anonymous" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/basecoat-css@1.0.2/dist/js/dropdown-menu.min.js" integrity="sha384-rZchjhID3eBYhQ9f7S3aJxlYZJt9QEW6M9GPzQe6Z7SF24v+4o/mS9xW+eHZokpR" crossorigin="anonymous" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js" integrity="sha384-J4qzUjBl1FxyLsl/kQPQIOeINsmp17OHYXDOMpMxlKX53ZfYsL+aWHpgArvOuof9" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js" integrity="sha384-XGqKrV8Jrukp1NITJbOEHwg01tNkuXr6uB6YEj69ebpYU3v7FvoGgEg23C1Gcehk" crossorigin="anonymous"></script>
+</head>
+<body>
+  <div id="app"></div>
+  <script>
+    // The pretend daemon first: it replaces fetch, WebSocket and storage.
+    import '../../demo/daemon.ts';
+    import '../../app/main.ts';
+  </script>
+</body>
+</html>
