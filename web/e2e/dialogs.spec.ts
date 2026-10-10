@@ -56,6 +56,23 @@ test('New card closes when its backdrop is clicked', async ({ page, daemon }) =>
   await expect(dialog).toBeHidden();
 });
 
+test('New card stays open when a text selection is dragged out onto its backdrop', async ({ page, daemon }) => {
+  await setOnboarded(page, daemon, true);
+  await openApp(page, daemon);
+  await page.locator('#board-btn').click();
+  await page.locator('[aria-label="New card in Backlog"]').click();
+  const dialog = page.locator('#new-card');
+  const prompt = dialog.locator('textarea[name="prompt"]');
+  await prompt.fill('select me past the edge');
+  const box = await prompt.boundingBox();
+  if (!box) throw new Error('no prompt box');
+  await page.mouse.move(box.x + 10, box.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(8, 8, { steps: 5 });
+  await page.mouse.up();
+  await expect(dialog).toHaveAttribute('open', '');
+});
+
 test('About is a palette page: it says so when the daemon does not answer, and lists the rows when it does', async ({
   page,
   daemon,
