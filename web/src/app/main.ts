@@ -60,6 +60,16 @@ initFilePane(
     layout: () => store.active && sendSize(store.active),
     newTabAt,
     focusTerminal: () => store.active?.term.focus(),
+    paste(sessionId, text) {
+      const s = store.sessions.find((x) => x.id === sessionId);
+      if (!s || s.closed) return 'closed';
+      // Without bracketed paste a shell runs each pasted line as a command,
+      // and the text holds lines quoted from a file.
+      if (!s.term.modes.bracketedPasteMode) return 'unsafe';
+      s.term.paste(text);
+      s.term.focus();
+      return 'pasted';
+    },
   },
   () => store.active?.id ?? null,
 );
