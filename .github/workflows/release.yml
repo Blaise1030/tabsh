@@ -100,7 +100,9 @@ jobs:
     name: Build site for release
     needs: check
     if: needs.check.outputs.release == 'true'
-    runs-on: ubuntu-latest
+    # macOS, where src/app-assets is built and committed: a Linux build names
+    # the chunks differently, so the check below would always fail there.
+    runs-on: macos-latest
     defaults:
       run:
         working-directory: web
