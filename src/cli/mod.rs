@@ -13,7 +13,8 @@ const USAGE: &str = "usage:
                                        set this terminal's card status:
                                        backlog, in_progress, needs_input, completed, archived
   tabsh setup                          print the guide a coding agent follows to keep
-                                       its card current (\"run `tabsh setup` and follow it\")";
+                                       its card current (\"run `tabsh setup` and follow it\")
+  tabsh --version                      print the version";
 
 /// Runs a subcommand and returns its exit code, or `None` when `args` (the
 /// command line without the program name) means "start the daemon".
@@ -34,6 +35,10 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
             ))
         }
         Some("setup") => Some(setup::run()),
+        Some("--version" | "-V") => {
+            println!("tabsh {}", env!("CARGO_PKG_VERSION"));
+            Some(0)
+        }
         Some("help" | "--help" | "-h") => {
             println!("{USAGE}");
             Some(0)

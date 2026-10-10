@@ -157,7 +157,7 @@ pub(crate) fn get_or_spawn(st: &AppState, id: &str) -> Result<Option<Arc<Session
     let Some((cwd, scrollback, status, prompt, pending, resume)) = row else {
         return Ok(None);
     };
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+    let shell = user_shell();
     let session = spawn_session(
         st.clone(),
         id.to_owned(),
@@ -271,6 +271,38 @@ impl Output {
         bytes.extend_from_slice(back);
         bytes
     }
+}
+
+/// The shell terminals run: `$SHELL`, else the account's login shell (a
+/// launchd service such as `brew services start tabsh` has no `$SHELL`),
+/// else /bin/sh.
+pub(crate) fn user_shell() -> String {
+    match std::env::var("SHELL") {
+        Ok(shell) if !shell.is_empty() => shell,
+        _ => login_shell().unwrap_or_else(|| "/bin/sh".into()),
+    }
+}
+
+fn login_shell() -> Option<String> {
+    let mut pw: libc::passwd = unsafe { std::mem::zeroed() };
+    let mut buf = vec![0 as libc::c_char; 4096];
+    let mut found = std::ptr::null_mut();
+    let rc = unsafe {
+        libc::getpwuid_r(
+            libc::getuid(),
+            &mut pw,
+            buf.as_mut_ptr(),
+            buf.len(),
+            &mut found,
+        )
+    };
+    if rc != 0 || found.is_null() || pw.pw_shell.is_null() {
+        return None;
+    }
+    let shell = unsafe { std::ffi::CStr::from_ptr(pw.pw_shell) }
+        .to_str()
+        .ok()?;
+    (!shell.is_empty()).then(|| shell.to_owned())
 }
 
 fn spawn_session(
@@ -423,6 +455,12 @@ mod tests {
             [8, SCROLLBACK_BYTES],
             "each chunk broadcast once, whole"
         );
+    }
+
+    #[test]
+    fn the_login_shell_comes_from_the_account() {
+        let shell = login_shell().expect("this account has a login shell");
+        assert!(std::path::Path::new(&shell).is_absolute(), "{shell}");
     }
 
     #[test]

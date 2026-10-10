@@ -2,4 +2,4 @@
 export const DAEMON_URL = 'http://127.0.0.1:7681';
 
 export const REPO_URL = 'https://github.com/Blaise1030/tabsh';
-export const INSTALL_COMMAND = `cargo install --git ${REPO_URL}`;
+export const INSTALL_COMMAND = 'brew install blaise1030/tap/tabsh';
