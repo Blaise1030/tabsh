@@ -1,6 +1,6 @@
 [package]
 name = "tabsh"
-version = "0.1.19"
+version = "0.1.20"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/Blaise1030/tabsh"
