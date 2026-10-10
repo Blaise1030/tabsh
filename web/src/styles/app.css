@@ -404,7 +404,11 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .board-card { background: var(--card); color: var(--card-foreground); border: 1px solid var(--border); border-radius: calc(var(--radius, .5rem) - 2px); padding: .625rem .75rem; display: flex; flex-direction: column; gap: .375rem; cursor: pointer; font-size: .8125rem; }
 .board-card:hover, .board-card:focus-visible { background: var(--accent); outline: none; }
 .board-card.dragging { opacity: .4; }
-.board-card.drop-before { box-shadow: 0 -2px 0 var(--muted-foreground); }
+/* The insert line sits square in the gap above the card (or in the column's
+   padding above the first), not as a shadow that would follow its corners. */
+.board-card.drop-before { position: relative; }
+.board-card.drop-before::before { content: ''; position: absolute; left: -1px; right: -1px; top: calc(-.25rem - 2px); height: 2px; background: var(--muted-foreground); border-radius: 1px; pointer-events: none; }
+.board-card.drop-before:first-child::before { top: calc(-.125rem - 1px); }
 .board-cards.drop-end::after { content: ''; display: block; height: 2px; background: var(--muted-foreground); border-radius: 1px; }
 .card-top { display: flex; align-items: flex-start; gap: .5rem; }
 .card-title { flex: 1; min-width: 0; font-weight: 500; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
