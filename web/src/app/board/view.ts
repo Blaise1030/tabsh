@@ -237,13 +237,17 @@ const statusGlyph = (status: Status | (() => Status)) =>
 // board's size changes (shown, hidden, the window resized).
 const measures = new WeakMap<Element, () => void>();
 
-// Fade whichever edge has columns hidden beyond it, as the tab strip does.
+// Fade whichever edge has columns hidden beyond it, as the tab strip does;
+// in the list layout, the top or bottom with rows hidden beyond it.
 function updateBoardFades(): void {
   const el = board();
   if (!el) return;
   const end = el.scrollWidth - el.clientWidth;
   el.classList.toggle('fade-left', el.scrollLeft > 1);
   el.classList.toggle('fade-right', el.scrollLeft < end - 1);
+  const bottom = el.scrollHeight - el.clientHeight;
+  el.classList.toggle('fade-top', el.scrollTop > 1);
+  el.classList.toggle('fade-bottom', el.scrollTop < bottom - 1);
 }
 
 // Fade a column's top or bottom while cards are scrolled out past it.
@@ -526,6 +530,9 @@ function Column(status: Status, name: string, columns: State<Columns>, asList: b
     ),
     list,
   );
+  // In the list layout, rows coming, going or folding move the board's own
+  // scroll end.
+  if (asList) resized.observe(col);
   return col;
 }
 

@@ -457,7 +457,20 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .status-glyph[data-status="needs_input"] { color: var(--needs-input); }
 /* The list layout: each status a full-width heading over one-line rows, as
    Linear's list view. Only the board scrolls, vertically. */
-#board.list { flex-direction: column; gap: .25rem; overflow-x: hidden; overflow-y: auto; mask-image: none; }
+#board.list {
+  flex-direction: column; gap: .25rem; overflow-x: hidden; overflow-y: auto;
+  /* Faded at the top and bottom while rows are scrolled out, as a column is.
+     The top fade starts under the pinned heading (the board's padding and
+     its 2.25rem), so rows fade into it and it stays solid. */
+  --fade-t: 0px; --fade-b: 0px; --head: 3rem;
+  mask-image: linear-gradient(to bottom,
+    #000 var(--head), transparent var(--head),
+    rgb(0 0 0 / .35) calc(var(--head) + var(--fade-t) * .45), #000 calc(var(--head) + var(--fade-t)),
+    #000 calc(100% - var(--fade-b)), rgb(0 0 0 / .35) calc(100% - var(--fade-b) * .45), transparent);
+  transition: --fade-t .2s ease, --fade-b .2s ease;
+}
+#board.list.fade-top { --fade-t: 2.5rem; }
+#board.list.fade-bottom { --fade-b: 4rem; }
 #board.list .board-col { flex: none; }
 #board.list .board-col > header { padding: 0 .25rem 0 0; margin-bottom: .125rem; border-radius: calc(var(--radius, .5rem) - 2px); background: var(--muted); position: sticky; top: 0; z-index: 1; }
 #board.list .board-col.drop-into > header { box-shadow: inset 0 0 0 1px var(--muted-foreground); }
