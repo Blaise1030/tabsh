@@ -26,12 +26,16 @@ export const paneShown = van.state(false);
 export function initFilePane(h: Host, active: () => string | null): void {
   host = h;
   activeId = active;
-  // Replacing or closing a tab's file with unsaved edits asks first; a tab
+  // Replacing or closing a tab's file with unsaved edits or unsent comments asks first; a tab
   // switch doesn't (each tab keeps its file), nor does a move to another line.
   onLeave((to, from) => {
     const action = fileAction(from, to);
     if (!pane || !to.tab || (action !== 'open' && action !== 'close')) return true;
-    if (!pane.isDirty(to.tab) || pane.fileOf(to.tab) === to.file) return true;
+    if (pane.fileOf(to.tab) === to.file) return true;
+    // Comments stay with the tab as you open other files. Only unsaved edits
+    // block that. Closing the file still asks about unsent comments.
+    if (action === 'open') return pane.hasEdits(to.tab) ? pane.confirmDiscard(to.tab, 'edits') : true;
+    if (!pane.isDirty(to.tab)) return true;
     return pane.confirmDiscard(to.tab);
   });
   onPlace('file', applyFile);
