@@ -100,6 +100,49 @@ test('cards move through the board', async ({ page, daemon, project }) => {
   await expect(col(page, 'archived').locator('.board-card').filter({ hasText: 'Fix login' })).toBeVisible();
 });
 
+// The list layout: the same statuses as headings over one-line rows, as
+// Linear's list view. Dragging a row moves it on, a heading folds its rows
+// away, and the layout is saved.
+test('the board lays out as a list', async ({ page, daemon, project }) => {
+  await openApp(page, daemon);
+  await boardAlone(page);
+  await col(page, 'backlog').locator('header .btn').click();
+  await newCard(page, 'List me', project);
+
+  await page.getByRole('button', { name: 'Show as list' }).click();
+  await expect(page.locator('#board')).toHaveClass(/\blist\b/);
+  await expect(col(page, 'backlog').locator('.board-row').filter({ hasText: 'List me' })).toBeVisible();
+  const settings = await page.request.get(`${daemon.baseUrl}/api/settings`, {
+    headers: { Authorization: `Bearer ${daemon.token}` },
+  });
+  expect((await settings.json()).boardLayout).toBe('list');
+
+  // The headings stack: In progress sits under Backlog, not beside it.
+  const backlog = await col(page, 'backlog').boundingBox();
+  const inProgress = await col(page, 'in_progress').boundingBox();
+  expect(inProgress?.y).toBeGreaterThan((backlog?.y ?? 0) + (backlog?.height ?? 0) - 1);
+
+  await card(page, 'List me').dragTo(col(page, 'needs_input').locator('header'));
+  await expect(col(page, 'needs_input').locator('.board-row').filter({ hasText: 'List me' })).toBeVisible();
+
+  const toggle = col(page, 'needs_input').locator('.col-toggle');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(card(page, 'List me')).toBeHidden();
+  await expect(col(page, 'needs_input').locator('.col-count')).toHaveText('1');
+  await toggle.click();
+  await expect(card(page, 'List me')).toBeVisible();
+
+  await card(page, 'List me').click();
+  await expect(page.locator('.drawer-title')).toHaveText('List me');
+  await page.locator('#drawer-close').click();
+
+  // Back to columns, for the specs after this one.
+  await page.getByRole('button', { name: 'Show as columns' }).click();
+  await expect(page.locator('#board')).not.toHaveClass(/\blist\b/);
+  await expect(col(page, 'needs_input').locator('.board-card:not(.board-row)')).toHaveCount(1);
+});
+
 test("a card made from In progress's + starts its agent at once", async ({ page, daemon, project }) => {
   const mark = join(project, 'launched');
   await openApp(page, daemon);

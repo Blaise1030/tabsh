@@ -8,6 +8,10 @@ export const EXPLORER_WIDTH = { min: 200, max: 640, default: 260 };
 // How the tab strip groups tabs: not at all, by repo, or by tag.
 export const TAB_GROUPINGS = ['none', 'repo', 'tag'] as const;
 export type TabGrouping = (typeof TAB_GROUPINGS)[number];
+// The board as status columns side by side, or as one list of rows grouped
+// under its statuses (as Linear's list view).
+export const BOARD_LAYOUTS = ['columns', 'list'] as const;
+export type BoardLayout = (typeof BOARD_LAYOUTS)[number];
 
 // A coding agent the New card dialog starts: `command` with `{prompt}` for
 // the card's first prompt, and `resume`, typed after tabsh restarts, with
@@ -85,6 +89,7 @@ export interface Settings {
   providers: Provider[];
   agentProvider: string; // the provider New card offers first: the last one used
   boardOnboarded: boolean; // the board's setup screen was dealt with (set up or skipped)
+  boardLayout: BoardLayout;
 }
 
 export function defaults(isMac: boolean): Settings {
@@ -114,6 +119,7 @@ export function defaults(isMac: boolean): Settings {
     providers: DEFAULT_PROVIDERS,
     agentProvider: DEFAULT_PROVIDERS[0].name,
     boardOnboarded: false,
+    boardLayout: 'columns',
   };
 }
 
@@ -183,5 +189,6 @@ export function cleanSettings(stored: Record<string, unknown>, isMac: boolean): 
       return { providers, agentProvider: chosen.name };
     })(),
     boardOnboarded: stored.boardOnboarded === true,
+    boardLayout: BOARD_LAYOUTS.find((l) => l === stored.boardLayout) ?? d.boardLayout,
   };
 }
