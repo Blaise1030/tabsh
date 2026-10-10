@@ -12,7 +12,9 @@
     "test:e2e": "playwright test",
     "build": "astro build && cp dist/app/index.html ../src/app.html && rm -rf ../src/app-assets && cp -R dist/_astro ../src/app-assets",
     "preview": "astro build && wrangler dev",
-    "deploy": "astro build && wrangler deploy"
+    "deploy": "astro build && wrangler deploy",
+    "bench": "playwright test -c playwright.bench.config.ts",
+    "bench:compare": "node bench/compare.ts"
   },
   "dependencies": {
     "@codemirror/lang-css": "^6.3.1",
