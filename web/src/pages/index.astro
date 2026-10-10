@@ -102,7 +102,7 @@ const SETUP_PROMPT = 'Run `tabsh setup` and follow it.';
           </div>
           <div class="urlbar" aria-hidden="true"><span class="url">tabsh.cc/app/</span></div>
           <!-- The real app, on a pretend daemon in memory (src/demo/daemon.ts). -->
-          <div class="app"><iframe src="/demo/" title="tabsh demo: the app with three shells" loading="lazy"></iframe></div>
+          <div class="app"><iframe data-src="/demo/" title="tabsh demo: the app with three shells"></iframe></div>
         </div>
       </figure>
 
@@ -148,7 +148,7 @@ const SETUP_PROMPT = 'Run `tabsh setup` and follow it.';
             <span class="url">tabsh.cc/app/?view=board</span>
           </div>
           <!-- The same demo as fig. 1, opened on the board: a fuller one, with scripted hooks. -->
-          <div class="app"><iframe src="/demo/?view=board" title="tabsh demo: the board" loading="lazy"></iframe></div>
+          <div class="app"><iframe data-src="/demo/?view=board" title="tabsh demo: the board"></iframe></div>
         </div>
       </figure>
       <pre class="art" aria-label="A board with four columns: Backlog, In progress, Needs input and Completed, one agent's card in each">{boardArt}</pre>
@@ -275,6 +275,21 @@ const SETUP_PROMPT = 'Run `tabsh setup` and follow it.';
           new ResizeObserver(draw).observe(tablePre);
         });
       }
+
+      // The demos load as they near the screen. Not with loading="lazy": WebKit
+      // gives a lazily loaded frame no Navigation API entry, so every
+      // navigation in it aborts and the app's router never shows a tab.
+      const frames = new IntersectionObserver(
+        (entries) => {
+          for (const { isIntersecting, target } of entries) {
+            if (!isIntersecting || !(target instanceof HTMLIFrameElement)) continue;
+            frames.unobserve(target);
+            target.src = target.dataset.src ?? '';
+          }
+        },
+        { rootMargin: '600px 0px' },
+      );
+      for (const frame of document.querySelectorAll('iframe[data-src]')) frames.observe(frame);
 
       for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-copy]')) {
         btn.addEventListener('click', async () => {
