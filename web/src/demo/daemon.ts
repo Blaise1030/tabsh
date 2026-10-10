@@ -25,6 +25,10 @@ const storage: Storage = {
 };
 Object.defineProperty(window, 'localStorage', { value: storage, configurable: true });
 
+// ---- notifications: the app asks for permission on the first click, which
+// framed would ask the visitor on the landing page's behalf. The demo has none.
+Object.defineProperty(window, 'Notification', { value: undefined, configurable: true });
+
 // ---- focus: the app focuses its terminal on startup, which in a frame would
 // take the keyboard from the landing page. Nothing takes focus until the
 // visitor clicks or taps into the demo.
@@ -39,6 +43,22 @@ addEventListener('pointerdown', () => (touched = true), { capture: true, once: t
 // page, not the terminal's scrollback, so the demo never traps the reader.
 // Sideways scrolling (the tab strip, the board's columns) stays the app's.
 if (window.parent !== window) {
+  // The app scrolls its active tab into view, which would scroll the landing
+  // page to the frame too. Framed, it scrolls only the tab's own container.
+  Element.prototype.scrollIntoView = function (this: Element) {
+    for (let box = this.parentElement; box; box = box.parentElement) {
+      const { overflowX, overflowY } = getComputedStyle(box);
+      if (!/auto|scroll/.test(overflowX + overflowY)) continue;
+      const r = this.getBoundingClientRect();
+      const c = box.getBoundingClientRect();
+      if (r.left < c.left) box.scrollLeft -= c.left - r.left;
+      else if (r.right > c.right) box.scrollLeft += r.right - c.right;
+      if (r.top < c.top) box.scrollTop -= c.top - r.top;
+      else if (r.bottom > c.bottom) box.scrollTop += r.bottom - c.bottom;
+      return;
+    }
+  };
+
   const LINE = 16;
   const scrollPage = (y: number) => window.parent.scrollBy({ top: y, behavior: 'instant' });
   addEventListener(
@@ -98,6 +118,9 @@ interface Info {
   note: string | null;
   cwd: string | null;
   pinned: boolean;
+  agent_command?: string | null;
+  pending_prompt?: string | null;
+  pending_command?: string | null;
 }
 interface Shell {
   info: Info;
@@ -190,6 +213,46 @@ claude.output = claude.output.replace(/[^\n]*$/, claude.prompt);
 claude.info.note = 'Run the tests before I commit?';
 // Open on claude's tab, the one asking for you (sessions/store.ts's key).
 storage.setItem('tabsh.active', claude.info.id);
+claude.info.agent_command = 'claude';
+
+// ---- the board's figure ----------------------------------------------------
+// Framed at ?view=board (fig. 2), the demo is a fuller board: a card per agent,
+// two waiting in Backlog, tags, and two cards that move on their own once the
+// frame is in view, as their hooks would move them.
+const tags: Record<string, string[]> = {};
+if (new URLSearchParams(location.search).get('view') === 'board') {
+  claude.info.name = 'Fix refund status · #142';
+  tags[claude.info.id] = ['bug'];
+  const card = (
+    name: string,
+    cwd: string,
+    status: string,
+    agent: string,
+    tagged: string[],
+    info: Partial<Info> = {},
+  ) => {
+    const sh = addShell(name, cwd, status, '');
+    sh.info = { ...sh.info, agent_command: agent, ...info };
+    tags[sh.info.id] = tagged;
+    return sh;
+  };
+  const backlog = (name: string, cwd: string, agent: string, tagged: string[]) =>
+    card(name, cwd, 'backlog', agent, tagged, { pending_prompt: name, pending_command: `${agent} {prompt}` });
+  backlog('Add dark mode to checkout', SHOP, 'claude', ['ui']);
+  backlog('Paginate order history', API, 'codex', ['api']);
+  const deps = card('Bump Vite to 7', SHOP, 'in_progress', 'gemini', ['chore']);
+  const limit = card('Rate-limit login', API, 'in_progress', 'opencode', ['api']);
+  card('Cache product images', SHOP, 'completed', 'codex', ['perf'], { note: 'Opened PR #139' });
+  // Moved once, a few seconds after the board first shows.
+  let moved = false;
+  new IntersectionObserver((seen) => {
+    if (moved || !seen.some((e) => e.isIntersecting)) return;
+    moved = true;
+    setTimeout(() => hook(deps, 'needs_input', 'Vite 7 drops Node 18. Bump CI too?'), 2500);
+    setTimeout(() => hook(limit, 'completed', 'Opened PR #148'), 6000);
+  }).observe(document.documentElement);
+}
+storage.setItem('tabsh.tags', JSON.stringify(tags));
 
 // Each project's files, for the explorer and the file pane.
 const FILES: Record<string, Record<string, string>> = {
