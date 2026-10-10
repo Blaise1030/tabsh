@@ -188,25 +188,19 @@ export function FilterButton(): HTMLElement {
   );
 }
 
-// Beside Filter: switches the board between columns and the list. Its icon
-// is the layout it switches to.
-export function LayoutButton(): HTMLElement {
-  const next = () => (layout.val === 'list' ? 'columns' : 'list');
-  const label = () => (next() === 'list' ? 'Show as list' : 'Show as columns');
-  return button(
-    {
-      type: 'button',
-      class: 'btn',
-      'data-variant': 'ghost',
-      'data-size': 'icon-sm',
-      id: 'board-layout-btn',
-      'aria-label': label,
-      title: label,
-      hidden: () => !(shown.val && onboarded.val),
-      onclick: () => saveSetting('boardLayout', next()),
-    },
-    () => (next() === 'list' ? icons.rows() : icons.board()),
-  );
+// The board's other layout: columns or list.
+export function toggleBoardLayout(): void {
+  saveSetting('boardLayout', layout.val === 'list' ? 'columns' : 'list');
+}
+
+// The board shortcut's three steps: the terminals, the board as columns, the
+// board as a list, and back to the terminals.
+export function cycleBoard(): void {
+  if (!boardOpen()) {
+    if (layout.val !== 'columns') saveSetting('boardLayout', 'columns');
+    toggleBoard(true);
+  } else if (layout.val === 'columns') saveSetting('boardLayout', 'list');
+  else toggleBoard(false);
 }
 
 // Opening the board with a tab open keeps that tab in view, in the drawer.
@@ -679,7 +673,7 @@ export function initBoard(): void {
       if (!matchesKey(e, current.saved.keyToggleBoard) || document.querySelector('dialog[open]')) return;
       e.preventDefault();
       e.stopPropagation(); // capture phase: keep it away from the terminal
-      toggleBoard();
+      cycleBoard();
     },
     true,
   );

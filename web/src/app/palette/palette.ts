@@ -2,7 +2,7 @@
 // preview, recording a keybinding, editing a text (agent providers), the
 // keybindings that open it and switch tabs, and the settings button.
 import van from 'vanjs-core';
-import { toggleBoard } from '../board/view.ts';
+import { toggleBoard, toggleBoardLayout } from '../board/view.ts';
 import { searchFiles, toggleExplorer } from '../explorer/explorer.ts';
 import { loadedPane } from '../files/open.ts';
 import { back, backPastPalette, forward, go, here, isLeavingPalette, isPaletteEntry, onPlace } from '../nav/router.ts';
@@ -38,6 +38,7 @@ function palettePages(): ReturnType<typeof pages> {
     about: aboutRows,
     toggleExplorer,
     toggleBoard: () => toggleBoard(),
+    toggleBoardLayout,
     searchFiles,
     canGoBack: navigation.canGoBack,
     goBack: backPastPalette,

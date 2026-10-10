@@ -53,7 +53,6 @@ export const icons: Record<
   | 'preview'
   | 'collapse'
   | 'folder'
-  | 'rows'
   | 'boardOnboarding'
   | 'arrowUpRight'
   | 'expand'
@@ -76,15 +75,6 @@ export const icons: Record<
       rect({ width: '18', height: '18', x: '3', y: '3', rx: '2' }),
       path({ d: 'M9 3v12' }),
       path({ d: 'M15 3v7' }),
-    ),
-  ),
-  // The board's list layout (Lucide's rows-3).
-  rows: draw(({ path, rect, svg }) =>
-    svg(
-      { ...LUCIDE },
-      rect({ width: '18', height: '18', x: '3', y: '3', rx: '2' }),
-      path({ d: 'M21 9H3' }),
-      path({ d: 'M21 15H3' }),
     ),
   ),
   explorer: draw(({ path, rect, svg }) =>

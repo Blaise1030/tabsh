@@ -100,16 +100,21 @@ test('cards move through the board', async ({ page, daemon, project }) => {
   await expect(col(page, 'archived').locator('.board-card').filter({ hasText: 'Fix login' })).toBeVisible();
 });
 
-// The list layout: the same statuses as headings over one-line rows, as
-// Linear's list view. Dragging a row moves it on, a heading folds its rows
-// away, and the layout is saved.
-test('the board lays out as a list', async ({ page, daemon, project }) => {
+// The board shortcut steps through the terminals, the board as columns and the
+// board as a list. The list has the same statuses as headings over one-line
+// rows, as Linear's list view: dragging a row moves it on, a heading folds its
+// rows away, and the layout is saved.
+const BOARD_KEY = process.platform === 'darwin' ? 'Meta+KeyB' : 'Control+Shift+KeyB';
+
+test('the board shortcut steps through columns and a list', async ({ page, daemon, project }) => {
   await openApp(page, daemon);
   await boardAlone(page);
   await col(page, 'backlog').locator('header .btn').click();
   await newCard(page, 'List me', project);
 
-  await page.getByRole('button', { name: 'Show as list' }).click();
+  await expect(page.locator('#board')).not.toHaveClass(/\blist\b/);
+  await expect(page.locator('dialog[open]')).toHaveCount(0); // the shortcut does nothing while a dialog is open
+  await page.keyboard.press(BOARD_KEY);
   await expect(page.locator('#board')).toHaveClass(/\blist\b/);
   await expect(col(page, 'backlog').locator('.board-row').filter({ hasText: 'List me' })).toBeVisible();
   const settings = await page.request.get(`${daemon.baseUrl}/api/settings`, {
@@ -137,8 +142,11 @@ test('the board lays out as a list', async ({ page, daemon, project }) => {
   await expect(page.locator('.drawer-title')).toHaveText('List me');
   await page.locator('#drawer-close').click();
 
-  // Back to columns, for the specs after this one.
-  await page.getByRole('button', { name: 'Show as columns' }).click();
+  // Then the terminals, and the board again, as columns.
+  await page.keyboard.press(BOARD_KEY);
+  await expect(page.locator('#board')).toBeHidden();
+  await page.keyboard.press(BOARD_KEY);
+  await expect(page.locator('#board')).toBeVisible();
   await expect(page.locator('#board')).not.toHaveClass(/\blist\b/);
   await expect(col(page, 'needs_input').locator('.board-card:not(.board-row)')).toHaveCount(1);
 });

@@ -59,6 +59,7 @@ export function pages(ctx: {
   about: AboutRow[] | null;
   toggleExplorer(): void;
   toggleBoard(): void;
+  toggleBoardLayout(): void;
   searchFiles(): void;
   canGoBack: boolean;
   goBack(): void;
@@ -129,6 +130,13 @@ export function pages(ctx: {
               hint: keyLabel(saved.keyToggleBoard, isMac),
               keywords: 'kanban cards tasks status overview',
               run: ctx.toggleBoard,
+            },
+            {
+              label: 'Board layout',
+              icon: icons.boardPage,
+              hint: saved.boardLayout === 'list' ? 'List' : 'Columns',
+              keywords: 'kanban list rows columns vertical view',
+              run: ctx.toggleBoardLayout,
             },
             {
               label: 'Group tabs…',

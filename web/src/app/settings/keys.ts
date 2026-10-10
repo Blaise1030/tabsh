@@ -68,7 +68,7 @@ export function keybindings(isMac: boolean): Record<KeyId, Keybinding> {
     },
     keyToggleBoard: {
       name: 'Toggle board',
-      keywords: 'kanban cards tasks overview status',
+      keywords: 'kanban cards tasks overview status list layout',
       presets: isMac ? ['meta+KeyB', 'meta+shift+KeyB'] : ['ctrl+shift+KeyB', 'alt+shift+KeyB'],
     },
     // ⌘N and ⌘⇧N belong to the browser; ⌃⇧N is the terminal's on other systems.
