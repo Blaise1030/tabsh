@@ -66,6 +66,14 @@ export interface BoardFilter {
   folders: string[];
 }
 
+// A saved filter read back: anything malformed counts as nothing checked.
+export function parseFilter(raw: unknown): BoardFilter {
+  const strings = (v: unknown): string[] =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  return { tags: strings(o.tags), folders: strings(o.folders) };
+}
+
 // A card stays when it is in any checked folder (if a folder is checked) and
 // has any checked tag (if a tag is checked).
 export function matchesFilter(item: { card: Card; tags: string[] }, filter: BoardFilter): boolean {
