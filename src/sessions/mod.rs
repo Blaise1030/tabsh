@@ -1,5 +1,6 @@
 //! Shells that run in PTYs and outlive the browser tabs attached to them.
 
+mod activity;
 mod modes;
 pub(crate) mod pty;
 pub(crate) mod store;
@@ -30,6 +31,7 @@ use std::{
 use store::insert_session;
 use tokio::sync::broadcast;
 
+pub(crate) use activity::Activity;
 pub(crate) use pty::SHUTTING_DOWN;
 pub(crate) use store::{flush, open_db};
 
@@ -100,6 +102,8 @@ pub(crate) fn restart(st: &AppState, id: &str) {
     let Some(session) = st.live.lock().unwrap().remove(id) else {
         return;
     };
+    // Flagged before the save, so a flush holding an older copy skips it.
+    session.restarting.store(true, Ordering::SeqCst);
     let scrollback: Vec<u8> = {
         let out = session.output.lock().unwrap();
         out.scrollback.iter().copied().collect()
@@ -111,7 +115,6 @@ pub(crate) fn restart(st: &AppState, id: &str) {
     ) {
         eprintln!("failed to save session {id}: {e}");
     }
-    session.restarting.store(true, Ordering::SeqCst);
     let _ = session.killer.lock().unwrap().kill();
 }
 

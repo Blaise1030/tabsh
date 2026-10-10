@@ -2,6 +2,7 @@
 
 use super::{
     Event, Output, SCROLLBACK_BYTES, Session,
+    activity::Signals,
     modes::{ModeTracker, RESTORE_MARKER},
 };
 use crate::{AppState, error::BoxError};
@@ -303,7 +304,10 @@ fn spawn_session(
     let s = session.clone();
     std::thread::spawn(move || {
         let mut buf = [0u8; 8192];
+        let signals = Signals::start(st.events.clone(), id.clone());
         while let Ok(n @ 1..) = reader.read(&mut buf) {
+            // Parked tabs hear this instead of the output; outside the lock.
+            signals.feed(&buf[..n]);
             let mut out = s.output.lock().unwrap();
             let out = &mut *out;
             out.scrollback.extend(&buf[..n]);
@@ -314,6 +318,8 @@ fn spawn_session(
                 .tx
                 .send(Event::Output(Bytes::copy_from_slice(&buf[..n])));
         }
+        // Sends output held back in its last second; stops its sweeper.
+        drop(signals);
         // Shell exited (or was killed): reap it, tell clients, forget the session.
         let _ = child.wait();
         if SHUTTING_DOWN.load(Ordering::SeqCst) {
@@ -552,7 +558,10 @@ mod tests {
         let st = test_state();
         let id = new_card(&st);
         let session = spawn_session(st.clone(), id.clone(), "true", None, vec![], None).unwrap();
-        assert!(eventually(|| session.output.lock().unwrap().exited));
+        // Marked here rather than awaited: under the parallel suite the
+        // reader can take seconds to see `true` end (#91), and this test is
+        // about `register`, not exit detection.
+        session.output.lock().unwrap().exited = true;
         register(&st, &id, &session);
         assert!(
             !st.live.lock().unwrap().contains_key(&id),
