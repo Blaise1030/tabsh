@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.1.19
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.17...v0.1.19)
+
+### Fixes
+
+- **web:** Load the landing demos without loading="lazy" ([a0a4eb4](https://github.com/Blaise1030/tabsh/commit/a0a4eb4))
+- **board:** Rename a parked tab by the title its shell sets ([c0c99d1](https://github.com/Blaise1030/tabsh/commit/c0c99d1))
+
 ## v0.1.18
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.17...v0.1.18)
