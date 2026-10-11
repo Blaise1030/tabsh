@@ -34,12 +34,12 @@ test('the intro stays up on Escape, and Skip hides it across reload', async ({ p
   const headers = auth(daemon);
   const welcome = page.getByRole('dialog', { name: 'Welcome' });
   await expect(welcome).toBeVisible();
-  await expect(welcome).toContainText('Shells that outlive this tab.');
+  await expect(welcome).toContainText('Welcome to Tabsh.');
   await expect(page.locator('#gate')).toBeHidden();
   await page.keyboard.press('Escape');
   await expect(welcome).toBeVisible();
   await welcome.getByRole('button', { name: 'Continue' }).click();
-  await expect(welcome).toContainText('How you look at the work.');
+  await expect(welcome).toContainText('Choose your workspace.');
   await welcome.getByRole('button', { name: 'Skip' }).click();
   await expect(welcome).toBeHidden();
   // Skip's save is a fire-and-forget PUT: the reload mustn't beat it.
@@ -88,7 +88,7 @@ test('Continue on Agents leaves the board setup screen', async ({ page, daemon }
   const welcome = page.getByRole('dialog', { name: 'Welcome' });
   await expect(page.locator('#gate')).toBeHidden();
   for (const title of [
-    'How you look at the work.',
+    'Choose your workspace.',
     'Theme.',
     'Font.',
     'Typing sound.',
@@ -141,7 +141,7 @@ test('Show welcome does not clear the board or leave the page when skipped', asy
   await page.locator('#palette-input').fill('welcome');
   await page.getByRole('menuitem', { name: 'Show welcome' }).click();
   const welcome = page.getByRole('dialog', { name: 'Welcome' });
-  await expect(welcome).toContainText('Shells that outlive this tab.');
+  await expect(welcome).toContainText('Welcome to Tabsh.');
   await welcome.getByRole('button', { name: 'Skip' }).click();
   await expect(welcome).toBeHidden();
   await expect(page.locator('#board')).toBeHidden();
