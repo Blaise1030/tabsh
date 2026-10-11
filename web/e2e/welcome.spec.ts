@@ -14,13 +14,15 @@ import { THEMES } from '../src/app/settings/catalog.ts';
 const auth = (daemon: Daemon): { Authorization: string } => ({ Authorization: `Bearer ${daemon.token}` });
 
 // Start a worker's daemon with the tour unseen and the board not onboarded,
-// then open the app: the dialog stands over it.
+// then open the app: the dialog stands over it. The view is reset too — the
+// daemon is the worker's, and a spec before this one may have moved where it
+// opens.
 async function firstVisit(page: Page, daemon: Daemon): Promise<void> {
   const headers = auth(daemon);
   const now = await (await page.request.get(`${daemon.baseUrl}/api/settings`, { headers })).json();
   const put = await page.request.put(`${daemon.baseUrl}/api/settings`, {
     headers,
-    data: { ...now, welcomeSeen: false, boardOnboarded: false },
+    data: { ...now, welcomeSeen: false, boardOnboarded: false, startView: 'terms', boardLayout: 'columns' },
   });
   expect(put.status()).toBe(204);
   await page.goto(`${daemon.baseUrl}/app/#token=${daemon.token}`);
@@ -77,6 +79,35 @@ test('Kanban is where a later visit opens, unless the URL says otherwise', async
   await expect(board).toBeVisible();
   await page.goto(`${daemon.baseUrl}/app/?view=terms#token=${daemon.token}`);
   await expect(board).toBeHidden();
+});
+
+test('Continue on Agents leaves the board setup screen', async ({ page, daemon }) => {
+  await firstVisit(page, daemon);
+  const headers = auth(daemon);
+  const welcome = page.getByRole('dialog', { name: 'Welcome' });
+  await expect(page.locator('#gate')).toBeHidden();
+  for (const title of ['How you look at the work.', 'Theme.', 'Font.', 'Typing sound.', 'Connect your agents.']) {
+    await welcome.getByRole('button', { name: 'Continue' }).click();
+    await expect(welcome).toContainText(title);
+  }
+  // Continue on Agents ends the tour, but doesn't deal with the board.
+  await welcome.getByRole('button', { name: 'Continue' }).click();
+  await expect(welcome).toBeHidden();
+  // Both saves are fire-and-forget PUTs; the reload mustn't beat them.
+  const saved = async () => {
+    const s = (await (await page.request.get(`${daemon.baseUrl}/api/settings`, { headers })).json()) as {
+      welcomeSeen: boolean;
+      boardOnboarded: boolean;
+    };
+    return `${s.welcomeSeen} ${s.boardOnboarded}`;
+  };
+  await expect.poll(saved).toBe('true false');
+  await page.locator('#board-btn').click();
+  await expect(page.locator('.board-onboarding')).toContainText('Set up with Claude Code');
+  await page.reload();
+  await expect(welcome).toHaveCount(0);
+  await page.locator('#board-btn').click();
+  await expect(page.locator('.board-onboarding')).toBeVisible();
 });
 
 test('a theme chosen before Skip is still the page theme', async ({ page, daemon }) => {

@@ -1,14 +1,26 @@
 // The welcome tour's dialog: one full-page screen per WELCOME_SCREENS entry,
 // opened on first load (initWelcome), walked with Continue, left with Skip.
 // The view, theme, font and sound screens carry their choices; the agents
-// screen's setup comes with its own task.
-import van from 'vanjs-core';
+// screen picks a provider, and its Set up opens that provider's setup card.
+import van, { type State } from 'vanjs-core';
+import { setStatus } from '../board/status.ts';
+import { openSetupCard } from '../board/view.ts';
 import { gateMode } from '../daemon/client.ts';
 import { go } from '../nav/router.ts';
 import { FONTS, fontStack, THEMES, TYPING_SOUNDS } from '../settings/catalog.ts';
 import { current, saveSetting, saveSettings } from '../settings/settings.ts';
 import { previewSound } from '../sound/packs.ts';
-import { clampStep, dismissWelcome, viewChoice, viewSettings, WELCOME_SCREENS } from './steps.ts';
+import { icons, providerIcon } from '../ui/icons.ts';
+import { keyed } from '../ui/keyed.ts';
+import {
+  agentSetupPatch,
+  clampStep,
+  closesAfterSetup,
+  dismissWelcome,
+  viewChoice,
+  viewSettings,
+  WELCOME_SCREENS,
+} from './steps.ts';
 
 const { button, dialog, div, footer, h2, p, span } = van.tags;
 
@@ -17,6 +29,11 @@ const step = van.state(0);
 // The view picked on this opening, null until one is: its being set is also
 // what makes closing move the app there.
 const pickedView = van.state<'tabs' | 'kanban' | 'list' | null>(null);
+// The agents screen's dropdown: the provider names it offers, the chosen one,
+// and whether its setup card is on its way (Set up, Back and Continue wait).
+const providers: State<string[]> = van.state([]);
+const provider: State<string> = van.state('');
+const busy: State<boolean> = van.state(false);
 
 const on = () => WELCOME_SCREENS[step.val];
 const el = () => document.getElementById('welcome') as HTMLDialogElement;
@@ -143,6 +160,102 @@ function SoundChoices(): HTMLElement {
   );
 }
 
+// A provider's drawing: its icon, then its name.
+const providerFace = (name: string): (Node | string)[] => [
+  providerIcon(current.saved.providers.find((p) => p.name === name)?.command ?? '')(),
+  span({ class: 'nc-value' }, name || 'Agent'),
+];
+
+// The agents screen's provider control, as Basecoat's dropdown (its script
+// opens and closes it, and moves through it by keyboard), the same
+// menuitemradio pattern as the New card dialog's chips: the button shows the
+// chosen name and a chevron, the menu lists the providers, the current one
+// checked.
+function ProviderMenu(): HTMLElement {
+  const row = (name: string) =>
+    div(
+      {
+        role: 'menuitemradio',
+        'aria-checked': () => String(provider.val === name),
+        onclick: () => {
+          provider.val = name;
+        },
+      },
+      ...providerFace(name),
+      () => (provider.val === name ? icons.check() : span()),
+    );
+  const menu = div({ role: 'menu', 'aria-label': 'Agent' });
+  keyed(
+    menu,
+    () => providers.val,
+    (name) => name,
+    row,
+  );
+  return div(
+    {
+      class: 'dropdown-menu nc-menu',
+      // Esc closes the menu (Basecoat's key, on this same element), not the
+      // dialog behind it.
+      onkeydown: (e: KeyboardEvent) => {
+        if (e.key !== 'Escape' || !(e.currentTarget as Element).querySelector('[aria-expanded="true"]')) return;
+        e.preventDefault();
+        e.stopPropagation();
+      },
+    },
+    button(
+      {
+        type: 'button',
+        class: 'nc-chip nc-trigger',
+        'aria-label': 'Agent',
+        'aria-haspopup': 'menu',
+        'aria-expanded': 'false',
+      },
+      () => span({ class: 'nc-trigger-body' }, ...providerFace(provider.val), icons.chevronDown()),
+    ),
+    div({ 'data-popover': '', 'aria-hidden': 'true' }, menu),
+  );
+}
+
+// The agents screen's Set up: opens the chosen provider's setup card, and
+// only then — `closesAfterSetup` — saves the patch that ends the tour and
+// deals with the board in one write, starts the card's agent, and closes.
+// A card that didn't open leaves the dialog on Agents, nothing saved.
+async function setUpAgent(): Promise<void> {
+  if (busy.val) return;
+  const chosen = current.saved.providers.find((p) => p.name === provider.val) ?? current.saved.providers[0];
+  if (!chosen) return;
+  // The pick that moved this opening to the board keeps it there: the card
+  // opens without taking focus. Otherwise it is the tab to look at.
+  const toBoard = pickedView.val !== null && current.saved.startView === 'board';
+  busy.val = true;
+  const s = await openSetupCard({ command: chosen.command, resume: chosen.resume, focus: !toBoard });
+  if (!closesAfterSetup(s !== null) || s === null) {
+    busy.val = false;
+    return;
+  }
+  saveSettings(agentSetupPatch(chosen.name));
+  await setStatus(s, 'in_progress').catch(console.error); // starts its agent
+  closeWelcome();
+}
+
+function AgentChoices(): HTMLElement {
+  return div(
+    { style: 'display:flex; gap:.5rem; align-items:center;' },
+    ProviderMenu(),
+    button(
+      {
+        type: 'button',
+        class: 'btn',
+        'data-variant': 'outline',
+        'data-size': 'sm',
+        disabled: () => busy.val,
+        onclick: () => void setUpAgent(),
+      },
+      'Set up',
+    ),
+  );
+}
+
 // The choice controls a screen carries, if any. A child binding must hand
 // van a node every time (a first null is pruned and never revisited), so the
 // screens without choices hold an empty, hidden row instead.
@@ -156,6 +269,8 @@ function choiceRow(): HTMLElement {
       return FontChoices();
     case 'sound':
       return SoundChoices();
+    case 'agents':
+      return AgentChoices();
     default:
       return div({ style: 'display:none' });
   }
@@ -197,6 +312,7 @@ export function Welcome(): HTMLDialogElement {
               class: 'btn',
               'data-variant': 'ghost',
               hidden: () => step.val === 0 || !on().skip,
+              disabled: () => busy.val,
               onclick: () => (step.val = clampStep(step.val - 1)),
             },
             'Back',
@@ -222,9 +338,18 @@ export function Welcome(): HTMLDialogElement {
               // at step 0), and an accidental Enter there ends the tour for
               // good: focus lands on the safe button instead.
               autofocus: true,
-              // The last screen's Continue sets things up with its own task;
-              // until then clampStep keeps the tour on it.
-              onclick: () => (step.val = clampStep(step.val + 1)),
+              disabled: () => busy.val,
+              // The agents screen's Continue ends the tour without dealing
+              // with the board: its setup screen still waits. Until then
+              // clampStep keeps the tour on the screen.
+              onclick: () => {
+                if (on().setup) {
+                  saveSettings(dismissWelcome());
+                  closeWelcome();
+                  return;
+                }
+                step.val = clampStep(step.val + 1);
+              },
             },
             'Continue',
           ),
@@ -240,6 +365,11 @@ export function showWelcome(): void {
   if (gateMode.val !== null) return;
   step.val = 0;
   pickedView.val = null;
+  busy.val = false;
+  const names = current.saved.providers.map((p) => p.name);
+  providers.val = names;
+  // The dropdown starts on the provider New card offers first.
+  provider.val = names.includes(current.saved.agentProvider) ? current.saved.agentProvider : (names[0] ?? '');
   el().showModal();
 }
 
