@@ -83,6 +83,16 @@ test('the board is laid out in columns unless list is saved', () => {
   assert.equal(cleanSettings({ boardLayout: 'list' }, true).boardLayout, 'list');
   assert.equal(cleanSettings({ boardLayout: 'grid' }, true).boardLayout, 'columns');
 });
+test('welcomeSeen and startView keep only the allowed values', () => {
+  const d = defaults(true);
+  assert.equal(d.welcomeSeen, false);
+  assert.equal(d.startView, 'terms');
+  assert.equal(cleanSettings({}, true).welcomeSeen, false);
+  assert.equal(cleanSettings({ welcomeSeen: true }, true).welcomeSeen, true);
+  assert.equal(cleanSettings({ welcomeSeen: 'yes' }, true).welcomeSeen, false);
+  assert.equal(cleanSettings({ startView: 'board' }, true).startView, 'board');
+  assert.equal(cleanSettings({ startView: 'kanban' }, true).startView, 'terms');
+});
 test('cleanSettings fills keyBack and keyForward', () => {
   assert.equal(cleanSettings({}, true).keyBack, 'ctrl+shift+Minus');
   assert.equal(cleanSettings({}, true).keyForward, 'ctrl+shift+Equal');

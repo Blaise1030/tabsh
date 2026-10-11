@@ -12,6 +12,9 @@ export type TabGrouping = (typeof TAB_GROUPINGS)[number];
 // under its statuses (as Linear's list view).
 export const BOARD_LAYOUTS = ['columns', 'list'] as const;
 export type BoardLayout = (typeof BOARD_LAYOUTS)[number];
+// The view the app opens on: the welcome tour's terms, or straight to the board.
+export const START_VIEWS = ['terms', 'board'] as const;
+export type StartView = (typeof START_VIEWS)[number];
 
 // A coding agent the New card dialog starts: `command` with `{prompt}` for
 // the card's first prompt, and `resume`, typed after tabsh restarts, with
@@ -90,6 +93,8 @@ export interface Settings {
   agentProvider: string; // the provider New card offers first: the last one used
   boardOnboarded: boolean; // the board's setup screen was dealt with (set up or skipped)
   boardLayout: BoardLayout;
+  welcomeSeen: boolean; // the welcome tour was seen (finished, skipped or closed)
+  startView: StartView; // where the app opens when no view is in the URL
 }
 
 export function defaults(isMac: boolean): Settings {
@@ -120,6 +125,8 @@ export function defaults(isMac: boolean): Settings {
     agentProvider: DEFAULT_PROVIDERS[0].name,
     boardOnboarded: false,
     boardLayout: 'columns',
+    welcomeSeen: false,
+    startView: 'terms',
   };
 }
 
@@ -190,5 +197,7 @@ export function cleanSettings(stored: Record<string, unknown>, isMac: boolean): 
     })(),
     boardOnboarded: stored.boardOnboarded === true,
     boardLayout: BOARD_LAYOUTS.find((l) => l === stored.boardLayout) ?? d.boardLayout,
+    welcomeSeen: stored.welcomeSeen === true,
+    startView: START_VIEWS.find((v) => v === stored.startView) ?? d.startView,
   };
 }
