@@ -4,6 +4,7 @@
 // The view, theme, font and sound screens carry their choices; the agents
 // screen picks a provider, and its Set up opens that provider's setup card.
 import van, { type State } from 'vanjs-core';
+import type { Status } from '../board/model.ts';
 import { setStatus } from '../board/status.ts';
 import { openSetupCard } from '../board/view.ts';
 import { gateMode } from '../daemon/client.ts';
@@ -11,7 +12,7 @@ import { go } from '../nav/router.ts';
 import { FONTS, fontStack, THEMES, TYPING_SOUNDS } from '../settings/catalog.ts';
 import { current, saveSetting, saveSettings } from '../settings/settings.ts';
 import { previewSound } from '../sound/packs.ts';
-import { icons, providerIcon } from '../ui/icons.ts';
+import { glyph, type Icon, icons, providerIcon } from '../ui/icons.ts';
 import { keyed } from '../ui/keyed.ts';
 import {
   agentSetupPatch,
@@ -23,7 +24,7 @@ import {
   WELCOME_SCREENS,
 } from './steps.ts';
 
-const { button, dialog, div, footer, h2, p, span } = van.tags;
+const { button, dialog, div, footer, h2, i, p, span } = van.tags;
 
 // Which screen is on show; showWelcome resets it.
 const step = van.state(0);
@@ -35,6 +36,8 @@ const pickedView = van.state<'tabs' | 'kanban' | 'list' | null>(null);
 const providers: State<string[]> = van.state([]);
 const provider: State<string> = van.state('');
 const busy: State<boolean> = van.state(false);
+const chosenTheme: State<string> = van.state(current.saved.theme);
+const chosenFont: State<string> = van.state(current.saved.font);
 
 const on = () => WELCOME_SCREENS[step.val];
 const el = () => document.getElementById('welcome') as HTMLDialogElement;
@@ -55,66 +58,299 @@ function closeWelcome(): void {
   if (pickedView.val !== null) go({ view: current.saved.startView });
 }
 
-// The view screen's three drawings: a strip, three columns, stacked rows —
-// divs, not images, and hidden from a screen reader (the button names it).
-const sketchShell =
-  'display:flex; gap:3px; height:1.75rem; padding:4px; border:1px solid var(--border); border-radius:4px;';
-const sketchPiece = (style: string): HTMLElement =>
-  div({ style: `background:var(--muted-foreground); opacity:.35; border-radius:2px; ${style}` });
-
-function sketchOf(kind: 'tabs' | 'kanban' | 'list'): HTMLElement {
-  const align =
-    kind === 'tabs'
-      ? ' align-items:flex-start;'
-      : kind === 'list'
-        ? ' flex-direction:column; justify-content:center;'
-        : '';
-  const piece = kind === 'tabs' ? 'flex:1; height:4px;' : kind === 'kanban' ? 'flex:1;' : 'height:3px; width:100%;';
-  return div(
-    { style: `${sketchShell}${align}` },
-    // Four tabs in the strip, three columns in the kanban, three rows in the list.
-    ...Array.from({ length: kind === 'tabs' ? 4 : 3 }, () => sketchPiece(piece)),
-  );
-}
-
 const VIEW_NAMES: Record<'tabs' | 'kanban' | 'list', string> = { tabs: 'Tabs', kanban: 'Kanban', list: 'List' };
+const VIEW_DETAILS: Record<'tabs' | 'kanban' | 'list', string> = {
+  tabs: 'A terminal strip for quick switching.',
+  kanban: 'Cards grouped by work status.',
+  list: 'The same cards in compact rows.',
+};
+
+const selectedView = (): 'tabs' | 'kanban' | 'list' => pickedView.val ?? chosenView();
+
+function ViewChip(kind: 'tabs' | 'kanban' | 'list'): HTMLElement {
+  return span({ class: 'welcome-view-chip', 'data-kind': kind, 'aria-hidden': 'true' }, VIEW_NAMES[kind].slice(0, 1));
+}
 
 function ViewChoices(): HTMLElement {
   return div(
-    { style: 'display:flex; gap:.5rem;' },
-    ...(['tabs', 'kanban', 'list'] as const).map((choice) =>
-      button(
-        {
-          type: 'button',
-          class: 'btn',
-          'data-variant': 'outline',
-          style: 'flex:1; display:flex; flex-direction:column; gap:.5rem; align-items:stretch;',
-          'aria-pressed': () => ((pickedView.val ?? chosenView()) === choice ? 'true' : 'false'),
+    { class: 'welcome-choice-panel' },
+    AppPreview(),
+    div(
+      { class: 'welcome-choice-list welcome-view-list' },
+      ...(['tabs', 'kanban', 'list'] as const).map((choice) =>
+        choiceCard({
+          label: VIEW_NAMES[choice],
+          detail: VIEW_DETAILS[choice],
+          selected: () => selectedView() === choice,
+          preview: ViewChip(choice),
           onclick: () => pickView(choice),
-        },
-        sketchOf(choice),
-        VIEW_NAMES[choice],
+        }),
       ),
     ),
   );
 }
 
-// The theme, font and sound screens: a wrapping row of choices.
+// The theme and font screens use full-width choice cards; sound stays a
+// compact row because it is an immediate preview control.
 const rowStyle = 'display:flex; flex-wrap:wrap; gap:.375rem;';
+
+const themePreviewColors = (id: string): string[] => {
+  const c = THEMES[id].colors;
+  return [c.background, c.foreground, c.blue, c.green, c.yellow, c.red, c.magenta, c.cyan];
+};
+
+const mark = (status: Status, className: string) => i({ class: className, 'data-status': status }, glyph(status));
+
+function previewTab(status: Status, name: string, active = false): HTMLElement {
+  return span(
+    { class: active ? 'welcome-preview-tab active' : 'welcome-preview-tab' },
+    mark(status, 'tab-status'),
+    span({ class: 'name' }, name),
+    active ? span({ class: 'x' }, icons.close()) : '',
+  );
+}
+
+function previewCard(opts: {
+  status: Status;
+  title: string;
+  path: string;
+  time: string;
+  note?: string;
+  agent?: Icon;
+}): HTMLElement {
+  return div(
+    { class: 'welcome-preview-card' },
+    div(
+      { class: 'top' },
+      span({ class: 'title' }, opts.title),
+      mark(opts.status, 'status-glyph'),
+      span({ class: 'more' }, icons.more()),
+    ),
+    div({ class: 'meta' }, icons.folder(), span(opts.path)),
+    opts.note ? div({ class: 'note' }, opts.note) : '',
+    div({ class: 'meta time' }, opts.agent ? span({ class: 'agent' }, opts.agent()) : '', span(opts.time)),
+  );
+}
+
+function previewCol(status: Status, name: string, count: string, plus: boolean, card: HTMLElement): HTMLElement {
+  return div(
+    { class: 'welcome-preview-col' },
+    div(
+      { class: 'head' },
+      mark(status, 'status-glyph'),
+      span({ class: 'name' }, name),
+      span({ class: 'count' }, count),
+      plus ? span({ class: 'plus' }, icons.plus()) : '',
+    ),
+    card,
+  );
+}
+
+function previewRow(opts: {
+  status: Status;
+  title: string;
+  path: string;
+  time: string;
+  note?: string;
+  agent?: Icon;
+}): HTMLElement {
+  return div(
+    { class: 'welcome-preview-row' },
+    mark(opts.status, 'status-glyph'),
+    span({ class: 'title' }, opts.title),
+    opts.note ? span({ class: 'note' }, opts.note) : '',
+    span(
+      { class: 'end' },
+      span({ class: 'meta' }, icons.folder(), span(opts.path)),
+      opts.agent ? span({ class: 'agent' }, opts.agent()) : '',
+      span({ class: 'time' }, opts.time),
+      span({ class: 'more' }, icons.more()),
+    ),
+  );
+}
+
+function previewGroup(status: Status, name: string, count: string, plus: boolean, row?: HTMLElement): HTMLElement {
+  return div(
+    { class: 'welcome-preview-group' },
+    div(
+      { class: 'head' },
+      span({ class: 'chev' }, icons.chevronDown()),
+      mark(status, 'status-glyph'),
+      span({ class: 'name' }, name),
+      span({ class: 'count' }, count),
+      plus ? span({ class: 'plus' }, icons.plus()) : '',
+    ),
+    row ?? '',
+  );
+}
+
+function PreviewTerminal(): HTMLElement {
+  const ok = (text: string) => span({ class: 'ok' }, text);
+  const prompt = (cmd: string) =>
+    div(
+      span({ class: 'path' }, '~/code/api '),
+      span({ class: 'prompt' }, '❯'),
+      cmd ? ` ${cmd}` : ' ',
+      cmd ? '' : span({ class: 'cursor' }),
+    );
+  return div(
+    { class: 'welcome-preview-terminal' },
+    prompt('cargo test'),
+    div(ok('Compiling'), ' api v0.4.1 (~/code/api)'),
+    div(ok(' Finished'), ' `test` profile [unoptimized + debuginfo] in 3.42s'),
+    div(ok('  Running'), ' unittests src/lib.rs'),
+    div({ class: 'gap' }),
+    div('running 48 tests'),
+    div('test auth::login ... ', ok('ok')),
+    div('test auth::refresh_token ... ', ok('ok')),
+    div('test cart::add_item ... ', ok('ok')),
+    div('test orders::refund ... ', ok('ok')),
+    div({ class: 'gap' }),
+    div('test result: ', ok('ok'), '. 48 passed; 0 failed; finished in 0.81s'),
+    div({ class: 'gap' }),
+    prompt(''),
+  );
+}
+
+function AppPreview(): HTMLElement {
+  const shop = { status: 'in_progress' as const, title: 'shop: npm run dev', path: '~/code/shop' };
+  const claude = {
+    status: 'needs_input' as const,
+    title: 'claude',
+    path: '~/code/shop',
+    note: 'Run the tests before I commit?',
+    agent: icons.claude,
+  };
+  return div(
+    {
+      class: 'welcome-app-preview',
+      'data-kind': () => selectedView(),
+      'aria-hidden': 'true',
+      style: () => {
+        const c = THEMES[chosenTheme.val].colors;
+        const f = FONTS[chosenFont.val];
+        const bg = c.background;
+        const fg = c.foreground;
+        return [
+          `--preview-bg:${bg}`,
+          `--preview-fg:${fg}`,
+          `--preview-accent:${c.green}`,
+          `--preview-blue:${c.blue}`,
+          `--preview-font:${fontStack(f)}`,
+          `--background:${bg}`,
+          `--foreground:${fg}`,
+          `--muted:color-mix(in srgb, ${fg} 8%, ${bg})`,
+          `--muted-foreground:color-mix(in srgb, ${fg} 60%, ${bg})`,
+          `--border:color-mix(in srgb, ${fg} 14%, ${bg})`,
+          `--card:color-mix(in srgb, ${fg} 4%, ${bg})`,
+        ].join(';');
+      },
+    },
+    div(
+      { class: 'welcome-preview-tabbar' },
+      span({ class: 'welcome-preview-ico welcome-preview-board-icon' }, icons.board()),
+      span({ class: 'welcome-preview-ico welcome-preview-rows-icon' }, icons.rows()),
+      span({ class: 'welcome-preview-ico welcome-preview-explorer' }, icons.explorer()),
+      span(
+        { class: 'welcome-preview-tabs' },
+        previewTab('in_progress', 'shop: npm run dev'),
+        previewTab('completed', 'api: cargo test', true),
+        previewTab('needs_input', 'claude'),
+      ),
+      span({ class: 'welcome-preview-ico welcome-preview-plus' }, icons.plus()),
+      span({ class: 'welcome-preview-spacer' }),
+      span({ class: 'welcome-preview-ico welcome-preview-group-btn' }, icons.group()),
+      span({ class: 'welcome-preview-ico welcome-preview-filter' }, icons.listFilter()),
+      span({ class: 'welcome-preview-ico' }, icons.settings()),
+    ),
+    div(
+      { class: 'welcome-app-preview-stage' },
+      div(
+        { class: 'welcome-preview-board' },
+        div(
+          { class: 'welcome-preview-kanban' },
+          previewCol('in_progress', 'In progress', '1', true, previewCard({ ...shop, time: '2m' })),
+          previewCol('needs_input', 'Needs input', '1', false, previewCard({ ...claude, time: '4m' })),
+        ),
+        div(
+          { class: 'welcome-preview-list' },
+          previewGroup('backlog', 'Backlog', '0', true),
+          previewGroup('in_progress', 'In progress', '1', true, previewRow({ ...shop, time: '3m' })),
+          previewGroup('needs_input', 'Needs input', '1', false, previewRow({ ...claude, time: '5m' })),
+          previewGroup(
+            'completed',
+            'Completed',
+            '1',
+            false,
+            previewRow({ status: 'completed', title: 'api: cargo test', path: '~/code/api', time: '4m' }),
+          ),
+          previewGroup('archived', 'Archived', '0', false),
+        ),
+      ),
+      div(
+        { class: 'welcome-preview-drawer' },
+        div(
+          { class: 'welcome-preview-drawerbar' },
+          span({ class: 'welcome-preview-ico' }, icons.arrowRightToLine()),
+          span({ class: 'welcome-preview-ico' }, icons.explorer()),
+          span({ class: 'title' }, 'api: cargo test'),
+          span({ class: 'move' }, mark('completed', 'status-glyph'), 'Completed', icons.chevronDown()),
+          span({ class: 'welcome-preview-ico' }, icons.expand()),
+        ),
+        PreviewTerminal(),
+      ),
+    ),
+  );
+}
+
+function choiceCard(opts: {
+  label: string;
+  detail: string;
+  selected: () => boolean;
+  preview: HTMLElement;
+  onclick: () => void;
+}): HTMLElement {
+  return button(
+    {
+      type: 'button',
+      class: 'welcome-choice-card',
+      'aria-pressed': () => String(opts.selected()),
+      onclick: opts.onclick,
+    },
+    span({ class: 'welcome-choice-radio', 'aria-hidden': 'true' }),
+    span(
+      { class: 'welcome-choice-copy' },
+      span({ class: 'welcome-choice-name' }, opts.label),
+      span({ class: 'welcome-choice-detail' }, opts.detail),
+    ),
+    opts.preview,
+  );
+}
 
 function ThemeChoices(): HTMLElement {
   return div(
-    { style: rowStyle },
-    ...Object.entries(THEMES).map(([id, t]) =>
-      button(
-        {
-          type: 'button',
-          class: 'btn',
-          'data-variant': 'outline',
-          'data-size': 'sm',
-          onclick: () => saveSetting('theme', id),
-        },
-        t.name,
+    { class: 'welcome-choice-panel' },
+    AppPreview(),
+    div(
+      { class: 'welcome-choice-list' },
+      ...Object.entries(THEMES).map(([id, t]) =>
+        choiceCard({
+          label: t.name,
+          detail: t.system
+            ? 'Follows your system setting.'
+            : t.light
+              ? 'A light terminal palette.'
+              : 'A dark terminal palette.',
+          selected: () => chosenTheme.val === id,
+          preview: span(
+            { class: 'welcome-choice-swatch', 'aria-hidden': 'true' },
+            ...themePreviewColors(id).map((color) => span({ style: `--swatch:${color}` })),
+          ),
+          onclick: () => {
+            chosenTheme.val = id;
+            saveSetting('theme', id);
+          },
+        }),
       ),
     ),
   );
@@ -122,19 +358,28 @@ function ThemeChoices(): HTMLElement {
 
 function FontChoices(): HTMLElement {
   return div(
-    { style: rowStyle },
-    ...Object.entries(FONTS).map(([id, f]) =>
-      button(
-        {
-          type: 'button',
-          class: 'btn',
-          'data-variant': 'outline',
-          'data-size': 'sm',
-          // Each choice drawn in its own face.
-          style: `font-family:${fontStack(f)}`,
-          onclick: () => saveSetting('font', id),
-        },
-        f.name,
+    { class: 'welcome-choice-panel' },
+    AppPreview(),
+    div(
+      { class: 'welcome-choice-list' },
+      ...Object.entries(FONTS).map(([id, f]) =>
+        choiceCard({
+          label: f.name,
+          detail: f.google ? 'Loaded for the terminal.' : 'Uses your system font stack.',
+          selected: () => chosenFont.val === id,
+          preview: span(
+            {
+              class: 'welcome-choice-sample',
+              style: `--choice-font:${fontStack(f)}`,
+              'aria-hidden': 'true',
+            },
+            'Aa',
+          ),
+          onclick: () => {
+            chosenFont.val = id;
+            saveSetting('font', id);
+          },
+        }),
       ),
     ),
   );
@@ -375,6 +620,8 @@ export function showWelcome(): void {
   providers.val = names;
   // The dropdown starts on the provider New card offers first.
   provider.val = names.includes(current.saved.agentProvider) ? current.saved.agentProvider : (names[0] ?? '');
+  chosenTheme.val = current.saved.theme;
+  chosenFont.val = current.saved.font;
   el().showModal();
 }
 
