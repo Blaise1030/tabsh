@@ -16,14 +16,14 @@ test('the welcome screens match the tour copy', () => {
   assert.deepEqual(WELCOME_SCREENS, [
     {
       id: 'intro',
-      title: 'Shells that outlive this tab.',
+      title: 'Welcome to Tabsh.',
       body: 'Close the tab, reload, or shut the laptop. Your shells keep running, and tabsh reattaches when you come back.',
       skip: true,
       setup: false,
     },
     {
       id: 'view',
-      title: 'How you look at the work.',
+      title: 'Choose your workspace.',
       body: 'Tabs for the terminals, a kanban for the cards, or the same cards as a list.',
       skip: true,
       setup: false,

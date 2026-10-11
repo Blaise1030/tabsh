@@ -21,7 +21,7 @@ import {
   welcomeFromQuery,
 } from './steps.ts';
 
-const { article, button, dialog, div, footer, h2, header, i, p, pre, section, span } = van.tags;
+const { article, button, dialog, div, footer, h2, header, i, li, p, pre, section, span, strong, ul } = van.tags;
 
 // Which screen is on show; showWelcome resets it.
 const step = van.state(0);
@@ -221,6 +221,37 @@ function terminalFrame(frame: PreviewFrame): HTMLElement {
   );
 }
 
+function tabshIcon(): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('class', 'welcome-browser-tab-icon');
+  svg.setAttribute('viewBox', '0 0 32 32');
+  svg.setAttribute('aria-hidden', 'true');
+  const rect = document.createElementNS(svg.namespaceURI, 'rect');
+  rect.setAttribute('width', '32');
+  rect.setAttribute('height', '32');
+  rect.setAttribute('rx', '7');
+  rect.setAttribute('fill', '#18181b');
+  const path = document.createElementNS(svg.namespaceURI, 'path');
+  path.setAttribute('d', 'M8 11l5 5-5 5M15 22h9');
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke', '#e4e4e7');
+  path.setAttribute('stroke-width', '2.6');
+  path.setAttribute('stroke-linecap', 'round');
+  path.setAttribute('stroke-linejoin', 'round');
+  svg.append(rect, path);
+  return svg;
+}
+
+// A neighbouring browser tab in the preview chrome. The open tab is tabsh;
+// these sit beside it so the window looks like a normal browser.
+function browserTab(name: string, mark: string): HTMLElement {
+  return span(
+    { class: 'welcome-browser-tab', 'data-open': 'false' },
+    span({ class: 'welcome-browser-mark', style: `background:${mark}` }),
+    name,
+  );
+}
+
 function AppPreview(): HTMLElement {
   const shopCard = article(
     { class: 'board-card' },
@@ -287,7 +318,10 @@ function AppPreview(): HTMLElement {
       div(
         { class: 'welcome-browser-chrome' },
         span({ class: 'welcome-browser-lights' }, i(), i(), i()),
-        span({ class: 'welcome-browser-tab' }, 'tabsh', span({ class: 'welcome-browser-x' }, '×')),
+        browserTab('GitHub', '#f0f0f0'),
+        browserTab('Slack', '#e01e5a'),
+        span({ class: 'welcome-browser-tab' }, tabshIcon(), 'tabsh', span({ class: 'welcome-browser-x' }, '×')),
+        browserTab('Notion', '#fff'),
       ),
       div({ class: 'welcome-browser-urlbar' }, span({ class: 'welcome-browser-url' }, 'tabsh.cc/app')),
       div(
@@ -550,8 +584,32 @@ function AgentChoices(): HTMLElement {
 // The choice controls a screen carries, if any. A child binding must hand
 // van a node every time (a first null is pruned and never revisited), so the
 // screens without choices hold an empty, hidden row instead.
+function IntroMessage(): HTMLElement {
+  return section(
+    { class: 'welcome-intro-message' },
+    span({ class: 'welcome-intro-kicker' }, 'Why a browser tab?'),
+    ul(
+      { class: 'welcome-intro-list' },
+      li(
+        strong('Work already happens in tabs.'),
+        ' Issues, pull requests, docs, chats, AI, and localhost apps are already in your browser.',
+      ),
+      li(
+        strong('Keep the real thing open.'),
+        ' Tabsh leaves GitHub as GitHub, Slack as Slack, and makes the shell one more tab beside them.',
+      ),
+      li(
+        strong('Switch less, stay with the work.'),
+        ' The terminal sits next to the thing it builds, so your train of thought has fewer places to fall off.',
+      ),
+    ),
+  );
+}
+
 function choiceRow(): HTMLElement {
   switch (on().id) {
+    case 'intro':
+      return IntroMessage();
     case 'view':
       return ViewChoices();
     case 'theme':

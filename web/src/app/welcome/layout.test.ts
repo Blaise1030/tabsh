@@ -25,11 +25,22 @@ test('welcome dialog centers a capped page column', () => {
   assert.match(rule('.welcome-page[data-layout="split"]'), /align-content:\s*center/);
   assert.match(rule('.welcome-page[data-layout="split"]'), /"question question"/);
   assert.match(rule('.welcome-page[data-layout="split"]'), /"visual main"/);
-  assert.match(rule('.welcome-page[data-layout="split"][data-screen="intro"]'), /"visual visual"/);
   assert.match(rule('.welcome-page[data-layout="split"] .welcome-main'), /height:\s*0/);
   assert.match(rule('.welcome-page[data-layout="split"] .welcome-main'), /min-height:\s*100%/);
+  assert.match(
+    rule('.welcome-page[data-layout="split"] .welcome-main'),
+    /padding:\s*clamp\(1\.25rem,\s*3vh,\s*2rem\)\s+clamp\(1\.25rem,\s*2\.5vw,\s*2rem\)/,
+  );
   assert.match(rule('.welcome-page[data-layout="split"] .welcome-text'), /font-size:\s*1\.125rem/);
   assert.match(rule('.welcome-page[data-layout="split"] .welcome-text'), /padding-bottom:\s*1\.25rem/);
+  assert.match(rule('.welcome-intro-message'), /display:\s*flex/);
+  assert.match(rule('.welcome-intro-message'), /justify-content:\s*center/);
+  assert.match(rule('.welcome-intro-message'), /overflow-y:\s*auto/);
+  assert.doesNotMatch(rule('.welcome-intro-kicker'), /text-transform:\s*uppercase/);
+  assert.match(rule('.welcome-intro-list'), /display:\s*flex/);
+  assert.match(rule('.welcome-intro-list'), /list-style:\s*disc/);
+  assert.match(rule('.welcome-intro-list'), /padding-left:\s*1\.35rem/);
+  assert.match(rule('.welcome-intro-list'), /line-height:\s*1\.55/);
   assert.match(
     css,
     /@media \(max-width:\s*52rem\)\s*\{[^}]*\.welcome-page\[data-layout="split"\]\s*\{[^}]*flex-direction:\s*column/,
@@ -40,6 +51,8 @@ test('welcome view choices use the stacked selection layout with a preview', () 
   assert.match(rule('.welcome-app-preview'), /aspect-ratio:\s*16\s*\/\s*10/);
   assert.match(rule('.welcome-stage'), /preview-ground\.jpg/);
   assert.match(rule('.welcome-browser'), /aspect-ratio:\s*16\s*\/\s*10/);
+  assert.match(rule('.welcome-browser-tab-icon'), /width:\s*1rem/);
+  assert.match(rule('.welcome-browser-tab-icon'), /height:\s*1rem/);
   assert.match(rule('.welcome-preview-fit'), /display:\s*flex/);
   assert.match(rule('.welcome-preview-fit'), /height:\s*calc\(1200px \* 100cqh \/ 100cqw\)/);
   assert.match(rule('.welcome-preview-stage'), /display:\s*flex/);

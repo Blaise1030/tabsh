@@ -40,8 +40,8 @@ The demo’s pretend settings include `welcomeSeen: true`, next to `boardOnboard
 
 ## Screens
 
-1. **Intro**, centered, in the shape of a product title page. Title: “Shells that outlive this tab.” Body: “Close the tab, reload, or shut the laptop. Your shells keep running, and tabsh reattaches when you come back.”
-2. **View.** Title: “How you look at the work.” Body: “Tabs for the terminals, a kanban for the cards, or the same cards as a list.” Three choices, as sketched frames: **Tabs**, **Kanban**, **List**. The chosen one is marked. Picking one saves immediately.
+1. **Intro.** Title: “Welcome to Tabsh.” Body: “Close the tab, reload, or shut the laptop. Your shells keep running, and tabsh reattaches when you come back.” The right column says “Why a browser tab?” and has three short bullets: work already happens in tabs, keep the real thing open, and switch less.
+2. **View.** Title: “Choose your workspace.” Body: “Tabs for the terminals, a kanban for the cards, or the same cards as a list.” Three choices, as sketched frames: **Tabs**, **Kanban**, **List**. The chosen one is marked. Picking one saves immediately.
 3. **Theme.** Title: “Theme.” Body: “The colours of the terminal and the page.” Every theme in `THEMES`, as a swatch with its name. Picking one saves `theme` and applies it, so the welcome itself restyles.
 4. **Font.** Title: “Font.” Body: “The face the terminal draws in.” Every font in `FONTS`. Each row’s name is drawn in that face. Picking one saves `font` and applies it.
 5. **Typing sound.** Title: “Typing sound.” Body: “The click of a mechanical keyboard. Your girlfriend never has to hear it. Pick one.” Every entry in `TYPING_SOUNDS`, including Off. Picking one saves `typingSound`, applies it, and plays that sample once.
