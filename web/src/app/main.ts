@@ -27,6 +27,7 @@ import { initTypingSound } from './sound/typing.ts';
 import { App } from './ui/app.ts';
 import { initDivider, initDrawerDivider } from './ui/divider.ts';
 import { initDrop } from './ui/drop.ts';
+import { initWelcome } from './welcome/view.ts';
 
 van.add(document.getElementById('app') as HTMLElement, ...App());
 
@@ -122,6 +123,9 @@ window.addEventListener('focus', () => {
   applySettings(current.saved); // theme the connection screen before the daemon answers
   await waitForDaemon();
   await loadSettings().catch(() => applySettings(current.saved));
+  // The tour waits for the settings, so it only opens for someone the app
+  // hasn't met (welcomeSeen false on the daemon).
+  initWelcome();
   // A failed sync mustn't keep the router from starting (go() queues until it
   // has); the next window focus syncs again.
   await sync().catch(console.error);
@@ -130,6 +134,9 @@ window.addEventListener('focus', () => {
   const tab = (store.sessions.find((s) => s.id === activeId) ?? store.sessions[0])?.id ?? null;
   await startRouter({
     tab,
+    // Where the app opens when the URL doesn't say (the welcome tour's pick);
+    // a view query wins, as the URL merges over this fallback.
+    view: current.saved.startView,
     // The tab's remembered file opens as part of the startup place, which
     // doesn't take the keyboard. A URL naming another tab drops it.
     file: (tab && rememberedFiles()[tab]) || null,

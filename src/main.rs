@@ -3,6 +3,7 @@ mod board;
 mod cli;
 mod error;
 mod files;
+mod perf;
 mod sessions;
 mod settings;
 mod state;

@@ -73,15 +73,17 @@ export { test, expect };
 // URL fragment, exactly as in the link the daemon prints, and the page clears
 // it from the address bar before talking to the API.
 export async function openApp(page: Page, daemon: Daemon): Promise<void> {
-  // The daemon outlives a spec, and so does its saved `explorerOpen`: a spec
-  // that closes the sidebar as it ends may be torn down before that save
-  // lands. Start every spec with the sidebar closed, so a click opens it.
+  // The daemon outlives a spec, and so do its saved `explorerOpen` and
+  // `welcomeSeen`: a spec that closes the sidebar as it ends may be torn down
+  // before that save lands, and one that leaves the tour unseen would meet
+  // the welcome dialog instead of the app. Start every spec with the sidebar
+  // closed and the tour seen, so a click opens the sidebar.
   const headers = { Authorization: `Bearer ${daemon.token}` };
   const now = await (await page.request.get(`${daemon.baseUrl}/api/settings`, { headers })).json();
-  if (now.explorerOpen) {
+  if (now.explorerOpen || now.welcomeSeen !== true) {
     const put = await page.request.put(`${daemon.baseUrl}/api/settings`, {
       headers,
-      data: { ...now, explorerOpen: false },
+      data: { ...now, explorerOpen: false, welcomeSeen: true },
     });
     expect(put.status()).toBe(204);
   }

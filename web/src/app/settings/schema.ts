@@ -12,6 +12,9 @@ export type TabGrouping = (typeof TAB_GROUPINGS)[number];
 // under its statuses (as Linear's list view).
 export const BOARD_LAYOUTS = ['columns', 'list'] as const;
 export type BoardLayout = (typeof BOARD_LAYOUTS)[number];
+// The view the app opens on: the welcome tour's terms, or straight to the board.
+export const START_VIEWS = ['terms', 'board'] as const;
+export type StartView = (typeof START_VIEWS)[number];
 
 // A coding agent the New card dialog starts: `command` with `{prompt}` for
 // the card's first prompt, and `resume`, typed after tabsh restarts, with
@@ -26,8 +29,16 @@ export interface Provider {
 export const DEFAULT_PROVIDERS: Provider[] = [
   { name: 'Claude Code', command: 'claude {prompt}', resume: 'claude --resume {session}' },
   { name: 'Codex', command: 'codex {prompt}', resume: 'codex resume {session}' },
+  // Cursor's CLI is `agent`. `--resume=<id>` continues one chat.
+  { name: 'Cursor CLI', command: 'agent {prompt}', resume: 'agent --resume={session}' },
+];
+
+// The stock list before Cursor CLI replaced Gemini CLI and OpenCode. An
+// install that never edited its agents picks up the new list.
+const PREVIOUS_PROVIDERS: Provider[] = [
+  { name: 'Claude Code', command: 'claude {prompt}', resume: 'claude --resume {session}' },
+  { name: 'Codex', command: 'codex {prompt}', resume: 'codex resume {session}' },
   { name: 'Gemini CLI', command: 'gemini -i {prompt}', resume: 'gemini --resume {session}' },
-  // OpenCode takes a new session's id from `--session` if it starts with `ses`.
   {
     name: 'OpenCode',
     command: 'opencode --session ses_{session} --prompt {prompt}',
@@ -54,7 +65,16 @@ function cleanProviders(stored: Record<string, unknown>): Provider[] {
     if (!name || !command || list.some((q) => q.name === name)) continue;
     list.push({ name, command, resume: text(p.resume) });
   }
-  return list.length ? list.slice(0, MAX_PROVIDERS) : DEFAULT_PROVIDERS;
+  if (!list.length) return DEFAULT_PROVIDERS;
+  const stock =
+    list.length === PREVIOUS_PROVIDERS.length &&
+    list.every(
+      (p, i) =>
+        p.name === PREVIOUS_PROVIDERS[i].name &&
+        p.command === PREVIOUS_PROVIDERS[i].command &&
+        p.resume === PREVIOUS_PROVIDERS[i].resume,
+    );
+  return stock ? DEFAULT_PROVIDERS : list.slice(0, MAX_PROVIDERS);
 }
 
 // Why `name` can't name provider `index` of `list` (-1: a new one), or null.
@@ -90,6 +110,8 @@ export interface Settings {
   agentProvider: string; // the provider New card offers first: the last one used
   boardOnboarded: boolean; // the board's setup screen was dealt with (set up or skipped)
   boardLayout: BoardLayout;
+  welcomeSeen: boolean; // the welcome tour was seen (finished, skipped or closed)
+  startView: StartView; // where the app opens when no view is in the URL
 }
 
 export function defaults(isMac: boolean): Settings {
@@ -120,6 +142,8 @@ export function defaults(isMac: boolean): Settings {
     agentProvider: DEFAULT_PROVIDERS[0].name,
     boardOnboarded: false,
     boardLayout: 'columns',
+    welcomeSeen: false,
+    startView: 'terms',
   };
 }
 
@@ -190,5 +214,7 @@ export function cleanSettings(stored: Record<string, unknown>, isMac: boolean): 
     })(),
     boardOnboarded: stored.boardOnboarded === true,
     boardLayout: BOARD_LAYOUTS.find((l) => l === stored.boardLayout) ?? d.boardLayout,
+    welcomeSeen: stored.welcomeSeen === true,
+    startView: START_VIEWS.find((v) => v === stored.startView) ?? d.startView,
   };
 }

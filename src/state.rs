@@ -1,6 +1,6 @@
 //! The daemon's shared state, and the router that puts every route behind the guard.
 
-use crate::{board, files, sessions, settings, upload, web};
+use crate::{board, files, perf, sessions, settings, upload, web};
 use axum::{Router, middleware};
 use rusqlite::Connection;
 use sessions::Session;
@@ -36,6 +36,7 @@ pub(crate) struct AppState {
 pub(crate) fn router(state: AppState) -> Router {
     Router::new()
         .merge(web::routes())
+        .merge(perf::routes())
         .merge(sessions::routes())
         .merge(board::routes())
         .merge(files::routes())
@@ -82,6 +83,7 @@ mod tests {
             (Method::GET, "/api/settings"),
             (Method::PUT, "/api/settings"),
             (Method::GET, "/api/about"),
+            (Method::GET, "/api/performance"),
             (Method::POST, "/api/uploads?name=a"),
             (Method::GET, "/api/files?session=x&path=a"),
             (Method::HEAD, "/api/files?session=x&path=a"),

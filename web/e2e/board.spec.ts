@@ -26,8 +26,9 @@ import {
 // A provider whose agent writes its prompt to a file.
 const WRITES_PROMPT = "printf '%s' {prompt} > prompt.txt";
 
-const card = (page: Page, name: string) => page.locator('.board-card').filter({ hasText: name });
-const col = (page: Page, status: string) => page.locator(`.board-col[data-status="${status}"]`);
+// The welcome tour's preview reuses these classes, so the board is named.
+const card = (page: Page, name: string) => page.locator('#board .board-card').filter({ hasText: name });
+const col = (page: Page, status: string) => page.locator(`#board .board-col[data-status="${status}"]`);
 
 // Opens the board on its own: with a tab open it shows that tab in its
 // drawer, so this closes the drawer, giving the columns the whole width.
@@ -140,7 +141,7 @@ test('the board shortcut steps through columns and a list', async ({ page, daemo
   await expect(card(page, 'List me')).toBeVisible();
 
   await card(page, 'List me').click();
-  await expect(page.locator('.drawer-title')).toHaveText('List me');
+  await expect(page.locator('#frame .drawer-title')).toHaveText('List me');
   await page.locator('#drawer-close').click();
 
   // Then the terminals, and the board again, as columns.
@@ -173,7 +174,7 @@ test("dragging a card doesn't type its id into the active terminal", async ({ pa
   // Its own tab is the active one, so a stray paste would land before its
   // launch line.
   await card(page, 'Drag me').click(); // opens it in the drawer
-  await expect(page.locator('.drawer-title')).toHaveText('Drag me');
+  await expect(page.locator('#frame .drawer-title')).toHaveText('Drag me');
   await page.locator('#drawer-close').click();
   await card(page, 'Drag me').dragTo(col(page, 'needs_input').locator('.board-cards'));
   await card(page, 'Drag me').dragTo(col(page, 'in_progress').locator('.board-cards'));
@@ -227,7 +228,7 @@ test('the board hides the tabs, and shows the open tab in its drawer', async ({ 
   await expect(page.locator('#settings-btn')).toBeVisible();
   // The tab that was open stays in view, in the drawer.
   await expect(page.locator('#frame')).toHaveClass(/in-drawer/);
-  await expect(page.locator('.drawer-title')).toHaveText(tab ?? '');
+  await expect(page.locator('#frame .drawer-title')).toHaveText(tab ?? '');
   // Closed, the board has the whole page: no workspace.
   await page.locator('#drawer-close').click();
   await expect(page.locator('#workspace')).toBeHidden();
@@ -244,7 +245,7 @@ test('a card opens its terminal in a drawer beside the board', async ({ page, da
   await card(page, 'In a drawer').click();
   await expect(page.locator('#board')).toBeVisible();
   await expect(page.locator('#frame')).toHaveClass(/in-drawer/);
-  await expect(page.locator('.drawer-title')).toHaveText('In a drawer');
+  await expect(page.locator('#frame .drawer-title')).toHaveText('In a drawer');
   await expect(page.locator('#terms')).toBeVisible();
   expect(new URL(page.url()).searchParams.get('drawer')).toBe('1');
 
@@ -438,7 +439,7 @@ test('only Backlog and In progress offer a new card', async ({ page, daemon }) =
   await page.locator('#board-btn').click();
   for (const status of ['backlog', 'in_progress']) await expect(col(page, status).locator('header .btn')).toHaveCount(1);
   for (const status of ['needs_input', 'completed']) await expect(col(page, status).locator('header .btn')).toHaveCount(0);
-  const heights = await page.locator('.board-col > header').evaluateAll((hs) => hs.map((h) => h.getBoundingClientRect().height));
+  const heights = await page.locator('#board .board-col > header').evaluateAll((hs) => hs.map((h) => h.getBoundingClientRect().height));
   expect(new Set(heights).size).toBe(1);
 });
 
@@ -637,7 +638,7 @@ test('a card name with markup is shown as text', async ({ page, daemon }) => {
   }).toPass({ timeout: 10_000 });
   await page.locator('#board-btn').click();
   await expect(card(page, '<b>bold</b>').locator('.card-title')).toHaveText('<b>bold</b>');
-  await expect(page.locator('.board-card b')).toHaveCount(0);
+  await expect(page.locator('#board .board-card b')).toHaveCount(0);
 });
 
 // A drop within a column reorders its cards and leaves none marked as
@@ -665,7 +666,7 @@ test('a new card goes on top; cards reorder within a column', async ({ page, dae
   await page.evaluate(() => window.addEventListener('dragend', (e) => e.stopImmediatePropagation(), true));
   await card(page, 'First card').dragTo(card(page, 'Second card'), { targetPosition: { x: 10, y: 2 } });
   await expect.poll(secondFirst).toBe(false);
-  await expect(page.locator('.board-card.dragging')).toHaveCount(0);
+  await expect(page.locator('#board .board-card.dragging')).toHaveCount(0);
   await expect(page.locator('.drop-before, .drop-end')).toHaveCount(0);
 });
 
@@ -761,18 +762,18 @@ test('the board shows its setup screen until skipped', async ({ page, daemon }) 
   await page.locator('#board-btn').click();
   await expect(page.locator('.board-onboarding')).toBeVisible();
   await expect(page.locator('.board-onboarding')).toContainText('Set up with Claude Code');
-  await expect(page.locator('.board-col')).toHaveCount(0);
+  await expect(page.locator('#board .board-col')).toHaveCount(0);
 
   const saved = page.waitForResponse((r) => r.url().includes('/api/settings') && r.request().method() === 'PUT');
   await page.locator('.board-onboarding button', { hasText: 'Skip' }).click();
   await saved;
   await expect(page.locator('.board-onboarding')).toHaveCount(0);
-  await expect(page.locator('.board-col[data-status="backlog"]')).toBeVisible();
+  await expect(page.locator('#board .board-col[data-status="backlog"]')).toBeVisible();
 
   await page.goto('about:blank'); // a fresh load, not just a new fragment
   await openApp(page, daemon);
   await page.locator('#board-btn').click();
-  await expect(page.locator('.board-col[data-status="backlog"]')).toBeVisible();
+  await expect(page.locator('#board .board-col[data-status="backlog"]')).toBeVisible();
   await expect(page.locator('.board-onboarding')).toHaveCount(0);
 });
 

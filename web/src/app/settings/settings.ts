@@ -84,8 +84,10 @@ export async function loadSettings(): Promise<void> {
   if (!previewing) await applySettings(current.saved);
 }
 
-export function saveSetting<K extends keyof Settings>(key: K, value: Settings[K]): void {
-  current.saved = { ...current.saved, [key]: value };
+// The one writer of stored settings: patch `current.saved`, tell the
+// listeners, apply, and PUT the whole object once.
+export function saveSettings(patch: Partial<Settings>): void {
+  current.saved = { ...current.saved, ...patch };
   for (const fn of savedListeners) fn(current.saved);
   applySettings(current.saved);
   daemonFetch('/api/settings', {
@@ -93,6 +95,12 @@ export function saveSetting<K extends keyof Settings>(key: K, value: Settings[K]
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(current.saved),
   }).catch(() => {});
+}
+
+export function saveSetting<K extends keyof Settings>(key: K, value: Settings[K]): void {
+  const patch: Partial<Settings> = {};
+  patch[key] = value;
+  saveSettings(patch);
 }
 
 // Shows a button's shortcut in its tooltip; set on hover so it always

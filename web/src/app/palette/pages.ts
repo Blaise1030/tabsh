@@ -57,9 +57,11 @@ export function pages(ctx: {
   hasFile: boolean;
   closeFile(): void;
   about: AboutRow[] | null;
+  performance: AboutRow[] | null;
   toggleExplorer(): void;
   toggleBoard(): void;
   toggleBoardLayout(): void;
+  showWelcome(): void;
   searchFiles(): void;
   canGoBack: boolean;
   goBack(): void;
@@ -206,7 +208,21 @@ export function pages(ctx: {
         },
         {
           heading: 'Help',
-          items: [{ label: 'About tabsh…', icon: icons.info, keywords: 'version info uptime shell', go: 'about' }],
+          items: [
+            {
+              label: 'Show welcome',
+              icon: icons.preview,
+              keywords: 'onboarding tour intro',
+              run: ctx.showWelcome,
+            },
+            {
+              label: 'Performance…',
+              icon: icons.activity,
+              keywords: 'cpu ram memory usage stats',
+              go: 'performance',
+            },
+            { label: 'About tabsh…', icon: icons.info, keywords: 'version info uptime shell', go: 'about' },
+          ],
         },
       ],
     }),
@@ -252,6 +268,20 @@ export function pages(ctx: {
       ],
     }),
     // Each row copies its value; until the daemon answers, one says so.
+    performance: () => ({
+      placeholder: 'Search performance…',
+      groups: [
+        {
+          heading: 'Performance',
+          items:
+            ctx.performance === null
+              ? [{ label: 'Loading…', disabled: true }]
+              : ctx.performance.length
+                ? ctx.performance.map(([label, value]) => ({ label, hint: value, keywords: value, copy: value }))
+                : [{ label: 'Could not reach the tabsh daemon.', disabled: true }],
+        },
+      ],
+    }),
     about: () => ({
       placeholder: 'Search about tabsh…',
       groups: [

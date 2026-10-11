@@ -440,7 +440,7 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const empty = (status: number) => new Response(null, { status });
 
-let settings: Record<string, unknown> = { boardOnboarded: true };
+let settings: Record<string, unknown> = { boardOnboarded: true, welcomeSeen: true };
 
 async function answer(method: string, url: URL, body: unknown): Promise<Response> {
   const path = url.pathname;
@@ -455,6 +455,14 @@ async function answer(method: string, url: URL, body: unknown): Promise<Response
       uptime_secs: Math.floor((Date.now() - started) / 1000) + 9240,
       sessions_running: shells.length,
       sessions_total: shells.length,
+    });
+  if (path === '/api/performance')
+    return json({
+      total: { memory_bytes: 180 * 1024 * 1024, cpu_percent: 6.2 },
+      processes: [
+        { name: 'tabsh', memory_bytes: 48 * 1024 * 1024, cpu_percent: 1.1 },
+        { name: 'zsh', memory_bytes: 132 * 1024 * 1024, cpu_percent: 5.1 },
+      ],
     });
   if (path === '/api/settings') {
     if (method === 'PUT') settings = body as Record<string, unknown>;

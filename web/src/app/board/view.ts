@@ -541,15 +541,37 @@ function Column(status: Status, name: string, columns: State<Columns>, asList: b
 // board onboarded.
 const BOARD_DOCS = DOCS_URL;
 
+// Opens the setup card: a session whose agent wires tabsh's own hooks by
+// following `tabsh setup`'s guide. The board's setup screen and the welcome's
+// agents screen both use it. It writes no settings and moves no card — its
+// callers do that — and returns null when the card didn't open.
+export async function openSetupCard(opts: {
+  command: string;
+  resume?: string;
+  focus: boolean;
+}): Promise<Session | null> {
+  try {
+    return await openTab(
+      {
+        name: 'Set up tabsh hooks',
+        prompt: SETUP_PROMPT,
+        command: opts.command,
+        ...(opts.resume !== undefined && { resume: opts.resume }),
+      },
+      opts.focus,
+    );
+  } catch (err) {
+    console.error(err);
+    return null;
+  }
+}
+
 function Onboarding(): HTMLElement {
   const busy = van.state(false);
   async function setUp(): Promise<void> {
     busy.val = true;
-    let s: Session;
-    try {
-      s = await openTab({ name: 'Set up tabsh hooks', prompt: SETUP_PROMPT, command: DEFAULT_COMMAND }, false);
-    } catch (err) {
-      console.error(err);
+    const s = await openSetupCard({ command: DEFAULT_COMMAND, focus: false });
+    if (!s) {
       busy.val = false;
       return;
     }

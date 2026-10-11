@@ -19,7 +19,7 @@ test('combines feature selections without duplicates', () => {
       'e2e/board.spec.ts', 'e2e/dialogs.spec.ts', 'e2e/navigation.spec.ts',
       'e2e/palette.spec.ts', 'e2e/providers.spec.ts', 'e2e/smoke.spec.ts',
       'e2e/tab-groups.spec.ts', 'e2e/tabs.spec.ts', 'e2e/tooltips.spec.ts',
-      'e2e/typing-sound.spec.ts',
+      'e2e/typing-sound.spec.ts', 'e2e/welcome.spec.ts',
     ],
   });
 });

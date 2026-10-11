@@ -3,6 +3,7 @@
 // keybindings that open it and switch tabs, and the settings button.
 import van from 'vanjs-core';
 import { toggleBoard, toggleBoardLayout } from '../board/view.ts';
+import { daemonFetch } from '../daemon/client.ts';
 import { searchFiles, toggleExplorer } from '../explorer/explorer.ts';
 import { loadedPane } from '../files/open.ts';
 import { back, backPastPalette, forward, go, here, isLeavingPalette, isPaletteEntry, onPlace } from '../nav/router.ts';
@@ -16,6 +17,8 @@ import { aboutRows, loadAbout } from '../ui/about.ts';
 import { isMac } from '../ui/dom.ts';
 import { icons } from '../ui/icons.ts';
 import { keyed } from '../ui/keyed.ts';
+import { type Performance, performanceRows } from '../ui/performance.ts';
+import { showWelcome } from '../welcome/view.ts';
 import { type PaletteItem, pages, type TextEdit } from './pages.ts';
 
 const { div, i, span } = van.tags;
@@ -29,6 +32,14 @@ export const page = van.state<string | null>(null);
 let recording: KeyId | null = null; // the keybinding the next key press sets
 let editing: TextEdit | null = null; // the text the input holds instead of a search
 const itemsById = new Map<string, PaletteItem>();
+let performanceView: [string, string][] | null = null;
+
+async function loadPerformance(): Promise<void> {
+  const info: Performance | null = await daemonFetch('/api/performance')
+    .then((r) => (r.ok ? r.json() : null))
+    .catch(() => null);
+  performanceView = info ? performanceRows(info) : [];
+}
 
 function palettePages(): ReturnType<typeof pages> {
   const active = store.active;
@@ -36,9 +47,11 @@ function palettePages(): ReturnType<typeof pages> {
     hasFile: !!active && !!loadedPane()?.hasFile(active.id),
     closeFile: () => go({ file: null }),
     about: aboutRows,
+    performance: performanceView,
     toggleExplorer,
     toggleBoard: () => toggleBoard(),
     toggleBoardLayout,
+    showWelcome,
     searchFiles,
     canGoBack: navigation.canGoBack,
     goBack: backPastPalette,
@@ -208,10 +221,14 @@ function showPalette(at: string | null): void {
     paletteEl().showModal();
     setPreviewing(true);
   } else if (page.val === at) return;
-  // About's rows are fetched afresh each time it opens, and drawn once they land.
+  // About and Performance are fetched afresh each time they open, and drawn once they land.
   if (at === 'about')
     loadAbout().then(() => {
       if (page.val === 'about') showPage('about');
+    });
+  if (at === 'performance')
+    loadPerformance().then(() => {
+      if (page.val === 'performance') showPage('performance');
     });
   showPage(at);
 }
