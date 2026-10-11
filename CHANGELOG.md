@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.1.22
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.20...v0.1.22)
+
+### Features
+
+- **web:** Open the landing demo on the board beside a terminal ([a8f866d](https://github.com/Blaise1030/tabsh/commit/a8f866d))
+
+### Fixes
+
+- **web:** Rebuild the landing stylesheet in the embedded app ([a0e93be](https://github.com/Blaise1030/tabsh/commit/a0e93be))
+
 ## v0.1.21
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.20...v0.1.21)
