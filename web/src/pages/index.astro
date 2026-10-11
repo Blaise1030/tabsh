@@ -75,34 +75,51 @@ const SETUP_PROMPT = 'Run `tabsh setup` and follow it.';
       </p>
 
       <figure class="shot">
-        <div class="browser" role="group" aria-label="Interactive demo: tabsh in a browser tab">
-          <div class="chrome" aria-hidden="true">
-            <span class="lights"><i></i><i></i><i></i></span>
-            <span class="btab">
-              <span class="favicon"><img src="/favicon.svg" alt="" width="14" height="14" /><i></i></span>
-              tabsh
-              <span class="mark">×</span>
-            </span>
-            <!-- The rest of the workday, in the tabs next door. -->
-            <span class="btab bg">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 0-.8.4-1.3.7-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2 0-.3-.5-1.5.2-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.3 4.7 18.3 5 18.3 5c.7 1.7.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .3"/></svg>
-              <span class="label">Fix refund status · #142</span>
-            </span>
-            <span class="btab bg">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke-width="4.2" stroke-linecap="round">
-                <path stroke="#36c5f0" d="M3.5 9.5h6M9.5 3.5h0" /><path stroke="#2eb67d" d="M14.5 3.5v6M20.5 9.5h0" />
-                <path stroke="#ecb22e" d="M14.5 14.5h6M14.5 20.5h0" /><path stroke="#e01e5a" d="M9.5 14.5v6M3.5 14.5h0" />
-              </svg>
-              <span class="label">#shop-eng</span>
-            </span>
-            <span class="btab bg">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9.5" /><path d="M2.5 12h19M12 2.5c3 3.2 3 15.8 0 19M12 2.5c-3 3.2-3 15.8 0 19" /></svg>
-              <span class="label">Shop · localhost:5173</span>
-            </span>
+        <div class="stage">
+          <div class="browser" role="group" aria-label="Interactive demo: tabsh in a browser tab">
+            <div class="chrome" aria-hidden="true">
+              <span class="lights"><i></i><i></i><i></i></span>
+              <span class="btab">
+                <span class="favicon"><img src="/favicon.svg" alt="" width="14" height="14" /><i></i></span>
+                tabsh
+                <span class="mark">×</span>
+              </span>
+              <!-- The rest of the workday, in the tabs next door. -->
+              <span class="btab bg">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 0-.8.4-1.3.7-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2 0-.3-.5-1.5.2-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.3 4.7 18.3 5 18.3 5c.7 1.7.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .3"/></svg>
+                <span class="label">Fix refund status · #142</span>
+              </span>
+              <span class="btab bg">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke-width="4.2" stroke-linecap="round">
+                  <path stroke="#36c5f0" d="M3.5 9.5h6M9.5 3.5h0" /><path stroke="#2eb67d" d="M14.5 3.5v6M20.5 9.5h0" />
+                  <path stroke="#ecb22e" d="M14.5 14.5h6M14.5 20.5h0" /><path stroke="#e01e5a" d="M9.5 14.5v6M3.5 14.5h0" />
+                </svg>
+                <span class="label">#shop-eng</span>
+              </span>
+              <span class="btab bg">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9.5" /><path d="M2.5 12h19M12 2.5c3 3.2 3 15.8 0 19M12 2.5c-3 3.2-3 15.8 0 19" /></svg>
+                <span class="label">Shop · localhost:5173</span>
+              </span>
+            </div>
+            <div class="urlbar" aria-hidden="true"><span class="url">tabsh.cc/app/?view=board&drawer=1</span></div>
+            <!-- The real app, on a pretend daemon in memory (src/demo/daemon.ts).
+                 Held until the poster is clicked, so the landing page does not boot it. -->
+            <div class="app">
+              <button type="button" class="poster" data-run>
+                <!-- One still, chosen here so the other file is never requested. -->
+                <img alt="" decoding="async" data-light="/preview-light.png?v=4" data-dark="/preview-dark.png?v=4" />
+                <script is:inline>
+                  const still = document.currentScript.previousElementSibling;
+                  const scheme = matchMedia('(prefers-color-scheme: light)');
+                  const pick = () => (scheme.matches ? still.dataset.light : still.dataset.dark);
+                  still.src = pick();
+                  scheme.addEventListener('change', () => (still.src = pick()));
+                </script>
+                <span>Run the live demo</span>
+              </button>
+              <iframe data-click data-src="/demo/?view=board&drawer=1" title="tabsh demo: the board beside a terminal"></iframe>
+            </div>
           </div>
-          <div class="urlbar" aria-hidden="true"><span class="url">tabsh.cc/app/</span></div>
-          <!-- The real app, on a pretend daemon in memory (src/demo/daemon.ts). -->
-          <div class="app"><iframe data-src="/demo/" title="tabsh demo: the app with three shells"></iframe></div>
         </div>
       </figure>
 
@@ -278,9 +295,10 @@ const SETUP_PROMPT = 'Run `tabsh setup` and follow it.';
         });
       }
 
-      // The demos load as they near the screen. Not with loading="lazy": WebKit
-      // gives a lazily loaded frame no Navigation API entry, so every
-      // navigation in it aborts and the app's router never shows a tab.
+      // Fig. 1 waits for a click. The others load as they near the screen.
+      // Not with loading="lazy": WebKit gives a lazily loaded frame no
+      // Navigation API entry, so every navigation in it aborts and the app's
+      // router never shows a tab.
       const frames = new IntersectionObserver(
         (entries) => {
           for (const { isIntersecting, target } of entries) {
@@ -291,7 +309,15 @@ const SETUP_PROMPT = 'Run `tabsh setup` and follow it.';
         },
         { rootMargin: '600px 0px' },
       );
-      for (const frame of document.querySelectorAll('iframe[data-src]')) frames.observe(frame);
+      for (const frame of document.querySelectorAll('iframe[data-src]:not([data-click])')) frames.observe(frame);
+      for (const poster of document.querySelectorAll('[data-run]')) {
+        poster.addEventListener('click', () => {
+          const frame = poster.parentElement?.querySelector('iframe[data-src]');
+          if (!(frame instanceof HTMLIFrameElement) || frame.getAttribute('src')) return;
+          frame.src = frame.dataset.src ?? '';
+          poster.remove();
+        });
+      }
 
       for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-copy]')) {
         btn.addEventListener('click', async () => {
@@ -340,7 +366,38 @@ const SETUP_PROMPT = 'Run `tabsh setup` and follow it.';
   .favicon i { position: absolute; top: -3px; right: -3px; width: 7px; height: 7px; border-radius: 50%; background: #f97316; box-shadow: 0 0 0 1.5px var(--bg); }
   .urlbar { padding: .375rem .75rem; border-bottom: 1px solid var(--border); }
   .url { display: block; padding: .125rem .75rem; border-radius: 999px; background: var(--chrome); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .app { flex: 1; min-height: 0; }
+  .app { position: relative; flex: 1; min-height: 0; }
+  /* Fig. 1 floats on a painted desktop. The still stands in until a click. */
+  .stage {
+    padding: 2.75rem 3.25rem 3.5rem; border-radius: 4px;
+    background: #c4b49a url('/preview-ground.jpg') center / cover no-repeat;
+  }
+  .stage .browser {
+    border-color: rgb(48 38 28 / 32%);
+    box-shadow: 0 16px 36px rgb(28 22 16 / 18%);
+  }
+  @media (prefers-color-scheme: light) {
+    .stage .browser {
+      --bg: #efeae4;
+      --chrome: #e7e1d8;
+      --border: rgb(72 58 44 / 22%);
+      border-color: rgb(62 50 38 / 28%);
+    }
+  }
+  @media (max-width: 520px) { .stage { padding: 1rem .85rem 1.25rem; } }
+  .poster {
+    position: absolute; z-index: 1; inset: 0; display: block; width: 100%; height: 100%;
+    padding: 0; border: 0; cursor: pointer; background: #f7f7f7;
+  }
+  @media (prefers-color-scheme: dark) { .poster { background: #141414; } }
+  .poster img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top left; }
+  .poster span {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    padding: .4rem .8rem; border-radius: 999px; background: rgb(20 20 20 / 90%); color: #f4f4f4;
+    box-shadow: 0 0 0 1px rgb(255 255 255 / 55%);
+    font: 500 13px/1 'Geist', ui-sans-serif, system-ui, sans-serif; white-space: nowrap;
+  }
+  .poster:focus-visible { outline: 2px solid var(--link); outline-offset: -4px; }
   .app iframe { display: block; width: 100%; height: 100%; border: 0; }
   /* fig. 2: fig. 1's 16:10, but in the text column and with no tab strip. */
   .browser.board .urlbar { display: flex; align-items: center; gap: .75rem; }
