@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.24
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.23...v0.1.24)
+
+### Fixes
+
+- **web:** Lighten welcome title and copy weights ([af54e08](https://github.com/Blaise1030/tabsh/commit/af54e08))
+
 ## v0.1.23
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.22...v0.1.23)
