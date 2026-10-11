@@ -27,6 +27,7 @@ import { initTypingSound } from './sound/typing.ts';
 import { App } from './ui/app.ts';
 import { initDivider, initDrawerDivider } from './ui/divider.ts';
 import { initDrop } from './ui/drop.ts';
+import { initWelcome } from './welcome/view.ts';
 
 van.add(document.getElementById('app') as HTMLElement, ...App());
 
@@ -122,6 +123,9 @@ window.addEventListener('focus', () => {
   applySettings(current.saved); // theme the connection screen before the daemon answers
   await waitForDaemon();
   await loadSettings().catch(() => applySettings(current.saved));
+  // The tour waits for the settings, so it only opens for someone the app
+  // hasn't met (welcomeSeen false on the daemon).
+  initWelcome();
   // A failed sync mustn't keep the router from starting (go() queues until it
   // has); the next window focus syncs again.
   await sync().catch(console.error);

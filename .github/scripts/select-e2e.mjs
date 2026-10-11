@@ -30,6 +30,10 @@ const featureRules = [
     ],
   },
   {
+    paths: [/^web\/src\/app\/welcome\//],
+    specs: ['welcome', 'board', 'palette'],
+  },
+  {
     paths: [/^web\/src\/app\/sound\//],
     specs: ['typing-sound'],
   },

@@ -436,6 +436,29 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 #gate .cmd { padding: .75rem 1rem; border-radius: 4px; background: var(--muted); font: inherit; }
 #gate form { display: flex; gap: .5rem; }
 
+/* The welcome tour: a full-page opaque screen (a dialog shown modally), so
+   nothing behind it reads as reachable. A centred column holds the screen's
+   text; the footer is pinned to the bottom, dots on the left, buttons on the
+   right. */
+#welcome {
+  position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none;
+  margin: 0; border: 0; border-radius: 0; padding: 0; overflow: hidden;
+  background: var(--background); color: var(--foreground);
+}
+#welcome[open] { display: flex; }
+#welcome:not([open]) { display: none; }
+.welcome-page { flex: 1; min-height: 0; display: flex; flex-direction: column; width: min(34rem, calc(100vw - 2rem)); margin-inline: auto; }
+.welcome-body { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: .75rem; }
+.welcome-title { margin: 0; font-size: 1.375rem; font-weight: 600; letter-spacing: -.025em; }
+.welcome-text { margin: 0; color: var(--muted-foreground); font-size: .875rem; line-height: 1.625; }
+.welcome-foot { display: flex; align-items: center; gap: .75rem; padding: 1rem 0 1.25rem; }
+.welcome-dots { display: flex; align-items: center; gap: .375rem; }
+.welcome-dot { width: .5rem; height: .5rem; border-radius: 999px; background: var(--border); transition: background .15s ease; }
+.welcome-dot[aria-current="step"] { background: var(--foreground); }
+.welcome-actions { margin-left: auto; display: flex; align-items: center; gap: .5rem; }
+/* Basecoat's .btn display would keep a hidden button on screen. */
+#welcome .btn[hidden] { display: none; }
+
 /* The kanban board's one colour: a card that needs you. */
 :root { --needs-input: #f59e0b; }
 .tab-status { display: inline-flex; flex-shrink: 0; margin-right: .375rem; color: var(--muted-foreground); }

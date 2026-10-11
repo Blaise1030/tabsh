@@ -440,7 +440,7 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const empty = (status: number) => new Response(null, { status });
 
-let settings: Record<string, unknown> = { boardOnboarded: true };
+let settings: Record<string, unknown> = { boardOnboarded: true, welcomeSeen: true };
 
 async function answer(method: string, url: URL, body: unknown): Promise<Response> {
   const path = url.pathname;
