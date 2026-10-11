@@ -115,6 +115,26 @@ pub(crate) fn restart(st: &AppState, id: &str) {
     let _ = session.killer.lock().unwrap().kill();
 }
 
+/// Running shells, by the name stored for the session and the shell's pid.
+/// The daemon's performance page samples each of these, including the
+/// processes the shell has started.
+pub(crate) fn running_shells(st: &AppState) -> Vec<(String, u32)> {
+    let live = st.live.lock().unwrap();
+    let db = st.db.lock().unwrap();
+    let mut rows = Vec::new();
+    for (id, session) in live.iter() {
+        let Some(pid) = session.pid else { continue };
+        let name: String = db
+            .query_row("SELECT name FROM sessions WHERE id = ?1", [id], |row| {
+                row.get(0)
+            })
+            .unwrap_or_else(|_| id.clone());
+        rows.push((name, pid));
+    }
+    rows.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+    rows
+}
+
 /// Running shells and all sessions, for the About dialog.
 pub(crate) fn counts(st: &AppState) -> rusqlite::Result<(usize, i64)> {
     let running = st.live.lock().unwrap().len();

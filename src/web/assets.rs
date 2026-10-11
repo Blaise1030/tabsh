@@ -63,6 +63,14 @@ pub(crate) async fn app_asset(Path(name): Path<String>) -> Response {
         "text/javascript; charset=utf-8"
     } else if name.ends_with(".css") {
         "text/css; charset=utf-8"
+    } else if name.ends_with(".jpg") || name.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if name.ends_with(".png") {
+        "image/png"
+    } else if name.ends_with(".svg") {
+        "image/svg+xml"
+    } else if name.ends_with(".webp") {
+        "image/webp"
     } else {
         "application/octet-stream"
     };

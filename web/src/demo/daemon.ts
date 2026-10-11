@@ -456,6 +456,14 @@ async function answer(method: string, url: URL, body: unknown): Promise<Response
       sessions_running: shells.length,
       sessions_total: shells.length,
     });
+  if (path === '/api/performance')
+    return json({
+      total: { memory_bytes: 180 * 1024 * 1024, cpu_percent: 6.2 },
+      processes: [
+        { name: 'tabsh', memory_bytes: 48 * 1024 * 1024, cpu_percent: 1.1 },
+        { name: 'zsh', memory_bytes: 132 * 1024 * 1024, cpu_percent: 5.1 },
+      ],
+    });
   if (path === '/api/settings') {
     if (method === 'PUT') settings = body as Record<string, unknown>;
     return method === 'PUT' ? empty(204) : json(settings);
