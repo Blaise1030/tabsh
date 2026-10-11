@@ -47,6 +47,7 @@ export const icons: Record<
   | 'boardPage'
   | 'agent'
   | 'info'
+  | 'activity'
   | 'back'
   | 'forward'
   | 'edit'
@@ -69,7 +70,8 @@ export const icons: Record<
   | 'shrink'
   | 'claude'
   | 'openai'
-  | 'gemini',
+  | 'gemini'
+  | 'cursor',
   Icon
 > = {
   board: draw(({ path, rect, svg }) =>
@@ -258,10 +260,20 @@ export const icons: Record<
       }),
     ),
   ),
+  // Cursor's mark (Simple Icons, CC0). The CLI's program is `agent`.
+  cursor: draw(({ path, svg }) =>
+    svg(
+      { ...BRAND },
+      path({
+        d: 'M11.503.131 1.891 5.678a.84.84 0 0 0-.42.726v11.188c0 .3.162.575.42.724l9.609 5.55a1 1 0 0 0 .998 0l9.61-5.55a.84.84 0 0 0 .42-.724V6.404a.84.84 0 0 0-.42-.726L12.497.131a1.01 1.01 0 0 0-.996 0M2.657 6.338h18.55c.263 0 .43.287.297.515L12.23 22.918c-.062.107-.229.064-.229-.06V12.335a.59.59 0 0 0-.295-.51l-9.11-5.257c-.109-.063-.064-.23.061-.23',
+      }),
+    ),
+  ),
   agent: draw(({ path, svg }) => svg({ ...LUCIDE }, path({ d: 'm4 17 6-6-6-6' }), path({ d: 'M12 19h8' }))),
   info: draw(({ circle, path, svg }) =>
     svg({ ...LUCIDE }, circle({ cx: '12', cy: '12', r: '10' }), path({ d: 'M12 16v-4' }), path({ d: 'M12 8h.01' })),
   ),
+  activity: draw(({ path, svg }) => svg({ ...LUCIDE }, path({ d: 'M22 12h-4l-3 9L9 3l-3 9H2' }))),
   send: draw(({ path, svg }) =>
     svg({ ...LUCIDE, 'aria-hidden': 'true' }, path({ d: 'm22 2-7 20-4-9-9-4Z' }), path({ d: 'M22 2 11 13' })),
   ),
@@ -411,5 +423,9 @@ function drawGlyph(status: Status): Element {
 // we know it, else a prompt.
 export function providerIcon(command: string): Icon {
   const program = command.trim().split(/\s+/)[0]?.split('/').pop() ?? '';
-  return { claude: icons.claude, codex: icons.openai, gemini: icons.gemini }[program] ?? icons.agent;
+  return (
+    { claude: icons.claude, codex: icons.openai, gemini: icons.gemini, agent: icons.cursor, cursor: icons.cursor }[
+      program
+    ] ?? icons.agent
+  );
 }

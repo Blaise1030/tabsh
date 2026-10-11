@@ -30,7 +30,13 @@ export const WELCOME_SCREENS: readonly WelcomeScreen[] = [
   },
   { id: 'theme', title: 'Theme.', body: 'The colours of the terminal and the page.', skip: true, setup: false },
   { id: 'font', title: 'Font.', body: 'The face the terminal draws in.', skip: true, setup: false },
-  { id: 'sound', title: 'Typing sound.', body: 'Played as you type. Pick one to hear it.', skip: true, setup: false },
+  {
+    id: 'sound',
+    title: 'Typing sound.',
+    body: 'Put on your headphone and never bother your girlfriend/boyfriend again.',
+    skip: true,
+    setup: false,
+  },
   {
     id: 'agents',
     title: 'Connect your agents.',
@@ -80,8 +86,31 @@ export function dismissWelcome(): { welcomeSeen: true } {
   return { welcomeSeen: true };
 }
 
+// `?welcome=1` opens the tour on this load, whether or not it was seen before.
+export function welcomeFromQuery(q: URLSearchParams): boolean {
+  return q.get('welcome') === '1';
+}
+
 // Whether closing the dialog ends the tour on its own: only after the setup
 // screen was opened (the tour was finished); before it, closing is leaving.
 export function closesAfterSetup(opened: boolean): boolean {
   return opened;
+}
+
+// The command the sound screen types into the preview. One beat per typed
+// key (Enter included), then one silent beat per line the run prints.
+export const PREVIEW_COMMAND = 'cargo test';
+
+export interface TypingBeat {
+  key: string | null;
+  chars: number;
+  lines: number;
+}
+
+export function typingBeats(command: string, outputLines: number): TypingBeat[] {
+  const beats: TypingBeat[] = [];
+  for (let i = 1; i <= command.length; i++) beats.push({ key: command[i - 1], chars: i, lines: 0 });
+  beats.push({ key: 'Enter', chars: command.length, lines: 0 });
+  for (let n = 1; n <= outputLines; n++) beats.push({ key: null, chars: command.length, lines: n });
+  return beats;
 }

@@ -124,6 +124,24 @@ test('providers are cleaned: named, with a command, names unique', () => {
   assert.equal(s.agentProvider, 'Bare');
   assert.equal(cleanSettings({ agentProvider: 'Gone' }, true).agentProvider, 'Claude Code');
   assert.deepEqual(cleanSettings({ providers: [] }, true).providers, DEFAULT_PROVIDERS);
+  assert.deepEqual(
+    cleanSettings(
+      {
+        providers: [
+          { name: 'Claude Code', command: 'claude {prompt}', resume: 'claude --resume {session}' },
+          { name: 'Codex', command: 'codex {prompt}', resume: 'codex resume {session}' },
+          { name: 'Gemini CLI', command: 'gemini -i {prompt}', resume: 'gemini --resume {session}' },
+          {
+            name: 'OpenCode',
+            command: 'opencode --session ses_{session} --prompt {prompt}',
+            resume: 'opencode --session ses_{session}',
+          },
+        ],
+      },
+      true,
+    ).providers,
+    DEFAULT_PROVIDERS,
+  );
 });
 test('recent agent commands from before providers become providers', () => {
   const s = cleanSettings({ agentCommands: ['aider {prompt}', 'claude {prompt}', 3, 'aider {prompt}'] }, true);

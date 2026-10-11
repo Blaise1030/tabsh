@@ -5,9 +5,11 @@ import {
   clampStep,
   closesAfterSetup,
   dismissWelcome,
+  typingBeats,
   viewChoice,
   viewSettings,
   WELCOME_SCREENS,
+  welcomeFromQuery,
 } from './steps.ts';
 
 test('the welcome screens match the tour copy', () => {
@@ -28,7 +30,13 @@ test('the welcome screens match the tour copy', () => {
     },
     { id: 'theme', title: 'Theme.', body: 'The colours of the terminal and the page.', skip: true, setup: false },
     { id: 'font', title: 'Font.', body: 'The face the terminal draws in.', skip: true, setup: false },
-    { id: 'sound', title: 'Typing sound.', body: 'Played as you type. Pick one to hear it.', skip: true, setup: false },
+    {
+      id: 'sound',
+      title: 'Typing sound.',
+      body: 'Put on your headphone and never bother your girlfriend/boyfriend again.',
+      skip: true,
+      setup: false,
+    },
     {
       id: 'agents',
       title: 'Connect your agents.',
@@ -70,7 +78,26 @@ test('leaving the tour early only marks it seen', () => {
   assert.deepEqual(dismissWelcome(), { welcomeSeen: true });
 });
 
+test('welcome=1 in the query opens the tour', () => {
+  assert.equal(welcomeFromQuery(new URLSearchParams('welcome=1')), true);
+  assert.equal(welcomeFromQuery(new URLSearchParams('welcome=1&view=board')), true);
+  assert.equal(welcomeFromQuery(new URLSearchParams('')), false);
+  assert.equal(welcomeFromQuery(new URLSearchParams('welcome=0')), false);
+  assert.equal(welcomeFromQuery(new URLSearchParams('view=board')), false);
+});
+
 test('the tour closes by itself after the setup screen was opened', () => {
   assert.equal(closesAfterSetup(false), false);
   assert.equal(closesAfterSetup(true), true);
+});
+
+test('the sound preview types the command, then the run prints', () => {
+  const beats = typingBeats('cargo test', 5);
+  assert.deepEqual(
+    beats.flatMap((beat) => (beat.key ? [beat.key] : [])),
+    ['c', 'a', 'r', 'g', 'o', ' ', 't', 'e', 's', 't', 'Enter'],
+  );
+  assert.equal(beats[9].chars, 10);
+  assert.equal(beats.at(-1)?.lines, 5);
+  assert.equal(beats.at(-1)?.key, null);
 });

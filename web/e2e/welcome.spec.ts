@@ -87,12 +87,18 @@ test('Continue on Agents leaves the board setup screen', async ({ page, daemon }
   const headers = auth(daemon);
   const welcome = page.getByRole('dialog', { name: 'Welcome' });
   await expect(page.locator('#gate')).toBeHidden();
-  for (const title of ['How you look at the work.', 'Theme.', 'Font.', 'Typing sound.', 'Connect your agents.']) {
+  for (const title of [
+    'How you look at the work.',
+    'Theme.',
+    'Font.',
+    'Typing sound.',
+    'Connect your agents.',
+  ]) {
     await welcome.getByRole('button', { name: 'Continue' }).click();
     await expect(welcome).toContainText(title);
   }
-  // Continue on Agents ends the tour, but doesn't deal with the board.
-  await welcome.getByRole('button', { name: 'Continue' }).click();
+  // Finish onboarding ends the tour, but doesn't deal with the board.
+  await welcome.getByRole('button', { name: 'Finish onboarding' }).click();
   await expect(welcome).toBeHidden();
   // Both saves are fire-and-forget PUTs; the reload mustn't beat them.
   const saved = async () => {

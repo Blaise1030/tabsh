@@ -151,7 +151,7 @@ Copy, exact:
 | view | How you look at the work. | Tabs for the terminals, a kanban for the cards, or the same cards as a list. | true | false |
 | theme | Theme. | The colours of the terminal and the page. | true | false |
 | font | Font. | The face the terminal draws in. | true | false |
-| sound | Typing sound. | Played as you type. Pick one to hear it. | true | false |
+| sound | Typing sound. | The click of a mechanical keyboard. Your girlfriend never has to hear it. Pick one. | true | false |
 | agents | Connect your agents. | Cards move on their own when your coding agent reports what it is doing. Pick one and let it wire up its own hooks. | false | true |
 
 - [ ] **Step 1: Write the failing test**

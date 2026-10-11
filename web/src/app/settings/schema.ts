@@ -29,8 +29,16 @@ export interface Provider {
 export const DEFAULT_PROVIDERS: Provider[] = [
   { name: 'Claude Code', command: 'claude {prompt}', resume: 'claude --resume {session}' },
   { name: 'Codex', command: 'codex {prompt}', resume: 'codex resume {session}' },
+  // Cursor's CLI is `agent`. `--resume=<id>` continues one chat.
+  { name: 'Cursor CLI', command: 'agent {prompt}', resume: 'agent --resume={session}' },
+];
+
+// The stock list before Cursor CLI replaced Gemini CLI and OpenCode. An
+// install that never edited its agents picks up the new list.
+const PREVIOUS_PROVIDERS: Provider[] = [
+  { name: 'Claude Code', command: 'claude {prompt}', resume: 'claude --resume {session}' },
+  { name: 'Codex', command: 'codex {prompt}', resume: 'codex resume {session}' },
   { name: 'Gemini CLI', command: 'gemini -i {prompt}', resume: 'gemini --resume {session}' },
-  // OpenCode takes a new session's id from `--session` if it starts with `ses`.
   {
     name: 'OpenCode',
     command: 'opencode --session ses_{session} --prompt {prompt}',
@@ -57,7 +65,16 @@ function cleanProviders(stored: Record<string, unknown>): Provider[] {
     if (!name || !command || list.some((q) => q.name === name)) continue;
     list.push({ name, command, resume: text(p.resume) });
   }
-  return list.length ? list.slice(0, MAX_PROVIDERS) : DEFAULT_PROVIDERS;
+  if (!list.length) return DEFAULT_PROVIDERS;
+  const stock =
+    list.length === PREVIOUS_PROVIDERS.length &&
+    list.every(
+      (p, i) =>
+        p.name === PREVIOUS_PROVIDERS[i].name &&
+        p.command === PREVIOUS_PROVIDERS[i].command &&
+        p.resume === PREVIOUS_PROVIDERS[i].resume,
+    );
+  return stock ? DEFAULT_PROVIDERS : list.slice(0, MAX_PROVIDERS);
 }
 
 // Why `name` can't name provider `index` of `list` (-1: a new one), or null.

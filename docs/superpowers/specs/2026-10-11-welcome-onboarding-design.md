@@ -44,7 +44,7 @@ The demo’s pretend settings include `welcomeSeen: true`, next to `boardOnboard
 2. **View.** Title: “How you look at the work.” Body: “Tabs for the terminals, a kanban for the cards, or the same cards as a list.” Three choices, as sketched frames: **Tabs**, **Kanban**, **List**. The chosen one is marked. Picking one saves immediately.
 3. **Theme.** Title: “Theme.” Body: “The colours of the terminal and the page.” Every theme in `THEMES`, as a swatch with its name. Picking one saves `theme` and applies it, so the welcome itself restyles.
 4. **Font.** Title: “Font.” Body: “The face the terminal draws in.” Every font in `FONTS`. Each row’s name is drawn in that face. Picking one saves `font` and applies it.
-5. **Typing sound.** Title: “Typing sound.” Body: “Played as you type. Pick one to hear it.” Every entry in `TYPING_SOUNDS`, including Off. Picking one saves `typingSound`, applies it, and plays that sample once.
+5. **Typing sound.** Title: “Typing sound.” Body: “The click of a mechanical keyboard. Your girlfriend never has to hear it. Pick one.” Every entry in `TYPING_SOUNDS`, including Off. Picking one saves `typingSound`, applies it, and plays that sample once.
 6. **Agents.** Title: “Connect your agents.” Body: “Cards move on their own when your coding agent reports what it is doing. Pick one and let it wire up its own hooks.” The provider control is a menu button in the shape of an actions dropdown: the chosen name and a chevron, opening the saved providers with the current one checked. It starts as `agentProvider`. Beside it, the solid **Set up** button.
 
 Untouched choices keep today’s defaults: theme `tabsh`, font `menlo`, typing sound `mx-black-pbt`, view Tabs.
