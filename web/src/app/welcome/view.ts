@@ -32,11 +32,12 @@ export function Welcome(): HTMLDialogElement {
       ),
       footer(
         { class: 'welcome-foot' },
-        // One dot per screen, the current one marked. Rebuilt per step: the
-        // mark comes and goes with the screen.
+        // One dot per screen, the current one marked; a decorative indicator
+        // (the title and body announce where in the tour someone is), rebuilt
+        // per step as the mark comes and goes.
         () =>
           div(
-            { class: 'welcome-dots' },
+            { class: 'welcome-dots', 'aria-hidden': 'true' },
             ...WELCOME_SCREENS.map((_, i) =>
               span({ class: 'welcome-dot', ...(step.val === i ? { 'aria-current': 'step' } : {}) }),
             ),
@@ -70,6 +71,10 @@ export function Welcome(): HTMLDialogElement {
             {
               type: 'button',
               class: 'btn',
+              // showModal() would put the first focus on Skip (Back is hidden
+              // at step 0), and an accidental Enter there ends the tour for
+              // good: focus lands on the safe button instead.
+              autofocus: true,
               // The last screen's Continue sets things up with its own task;
               // until then clampStep keeps the tour on it.
               onclick: () => (step.val = clampStep(step.val + 1)),
