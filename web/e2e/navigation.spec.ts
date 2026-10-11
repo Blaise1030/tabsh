@@ -389,7 +389,7 @@ test('the Back key does nothing behind a dialog', async ({ page, daemon }) => {
   await newTab(page);
   const b = await onTab(page, 1);
   await page.locator('#board-btn').click();
-  await page.locator('.board-col[data-status="backlog"] header .btn').click();
+  await page.locator('#board .board-col[data-status="backlog"] header .btn').click();
   const dialog = page.locator('#new-card');
   await expect(dialog).toHaveAttribute('open', '');
   await page.keyboard.press(backKey);

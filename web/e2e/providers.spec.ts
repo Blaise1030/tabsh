@@ -45,7 +45,7 @@ test('a provider is added and edited in the palette and offered by New card', as
   await page.locator('#palette-input').press('Escape'); // back to the root page
   await page.locator('#palette-input').press('Escape'); // closed
   await page.locator('#board-btn').click();
-  await page.locator('.board-col[data-status="backlog"] header .btn').click();
+  await page.locator('#board .board-col[data-status="backlog"] header .btn').click();
   await page.locator('#new-card button[aria-label="Agent"]').click();
   const options = page.locator('#new-card [role="menu"][aria-label="Agent"] [role="menuitemradio"]');
   await expect(options).toHaveText(['Claude Code', 'Codex', 'Cursor CLI', 'Aider <b>x</b>']);
