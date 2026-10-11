@@ -16,6 +16,7 @@ import { aboutRows, loadAbout } from '../ui/about.ts';
 import { isMac } from '../ui/dom.ts';
 import { icons } from '../ui/icons.ts';
 import { keyed } from '../ui/keyed.ts';
+import { showWelcome } from '../welcome/view.ts';
 import { type PaletteItem, pages, type TextEdit } from './pages.ts';
 
 const { div, i, span } = van.tags;
@@ -39,6 +40,7 @@ function palettePages(): ReturnType<typeof pages> {
     toggleExplorer,
     toggleBoard: () => toggleBoard(),
     toggleBoardLayout,
+    showWelcome,
     searchFiles,
     canGoBack: navigation.canGoBack,
     goBack: backPastPalette,

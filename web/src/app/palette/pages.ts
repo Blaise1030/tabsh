@@ -60,6 +60,7 @@ export function pages(ctx: {
   toggleExplorer(): void;
   toggleBoard(): void;
   toggleBoardLayout(): void;
+  showWelcome(): void;
   searchFiles(): void;
   canGoBack: boolean;
   goBack(): void;
@@ -206,7 +207,15 @@ export function pages(ctx: {
         },
         {
           heading: 'Help',
-          items: [{ label: 'About tabsh…', icon: icons.info, keywords: 'version info uptime shell', go: 'about' }],
+          items: [
+            {
+              label: 'Show welcome',
+              icon: icons.preview,
+              keywords: 'onboarding tour intro',
+              run: ctx.showWelcome,
+            },
+            { label: 'About tabsh…', icon: icons.info, keywords: 'version info uptime shell', go: 'about' },
+          ],
         },
       ],
     }),

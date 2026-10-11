@@ -26,7 +26,7 @@ const featureRules = [
     paths: [/^web\/src\/app\/palette\//],
     specs: [
       'board', 'dialogs', 'navigation', 'palette', 'providers',
-      'tab-groups', 'tooltips', 'typing-sound',
+      'tab-groups', 'tooltips', 'typing-sound', 'welcome',
     ],
   },
   {

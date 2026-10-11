@@ -1,5 +1,6 @@
 // The welcome tour's dialog: one full-page screen per WELCOME_SCREENS entry,
-// opened on first load (initWelcome), walked with Continue, left with Skip.
+// opened on first load (initWelcome) and again from the palette's Show
+// welcome, walked with Continue, left with Skip.
 // The view, theme, font and sound screens carry their choices; the agents
 // screen picks a provider, and its Set up opens that provider's setup card.
 import van, { type State } from 'vanjs-core';
@@ -363,6 +364,10 @@ export function Welcome(): HTMLDialogElement {
 // connection comes first.
 export function showWelcome(): void {
   if (gateMode.val !== null) return;
+  // The palette is a modal too, so it goes first — opening the tour over it
+  // would throw. Its close listener walks the place back, exactly as Esc does.
+  const palette = document.getElementById('palette') as HTMLDialogElement | null;
+  if (palette?.open) palette.close();
   step.val = 0;
   pickedView.val = null;
   busy.val = false;

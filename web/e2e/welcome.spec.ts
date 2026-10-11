@@ -3,8 +3,9 @@
 // to the next screen, and Skip saves `welcomeSeen` and hides the tour — a
 // reload with the flag set shows no dialog at all. The view screen's pick
 // sets where a later visit opens (unless the URL says otherwise), and a theme
-// picked before Skip still styles the page.
-import { expect, test } from './fixture.ts';
+// picked before Skip still styles the page. Show welcome in the palette opens
+// the tour again; skipping it from there leaves the page and the board alone.
+import { expect, test, openApp, setOnboarded } from './fixture.ts';
 import type { Page } from '@playwright/test';
 import type { Daemon } from './daemon.ts';
 import { THEMES } from '../src/app/settings/catalog.ts';
@@ -124,4 +125,20 @@ test('a theme chosen before Skip is still the page theme', async ({ page, daemon
     .toBe(THEMES.nord.colors.background);
   await page.locator('#board-btn').click();
   await expect(page.locator('.board-onboarding')).toContainText('Set up with Claude Code');
+});
+
+test('Show welcome does not clear the board or leave the page when skipped', async ({ page, daemon }) => {
+  await openApp(page, daemon);
+  await setOnboarded(page, daemon, true);
+  await page.reload();
+  await page.locator('#settings-btn').click();
+  await page.locator('#palette-input').fill('welcome');
+  await page.getByRole('menuitem', { name: 'Show welcome' }).click();
+  const welcome = page.getByRole('dialog', { name: 'Welcome' });
+  await expect(welcome).toContainText('Shells that outlive this tab.');
+  await welcome.getByRole('button', { name: 'Skip' }).click();
+  await expect(welcome).toBeHidden();
+  await expect(page.locator('#board')).toBeHidden();
+  await page.locator('#board-btn').click();
+  await expect(page.locator('.board-onboarding')).toHaveCount(0);
 });
