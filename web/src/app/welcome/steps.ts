@@ -1,6 +1,6 @@
 // The welcome tour: the screens it shows, and the settings its choices write.
 // Pure data and decisions — the dialog lives in `view.ts`.
-import type { BoardLayout } from '../settings/schema.ts';
+import type { BoardLayout, StartView } from '../settings/schema.ts';
 
 // The tour's screens, in order. `skip` says whether the screen offers Skip
 // (the tour can be left early); `setup` marks the agents screen, the last
@@ -55,6 +55,14 @@ export function viewSettings(
   if (choice === 'tabs') return { startView: 'terms', boardLayout };
   if (choice === 'kanban') return { startView: 'board', boardLayout: 'columns' };
   return { startView: 'board', boardLayout: 'list' };
+}
+
+// The view screen's choice, as the saved settings name the chosen one: tabs
+// are the tour's terms view, kanban and list are the board in their layout —
+// the inverse of viewSettings.
+export function viewChoice(startView: StartView, boardLayout: BoardLayout): 'tabs' | 'kanban' | 'list' {
+  if (startView === 'terms') return 'tabs';
+  return boardLayout === 'list' ? 'list' : 'kanban';
 }
 
 // The settings written when the agents screen sets up a provider: the tour

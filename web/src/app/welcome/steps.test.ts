@@ -5,6 +5,7 @@ import {
   clampStep,
   closesAfterSetup,
   dismissWelcome,
+  viewChoice,
   viewSettings,
   WELCOME_SCREENS,
 } from './steps.ts';
@@ -52,6 +53,13 @@ test('the view choice writes startView and the board layout', () => {
   assert.deepEqual(viewSettings('kanban', 'columns'), { startView: 'board', boardLayout: 'columns' });
   assert.deepEqual(viewSettings('list', 'list'), { startView: 'board', boardLayout: 'list' });
   assert.deepEqual(viewSettings('list', 'columns'), { startView: 'board', boardLayout: 'list' });
+});
+
+test('viewChoice names the chosen button from the saved settings, inverting viewSettings', () => {
+  assert.equal(viewChoice('terms', 'list'), 'tabs');
+  assert.equal(viewChoice('terms', 'columns'), 'tabs');
+  assert.equal(viewChoice('board', 'columns'), 'kanban');
+  assert.equal(viewChoice('board', 'list'), 'list');
 });
 
 test('finishing on the agents screen marks the tour seen and sets the provider', () => {

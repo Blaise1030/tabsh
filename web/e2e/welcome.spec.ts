@@ -9,10 +9,14 @@ import type { Page } from '@playwright/test';
 import type { Daemon } from './daemon.ts';
 import { THEMES } from '../src/app/settings/catalog.ts';
 
+// The settings API's auth header, for the reads and writes the specs make
+// themselves.
+const auth = (daemon: Daemon): { Authorization: string } => ({ Authorization: `Bearer ${daemon.token}` });
+
 // Start a worker's daemon with the tour unseen and the board not onboarded,
 // then open the app: the dialog stands over it.
 async function firstVisit(page: Page, daemon: Daemon): Promise<void> {
-  const headers = { Authorization: `Bearer ${daemon.token}` };
+  const headers = auth(daemon);
   const now = await (await page.request.get(`${daemon.baseUrl}/api/settings`, { headers })).json();
   const put = await page.request.put(`${daemon.baseUrl}/api/settings`, {
     headers,
@@ -23,14 +27,8 @@ async function firstVisit(page: Page, daemon: Daemon): Promise<void> {
 }
 
 test('the intro stays up on Escape, and Skip hides it across reload', async ({ page, daemon }) => {
-  const headers = { Authorization: `Bearer ${daemon.token}` };
-  const now = await (await page.request.get(`${daemon.baseUrl}/api/settings`, { headers })).json();
-  const put = await page.request.put(`${daemon.baseUrl}/api/settings`, {
-    headers,
-    data: { ...now, welcomeSeen: false, boardOnboarded: false },
-  });
-  expect(put.status()).toBe(204);
-  await page.goto(`${daemon.baseUrl}/app/#token=${daemon.token}`);
+  await firstVisit(page, daemon);
+  const headers = auth(daemon);
   const welcome = page.getByRole('dialog', { name: 'Welcome' });
   await expect(welcome).toBeVisible();
   await expect(welcome).toContainText('Shells that outlive this tab.');
@@ -65,8 +63,9 @@ test('Kanban is where a later visit opens, unless the URL says otherwise', async
   await expect(board).toBeVisible();
   await expect(board).not.toHaveClass(/\blist\b/);
   // Both saves are fire-and-forget PUTs; the later visit mustn't beat them.
+  const headers = auth(daemon);
   const saved = async () => {
-    const s = (await (await page.request.get(`${daemon.baseUrl}/api/settings`, { headers: { Authorization: `Bearer ${daemon.token}` } })).json()) as {
+    const s = (await (await page.request.get(`${daemon.baseUrl}/api/settings`, { headers })).json()) as {
       welcomeSeen: boolean;
       startView: string;
       boardLayout: string;

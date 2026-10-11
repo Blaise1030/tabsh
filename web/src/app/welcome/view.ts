@@ -8,7 +8,7 @@ import { go } from '../nav/router.ts';
 import { FONTS, fontStack, THEMES, TYPING_SOUNDS } from '../settings/catalog.ts';
 import { current, saveSetting, saveSettings } from '../settings/settings.ts';
 import { previewSound } from '../sound/packs.ts';
-import { clampStep, dismissWelcome, viewSettings, WELCOME_SCREENS } from './steps.ts';
+import { clampStep, dismissWelcome, viewChoice, viewSettings, WELCOME_SCREENS } from './steps.ts';
 
 const { button, dialog, div, footer, h2, p, span } = van.tags;
 
@@ -22,17 +22,16 @@ const on = () => WELCOME_SCREENS[step.val];
 const el = () => document.getElementById('welcome') as HTMLDialogElement;
 
 // The view screen's three choices, as the saved settings name the chosen one.
-const viewChoice = (): 'tabs' | 'kanban' | 'list' =>
-  current.saved.startView === 'terms' ? 'tabs' : current.saved.boardLayout === 'list' ? 'list' : 'kanban';
+const chosenView = (): 'tabs' | 'kanban' | 'list' => viewChoice(current.saved.startView, current.saved.boardLayout);
 
 function pickView(choice: 'tabs' | 'kanban' | 'list'): void {
   saveSettings(viewSettings(choice, current.saved.boardLayout));
   pickedView.val = choice;
 }
 
-// Every way out of the tour lands here: the dialog closes and, only if this
-// opening changed where the app opens, the router moves it there. It writes
-// nothing — a caller saves first.
+// Every way out of the tour lands here: the dialog closes and, if this
+// opening picked a view, the router moves the app there. It writes nothing —
+// a caller saves first.
 function closeWelcome(): void {
   el().close();
   if (pickedView.val !== null) go({ view: current.saved.startView });
@@ -55,6 +54,7 @@ function sketchOf(kind: 'tabs' | 'kanban' | 'list'): HTMLElement {
   const piece = kind === 'tabs' ? 'flex:1; height:4px;' : kind === 'kanban' ? 'flex:1;' : 'height:3px; width:100%;';
   return div(
     { style: `${sketchShell}${align}` },
+    // Four tabs in the strip, three columns in the kanban, three rows in the list.
     ...Array.from({ length: kind === 'tabs' ? 4 : 3 }, () => sketchPiece(piece)),
   );
 }
@@ -71,7 +71,7 @@ function ViewChoices(): HTMLElement {
           class: 'btn',
           'data-variant': 'outline',
           style: 'flex:1; display:flex; flex-direction:column; gap:.5rem; align-items:stretch;',
-          'aria-pressed': () => ((pickedView.val ?? viewChoice()) === choice ? 'true' : 'false'),
+          'aria-pressed': () => ((pickedView.val ?? chosenView()) === choice ? 'true' : 'false'),
           onclick: () => pickView(choice),
         },
         sketchOf(choice),
