@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.21
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.20...v0.1.21)
+
+### Features
+
+- **web:** Open the landing demo on the board beside a terminal ([a8f866d](https://github.com/Blaise1030/tabsh/commit/a8f866d))
+
 ## v0.1.20
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.17...v0.1.20)
