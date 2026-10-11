@@ -134,6 +134,9 @@ window.addEventListener('focus', () => {
   const tab = (store.sessions.find((s) => s.id === activeId) ?? store.sessions[0])?.id ?? null;
   await startRouter({
     tab,
+    // Where the app opens when the URL doesn't say (the welcome tour's pick);
+    // a view query wins, as the URL merges over this fallback.
+    view: current.saved.startView,
     // The tab's remembered file opens as part of the startup place, which
     // doesn't take the keyboard. A URL naming another tab drops it.
     file: (tab && rememberedFiles()[tab]) || null,
