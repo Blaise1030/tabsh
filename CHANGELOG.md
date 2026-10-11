@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.1.23
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.22...v0.1.23)
+
+### Features
+
+- **web:** Remember whether the welcome was seen and where the app opens ([d55f73a](https://github.com/Blaise1030/tabsh/commit/d55f73a))
+- **web:** Define the welcome screens and the settings they write ([655cc79](https://github.com/Blaise1030/tabsh/commit/655cc79))
+- **web:** Open a welcome on first load and let Skip dismiss it ([8e700f5](https://github.com/Blaise1030/tabsh/commit/8e700f5))
+- **web:** Let the welcome set the view, theme, font, and typing sound ([8a04623](https://github.com/Blaise1030/tabsh/commit/8a04623))
+- **web:** Set up a chosen agent from the welcome ([7982d50](https://github.com/Blaise1030/tabsh/commit/7982d50))
+- **web:** Open the welcome again from the command palette ([649e1a3](https://github.com/Blaise1030/tabsh/commit/649e1a3))
+- **web:** Match the welcome preview to the real board chrome ([e95c0a2](https://github.com/Blaise1030/tabsh/commit/e95c0a2))
+- **web:** Add Open Graph and search metadata to the landing page ([06fed5b](https://github.com/Blaise1030/tabsh/commit/06fed5b))
+- **web:** Restyle the welcome and offer Cursor CLI by default ([43aee0a](https://github.com/Blaise1030/tabsh/commit/43aee0a))
+- **web:** Show RAM and CPU in the command palette ([30d40d8](https://github.com/Blaise1030/tabsh/commit/30d40d8))
+- Polish welcome onboarding copy ([ea42fd4](https://github.com/Blaise1030/tabsh/commit/ea42fd4))
+
+### Fixes
+
+- **web:** Focus Continue first and harden the welcome spec ([3b850ff](https://github.com/Blaise1030/tabsh/commit/3b850ff))
+- **web:** Pass Open Graph image size as text ([3a0fb50](https://github.com/Blaise1030/tabsh/commit/3a0fb50))
+- **web:** Keep board tests off the welcome preview ([1010384](https://github.com/Blaise1030/tabsh/commit/1010384))
+
 ## v0.1.22
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.20...v0.1.22)
