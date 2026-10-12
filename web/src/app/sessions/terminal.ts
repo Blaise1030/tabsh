@@ -13,6 +13,7 @@ import { socketUrl } from '../daemon/client.ts';
 import { linkProvider } from '../links/provider.ts';
 import { here } from '../nav/router.ts';
 import { current, terminalOptions } from '../settings/settings.ts';
+import { icons } from '../ui/icons.ts';
 import { scoped } from '../ui/keyed.ts';
 import { ring } from './bell.ts';
 import { scanBell } from './bell-scan.ts';
@@ -168,6 +169,36 @@ export function openSession(info: SessionInfo): Session {
   term.open(el);
   term.registerLinkProvider(linkProvider(() => s, term, el));
 
+  // A program that redraws without taking the alternate screen can leave the
+  // view stuck above its output; this brings it back.
+  const scrolledUp = van.state(false);
+  const syncScrolled = () => {
+    const buf = term.buffer.active;
+    scrolledUp.val = buf.viewportY < buf.baseY;
+  };
+  term.onScroll(syncScrolled);
+  term.onWriteParsed(syncScrolled);
+  term.buffer.onBufferChange(syncScrolled);
+  el.addEventListener('wheel', () => requestAnimationFrame(syncScrolled), { passive: true });
+  el.append(
+    van.tags.button(
+      {
+        type: 'button',
+        class: 'btn term-bottom',
+        'data-variant': 'secondary',
+        'data-size': 'icon-sm',
+        'aria-label': 'Scroll to bottom',
+        title: 'Scroll to bottom',
+        hidden: () => !scrolledUp.val,
+        onclick: () => {
+          term.scrollToBottom();
+          syncScrolled();
+          term.focus();
+        },
+      },
+      icons.chevronDown(),
+    ),
+  );
   // Right-click belongs to the terminal, not the browser's menu. Programs
   // that track the mouse (vim, tmux, htop) receive it from xterm.js; at a
   // plain prompt it copies the selection, or pastes when there is none.
