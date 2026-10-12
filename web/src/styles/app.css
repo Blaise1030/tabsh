@@ -849,3 +849,34 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 #new-card-folders [role="option"][aria-selected="true"] { background: var(--accent); color: var(--accent-foreground); }
 .new-card-error { color: var(--destructive, #ef4444); font-size: .8125rem; margin: 0; }
 .new-card-error[hidden] { display: none; }
+
+/* On a phone the palette and New card rise from the bottom as sheets, in
+   thumb reach, with a grab bar on top. Basecoat's centring translate and
+   zoom are replaced by a slide. */
+@media (max-width: 799px) {
+  .command-dialog > .command, #new-card #new-card-form, #new-card.big #new-card-form {
+    top: auto; bottom: 0; left: 0; width: 100%; max-width: none;
+    translate: 0 100%; scale: none;
+    border-bottom-width: 0; border-radius: 1rem 1rem 0 0;
+    transition-duration: .4s; transition-timing-function: cubic-bezier(.32, .72, 0, 1);
+  }
+  .command-dialog > .command { max-height: 85dvh; padding-top: .75rem; padding-bottom: env(safe-area-inset-bottom); }
+  #new-card #new-card-form { max-height: 92dvh; padding-top: 1.375rem; padding-bottom: calc(1rem + env(safe-area-inset-bottom)); }
+  .command-dialog[open] > .command, #new-card[open] #new-card-form { translate: 0 0; }
+  @starting-style {
+    .command-dialog[open] > .command, #new-card[open] #new-card-form { translate: 0 100%; }
+  }
+  .command-dialog > .command::before, #new-card #new-card-form::before {
+    content: ''; position: absolute; top: .375rem; left: 50%; translate: -50% 0;
+    width: 2.25rem; height: 4px; border-radius: 2px; background: var(--border); pointer-events: none;
+  }
+  /* Expand has no room to grow into: the sheet is already full width. */
+  #new-card .nc-tools > button:first-child { display: none; }
+  #new-card.big .nc-prompt { min-height: calc(2lh + .5rem); max-height: 50vh; }
+  /* The sheet sits on the screen's bottom edge: chip menus open upward. */
+  #new-card .nc-pop { top: auto; bottom: calc(100% + .375rem); }
+  #new-card .nc-menu [data-popover] { top: auto; bottom: 100%; margin: 0 0 var(--spacing, .25rem); }
+}
+@media (max-width: 799px) and (prefers-reduced-motion: reduce) {
+  .command-dialog > .command, #new-card #new-card-form { transition-duration: 0s; }
+}
