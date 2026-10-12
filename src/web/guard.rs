@@ -163,7 +163,7 @@ mod tests {
     use super::*;
     use crate::auth::Credential;
     use crate::remote::{mint, revoke, set_enabled};
-    use crate::test_support::{loopback_peer, test_state};
+    use crate::test_support::{loopback_peer, off_the_worker, test_state};
     use axum::{Extension, Router, body::Body, extract::ConnectInfo, routing::get};
     use std::net::SocketAddr;
     use tower::ServiceExt;
@@ -384,6 +384,18 @@ mod tests {
             .await,
             StatusCode::UNAUTHORIZED
         );
+    }
+
+    #[test]
+    fn a_device_token_waits_off_the_async_workers() {
+        let st = test_state();
+        set_enabled(&st, true).unwrap();
+        let (_, token) = mint(&st, "Pixel").unwrap();
+        let app = crate::state::router(st.clone());
+        let req = request(Method::GET, "/app/", REMOTE, None, Some(&token));
+        let (free, res) = off_the_worker(&st, async move { app.oneshot(req).await.unwrap() });
+        assert!(free, "a device's last_seen write held up the async worker");
+        assert_eq!(res.status(), StatusCode::OK);
     }
 
     #[tokio::test]

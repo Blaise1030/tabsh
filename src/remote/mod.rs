@@ -105,15 +105,24 @@ pub(crate) fn credential(st: &AppState, token: &str) -> Option<Credential> {
         (device.id.clone(), stale)
     };
     if stale {
-        let saved = st.db.lock().unwrap().execute(
-            "UPDATE devices SET last_seen = unixepoch() WHERE id = ?1",
-            params![id],
-        );
-        if let Err(e) = saved {
-            eprintln!("tabsh: could not save when device {id} was last seen: {e}");
+        let (db, id) = (st.db.clone(), id.clone());
+        // The guard calls this on every request: don't wait on the database there.
+        match tokio::runtime::Handle::try_current() {
+            Ok(rt) => drop(rt.spawn_blocking(move || save_last_seen(&db, &id))),
+            Err(_) => save_last_seen(&db, &id),
         }
     }
     Some(Credential::Device(id))
+}
+
+fn save_last_seen(db: &Mutex<Connection>, id: &str) {
+    let saved = db.lock().unwrap().execute(
+        "UPDATE devices SET last_seen = unixepoch() WHERE id = ?1",
+        params![id],
+    );
+    if let Err(e) = saved {
+        eprintln!("tabsh: could not save when device {id} was last seen: {e}");
+    }
 }
 
 /// Adds a device, returning its id and its token.
@@ -291,6 +300,18 @@ mod tests {
         set(1);
         credential(&st, &token);
         assert_eq!(list(&st).unwrap()[0].last_seen, Some(1));
+    }
+
+    #[tokio::test]
+    async fn in_a_runtime_last_seen_is_written_in_the_background() {
+        let st = test_state();
+        let (_, token) = mint(&st, "Pixel").unwrap();
+        credential(&st, &token);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while list(&st).unwrap()[0].last_seen.is_none() {
+            assert!(Instant::now() < deadline, "last_seen was never written");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
     }
 
     #[test]
