@@ -1,8 +1,14 @@
 //! The WebSocket a browser tab attaches to a running shell through.
 
 use super::{Event, Output, Session, pty};
-use crate::{AppState, error::BoxError};
+use crate::{
+    AppState,
+    auth::Credential,
+    error::BoxError,
+    remote::{Closed, closed_for, device_of, policy_close},
+};
 use axum::{
+    Extension,
     extract::{
         Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
@@ -19,8 +25,11 @@ pub(super) async fn ws_handler(
     ws: WebSocketUpgrade,
     headers: HeaderMap,
     Query(params): Query<HashMap<String, String>>,
+    credential: Option<Extension<Credential>>,
     State(st): State<AppState>,
 ) -> Response {
+    // Before the shell is opened, so a revoke in between is not missed.
+    let (closed, device) = (st.remote.closed.subscribe(), device_of(credential));
     // Browsers let any site open a WebSocket to localhost and always send
     // Origin when they do; `guard` has checked it is a hosted UI with the
     // token. Without one this isn't a browser we can vouch for.
@@ -37,7 +46,7 @@ pub(super) async fn ws_handler(
         }
     };
     ws.on_upgrade(move |socket| async move {
-        if let Err(e) = attach(socket, &session).await {
+        if let Err(e) = attach(socket, &session, (closed, device)).await {
             eprintln!("session {id} error: {e}");
         }
     })
@@ -65,7 +74,11 @@ impl Output {
     }
 }
 
-async fn attach(socket: WebSocket, session: &Session) -> Result<(), BoxError> {
+async fn attach(
+    socket: WebSocket,
+    session: &Session,
+    (mut closed, device): (broadcast::Receiver<Closed>, Option<String>),
+) -> Result<(), BoxError> {
     let (mut sink, mut stream) = socket.split();
 
     // The lock is let go before anything is sent: a slow client never
@@ -85,6 +98,10 @@ async fn attach(socket: WebSocket, session: &Session) -> Result<(), BoxError> {
 
     loop {
         tokio::select! {
+            () = closed_for(&mut closed, &device) => {
+                sink.send(policy_close()).await?;
+                break;
+            }
             ev = rx.recv() => match ev {
                 Ok(Event::Output(data)) => sink.send(Message::Binary(data)).await?,
                 // The daemon replaced this shell (its card's first prompt

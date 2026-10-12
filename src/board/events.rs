@@ -1,8 +1,13 @@
 //! `/api/board/events`: every card status change, pushed to open pages so
 //! tab glyphs and the board update without a reload.
 
-use crate::AppState;
+use crate::{
+    AppState,
+    auth::Credential,
+    remote::{closed_for, device_of, policy_close},
+};
 use axum::{
+    Extension,
     extract::{
         State,
         ws::{Message, WebSocketUpgrade},
@@ -11,11 +16,21 @@ use axum::{
 };
 use tokio::sync::broadcast::error::RecvError;
 
-pub(super) async fn events(ws: WebSocketUpgrade, State(st): State<AppState>) -> Response {
+pub(super) async fn events(
+    ws: WebSocketUpgrade,
+    credential: Option<Extension<Credential>>,
+    State(st): State<AppState>,
+) -> Response {
     let mut rx = st.events.subscribe();
+    // Before the upgrade, so a revoke in between is not missed.
+    let (mut closed, device) = (st.remote.closed.subscribe(), device_of(credential));
     ws.on_upgrade(move |mut socket| async move {
         loop {
             tokio::select! {
+                () = closed_for(&mut closed, &device) => {
+                    let _ = socket.send(policy_close()).await;
+                    break;
+                }
                 ev = rx.recv() => {
                     let text = match ev {
                         Ok(ev) => serde_json::to_string(&ev).unwrap_or_default(),

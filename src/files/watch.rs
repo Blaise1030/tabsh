@@ -22,8 +22,14 @@ use super::{
     resolve::session_base_dir,
     tree::{TREE_LIMIT_PATHS, list_tree, tree_path, tree_root, visible_names, walker},
 };
-use crate::{AppState, sessions};
+use crate::{
+    AppState,
+    auth::Credential,
+    remote::{Closed, closed_for, device_of, policy_close},
+    sessions,
+};
 use axum::{
+    Extension,
     extract::{
         Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
@@ -379,8 +385,11 @@ fn registry() -> &'static Registry {
 pub(super) async fn watch_handler(
     ws: WebSocketUpgrade,
     Query(q): Query<TreeQuery>,
+    credential: Option<Extension<Credential>>,
     State(st): State<AppState>,
 ) -> Response {
+    // Before anything is awaited, so a revoke in between is not missed.
+    let (closed, device) = (st.remote.closed.subscribe(), device_of(credential));
     let session = q.session.unwrap_or_default();
     let (cwd_st, id) = (st.clone(), session.clone());
     let root = tokio::task::spawn_blocking(move || tree_root(&session_base_dir(&cwd_st, &id)))
@@ -399,7 +408,7 @@ pub(super) async fn watch_handler(
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     }
-    ws.on_upgrade(move |socket| relay(socket, st, session, follow))
+    ws.on_upgrade(move |socket| relay(socket, st, session, follow, (closed, device)))
 }
 
 /// What a socket follows: the project root of its tab, and the watcher on it
@@ -468,12 +477,22 @@ async fn move_to(registry: &Registry, follow: &mut Follow, root: PathBuf, limit:
 
 /// Forwards the watcher's messages, and says when the tab's root changes,
 /// until the browser or the session goes away.
-async fn relay(socket: WebSocket, st: AppState, session: String, mut follow: Follow) {
+async fn relay(
+    socket: WebSocket,
+    st: AppState,
+    session: String,
+    mut follow: Follow,
+    (mut closed, device): (broadcast::Receiver<Closed>, Option<String>),
+) {
     let (mut sink, mut stream) = socket.split();
     let mut check = tokio::time::interval_at(tokio::time::Instant::now() + ROOT_CHECK, ROOT_CHECK);
     check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         let text = tokio::select! {
+            () = closed_for(&mut closed, &device) => {
+                let _ = sink.send(policy_close()).await;
+                break;
+            }
             change = follow.next_change() => match change {
                 Ok(text) => text.to_string(),
                 // Behind: some changes were dropped, so start over.

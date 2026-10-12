@@ -52,10 +52,41 @@ struct Device {
 
 #[derive(Clone, Debug)]
 pub(crate) enum Closed {
-    // Read by the sockets' watchers, which come in a later task.
-    #[allow(dead_code)]
     Device(String),
     All,
+}
+
+/// The device a request's credential names: `None` for the main token.
+pub(crate) fn device_of(credential: Option<axum::Extension<Credential>>) -> Option<String> {
+    match credential {
+        Some(axum::Extension(Credential::Device(id))) => Some(id),
+        _ => None,
+    }
+}
+
+/// Completes when a socket of `device` must close: sharing was turned off,
+/// that device was revoked, or the signals fell behind (a missed one might
+/// have been its own). Never completes for `None`, the main token's.
+pub(crate) async fn closed_for(rx: &mut broadcast::Receiver<Closed>, device: &Option<String>) {
+    let Some(id) = device else {
+        return std::future::pending().await;
+    };
+    loop {
+        match rx.recv().await {
+            Ok(Closed::All) | Err(_) => return,
+            Ok(Closed::Device(closed)) if closed == *id => return,
+            Ok(Closed::Device(_)) => {}
+        }
+    }
+}
+
+/// The frame a socket is closed with: policy violation (1008).
+pub(crate) fn policy_close() -> axum::extract::ws::Message {
+    use axum::extract::ws::{CloseFrame, Message};
+    Message::Close(Some(CloseFrame {
+        code: 1008,
+        reason: "access revoked".into(),
+    }))
 }
 
 #[derive(Serialize)]
@@ -408,6 +439,36 @@ mod tests {
         assert!(list(&st).unwrap().is_empty());
     }
 
+    #[tokio::test]
+    async fn closed_for_waits_for_its_own_device_or_all() {
+        let (tx, _) = broadcast::channel(2);
+        let wait = |mut rx: broadcast::Receiver<Closed>, who: Option<&str>| {
+            let who = who.map(str::to_owned);
+            async move {
+                tokio::time::timeout(Duration::from_millis(100), closed_for(&mut rx, &who))
+                    .await
+                    .is_ok()
+            }
+        };
+        let (main, a, b) = (tx.subscribe(), tx.subscribe(), tx.subscribe());
+        tx.send(Closed::Device("a".into())).unwrap();
+        assert!(!wait(main, None).await);
+        assert!(wait(a, Some("a")).await);
+        assert!(!wait(b, Some("b")).await);
+
+        let (main, b) = (tx.subscribe(), tx.subscribe());
+        tx.send(Closed::All).unwrap();
+        assert!(!wait(main, None).await);
+        assert!(wait(b, Some("b")).await);
+
+        // Fell behind: it can't tell whether a missed signal was its own.
+        let lagging = tx.subscribe();
+        for _ in 0..3 {
+            tx.send(Closed::Device("z".into())).unwrap();
+        }
+        assert!(wait(lagging, Some("b")).await);
+    }
+
     #[test]
     fn turning_sharing_off_closes_everything() {
         let st = test_state();
@@ -639,6 +700,140 @@ mod route_tests {
         .await;
         assert_eq!(status, StatusCode::CONFLICT);
         assert!(list(&st).unwrap().is_empty());
+    }
+
+    /// The socket a client opens at `path` on `addr` with `token`, as a page
+    /// served from the daemon itself does.
+    async fn open_socket(
+        addr: std::net::SocketAddr,
+        path: &str,
+        token: &str,
+    ) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>
+    {
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+        let sep = if path.contains('?') { '&' } else { '?' };
+        let mut req = format!("ws://{addr}{path}{sep}token={token}")
+            .into_client_request()
+            .unwrap();
+        req.headers_mut()
+            .insert("Origin", format!("http://{addr}").parse().unwrap());
+        tokio_tungstenite::connect_async(req).await.unwrap().0
+    }
+
+    /// The close code the socket ends with within `within`, or `None` while
+    /// it is still open. Anything else it ends with counts as 0.
+    async fn closes_with<S>(socket: &mut S, within: Duration) -> Option<u16>
+    where
+        S: futures_util::Stream<
+                Item = Result<
+                    tokio_tungstenite::tungstenite::Message,
+                    tokio_tungstenite::tungstenite::Error,
+                >,
+            > + Unpin,
+    {
+        use futures_util::StreamExt;
+        use tokio_tungstenite::tungstenite::Message;
+        let deadline = tokio::time::Instant::now() + within;
+        loop {
+            match tokio::time::timeout_at(deadline, socket.next()).await {
+                Err(_) => return None,
+                Ok(Some(Ok(Message::Close(frame)))) => {
+                    return Some(frame.map_or(0, |f| f.code.into()));
+                }
+                Ok(Some(Ok(_))) => {}
+                Ok(Some(Err(_)) | None) => return Some(0),
+            }
+        }
+    }
+
+    const CLOSES_WITHIN: Duration = Duration::from_secs(1);
+    const POLICY_VIOLATION: u16 = 1008;
+
+    async fn serve(st: &AppState) -> std::net::SocketAddr {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let app = router(st.clone()).into_make_service_with_connect_info::<std::net::SocketAddr>();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        addr
+    }
+
+    #[tokio::test]
+    async fn revoke_closes_the_devices_socket() {
+        let st = test_state();
+        set_enabled(&st, true).unwrap();
+        let (id, token) = mint(&st, "Pixel").unwrap();
+        let addr = serve(&st).await;
+        let mut device = open_socket(addr, "/api/board/events", &token).await;
+        let mut main = open_socket(addr, "/api/board/events", "t0k3n").await;
+
+        assert!(revoke(&st, &id).unwrap());
+
+        assert_eq!(
+            closes_with(&mut device, CLOSES_WITHIN).await,
+            Some(POLICY_VIOLATION)
+        );
+        assert_eq!(
+            closes_with(&mut main, Duration::from_millis(300)).await,
+            None
+        );
+    }
+
+    // Every socket a device opens (terminal, files, board) goes with it; the
+    // others stay until sharing is turned off, which takes all devices' and
+    // never the main token's.
+    #[tokio::test]
+    async fn revoking_and_turning_sharing_off_close_every_kind_of_socket() {
+        let st = test_state();
+        let cwd = crate::test_support::scratch();
+        st.db
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO sessions (id, name, position, cwd) VALUES ('s1', 'T', 1, ?1)",
+                [cwd.to_str().unwrap()],
+            )
+            .unwrap();
+        set_enabled(&st, true).unwrap();
+        let (a, token_a) = mint(&st, "A").unwrap();
+        let (_, token_b) = mint(&st, "B").unwrap();
+        let addr = serve(&st).await;
+        let paths = [
+            "/ws?id=s1",
+            "/api/files/watch?session=s1",
+            "/api/board/events",
+        ];
+        let mut of_a = Vec::new();
+        for path in paths {
+            of_a.push(open_socket(addr, path, &token_a).await);
+        }
+        let mut of_b = Vec::new();
+        for path in paths {
+            of_b.push(open_socket(addr, path, &token_b).await);
+        }
+        let mut main = open_socket(addr, "/ws?id=s1", "t0k3n").await;
+
+        assert!(revoke(&st, &a).unwrap());
+        for socket in &mut of_a {
+            assert_eq!(
+                closes_with(socket, CLOSES_WITHIN).await,
+                Some(POLICY_VIOLATION)
+            );
+        }
+        for socket in &mut of_b {
+            assert_eq!(closes_with(socket, Duration::from_millis(200)).await, None);
+        }
+
+        set_enabled(&st, false).unwrap();
+        for socket in &mut of_b {
+            assert_eq!(
+                closes_with(socket, CLOSES_WITHIN).await,
+                Some(POLICY_VIOLATION)
+            );
+        }
+        assert_eq!(
+            closes_with(&mut main, Duration::from_millis(300)).await,
+            None
+        );
     }
 
     #[tokio::test]
