@@ -40,6 +40,9 @@ pub(crate) struct Remote {
     /// The second listener's task and the address it is bound to.
     listener: Mutex<Option<(tokio::task::AbortHandle, std::net::SocketAddr)>>,
     error: Mutex<Option<String>>,
+    /// Held through a whole switch on or off, so a switch's `stop` can't
+    /// land after another's `start` and leave sharing on with no listener.
+    switching: tokio::sync::Mutex<()>,
     /// Sockets to close: one device's after a revoke, all after turning off.
     pub(crate) closed: broadcast::Sender<Closed>,
 }
@@ -161,6 +164,7 @@ pub(crate) fn load(conn: &Connection) -> Result<Remote, BoxError> {
         devices: Mutex::new(devices),
         listener: Mutex::new(None),
         error: Mutex::new(None),
+        switching: tokio::sync::Mutex::new(()),
         closed: broadcast::channel(16).0,
     })
 }
@@ -375,6 +379,7 @@ async fn put_remote(
     if st.host.is_some() {
         return Err(StatusCode::CONFLICT);
     }
+    let _switching = st.remote.switching.lock().await;
     if body.enabled {
         // The flag first: `start` refuses while sharing is off.
         blocking(&st, |st| set_enabled(st, true)).await?;
@@ -915,7 +920,7 @@ mod route_tests {
 
     // Every socket a device opens (terminal, files, board) goes with it; the
     // others stay until sharing is turned off, which takes all devices' and
-    // never the main token's.
+    // never this machine's main token's.
     #[tokio::test]
     async fn revoking_and_turning_sharing_off_close_every_kind_of_socket() {
         let st = test_state();
