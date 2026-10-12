@@ -13,13 +13,13 @@ const RETRY: Duration = if cfg!(test) {
     Duration::from_secs(30)
 };
 
-/// The address of a Tailscale interface: `utunN` on macOS, `tailscaleN` on
+/// The address of a Tailscale interface: `utunN` on macOS, `tailscale0` on
 /// Linux, holding one of Tailscale's addresses (100.64.0.0/10).
 pub(super) fn pick_tailscale(addrs: &[(String, Ipv4Addr)]) -> Option<Ipv4Addr> {
     addrs
         .iter()
         .find(|(name, ip)| {
-            (name.starts_with("utun") || name.starts_with("tailscale"))
+            (name.starts_with("utun") || name == "tailscale0")
                 && ip.octets()[0] == 100
                 && (64..128).contains(&ip.octets()[1])
         })
@@ -63,12 +63,14 @@ fn interface_v4s() -> Vec<(String, Ipv4Addr)> {
 }
 
 /// Where to listen for other devices: `TABSH_REMOTE_ADDRESS`, else this
-/// machine's Tailscale address. Tests never scan the interfaces: the
+/// machine's Tailscale address. An unspecified address (`0.0.0.0`, `::`) in
+/// the variable is ignored: the listener never takes every interface. Tests never scan the interfaces: the
 /// developer's machine may have a real Tailscale address.
 pub(crate) fn address() -> Option<IpAddr> {
     let set = std::env::var("TABSH_REMOTE_ADDRESS")
         .ok()
-        .and_then(|value| value.parse().ok());
+        .and_then(|value| value.parse::<IpAddr>().ok())
+        .filter(|ip| !ip.is_unspecified());
     if cfg!(test) {
         return set;
     }
@@ -93,20 +95,36 @@ pub(crate) async fn start(st: AppState) -> Result<SocketAddr, String> {
         .local_addr()
         .map_err(|e| failed(&st, e.to_string()))?;
     let app = crate::state::router(st.clone());
+    // One look and one store under the lock: `stop` and another `start` can't
+    // slip between them. Giving up drops `listener`, which closes it.
+    let mut slot = st.remote.listener.lock().unwrap();
+    if let Some(addr) = slot
+        .as_ref()
+        .filter(|(task, _)| !task.is_finished())
+        .map(|(_, addr)| *addr)
+    {
+        return Ok(addr);
+    }
+    if !super::is_enabled(&st) {
+        return Err("Sharing is off".into());
+    }
     let task = tokio::spawn(async move {
         let app = app.into_make_service_with_connect_info::<SocketAddr>();
         if let Err(e) = axum::serve(listener, app).await {
             eprintln!("tabsh: sharing stopped: {e}");
         }
     });
-    *st.remote.listener.lock().unwrap() = Some((task.abort_handle(), addr));
+    *slot = Some((task.abort_handle(), addr));
+    drop(slot);
     *st.remote.error.lock().unwrap() = None;
     println!("tabsh sharing on http://{addr}");
     Ok(addr)
 }
 
 fn running(st: &AppState) -> Option<SocketAddr> {
-    st.remote.listener.lock().unwrap().as_ref().map(|l| l.1)
+    let slot = st.remote.listener.lock().unwrap();
+    let (task, addr) = slot.as_ref()?;
+    (!task.is_finished()).then_some(*addr)
 }
 
 /// Keeps why sharing could not start, for the settings to show.
@@ -204,6 +222,8 @@ mod tests {
             None
         );
         assert_eq!(pick_tailscale(&[a("utun3", [100, 63, 255, 255])]), None);
+        assert_eq!(pick_tailscale(&[a("tailscale1", [100, 100, 1, 1])]), None);
+        assert_eq!(pick_tailscale(&[a("tailscale-x", [100, 100, 1, 1])]), None);
     }
 
     #[test]
@@ -223,6 +243,10 @@ mod tests {
         assert_eq!(address(), Some(IpAddr::from([127, 0, 0, 1])));
         env.set("not an address");
         assert_eq!(address(), None);
+        env.set("0.0.0.0");
+        assert_eq!(address(), None);
+        env.set("::");
+        assert_eq!(address(), None);
     }
 
     #[tokio::test]
@@ -231,6 +255,7 @@ mod tests {
         env.set("127.0.0.1");
         let mut st = test_state();
         st.port = free_port();
+        set_enabled(&st, true).unwrap();
 
         let addr = start(st.clone()).await.unwrap();
         assert_eq!(addr, SocketAddr::from(([127, 0, 0, 1], st.port)));
@@ -242,7 +267,7 @@ mod tests {
         let reply = tokio::task::spawn_blocking(move || {
             let mut conn = TcpStream::connect(addr).unwrap();
             conn.write_all(
-                format!("GET /api/about HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n")
+                format!("GET /app/ HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n")
                     .as_bytes(),
             )
             .unwrap();
@@ -252,7 +277,8 @@ mod tests {
         })
         .await
         .unwrap();
-        assert!(reply.starts_with("HTTP/1.1 "), "{reply}");
+        // 200: the guard answers 403 to a request without a peer address.
+        assert!(reply.starts_with("HTTP/1.1 200 "), "{reply}");
 
         stop(&st);
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -302,6 +328,7 @@ mod tests {
         let taken = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let mut st = test_state();
         st.port = taken.local_addr().unwrap().port();
+        set_enabled(&st, true).unwrap();
 
         let err = start(st.clone()).await.unwrap_err();
         assert_eq!(st.remote.error.lock().unwrap().as_deref(), Some(&*err));
@@ -321,5 +348,43 @@ mod tests {
         tokio::time::sleep(RETRY * 3).await;
         assert!(st.remote.listener.lock().unwrap().is_none());
         assert!(!listening(SocketAddr::from(([127, 0, 0, 1], st.port))));
+    }
+
+    #[tokio::test]
+    async fn start_does_not_listen_while_sharing_is_off() {
+        let env = Address::unset();
+        env.set("127.0.0.1");
+        let mut st = test_state();
+        st.port = free_port();
+        assert!(!is_enabled(&st));
+
+        // Sharing was turned off before `start` reached the store.
+        assert_eq!(start(st.clone()).await, Err("Sharing is off".to_string()));
+        assert!(st.remote.listener.lock().unwrap().is_none());
+        assert!(!listening(SocketAddr::from(([127, 0, 0, 1], st.port))));
+    }
+
+    #[tokio::test]
+    async fn a_finished_listener_is_not_running() {
+        let env = Address::unset();
+        env.set("127.0.0.1");
+        let mut st = test_state();
+        st.port = free_port();
+        set_enabled(&st, true).unwrap();
+
+        let task = tokio::spawn(std::future::pending::<()>());
+        let handle = task.abort_handle();
+        task.abort();
+        let _ = task.await;
+        assert!(handle.is_finished());
+        let stale = SocketAddr::from(([127, 0, 0, 1], 1));
+        *st.remote.listener.lock().unwrap() = Some((handle, stale));
+        assert_eq!(running(&st), None);
+
+        // A start replaces it rather than trusting it.
+        let addr = start(st.clone()).await.unwrap();
+        assert_eq!(addr.port(), st.port);
+        assert!(listening(addr));
+        stop(&st);
     }
 }
