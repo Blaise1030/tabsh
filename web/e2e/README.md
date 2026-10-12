@@ -43,6 +43,13 @@ app, CI rejects app source changes that omit `src/app.html` or
 5. it reads the **pairing token from `<state dir>/token`** (beside the
    database, exactly where the daemon puts it).
 
+`startDaemon({ env })` merges extra environment variables over the daemon's
+(the shared worker fixture passes none). `remote.spec.ts` starts its own daemon
+with `TABSH_REMOTE_ADDRESS: '::1'`, so the sharing listener binds `[::1]:<port>`
+beside `127.0.0.1:<port>`; since `::1` is loopback, the guard's remote-peer
+rules don't apply there (unit tests cover them). It skips when the machine has
+no IPv6 loopback.
+
 `cleanup()` SIGTERMs the daemon (its own flush-and-exit path) and deletes the
 temp dir; the worker-scoped fixture in `fixture.ts` calls it after the last
 test in the worker.
