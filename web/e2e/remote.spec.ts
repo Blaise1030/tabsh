@@ -116,6 +116,36 @@ test('share, pair a device and revoke it', async ({ page, browser, playwright, r
   await device.context().close();
 });
 
+test('a device added after the dialog closed is not shown when it reopens', async ({ page, remote }) => {
+  await openApp(page, remote);
+  await openDialog(page);
+  const dialog = await shareOn(page);
+
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/api/remote/devices', async (route) => {
+    await held;
+    await route.continue();
+  });
+  const added = page.waitForResponse((res) => res.url().endsWith('/api/remote/devices'));
+  await dialog.getByRole('button', { name: 'Add device' }).click();
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog.getByRole('heading')).toBeHidden();
+
+  // The add finishes with the dialog closed, ending on its own refresh.
+  const refreshed = page.waitForResponse((res) => new URL(res.url()).pathname === '/api/remote');
+  release();
+  await added;
+  await refreshed;
+
+  await openDialog(page);
+  await expect(dialog.locator('.remote-device-name')).toHaveText('iPhone');
+  await expect(dialog.getByRole('textbox', { name: 'Device link' })).toBeHidden();
+  await expect(dialog.locator('.remote-qr svg')).toHaveCount(0);
+});
+
 test('a device page cannot open the dialog', async ({ page, browser, remote }) => {
   await openApp(page, remote);
   await openDialog(page);

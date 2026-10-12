@@ -263,6 +263,8 @@ export function openRemote(): void {
   if (host.open) return;
   info.val = null;
   problem.val = null;
+  // An add still in flight when the dialog closed has set its link since.
+  forget();
   host.showModal();
   void refresh();
 }
