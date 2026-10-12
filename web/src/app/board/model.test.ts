@@ -4,7 +4,10 @@ import {
   asStatus,
   type BoardFilter,
   type Card,
+  clippedTooltip,
   dropOrder,
+  fittingCount,
+  folderName,
   foldersOf,
   group,
   matchesFilter,
@@ -60,6 +63,13 @@ test('shortPath shortens home', () => {
   assert.equal(shortPath(null), '');
 });
 
+test('folderName is the last segment', () => {
+  assert.equal(folderName('/Users/jo/Developer/copilot-worktree'), 'copilot-worktree');
+  assert.equal(folderName('/home/jo'), '~');
+  assert.equal(folderName('/tmp/x'), 'x');
+  assert.equal(folderName(null), '');
+});
+
 test('folders are unique, newest first, and recent ones are capped', () => {
   const items = [
     item('a', 'backlog', '/a', 1),
@@ -102,6 +112,20 @@ test('dropOrder puts the card before the target, or at the end of its column', (
   assert.deepEqual(dropOrder(items, 'd', 'backlog', 'c'), ['a', 'b', 'd', 'c']);
   assert.deepEqual(dropOrder(items, 'a', 'backlog', null), ['b', 'c', 'a', 'd']);
   assert.deepEqual(dropOrder(items, 'a', 'needs_input', null), ['b', 'c', 'd', 'a']);
+});
+
+test('a clipped label keeps its full text for the tooltip', () => {
+  assert.equal(clippedTooltip('~/code/shop/src/app', 180, 80), '~/code/shop/src/app');
+  assert.equal(clippedTooltip('~/code/shop', 80, 80), '');
+  assert.equal(clippedTooltip('~/code/shop', 81, 80), '');
+  assert.equal(clippedTooltip('', 180, 80), '');
+});
+
+test('tags that fit stay visible, and the overflow chip takes a slot once any are hidden', () => {
+  assert.equal(fittingCount([20, 20, 20], 4, 100, 16), 3);
+  assert.equal(fittingCount([20, 20, 20, 20], 4, 70, 16), 2);
+  assert.equal(fittingCount([40, 40], 4, 30, 16), 0);
+  assert.equal(fittingCount([10, 10], 4, 24, 16), 2);
 });
 
 test('attached images follow the prompt, one path a line', () => {
