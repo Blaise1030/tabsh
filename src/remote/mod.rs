@@ -1,19 +1,23 @@
 //! Sharing tabsh with other devices: the on/off flag and the per-device tokens.
 
-// The routes that mint, revoke, list and switch come in a later task.
-#![allow(dead_code)]
-
 pub(crate) mod listen;
 
 use crate::{
     AppState,
     auth::{Credential, random_hex, token_eq},
-    error::BoxError,
+    error::{BoxError, internal_error},
+};
+use axum::{
+    Json, Router,
+    extract::{Path, State},
+    http::StatusCode,
+    routing::{delete, get, post},
 };
 use rusqlite::{Connection, OptionalExtension, params};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
+    net::IpAddr,
     sync::{
         Mutex,
         atomic::{AtomicBool, Ordering},
@@ -48,6 +52,8 @@ struct Device {
 
 #[derive(Clone, Debug)]
 pub(crate) enum Closed {
+    // Read by the sockets' watchers, which come in a later task.
+    #[allow(dead_code)]
     Device(String),
     All,
 }
@@ -204,6 +210,141 @@ pub(crate) fn list(st: &AppState) -> Result<Vec<DeviceInfo>, BoxError> {
     Ok(devices)
 }
 
+pub(crate) fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/api/remote", get(get_remote).put(put_remote))
+        .route("/api/remote/devices", post(add_device))
+        .route("/api/remote/devices/{id}", delete(delete_device))
+}
+
+/// What the dialog shows: the same body for `GET` and `PUT`.
+#[derive(Serialize)]
+struct Status {
+    enabled: bool,
+    /// Where other devices reach this machine: null when there is none.
+    address: Option<String>,
+    port: u16,
+    /// The daemon's own non-loopback `HOST`, when it has one.
+    host: Option<String>,
+    /// Why sharing could not start, last.
+    error: Option<String>,
+    devices: Vec<DeviceInfo>,
+}
+
+#[derive(Deserialize)]
+struct Switch {
+    enabled: bool,
+}
+
+#[derive(Deserialize)]
+struct NewDevice {
+    #[serde(default)]
+    name: String,
+}
+
+#[derive(Serialize)]
+struct Pairing {
+    id: String,
+    name: String,
+    /// Carries the token: shown once, never listed.
+    url: String,
+}
+
+/// The address the listener is bound to, else the one it would bind.
+fn current_address(st: &AppState) -> Option<IpAddr> {
+    listen::running(st)
+        .map(|bound| bound.ip())
+        .or_else(listen::address)
+}
+
+fn status(st: &AppState) -> Result<Status, BoxError> {
+    Ok(Status {
+        enabled: is_enabled(st),
+        address: current_address(st).map(|ip| ip.to_string()),
+        port: st.port,
+        host: st.host.as_deref().map(str::to_owned),
+        error: st.remote.error.lock().unwrap().clone(),
+        devices: list(st)?,
+    })
+}
+
+/// Runs database work on the blocking pool, as `board` does.
+async fn blocking<T: Send + 'static>(
+    st: &AppState,
+    work: impl FnOnce(&AppState) -> Result<T, BoxError> + Send + 'static,
+) -> Result<T, StatusCode> {
+    let st = st.clone();
+    tokio::task::spawn_blocking(move || work(&st))
+        .await
+        .map_err(internal_error)?
+        .map_err(internal_error)
+}
+
+async fn get_remote(State(st): State<AppState>) -> Result<Json<Status>, StatusCode> {
+    blocking(&st, status).await.map(Json)
+}
+
+async fn put_remote(
+    State(st): State<AppState>,
+    Json(body): Json<Switch>,
+) -> Result<Json<Status>, StatusCode> {
+    // The daemon already listens beyond this machine: there is nothing to switch.
+    if st.host.is_some() {
+        return Err(StatusCode::CONFLICT);
+    }
+    if body.enabled {
+        // The flag first: `start` refuses while sharing is off.
+        blocking(&st, |st| set_enabled(st, true)).await?;
+        if let Err(why) = listen::start(st.clone()).await {
+            *st.remote.error.lock().unwrap() = Some(why);
+            blocking(&st, |st| set_enabled(st, false)).await?;
+        }
+    } else {
+        blocking(&st, |st| set_enabled(st, false)).await?;
+        listen::stop(&st);
+        *st.remote.error.lock().unwrap() = None;
+    }
+    blocking(&st, status).await.map(Json)
+}
+
+async fn add_device(
+    State(st): State<AppState>,
+    Json(body): Json<NewDevice>,
+) -> Result<Json<Pairing>, StatusCode> {
+    let Some(ip) = current_address(&st).filter(|_| is_enabled(&st)) else {
+        return Err(StatusCode::CONFLICT);
+    };
+    let port = st.port;
+    blocking(&st, move |st| {
+        let (id, token) = mint(st, &body.name)?;
+        let name = list(st)?
+            .into_iter()
+            .find(|device| device.id == id)
+            .map_or_else(String::new, |device| device.name);
+        let host = match ip {
+            IpAddr::V4(ip) => ip.to_string(),
+            IpAddr::V6(ip) => format!("[{ip}]"),
+        };
+        Ok(Pairing {
+            url: format!("http://{host}:{port}/app/#token={token}"),
+            id,
+            name,
+        })
+    })
+    .await
+    .map(Json)
+}
+
+async fn delete_device(
+    State(st): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, StatusCode> {
+    match blocking(&st, move |st| revoke(st, &id)).await? {
+        true => Ok(StatusCode::NO_CONTENT),
+        false => Err(StatusCode::NOT_FOUND),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -333,5 +474,270 @@ mod tests {
         st.remote = Arc::new(load(&st.db.lock().unwrap()).unwrap());
         assert!(is_enabled(&st));
         assert_eq!(credential(&st, &token), Some(Credential::Device(id)));
+    }
+}
+
+#[cfg(test)]
+// The ENV lock is held across awaits on purpose: it serialises the tests.
+#[allow(clippy::await_holding_lock)]
+mod route_tests {
+    use super::*;
+    use crate::state::router;
+    use crate::test_support::{Address, free_port, loopback_peer, test_state};
+    use axum::{
+        body::Body,
+        http::{Method, Request, StatusCode},
+    };
+    use serde_json::{Value, json};
+    use tower::ServiceExt;
+
+    /// Calls `/api/remote…` as the page does: the main token, no body unless given.
+    async fn call(
+        st: &AppState,
+        method: Method,
+        uri: &str,
+        body: Option<Value>,
+    ) -> (StatusCode, Value) {
+        let mut req = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("Host", "127.0.0.1:7681")
+            .header("Origin", "https://tabsh.cc")
+            .header("Authorization", "Bearer t0k3n")
+            .extension(loopback_peer());
+        let body = match body {
+            Some(json) => {
+                req = req.header("Content-Type", "application/json");
+                Body::from(json.to_string())
+            }
+            None => Body::empty(),
+        };
+        let res = router(st.clone())
+            .oneshot(req.body(body).unwrap())
+            .await
+            .unwrap();
+        let status = res.status();
+        let bytes = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let json = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+        (status, json)
+    }
+
+    #[tokio::test]
+    async fn get_reports_off_with_no_devices() {
+        let _env = Address::unset();
+        let st = test_state();
+        let (status, body) = call(&st, Method::GET, "/api/remote", None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body,
+            json!({
+                "enabled": false,
+                "address": null,
+                "port": 7681,
+                "host": null,
+                "error": null,
+                "devices": [],
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn add_device_returns_the_link_once() {
+        let env = Address::unset();
+        env.set("127.0.0.1");
+        let mut st = test_state();
+        st.port = free_port();
+
+        let (status, body) = call(
+            &st,
+            Method::PUT,
+            "/api/remote",
+            Some(json!({"enabled": true})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["enabled"], true);
+        assert_eq!(body["address"], "127.0.0.1");
+        assert_eq!(body["error"], Value::Null);
+
+        let (status, body) = call(
+            &st,
+            Method::POST,
+            "/api/remote/devices",
+            Some(json!({"name": "iPhone"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let (id, url) = (body["id"].as_str().unwrap(), body["url"].as_str().unwrap());
+        assert_eq!(body["name"], "iPhone");
+        let token = url
+            .strip_prefix(&format!("http://127.0.0.1:{}/app/#token=", st.port))
+            .expect(url);
+        assert_eq!(credential(&st, token), Some(Credential::Device(id.into())));
+
+        let (_, listed) = call(&st, Method::GET, "/api/remote", None).await;
+        assert_eq!(listed["devices"][0]["id"], id);
+        assert_eq!(listed["devices"][0]["name"], "iPhone");
+        assert!(!listed.to_string().contains(token));
+
+        listen::stop(&st);
+    }
+
+    #[tokio::test]
+    async fn an_ipv6_address_is_bracketed_in_the_link() {
+        let env = Address::unset();
+        env.set("::1");
+        let mut st = test_state();
+        st.port = free_port();
+        set_enabled(&st, true).unwrap();
+        let (status, body) = call(
+            &st,
+            Method::POST,
+            "/api/remote/devices",
+            Some(json!({"name": "x"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body["url"]
+                .as_str()
+                .unwrap()
+                .starts_with(&format!("http://[::1]:{}/app/#token=", st.port)),
+            "{body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn add_device_needs_sharing_on() {
+        let env = Address::unset();
+        env.set("127.0.0.1");
+        let st = test_state();
+        let (status, _) = call(
+            &st,
+            Method::POST,
+            "/api/remote/devices",
+            Some(json!({"name": "iPhone"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert!(list(&st).unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn add_device_needs_an_address() {
+        let _env = Address::unset();
+        let st = test_state();
+        set_enabled(&st, true).unwrap();
+        let (status, _) = call(
+            &st,
+            Method::POST,
+            "/api/remote/devices",
+            Some(json!({"name": "iPhone"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert!(list(&st).unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn delete_revokes() {
+        let st = test_state();
+        let (id, token) = mint(&st, "Pixel").unwrap();
+        let uri = format!("/api/remote/devices/{id}");
+        let (status, _) = call(&st, Method::DELETE, &uri, None).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(credential(&st, &token), None);
+        let (status, _) = call(&st, Method::DELETE, &uri, None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn a_fixed_host_cannot_be_toggled() {
+        let _env = Address::unset();
+        let mut st = test_state();
+        st.host = Some("192.168.1.2".into());
+        let (status, _) = call(
+            &st,
+            Method::PUT,
+            "/api/remote",
+            Some(json!({"enabled": true})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert!(!is_enabled(&st));
+        let (_, body) = call(&st, Method::GET, "/api/remote", None).await;
+        assert_eq!(body["host"], "192.168.1.2");
+    }
+
+    #[tokio::test]
+    async fn turning_off_stops_the_listener_and_closes_sockets() {
+        let env = Address::unset();
+        env.set("127.0.0.1");
+        let mut st = test_state();
+        st.port = free_port();
+        call(
+            &st,
+            Method::PUT,
+            "/api/remote",
+            Some(json!({"enabled": true})),
+        )
+        .await;
+        assert!(st.remote.listener.lock().unwrap().is_some());
+        let mut rx = st.remote.closed.subscribe();
+
+        let (status, body) = call(
+            &st,
+            Method::PUT,
+            "/api/remote",
+            Some(json!({"enabled": false})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["enabled"], false);
+        assert!(!is_enabled(&st));
+        assert!(st.remote.listener.lock().unwrap().is_none());
+        assert!(matches!(rx.try_recv(), Ok(Closed::All)));
+    }
+
+    #[tokio::test]
+    async fn a_failed_start_leaves_sharing_off_and_says_why() {
+        let env = Address::unset();
+        env.set("127.0.0.1");
+        let taken = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut st = test_state();
+        st.port = taken.local_addr().unwrap().port();
+
+        let (status, body) = call(
+            &st,
+            Method::PUT,
+            "/api/remote",
+            Some(json!({"enabled": true})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["enabled"], false);
+        assert!(
+            body["error"].as_str().is_some_and(|e| !e.is_empty()),
+            "{body}"
+        );
+        assert!(!is_enabled(&st));
+    }
+
+    #[tokio::test]
+    async fn no_address_leaves_sharing_off_and_says_so() {
+        let _env = Address::unset();
+        let st = test_state();
+        let (status, body) = call(
+            &st,
+            Method::PUT,
+            "/api/remote",
+            Some(json!({"enabled": true})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["enabled"], false);
+        assert_eq!(body["error"], "No Tailscale address");
     }
 }

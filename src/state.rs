@@ -34,6 +34,9 @@ pub(crate) struct AppState {
     pub(crate) remote: Arc<remote::Remote>,
     /// The port this daemon was asked to listen on.
     pub(crate) port: u16,
+    /// The `HOST` this daemon listens on, when it isn't a loopback address:
+    /// it already listens beyond this machine, so sharing is not switched here.
+    pub(crate) host: Option<Arc<str>>,
 }
 
 /// Builds the app router with all routes and the guard middleware applied.
@@ -46,6 +49,7 @@ pub(crate) fn router(state: AppState) -> Router {
         .merge(files::routes())
         .merge(settings::routes())
         .merge(upload::routes())
+        .merge(remote::routes())
         .layer(middleware::from_fn_with_state(
             state.clone(),
             web::guard::guard,
@@ -98,6 +102,10 @@ mod tests {
             (Method::GET, "/api/files/tree?session=x"),
             (Method::GET, "/api/files/watch?session=x"),
             (Method::GET, "/ws?id=x"),
+            (Method::GET, "/api/remote"),
+            (Method::PUT, "/api/remote"),
+            (Method::POST, "/api/remote/devices"),
+            (Method::DELETE, "/api/remote/devices/x"),
             (Method::GET, "/nope"),
         ];
 

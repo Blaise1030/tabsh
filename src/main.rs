@@ -92,6 +92,7 @@ async fn daemon() {
         events: tokio::sync::broadcast::channel(256).0,
         remote: Arc::new(remote),
         port: port_number,
+        host: fixed_host(&host),
     };
 
     let flusher = state.clone();
@@ -152,6 +153,15 @@ async fn shutdown_signal() {
 
 /// Where shells (and `tabsh status`) reach the daemon: loopback when it
 /// listens on every interface, and IPv6 literals in brackets.
+/// `host` when it isn't a loopback address: a name, or an address on another
+/// interface (or every one, `0.0.0.0`).
+fn fixed_host(host: &str) -> Option<Arc<str>> {
+    match host.parse::<std::net::IpAddr>() {
+        Ok(ip) if ip.is_loopback() => None,
+        _ => Some(host.into()),
+    }
+}
+
 fn self_url(host: &str, port: &str) -> String {
     let host = match host {
         "0.0.0.0" | "::" => "127.0.0.1",
@@ -175,5 +185,19 @@ mod self_url_tests {
         assert_eq!(self_url("::", "7681"), "http://127.0.0.1:7681");
         assert_eq!(self_url("::1", "7681"), "http://[::1]:7681");
         assert_eq!(self_url("example.test", "1"), "http://example.test:1");
+    }
+}
+
+#[cfg(test)]
+mod fixed_host_tests {
+    use super::fixed_host;
+
+    #[test]
+    fn only_a_non_loopback_host_is_fixed() {
+        assert_eq!(fixed_host("127.0.0.1"), None);
+        assert_eq!(fixed_host("::1"), None);
+        assert_eq!(fixed_host("192.168.1.2").as_deref(), Some("192.168.1.2"));
+        assert_eq!(fixed_host("0.0.0.0").as_deref(), Some("0.0.0.0"));
+        assert_eq!(fixed_host("example.test").as_deref(), Some("example.test"));
     }
 }

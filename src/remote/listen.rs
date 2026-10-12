@@ -121,7 +121,7 @@ pub(crate) async fn start(st: AppState) -> Result<SocketAddr, String> {
     Ok(addr)
 }
 
-fn running(st: &AppState) -> Option<SocketAddr> {
+pub(super) fn running(st: &AppState) -> Option<SocketAddr> {
     let slot = st.remote.listener.lock().unwrap();
     let (task, addr) = slot.as_ref()?;
     (!task.is_finished()).then_some(*addr)
@@ -158,48 +158,12 @@ pub(crate) fn keep_trying(st: AppState) {
 mod tests {
     use super::*;
     use crate::remote::{is_enabled, set_enabled};
-    use crate::test_support::{ENV, test_state};
+    use crate::test_support::{Address, free_port, test_state};
     use std::{
         io::{Read, Write},
         net::TcpStream,
-        sync::MutexGuard,
         time::{Duration, Instant},
     };
-
-    const VAR: &str = "TABSH_REMOTE_ADDRESS";
-
-    /// Owns `ENV` and `TABSH_REMOTE_ADDRESS` for one test: unset on entry
-    /// and on exit, even when the test fails.
-    struct Address(MutexGuard<'static, ()>);
-
-    impl Address {
-        fn unset() -> Self {
-            let guard = Address(ENV.lock().unwrap_or_else(|e| e.into_inner()));
-            // SAFETY: the ENV lock serialises every access to this variable.
-            unsafe { std::env::remove_var(VAR) };
-            guard
-        }
-
-        fn set(&self, value: &str) {
-            // SAFETY: the ENV lock, held by `self`, serialises it.
-            unsafe { std::env::set_var(VAR, value) };
-        }
-    }
-
-    impl Drop for Address {
-        fn drop(&mut self) {
-            // SAFETY: the ENV lock, still held, serialises it.
-            unsafe { std::env::remove_var(VAR) };
-        }
-    }
-
-    fn free_port() -> u16 {
-        std::net::TcpListener::bind("127.0.0.1:0")
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port()
-    }
 
     fn listening(addr: SocketAddr) -> bool {
         TcpStream::connect_timeout(&addr, Duration::from_millis(500)).is_ok()

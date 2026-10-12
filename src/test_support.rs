@@ -20,12 +20,53 @@ pub(crate) fn test_state() -> AppState {
         events: tokio::sync::broadcast::channel(256).0,
         remote: Arc::new(remote),
         port: 7681,
+        host: None,
     }
 }
 
 /// Held by every test that reads or writes `TABSH_REMOTE_ADDRESS`, which is
 /// process-wide, for the whole test.
 pub(crate) static ENV: Mutex<()> = Mutex::new(());
+
+/// Owns `ENV` and `TABSH_REMOTE_ADDRESS` for one test: unset on entry and on
+/// exit, even when the test fails.
+pub(crate) struct Address {
+    _lock: std::sync::MutexGuard<'static, ()>,
+}
+
+impl Address {
+    pub(crate) fn unset() -> Self {
+        let guard = Address {
+            _lock: ENV.lock().unwrap_or_else(|e| e.into_inner()),
+        };
+        // SAFETY: the ENV lock serialises every access to this variable.
+        unsafe { std::env::remove_var(ADDRESS_VAR) };
+        guard
+    }
+
+    pub(crate) fn set(&self, value: &str) {
+        // SAFETY: the ENV lock, held by `self`, serialises it.
+        unsafe { std::env::set_var(ADDRESS_VAR, value) };
+    }
+}
+
+impl Drop for Address {
+    fn drop(&mut self) {
+        // SAFETY: the ENV lock, still held, serialises it.
+        unsafe { std::env::remove_var(ADDRESS_VAR) };
+    }
+}
+
+const ADDRESS_VAR: &str = "TABSH_REMOTE_ADDRESS";
+
+/// A port nothing listens on now.
+pub(crate) fn free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
+}
 
 /// The peer address of a request from this machine: the guard refuses
 /// requests without one.
