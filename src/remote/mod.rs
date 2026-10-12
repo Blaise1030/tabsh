@@ -56,12 +56,35 @@ pub(crate) enum Closed {
     All,
 }
 
-/// The device a request's credential names: `None` for the main token.
-pub(crate) fn device_of(credential: Option<axum::Extension<Credential>>) -> Option<String> {
-    match credential {
+/// What a socket handler calls first: the receiver its `closed_for` waits on,
+/// and the device (`None`: the main token) it is for. A revoke or turning
+/// sharing off between the guard's check and this subscription is never sent
+/// to the receiver, so a device that is gone by now is refused (`None`)
+/// instead: the handler answers 403 before it upgrades.
+pub(crate) fn admit(
+    st: &AppState,
+    credential: Option<axum::Extension<Credential>>,
+) -> Option<(broadcast::Receiver<Closed>, Option<String>)> {
+    let device = match credential {
         Some(axum::Extension(Credential::Device(id))) => Some(id),
         _ => None,
+    };
+    // Subscribe first: what happens after is sent to `rx`, what happened
+    // before is seen below.
+    let rx = st.remote.closed.subscribe();
+    if let Some(id) = &device {
+        let known = st
+            .remote
+            .devices
+            .lock()
+            .unwrap()
+            .values()
+            .any(|device| device.id == *id);
+        if !(known && is_enabled(st)) {
+            return None;
+        }
     }
+    Some((rx, device))
 }
 
 /// Completes when a socket of `device` must close: sharing was turned off,
@@ -467,6 +490,31 @@ mod tests {
             tx.send(Closed::Device("z".into())).unwrap();
         }
         assert!(wait(lagging, Some("b")).await);
+    }
+
+    // A request the guard let through with a device's credential, whose
+    // device is revoked (or sharing turned off) before the handler subscribes:
+    // no signal will ever reach it, so the handler must refuse it.
+    #[tokio::test]
+    async fn a_socket_of_a_revoked_device_is_refused_after_subscribing() {
+        let st = test_state();
+        set_enabled(&st, true).unwrap();
+        let (id, token) = mint(&st, "Pixel").unwrap();
+        let as_guard_saw = |token: &str| credential(&st, token).map(axum::Extension);
+        assert!(admit(&st, as_guard_saw(&token)).is_some());
+        assert!(admit(&st, as_guard_saw("t0k3n")).is_some());
+
+        let seen = as_guard_saw(&token);
+        assert!(revoke(&st, &id).unwrap());
+        assert!(admit(&st, seen).is_none());
+        // The main token is not a device's: it is admitted whatever happened.
+        assert!(admit(&st, as_guard_saw("t0k3n")).is_some());
+
+        let (_, token) = mint(&st, "Pixel").unwrap();
+        let seen = as_guard_saw(&token);
+        set_enabled(&st, false).unwrap();
+        assert!(admit(&st, seen).is_none());
+        assert!(admit(&st, as_guard_saw("t0k3n")).is_some());
     }
 
     #[test]

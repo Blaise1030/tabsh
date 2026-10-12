@@ -5,7 +5,7 @@ use crate::{
     AppState,
     auth::Credential,
     error::BoxError,
-    remote::{Closed, closed_for, device_of, policy_close},
+    remote::{Closed, admit, closed_for, policy_close},
 };
 use axum::{
     Extension,
@@ -29,7 +29,9 @@ pub(super) async fn ws_handler(
     State(st): State<AppState>,
 ) -> Response {
     // Before the shell is opened, so a revoke in between is not missed.
-    let (closed, device) = (st.remote.closed.subscribe(), device_of(credential));
+    let Some((closed, device)) = admit(&st, credential) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
     // Browsers let any site open a WebSocket to localhost and always send
     // Origin when they do; `guard` has checked it is a hosted UI with the
     // token. Without one this isn't a browser we can vouch for.

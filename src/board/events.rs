@@ -4,7 +4,7 @@
 use crate::{
     AppState,
     auth::Credential,
-    remote::{closed_for, device_of, policy_close},
+    remote::{admit, closed_for, policy_close},
 };
 use axum::{
     Extension,
@@ -12,7 +12,8 @@ use axum::{
         State,
         ws::{Message, WebSocketUpgrade},
     },
-    response::Response,
+    http::StatusCode,
+    response::{IntoResponse, Response},
 };
 use tokio::sync::broadcast::error::RecvError;
 
@@ -21,9 +22,10 @@ pub(super) async fn events(
     credential: Option<Extension<Credential>>,
     State(st): State<AppState>,
 ) -> Response {
+    let Some((mut closed, device)) = admit(&st, credential) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
     let mut rx = st.events.subscribe();
-    // Before the upgrade, so a revoke in between is not missed.
-    let (mut closed, device) = (st.remote.closed.subscribe(), device_of(credential));
     ws.on_upgrade(move |mut socket| async move {
         loop {
             tokio::select! {

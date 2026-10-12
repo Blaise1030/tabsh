@@ -25,7 +25,7 @@ use super::{
 use crate::{
     AppState,
     auth::Credential,
-    remote::{Closed, closed_for, device_of, policy_close},
+    remote::{Closed, admit, closed_for, policy_close},
     sessions,
 };
 use axum::{
@@ -389,7 +389,9 @@ pub(super) async fn watch_handler(
     State(st): State<AppState>,
 ) -> Response {
     // Before anything is awaited, so a revoke in between is not missed.
-    let (closed, device) = (st.remote.closed.subscribe(), device_of(credential));
+    let Some((closed, device)) = admit(&st, credential) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
     let session = q.session.unwrap_or_default();
     let (cwd_st, id) = (st.clone(), session.clone());
     let root = tokio::task::spawn_blocking(move || tree_root(&session_base_dir(&cwd_st, &id)))
