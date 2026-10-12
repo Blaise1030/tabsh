@@ -10,7 +10,7 @@ const CARGO_INSTALL = `cargo install --git ${REPO_URL}`;
 
 <Site
   title="Docs · tabsh"
-  description="Install tabsh, connect a coding agent, and see the hooks it adds so its card stays current."
+  description="Install tabsh, connect a coding agent, and optionally reach your daemon over Tailscale without leaving loopback."
 >
   <h1><span class="mark">#</span> DOCS</h1>
   <p>
@@ -26,6 +26,7 @@ const CARGO_INSTALL = `cargo install --git ${REPO_URL}`;
       <li><a href="#hooks">Hooks the agent runs</a></li>
       <li><a href="#done">What you should see</a></li>
       <li><a href="#undo">Undo</a></li>
+      <li><a href="#tailscale">Reach it over Tailscale</a></li>
     </ol>
   </nav>
 
@@ -165,6 +166,55 @@ const CARGO_INSTALL = `cargo install --git ${REPO_URL}`;
     Ask the agent to remove the tabsh hooks. Its report names the file.
     The entries to remove are the ones whose command contains <code> status </code>, <code>--hook</code> and the word <code>tabsh</code>, plus the instruction that
     marks a card completed. OpenCode's wiring is the one plugin: delete <code>~/.config/opencode/plugins/tabsh.ts</code>.
+  </p>
+
+  <h2 id="tailscale"><span class="mark">##</span> REACH IT OVER TAILSCALE</h2>
+  <p>
+    tabsh is built for your own machine: the daemon listens on loopback only.
+    Multi-device access is not a product goal. If you still want another of <em>your</em>
+    devices to open the same daemon, put a private path in front of that loopback
+    port — Tailscale is a good fit — and keep the pairing token.
+  </p>
+  <p>
+    Do not bind the daemon to your LAN (<code>HOST=0.0.0.0</code> or a LAN IP). That
+    is plain HTTP: anyone who reaches the port and has the token gets a shell.
+    Shared Wi‑Fi is especially unsafe. Tailscale Funnel (public internet) is wrong
+    for a shell daemon.
+  </p>
+
+  <h3><span class="mark">###</span> OPTION A · SSH OVER TAILSCALE</h3>
+  <p>
+    From the other device, forward the local port to the machine that runs tabsh,
+    then open loopback as usual. Host and Origin stay identical to local use.
+  </p>
+  <pre class="cmd"><span class="mark">$</span> ssh -L 7681:127.0.0.1:7681 user@&lt;tailscale-name-or-ip&gt;
+<span class="mark">#</span> then open http://127.0.0.1:7681/app/#token=…</pre>
+
+  <h3><span class="mark">###</span> OPTION B · TAILSCALE SERVE</h3>
+  <p>
+    Leave tabsh on <code>127.0.0.1:7681</code>. On that machine, serve the port to your
+    tailnet only (HTTPS on the Tailscale IP):
+  </p>
+  <pre class="cmd"><span class="mark">$</span> tailscale serve --bg 7681</pre>
+  <p>
+    Serve terminates TLS, so the browser's Origin is <code>https://…</code>, which the
+    daemon does not treat as its own page unless you name it. Restart tabsh with that
+    origin allowed, then open the <b>Tailscale IP</b> (not MagicDNS):
+  </p>
+  <pre class="cmd"><span class="mark">$</span> TABSH_ORIGINS=https://100.x.y.z tabsh
+<span class="mark">#</span> open https://100.x.y.z/app/#token=…</pre>
+  <p>
+    The Host header must be <code>localhost</code>, <code>tabsh.localhost</code>, or a raw IP.
+    A MagicDNS name like <code>machine.tailnet.ts.net</code> is refused on purpose
+    (DNS rebinding protection). Prefer Option A if you want zero daemon config.
+  </p>
+  <p>
+    The token is still required. Tailscale only decides who can open a TCP path;
+    it does not replace pairing.
+  </p>
+  <p class="muted">
+    <span class="mark">&gt;</span> Tailscale's Personal plan is free for non-commercial use.
+    See <a href="https://tailscale.com/pricing">tailscale.com/pricing</a>.
   </p>
 
   <p class="sig end">~*~ EOF ~*~</p>
