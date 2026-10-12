@@ -142,8 +142,9 @@ A refactor must not change any of these.
   - From a non-loopback peer, every route needs a token (the main one or a
     device's), with or without an Origin, except GET or HEAD of the page
     (`/`, `/open`, `/app`, `/app/`) and its assets (`/_astro/{name}`,
-    `/sounds/…`). With sharing off, a non-loopback peer is refused. A
-    request without a peer address is refused.
+    `/sounds/…`). With sharing off, a non-loopback peer is refused, unless
+    `HOST` is fixed. An IPv4-mapped loopback address (`::ffff:127.0.0.1`)
+    is loopback. A request without a peer address is refused.
   - A device token can't reach `/api/remote*`.
 - **Token:** it arrives in the URL fragment and is cleared from the address
   bar before any request. Nothing rendered from a file can read it.

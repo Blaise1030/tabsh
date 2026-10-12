@@ -17,7 +17,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    net::IpAddr,
+    net::{IpAddr, SocketAddr},
     sync::{
         Mutex,
         atomic::{AtomicBool, Ordering},
@@ -245,6 +245,18 @@ pub(crate) fn set_enabled(st: &AppState, on: bool) -> Result<(), BoxError> {
 
 pub(crate) fn is_enabled(st: &AppState) -> bool {
     st.remote.enabled.load(Ordering::SeqCst)
+}
+
+/// Whether another machine may come in (with a token): sharing is on, or a
+/// fixed `HOST` already listens beyond this one.
+pub(crate) fn admits_others(st: &AppState) -> bool {
+    is_enabled(st) || st.host.is_some()
+}
+
+/// Whether `peer` is this machine. A daemon on `HOST=::` sees IPv4 loopback
+/// as `::ffff:127.0.0.1`.
+pub(crate) fn is_loopback(peer: SocketAddr) -> bool {
+    peer.ip().to_canonical().is_loopback()
 }
 
 /// Every device, oldest first.

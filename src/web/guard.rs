@@ -27,8 +27,8 @@ pub(crate) const LOCAL_NAME: &str = "tabsh.localhost";
 ///   us, which would otherwise look same-origin. (`.localhost` names never
 ///   reach public DNS; browsers and the OS resolve them to loopback.)
 /// - The peer address must be known. Another machine is let in only while
-///   sharing is on, and then only with a token (the main one or a device's),
-///   except for the page and its assets (`is_page`).
+///   sharing is on, or when `HOST` is fixed, and then only with a token (the
+///   main one or a device's), except for the page and its assets (`is_page`).
 /// - A device token never reaches `/api/remote*`.
 /// - No Origin: not a cross-site browser request (browsers always send it on
 ///   cross-site writes and WebSockets; see `ws_handler`). The file API still
@@ -55,8 +55,8 @@ pub(crate) async fn guard(
         req.extensions_mut().insert(credential.clone());
     }
     let path = req.uri().path();
-    if !peer.ip().is_loopback() {
-        if !remote::is_enabled(&st) {
+    if !remote::is_loopback(peer) {
+        if !remote::admits_others(&st) {
             return StatusCode::FORBIDDEN.into_response();
         }
         if is_page(req.method(), path) {
@@ -312,6 +312,49 @@ mod tests {
                 "{path}"
             );
         }
+    }
+
+    // HOST set to a LAN address already listens beyond this machine, and
+    // sharing can't be switched there.
+    #[tokio::test]
+    async fn a_fixed_host_lets_other_machines_in_with_a_token() {
+        let mut st = test_state();
+        st.host = Some("192.168.1.2".into());
+        assert_eq!(
+            send(
+                &st,
+                Method::GET,
+                "/api/sessions",
+                REMOTE,
+                None,
+                Some("t0k3n")
+            )
+            .await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            send(&st, Method::GET, "/api/sessions", REMOTE, None, None).await,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            send(&st, Method::GET, "/app/", REMOTE, None, None).await,
+            StatusCode::OK
+        );
+    }
+
+    // HOST=:: takes IPv4 connections as IPv4-mapped IPv6 addresses.
+    #[tokio::test]
+    async fn a_mapped_loopback_peer_is_loopback() {
+        let st = test_state();
+        let mapped = SocketAddr::from(([0, 0, 0, 0, 0, 0xffff, 0x7f00, 1], 50000));
+        let req = Request::builder()
+            .uri("/api/sessions")
+            .header(header::HOST, "127.0.0.1:7681")
+            .extension(ConnectInfo(mapped))
+            .body(Body::empty())
+            .unwrap();
+        let res = crate::state::router(st).oneshot(req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
     }
 
     #[tokio::test]
