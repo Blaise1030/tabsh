@@ -7,6 +7,7 @@ import { daemonFetch } from '../daemon/client.ts';
 import { searchFiles, toggleExplorer } from '../explorer/explorer.ts';
 import { loadedPane } from '../files/open.ts';
 import { back, backPastPalette, forward, go, here, isLeavingPalette, isPaletteEntry, onPlace } from '../nav/router.ts';
+import { openRemote } from '../remote/view.ts';
 import { cycleTab, store } from '../sessions/store.ts';
 import { comboFromEvent, comboProblem, type KeyId, matchesKey } from '../settings/keys.ts';
 import type { Settings } from '../settings/schema.ts';
@@ -52,6 +53,7 @@ function palettePages(): ReturnType<typeof pages> {
     toggleBoard: () => toggleBoard(),
     toggleBoardLayout,
     showWelcome,
+    openRemote,
     searchFiles,
     canGoBack: navigation.canGoBack,
     goBack: backPastPalette,
