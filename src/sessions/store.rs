@@ -8,9 +8,35 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 
+/// Makes the database, which holds device tokens, readable by its owner only.
+/// SQLite gives the journal files it creates the database's mode; ones left
+/// from an earlier run are fixed here.
+fn owner_only(path: &str) -> Result<(), BoxError> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(path)?;
+    for file in [
+        path.to_owned(),
+        format!("{path}-wal"),
+        format!("{path}-shm"),
+    ] {
+        match std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn open_db(path: &str) -> Result<Connection, BoxError> {
     if let Some(dir) = std::path::Path::new(path).parent() {
         std::fs::create_dir_all(dir)?;
+    }
+    if path != ":memory:" {
+        owner_only(path)?;
     }
     let conn = Connection::open(path)?;
     conn.execute_batch(
@@ -257,6 +283,50 @@ pub(crate) fn reorder(db: &mut Connection, ids: &[String]) -> rusqlite::Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn mode(path: &std::path::Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    fn make_readable(path: &std::path::Path) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    }
+
+    // It holds the device tokens, like the token file beside it.
+    #[test]
+    fn the_database_is_readable_by_its_owner_only() {
+        let path = crate::test_support::scratch().join("state.db");
+        std::fs::write(&path, b"").unwrap();
+        make_readable(&path);
+        let conn = open_db(path.to_str().unwrap()).unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, name, position) VALUES ('s', 'T', 1)",
+            [],
+        )
+        .unwrap();
+        assert_eq!(mode(&path), 0o600);
+        assert_eq!(mode(&path.with_file_name("state.db-wal")), 0o600);
+    }
+
+    #[test]
+    fn its_left_over_journal_files_are_owner_only_too() {
+        let path = crate::test_support::scratch().join("state.db");
+        drop(open_db(path.to_str().unwrap()).unwrap());
+        let wal = path.with_file_name("state.db-wal");
+        let shm = path.with_file_name("state.db-shm");
+        for p in [&path, &wal, &shm] {
+            if !p.exists() {
+                std::fs::write(p, b"").unwrap();
+            }
+            make_readable(p);
+        }
+        let _conn = open_db(path.to_str().unwrap()).unwrap();
+        for p in [&path, &wal, &shm] {
+            assert_eq!(mode(p), 0o600, "{}", p.display());
+        }
+    }
 
     fn saved_scrollback(st: &AppState, id: &str) -> Vec<u8> {
         st.db
