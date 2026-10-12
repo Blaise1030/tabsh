@@ -23,6 +23,12 @@ pub(crate) fn test_state() -> AppState {
     }
 }
 
+/// The peer address of a request from this machine: the guard refuses
+/// requests without one.
+pub(crate) fn loopback_peer() -> axum::extract::ConnectInfo<std::net::SocketAddr> {
+    axum::extract::ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], 50000)))
+}
+
 /// A fresh, empty directory under the system temp dir.
 pub(crate) fn scratch() -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("tabsh-test-{}", auth::random_hex(8).unwrap()));

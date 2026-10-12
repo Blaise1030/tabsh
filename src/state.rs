@@ -57,7 +57,7 @@ pub(crate) fn router(state: AppState) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::test_state;
+    use crate::test_support::{loopback_peer, test_state};
     use axum::http::{Method, StatusCode};
 
     #[tokio::test]
@@ -109,6 +109,7 @@ mod tests {
                 .uri(*path)
                 .header("Host", "127.0.0.1:7681")
                 .header("Origin", "https://tabsh.cc")
+                .extension(loopback_peer())
                 .body(axum::body::Body::empty())
                 .unwrap();
             let app = router(state.clone());
@@ -128,6 +129,7 @@ mod tests {
             .uri(format!("/_astro/{}", first_asset))
             .header("Host", "127.0.0.1:7681")
             .header("Origin", "https://tabsh.cc")
+            .extension(loopback_peer())
             .body(axum::body::Body::empty())
             .unwrap();
         let app = router(state.clone());
@@ -150,6 +152,7 @@ mod tests {
                 .method(Method::GET)
                 .uri(*path)
                 .header("Host", "127.0.0.1:7681")
+                .extension(loopback_peer())
                 .body(axum::body::Body::empty())
                 .unwrap();
             let app = router(state.clone());
@@ -168,6 +171,7 @@ mod tests {
             .uri("/api/sessions")
             .header("Host", "127.0.0.1:7681")
             .header("Origin", "https://evil.example")
+            .extension(loopback_peer())
             .body(axum::body::Body::empty())
             .unwrap();
         let app = router(state.clone());
@@ -184,6 +188,7 @@ mod tests {
             .uri("/api/sessions")
             .header("Host", "evil.example")
             .header("Origin", "https://tabsh.cc")
+            .extension(loopback_peer())
             .body(axum::body::Body::empty())
             .unwrap();
         let app = router(state.clone());
@@ -201,6 +206,7 @@ mod tests {
             .header("Host", "127.0.0.1:7681")
             .header("Origin", "https://tabsh.cc")
             .header("Authorization", "Bearer t0k3n")
+            .extension(loopback_peer())
             .body(axum::body::Body::empty())
             .unwrap();
         let app = router(state);

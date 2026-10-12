@@ -135,6 +135,12 @@ A refactor must not change any of these.
     and the token. The only exception is GET or HEAD of a single-segment
     `/_astro/{name}`.
   - Without an Origin, `/api/files*` still needs the token.
+  - From a non-loopback peer, every route needs a token (the main one or a
+    device's), with or without an Origin, except GET or HEAD of the page
+    (`/`, `/open`, `/app`, `/app/`) and its assets (`/_astro/{name}`,
+    `/sounds/…`). With sharing off, a non-loopback peer is refused. A
+    request without a peer address is refused.
+  - A device token can't reach `/api/remote*`.
 - **Token:** it arrives in the URL fragment and is cleared from the address
   bar before any request. Nothing rendered from a file can read it.
 - **File previews:**

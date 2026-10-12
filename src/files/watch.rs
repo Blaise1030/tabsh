@@ -889,7 +889,7 @@ mod tests {
             .unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let app = router(st);
+        let app = router(st).into_make_service_with_connect_info::<std::net::SocketAddr>();
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let query = if token { "&token=t0k3n" } else { "" };
         let mut req = format!("ws://{addr}/api/files/watch?session=s1{query}")
@@ -936,7 +936,7 @@ mod tests {
             .unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let app = router(st.clone());
+        let app = router(st.clone()).into_make_service_with_connect_info::<std::net::SocketAddr>();
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let (mut socket, _) = tokio_tungstenite::connect_async(format!(
             "ws://{addr}/api/files/watch?session=s1&token=t0k3n"

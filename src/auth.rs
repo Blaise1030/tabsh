@@ -7,7 +7,6 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
 /// Who a request's token belongs to.
-#[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Credential {
     Main,

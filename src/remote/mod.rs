@@ -1,6 +1,6 @@
 //! Sharing tabsh with other devices: the on/off flag and the per-device tokens.
 
-// Nothing calls this yet: the routes, guard and listener come in later tasks.
+// Only the guard calls this yet: the routes and listener come in later tasks.
 #![allow(dead_code)]
 
 use crate::{
