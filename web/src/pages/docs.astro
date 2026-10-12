@@ -176,7 +176,7 @@ const CARGO_INSTALL = `cargo install --git ${REPO_URL}`;
     port — Tailscale is a good fit — and keep the pairing token.
   </p>
   <p>
-    Do not bind the daemon to your LAN (<code>HOST=0.0.0.0</code> or a LAN IP). That
+    Do not set <code>HOST=0.0.0.0</code> or another non-loopback address. That
     is plain HTTP: anyone who reaches the port and has the token gets a shell.
     Shared Wi‑Fi is especially unsafe. Tailscale Funnel (public internet) is wrong
     for a shell daemon.
