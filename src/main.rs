@@ -109,7 +109,8 @@ async fn daemon() {
         .await
         .unwrap_or_else(|e| panic!("failed to bind {addr}: {e}"));
     println!("tabsh listening on http://{addr} (state: {db_path})");
-    if remote::is_enabled(&state) {
+    // With a fixed `HOST` the second listener's bind could never succeed.
+    if state.host.is_none() && remote::is_enabled(&state) {
         remote::listen::keep_trying(state.clone());
     }
     let local_host = match host.parse::<std::net::IpAddr>() {
@@ -151,17 +152,20 @@ async fn shutdown_signal() {
     }
 }
 
-/// Where shells (and `tabsh status`) reach the daemon: loopback when it
-/// listens on every interface, and IPv6 literals in brackets.
-/// `host` when it isn't a loopback address: a name, or an address on another
-/// interface (or every one, `0.0.0.0`).
+/// `host` when it isn't a loopback address: a name other than `localhost`, or
+/// an address on another interface (or every one, `0.0.0.0`).
 fn fixed_host(host: &str) -> Option<Arc<str>> {
+    if host.eq_ignore_ascii_case("localhost") {
+        return None;
+    }
     match host.parse::<std::net::IpAddr>() {
         Ok(ip) if ip.is_loopback() => None,
         _ => Some(host.into()),
     }
 }
 
+/// Where shells (and `tabsh status`) reach the daemon: loopback when it
+/// listens on every interface, and IPv6 literals in brackets.
 fn self_url(host: &str, port: &str) -> String {
     let host = match host {
         "0.0.0.0" | "::" => "127.0.0.1",
@@ -196,6 +200,8 @@ mod fixed_host_tests {
     fn only_a_non_loopback_host_is_fixed() {
         assert_eq!(fixed_host("127.0.0.1"), None);
         assert_eq!(fixed_host("::1"), None);
+        assert_eq!(fixed_host("localhost"), None);
+        assert_eq!(fixed_host("LocalHost"), None);
         assert_eq!(fixed_host("192.168.1.2").as_deref(), Some("192.168.1.2"));
         assert_eq!(fixed_host("0.0.0.0").as_deref(), Some("0.0.0.0"));
         assert_eq!(fixed_host("example.test").as_deref(), Some("example.test"));
