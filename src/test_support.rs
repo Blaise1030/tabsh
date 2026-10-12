@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 /// An in-memory daemon state with token `t0k3n`, accepting the hosted origin.
 pub(crate) fn test_state() -> AppState {
     let db = open_db(":memory:").unwrap();
+    let remote = crate::remote::load(&db).unwrap();
     AppState {
         db: Arc::new(Mutex::new(db)),
         live: Default::default(),
@@ -17,6 +18,8 @@ pub(crate) fn test_state() -> AppState {
         app_url: None,
         self_url: "http://127.0.0.1:7681".into(),
         events: tokio::sync::broadcast::channel(256).0,
+        remote: Arc::new(remote),
+        port: 7681,
     }
 }
 

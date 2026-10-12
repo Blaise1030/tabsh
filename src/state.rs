@@ -1,6 +1,6 @@
 //! The daemon's shared state, and the router that puts every route behind the guard.
 
-use crate::{board, files, perf, sessions, settings, upload, web};
+use crate::{board, files, perf, remote, sessions, settings, upload, web};
 use axum::{Router, middleware};
 use rusqlite::Connection;
 use sessions::Session;
@@ -30,6 +30,11 @@ pub(crate) struct AppState {
     pub(crate) self_url: Arc<str>,
     /// Card status changes, for `/api/board/events`.
     pub(crate) events: tokio::sync::broadcast::Sender<crate::board::BoardEvent>,
+    /// Sharing with other devices: the flag and the device tokens.
+    pub(crate) remote: Arc<remote::Remote>,
+    /// The port this daemon was asked to listen on.
+    #[allow(dead_code)]
+    pub(crate) port: u16,
 }
 
 /// Builds the app router with all routes and the guard middleware applied.

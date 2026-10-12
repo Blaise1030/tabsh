@@ -27,6 +27,19 @@ pub(crate) fn open_db(path: &str) -> Result<Connection, BoxError> {
          CREATE TABLE IF NOT EXISTS settings (
              id    INTEGER PRIMARY KEY CHECK (id = 1),
              value TEXT NOT NULL
+         );
+         -- Whether tabsh is shared with other devices.
+         CREATE TABLE IF NOT EXISTS remote (
+             id      INTEGER PRIMARY KEY CHECK (id = 1),
+             enabled INTEGER NOT NULL DEFAULT 0
+         );
+         -- One row per device that may connect, by its own token.
+         CREATE TABLE IF NOT EXISTS devices (
+             id        TEXT PRIMARY KEY,
+             name      TEXT NOT NULL,
+             token     TEXT NOT NULL UNIQUE,
+             created   INTEGER NOT NULL DEFAULT (unixepoch()),
+             last_seen INTEGER
          );",
     )?;
     crate::board::migrate(&conn)?;

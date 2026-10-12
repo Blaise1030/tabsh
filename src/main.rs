@@ -4,6 +4,7 @@ mod cli;
 mod error;
 mod files;
 mod perf;
+mod remote;
 mod sessions;
 mod settings;
 mod state;
@@ -74,6 +75,10 @@ async fn daemon() {
         format!("{origin}/app/{daemon}").into()
     });
     let self_url = self_url(&host, &port);
+    let remote = remote::load(&db).unwrap_or_else(|e| panic!("failed to read {db_path}: {e}"));
+    let port_number: u16 = port
+        .parse()
+        .unwrap_or_else(|e| panic!("invalid port {port}: {e}"));
     let state = AppState {
         db: Arc::new(Mutex::new(db)),
         live: Default::default(),
@@ -85,6 +90,8 @@ async fn daemon() {
         app_url,
         self_url: self_url.into(),
         events: tokio::sync::broadcast::channel(256).0,
+        remote: Arc::new(remote),
+        port: port_number,
     };
 
     let flusher = state.clone();
