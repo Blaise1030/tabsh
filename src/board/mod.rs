@@ -66,7 +66,7 @@ pub(crate) fn prompt_title(prompt: &str) -> Option<String> {
     Some(format!("{}…", cut.trim_end()))
 }
 
-const PROMPT_TITLE_CHARS: usize = 60;
+const PROMPT_TITLE_CHARS: usize = 200;
 
 /// A command as one line of plain words: whitespace runs (newlines too)
 /// become one space and control characters are dropped.
@@ -1083,8 +1083,8 @@ mod tests {
             Some("Fix the login bug")
         );
         assert_eq!(prompt_title(" \n\u{1b}\n").as_deref(), None);
-        let long = prompt_title(&"word ".repeat(40)).unwrap();
-        assert_eq!(long.chars().count(), 60);
+        let long = prompt_title(&"word ".repeat(60)).unwrap();
+        assert_eq!(long.chars().count(), 200);
         assert!(long.ends_with("word…"), "{long}");
     }
 
