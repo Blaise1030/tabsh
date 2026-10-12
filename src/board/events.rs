@@ -9,27 +9,29 @@ use crate::{
 use axum::{
     Extension,
     extract::{
-        State,
+        ConnectInfo, State,
         ws::{Message, WebSocketUpgrade},
     },
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use std::net::SocketAddr;
 use tokio::sync::broadcast::error::RecvError;
 
 pub(super) async fn events(
     ws: WebSocketUpgrade,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     credential: Option<Extension<Credential>>,
     State(st): State<AppState>,
 ) -> Response {
-    let Some((mut closed, device)) = admit(&st, credential) else {
+    let Some((mut closed, holder)) = admit(&st, peer, credential) else {
         return StatusCode::FORBIDDEN.into_response();
     };
     let mut rx = st.events.subscribe();
     ws.on_upgrade(move |mut socket| async move {
         loop {
             tokio::select! {
-                () = closed_for(&mut closed, &device) => {
+                () = closed_for(&mut closed, &holder) => {
                     let _ = socket.send(policy_close()).await;
                     break;
                 }

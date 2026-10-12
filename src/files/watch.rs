@@ -25,13 +25,13 @@ use super::{
 use crate::{
     AppState,
     auth::Credential,
-    remote::{Closed, admit, closed_for, policy_close},
+    remote::{Closed, Holder, admit, closed_for, policy_close},
     sessions,
 };
 use axum::{
     Extension,
     extract::{
-        Query, State,
+        ConnectInfo, Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::StatusCode,
@@ -385,11 +385,12 @@ fn registry() -> &'static Registry {
 pub(super) async fn watch_handler(
     ws: WebSocketUpgrade,
     Query(q): Query<TreeQuery>,
+    ConnectInfo(peer): ConnectInfo<std::net::SocketAddr>,
     credential: Option<Extension<Credential>>,
     State(st): State<AppState>,
 ) -> Response {
     // Before anything is awaited, so a revoke in between is not missed.
-    let Some((closed, device)) = admit(&st, credential) else {
+    let Some((closed, holder)) = admit(&st, peer, credential) else {
         return StatusCode::FORBIDDEN.into_response();
     };
     let session = q.session.unwrap_or_default();
@@ -410,7 +411,7 @@ pub(super) async fn watch_handler(
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     }
-    ws.on_upgrade(move |socket| relay(socket, st, session, follow, (closed, device)))
+    ws.on_upgrade(move |socket| relay(socket, st, session, follow, (closed, holder)))
 }
 
 /// What a socket follows: the project root of its tab, and the watcher on it
@@ -484,14 +485,14 @@ async fn relay(
     st: AppState,
     session: String,
     mut follow: Follow,
-    (mut closed, device): (broadcast::Receiver<Closed>, Option<String>),
+    (mut closed, holder): (broadcast::Receiver<Closed>, Holder),
 ) {
     let (mut sink, mut stream) = socket.split();
     let mut check = tokio::time::interval_at(tokio::time::Instant::now() + ROOT_CHECK, ROOT_CHECK);
     check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         let text = tokio::select! {
-            () = closed_for(&mut closed, &device) => {
+            () = closed_for(&mut closed, &holder) => {
                 let _ = sink.send(policy_close()).await;
                 break;
             }

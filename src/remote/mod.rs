@@ -56,48 +56,65 @@ pub(crate) enum Closed {
     All,
 }
 
+/// Who holds a socket, which decides what closes it.
+#[derive(Debug, PartialEq)]
+pub(crate) enum Holder {
+    /// The main token on this machine: never closed.
+    Local,
+    /// The main token from another machine: closed when sharing is turned off.
+    Remote,
+    /// A device: closed when it is revoked or sharing is turned off.
+    Device(String),
+}
+
 /// What a socket handler calls first: the receiver its `closed_for` waits on,
-/// and the device (`None`: the main token) it is for. A revoke or turning
-/// sharing off between the guard's check and this subscription is never sent
-/// to the receiver, so a device that is gone by now is refused (`None`)
-/// instead: the handler answers 403 before it upgrades.
+/// and who holds the socket. A revoke or turning sharing off between the
+/// guard's check and this subscription is never sent to the receiver, so a
+/// holder that is no longer let in is refused (`None`) instead: the handler
+/// answers 403 before it upgrades.
 pub(crate) fn admit(
     st: &AppState,
+    peer: SocketAddr,
     credential: Option<axum::Extension<Credential>>,
-) -> Option<(broadcast::Receiver<Closed>, Option<String>)> {
-    let device = match credential {
-        Some(axum::Extension(Credential::Device(id))) => Some(id),
-        _ => None,
+) -> Option<(broadcast::Receiver<Closed>, Holder)> {
+    let holder = match credential {
+        Some(axum::Extension(Credential::Device(id))) => Holder::Device(id),
+        _ if is_loopback(peer) => Holder::Local,
+        _ => Holder::Remote,
     };
     // Subscribe first: what happens after is sent to `rx`, what happened
     // before is seen below.
     let rx = st.remote.closed.subscribe();
-    if let Some(id) = &device {
-        let known = st
-            .remote
-            .devices
-            .lock()
-            .unwrap()
-            .values()
-            .any(|device| device.id == *id);
-        if !(known && is_enabled(st)) {
-            return None;
+    let still_in = match &holder {
+        Holder::Local => true,
+        Holder::Remote => admits_others(st),
+        Holder::Device(id) => {
+            let known = st
+                .remote
+                .devices
+                .lock()
+                .unwrap()
+                .values()
+                .any(|device| device.id == *id);
+            known && admits_others(st)
         }
-    }
-    Some((rx, device))
+    };
+    still_in.then_some((rx, holder))
 }
 
-/// Completes when a socket of `device` must close: sharing was turned off,
-/// that device was revoked, or the signals fell behind (a missed one might
-/// have been its own). Never completes for `None`, the main token's.
-pub(crate) async fn closed_for(rx: &mut broadcast::Receiver<Closed>, device: &Option<String>) {
-    let Some(id) = device else {
+/// Completes when a socket of `holder` must close: sharing was turned off,
+/// its device was revoked, or the signals fell behind (a missed one might
+/// have been its own). Never completes for `Holder::Local`.
+pub(crate) async fn closed_for(rx: &mut broadcast::Receiver<Closed>, holder: &Holder) {
+    if *holder == Holder::Local {
         return std::future::pending().await;
-    };
+    }
     loop {
         match rx.recv().await {
             Ok(Closed::All) | Err(_) => return,
-            Ok(Closed::Device(closed)) if closed == *id => return,
+            Ok(Closed::Device(closed)) if matches!(holder, Holder::Device(id) if *id == closed) => {
+                return;
+            }
             Ok(Closed::Device(_)) => {}
         }
     }
@@ -477,31 +494,36 @@ mod tests {
     #[tokio::test]
     async fn closed_for_waits_for_its_own_device_or_all() {
         let (tx, _) = broadcast::channel(2);
-        let wait = |mut rx: broadcast::Receiver<Closed>, who: Option<&str>| {
-            let who = who.map(str::to_owned);
-            async move {
-                tokio::time::timeout(Duration::from_millis(100), closed_for(&mut rx, &who))
-                    .await
-                    .is_ok()
-            }
+        let wait = |mut rx: broadcast::Receiver<Closed>, holder: Holder| async move {
+            tokio::time::timeout(Duration::from_millis(100), closed_for(&mut rx, &holder))
+                .await
+                .is_ok()
         };
-        let (main, a, b) = (tx.subscribe(), tx.subscribe(), tx.subscribe());
+        let device = |id: &str| Holder::Device(id.into());
+        let (local, remote, a, b) = (
+            tx.subscribe(),
+            tx.subscribe(),
+            tx.subscribe(),
+            tx.subscribe(),
+        );
         tx.send(Closed::Device("a".into())).unwrap();
-        assert!(!wait(main, None).await);
-        assert!(wait(a, Some("a")).await);
-        assert!(!wait(b, Some("b")).await);
+        assert!(!wait(local, Holder::Local).await);
+        assert!(!wait(remote, Holder::Remote).await);
+        assert!(wait(a, device("a")).await);
+        assert!(!wait(b, device("b")).await);
 
-        let (main, b) = (tx.subscribe(), tx.subscribe());
+        let (local, remote, b) = (tx.subscribe(), tx.subscribe(), tx.subscribe());
         tx.send(Closed::All).unwrap();
-        assert!(!wait(main, None).await);
-        assert!(wait(b, Some("b")).await);
+        assert!(!wait(local, Holder::Local).await);
+        assert!(wait(remote, Holder::Remote).await);
+        assert!(wait(b, device("b")).await);
 
         // Fell behind: it can't tell whether a missed signal was its own.
         let lagging = tx.subscribe();
         for _ in 0..3 {
             tx.send(Closed::Device("z".into())).unwrap();
         }
-        assert!(wait(lagging, Some("b")).await);
+        assert!(wait(lagging, device("b")).await);
     }
 
     // A request the guard let through with a device's credential, whose
@@ -513,20 +535,33 @@ mod tests {
         set_enabled(&st, true).unwrap();
         let (id, token) = mint(&st, "Pixel").unwrap();
         let as_guard_saw = |token: &str| credential(&st, token).map(axum::Extension);
-        assert!(admit(&st, as_guard_saw(&token)).is_some());
-        assert!(admit(&st, as_guard_saw("t0k3n")).is_some());
+        let local = SocketAddr::from(([127, 0, 0, 1], 50000));
+        let tailnet = SocketAddr::from(([100, 64, 0, 2], 50000));
+        assert!(admit(&st, tailnet, as_guard_saw(&token)).is_some());
+        assert!(admit(&st, tailnet, as_guard_saw("t0k3n")).is_some());
 
         let seen = as_guard_saw(&token);
         assert!(revoke(&st, &id).unwrap());
-        assert!(admit(&st, seen).is_none());
-        // The main token is not a device's: it is admitted whatever happened.
-        assert!(admit(&st, as_guard_saw("t0k3n")).is_some());
+        assert!(admit(&st, tailnet, seen).is_none());
+        // The main token is not a device's: a revoke doesn't touch it.
+        assert!(admit(&st, tailnet, as_guard_saw("t0k3n")).is_some());
 
         let (_, token) = mint(&st, "Pixel").unwrap();
-        let seen = as_guard_saw(&token);
+        let (seen, seen_main) = (as_guard_saw(&token), as_guard_saw("t0k3n"));
         set_enabled(&st, false).unwrap();
-        assert!(admit(&st, seen).is_none());
-        assert!(admit(&st, as_guard_saw("t0k3n")).is_some());
+        assert!(admit(&st, tailnet, seen).is_none());
+        // Sharing let another machine in, even with the main token.
+        assert!(admit(&st, tailnet, seen_main).is_none());
+        assert!(admit(&st, local, as_guard_saw("t0k3n")).is_some());
+    }
+
+    #[test]
+    fn a_fixed_host_admits_another_machines_socket_with_sharing_off() {
+        let mut st = test_state();
+        st.host = Some("192.168.1.2".into());
+        let main = credential(&st, "t0k3n").map(axum::Extension);
+        let lan = SocketAddr::from(([192, 168, 1, 3], 50000));
+        assert!(matches!(admit(&st, lan, main), Some((_, Holder::Remote))));
     }
 
     #[test]
@@ -815,6 +850,46 @@ mod route_tests {
         let app = router(st.clone()).into_make_service_with_connect_info::<std::net::SocketAddr>();
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         addr
+    }
+
+    /// Like `serve`, but every request seems to come from `peer`.
+    async fn serve_as(st: &AppState, peer: std::net::SocketAddr) -> std::net::SocketAddr {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let app = router(st.clone())
+            .layer(axum::middleware::map_request(
+                move |mut req: Request<Body>| async move {
+                    req.extensions_mut()
+                        .insert(axum::extract::ConnectInfo(peer));
+                    req
+                },
+            ))
+            .into_make_service_with_connect_info::<std::net::SocketAddr>();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        addr
+    }
+
+    // Sharing let another machine in with the main token; turning it off
+    // takes that socket too, and never this machine's own.
+    #[tokio::test]
+    async fn turning_sharing_off_closes_another_machines_main_token_socket() {
+        let st = test_state();
+        set_enabled(&st, true).unwrap();
+        let tailnet = serve_as(&st, std::net::SocketAddr::from(([100, 64, 0, 2], 50000))).await;
+        let local = serve(&st).await;
+        let mut theirs = open_socket(tailnet, "/api/board/events", "t0k3n").await;
+        let mut ours = open_socket(local, "/api/board/events", "t0k3n").await;
+
+        set_enabled(&st, false).unwrap();
+
+        assert_eq!(
+            closes_with(&mut theirs, CLOSES_WITHIN).await,
+            Some(POLICY_VIOLATION)
+        );
+        assert_eq!(
+            closes_with(&mut ours, Duration::from_millis(300)).await,
+            None
+        );
     }
 
     #[tokio::test]

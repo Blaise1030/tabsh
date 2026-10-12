@@ -5,12 +5,12 @@ use crate::{
     AppState,
     auth::Credential,
     error::BoxError,
-    remote::{Closed, admit, closed_for, policy_close},
+    remote::{Closed, Holder, admit, closed_for, policy_close},
 };
 use axum::{
     Extension,
     extract::{
-        Query, State,
+        ConnectInfo, Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::{HeaderMap, StatusCode, header},
@@ -18,18 +18,19 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use portable_pty::PtySize;
-use std::collections::HashMap;
+use std::{collections::HashMap, net::SocketAddr};
 use tokio::sync::broadcast;
 
 pub(super) async fn ws_handler(
     ws: WebSocketUpgrade,
     headers: HeaderMap,
     Query(params): Query<HashMap<String, String>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     credential: Option<Extension<Credential>>,
     State(st): State<AppState>,
 ) -> Response {
     // Before the shell is opened, so a revoke in between is not missed.
-    let Some((closed, device)) = admit(&st, credential) else {
+    let Some((closed, holder)) = admit(&st, peer, credential) else {
         return StatusCode::FORBIDDEN.into_response();
     };
     // Browsers let any site open a WebSocket to localhost and always send
@@ -48,7 +49,7 @@ pub(super) async fn ws_handler(
         }
     };
     ws.on_upgrade(move |socket| async move {
-        if let Err(e) = attach(socket, &session, (closed, device)).await {
+        if let Err(e) = attach(socket, &session, (closed, holder)).await {
             eprintln!("session {id} error: {e}");
         }
     })
@@ -79,7 +80,7 @@ impl Output {
 async fn attach(
     socket: WebSocket,
     session: &Session,
-    (mut closed, device): (broadcast::Receiver<Closed>, Option<String>),
+    (mut closed, holder): (broadcast::Receiver<Closed>, Holder),
 ) -> Result<(), BoxError> {
     let (mut sink, mut stream) = socket.split();
 
@@ -100,7 +101,7 @@ async fn attach(
 
     loop {
         tokio::select! {
-            () = closed_for(&mut closed, &device) => {
+            () = closed_for(&mut closed, &holder) => {
                 sink.send(policy_close()).await?;
                 break;
             }
