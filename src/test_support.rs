@@ -23,6 +23,10 @@ pub(crate) fn test_state() -> AppState {
     }
 }
 
+/// Held by every test that reads or writes `TABSH_REMOTE_ADDRESS`, which is
+/// process-wide, for the whole test.
+pub(crate) static ENV: Mutex<()> = Mutex::new(());
+
 /// The peer address of a request from this machine: the guard refuses
 /// requests without one.
 pub(crate) fn loopback_peer() -> axum::extract::ConnectInfo<std::net::SocketAddr> {

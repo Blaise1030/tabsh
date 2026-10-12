@@ -108,6 +108,9 @@ async fn daemon() {
         .await
         .unwrap_or_else(|e| panic!("failed to bind {addr}: {e}"));
     println!("tabsh listening on http://{addr} (state: {db_path})");
+    if remote::is_enabled(&state) {
+        remote::listen::keep_trying(state.clone());
+    }
     let local_host = match host.parse::<std::net::IpAddr>() {
         Ok(ip) if ip.is_loopback() || ip.is_unspecified() => web::guard::LOCAL_NAME.into(),
         _ => host.clone(),

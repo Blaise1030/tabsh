@@ -33,7 +33,6 @@ pub(crate) struct AppState {
     /// Sharing with other devices: the flag and the device tokens.
     pub(crate) remote: Arc<remote::Remote>,
     /// The port this daemon was asked to listen on.
-    #[allow(dead_code)]
     pub(crate) port: u16,
 }
 

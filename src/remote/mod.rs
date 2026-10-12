@@ -1,7 +1,9 @@
 //! Sharing tabsh with other devices: the on/off flag and the per-device tokens.
 
-// Only the guard calls this yet: the routes and listener come in later tasks.
+// The routes that mint, revoke, list and switch come in a later task.
 #![allow(dead_code)]
+
+pub(crate) mod listen;
 
 use crate::{
     AppState,
@@ -31,7 +33,8 @@ pub(crate) struct Remote {
     enabled: AtomicBool,
     /// Token to device.
     devices: Mutex<HashMap<String, Device>>,
-    listener: Mutex<Option<tokio::task::AbortHandle>>,
+    /// The second listener's task and the address it is bound to.
+    listener: Mutex<Option<(tokio::task::AbortHandle, std::net::SocketAddr)>>,
     error: Mutex<Option<String>>,
     /// Sockets to close: one device's after a revoke, all after turning off.
     pub(crate) closed: broadcast::Sender<Closed>,
