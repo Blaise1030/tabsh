@@ -49,6 +49,39 @@ export function shortPath(p: string | null): string {
   return p.replace(/^\/(Users|home)\/[^/]+(?=\/|$)/, '~');
 }
 
+// The folder's own name: the last segment of its path. Home alone stays ~.
+export function folderName(p: string | null): string {
+  const short = shortPath(p);
+  if (!short) return '';
+  const parts = short.split('/').filter(Boolean);
+  return parts.at(-1) ?? short;
+}
+
+// The full label, once the box has cut it off (a pixel of slack, as the
+// card's line clamp). Empty while the text still fits, so the tooltip stays
+// quiet.
+export function clippedTooltip(text: string, scrollWidth: number, clientWidth: number): string {
+  if (!text || scrollWidth <= clientWidth + 1) return '';
+  return text;
+}
+
+// How many leading items fit in `available`. Widths already include nothing
+// for the gap; `gap` is added between items. Once any item is left out,
+// `more` (the overflow chip) is reserved up front.
+export function fittingCount(widths: number[], gap: number, available: number, more: number): number {
+  const total = widths.reduce((sum, w, i) => sum + w + (i > 0 ? gap : 0), 0);
+  if (total <= available) return widths.length;
+  let used = more;
+  let count = 0;
+  for (const w of widths) {
+    const next = used + (count > 0 ? gap : 0) + w;
+    if (next > available) break;
+    used = next;
+    count++;
+  }
+  return count;
+}
+
 // The folders cards are in, most recently moved card first, without repeats.
 export function foldersOf(items: { card: Card }[]): string[] {
   const sorted = [...items].sort((a, b) => b.card.statusAt - a.card.statusAt);
