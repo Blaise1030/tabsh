@@ -34,7 +34,7 @@ const featureRules = [
     specs: ['welcome', 'board', 'palette'],
   },
   {
-    paths: [/^src\/remote\//, /^web\/src\/app\/remote\//, /^src\/web\/guard\.rs$/],
+    paths: [/^src\/remote\//, /^web\/src\/app\/remote\//],
     specs: ['remote'],
   },
   {

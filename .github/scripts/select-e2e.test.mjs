@@ -25,12 +25,16 @@ test('combines feature selections without duplicates', () => {
 });
 
 test('remote changes run the remote spec', () => {
-  for (const path of ['src/remote/listen.rs', 'web/src/app/remote/view.ts', 'src/web/guard.rs']) {
+  for (const path of ['src/remote/listen.rs', 'web/src/app/remote/view.ts']) {
     assert.deepEqual(selectE2e([path]), {
       mode: 'selected',
       specs: ['e2e/remote.spec.ts', 'e2e/smoke.spec.ts'],
     });
   }
+});
+
+test('the guard gates every request, so a change to it runs the full suite', () => {
+  assert.deepEqual(selectE2e(['src/web/guard.rs']), { mode: 'full', specs: [] });
 });
 
 test('explorer changes include file-opening flows', () => {
@@ -80,7 +84,7 @@ test('every mapped spec exists', () => {
     'web/src/app/explorer/view.ts', 'src/files/tree.rs',
     'web/src/app/files/pane.ts', 'src/upload.rs',
     'web/src/app/palette/palette.ts', 'web/src/app/sound/typing.ts',
-    'src/remote/listen.rs', 'web/src/app/remote/view.ts', 'src/web/guard.rs',
+    'src/remote/listen.rs', 'web/src/app/remote/view.ts',
   ];
   const root = fileURLToPath(new URL('../../', import.meta.url));
   for (const source of sources) {
