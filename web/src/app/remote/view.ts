@@ -41,23 +41,27 @@ function message(): string | null {
   return null;
 }
 
-async function refresh(): Promise<void> {
+// Reads what the daemon holds. It never clears `problem`, so a message set by
+// the change that called it stays; false (with its own message) when it failed.
+async function refresh(): Promise<boolean> {
   try {
     info.val = await getRemote();
-    problem.val = null;
+    return true;
   } catch {
     problem.val = 'Could not reach tabsh.';
+    return false;
   }
 }
 
 // Runs a change; whatever fails, the dialog shows what the daemon holds.
 async function change(work: () => Promise<void>): Promise<void> {
   busy.val = true;
+  problem.val = null;
   try {
     await work();
   } catch {
-    problem.val = 'That did not work.';
-    await refresh();
+    // The refresh goes first: the message is set after it, so nothing erases it.
+    if (await refresh()) problem.val = 'That did not work.';
   } finally {
     busy.val = false;
   }
@@ -72,7 +76,6 @@ function forget(): void {
 const toggle = (enabled: boolean) =>
   change(async () => {
     info.val = await setSharing(enabled);
-    problem.val = null;
     if (!enabled) forget();
   });
 
@@ -80,9 +83,14 @@ const add = () =>
   change(async () => {
     forget();
     const device = await addDevice(name.val);
-    qr.val = await qrSvg(device.url);
+    // The link is shown once, so it goes up before the QR is drawn: were the
+    // encoder's chunk to fail to load, the link would still be there.
     added.val = { id: device.id, url: device.url };
-    problem.val = null;
+    try {
+      qr.val = await qrSvg(device.url);
+    } catch {
+      problem.val = 'Could not draw the QR code. Use the link instead.';
+    }
     await refresh();
   });
 
@@ -256,5 +264,5 @@ export function openRemote(): void {
   info.val = null;
   problem.val = null;
   host.showModal();
-  refresh();
+  void refresh();
 }
