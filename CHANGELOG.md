@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.26
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.25...v0.1.26)
+
+### Fixes
+
+- **web:** Squeeze a list row's tags and folder before its title, on mobile too ([a10430a](https://github.com/Blaise1030/tabsh/commit/a10430a))
+
 ## v0.1.25
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.24...v0.1.25)
