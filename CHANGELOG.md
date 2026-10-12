@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.1.25
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.24...v0.1.25)
+
+### Features
+
+- **web:** Open the palette and New card as bottom sheets on mobile ([2a4321e](https://github.com/Blaise1030/tabsh/commit/2a4321e))
+- **web:** Add scroll-to-bottom button to the terminal ([4ad56ac](https://github.com/Blaise1030/tabsh/commit/4ad56ac))
+
+### Fixes
+
+- **board:** Keep prompt-made card titles up to 200 characters ([cf74020](https://github.com/Blaise1030/tabsh/commit/cf74020))
+
 ## v0.1.24
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.23...v0.1.24)
