@@ -18,6 +18,7 @@ import { scoped } from '../ui/keyed.ts';
 import { ring } from './bell.ts';
 import { scanBell } from './bell-scan.ts';
 import { coalescer } from './coalesce.ts';
+import { type Heartbeat, heartbeat, type Timers } from './heartbeat.ts';
 import { enqueueReconnect, nextReconnect, retryDelay, shouldDrainReconnects, terminalInView } from './reconnect.ts';
 import {
   active,
@@ -51,10 +52,26 @@ function inView(s: Session): boolean {
   });
 }
 
+// Each open socket's heartbeat.
+const beats = new WeakMap<WebSocket, Heartbeat>();
+const timers: Timers = { set: (fn, ms) => window.setTimeout(fn, ms), clear: (id) => window.clearTimeout(id) };
+
+// Back from sleep or a dropped network, the on-screen socket may be dead
+// though it still says open: ask it now rather than at the next ping.
+function probeActive(): void {
+  const ws = store.active?.ws;
+  if (ws) beats.get(ws)?.probe();
+}
+
 function watchWake(): void {
   if (wakeWatched) return;
   wakeWatched = true;
-  document.addEventListener('visibilitychange', () => syncTerminalVisibility());
+  document.addEventListener('visibilitychange', () => {
+    syncTerminalVisibility();
+    if (!document.hidden) probeActive();
+  });
+  window.addEventListener('online', probeActive);
+  window.addEventListener('pageshow', probeActive);
   onActivate(() => syncTerminalVisibility());
 }
 
@@ -167,6 +184,14 @@ export function openSession(info: SessionInfo): Session {
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
   term.open(el);
+  // Phone keyboards otherwise correct, capitalise and predict into the shell.
+  for (const [k, v] of [
+    ['autocorrect', 'off'],
+    ['autocapitalize', 'off'],
+    ['autocomplete', 'off'],
+    ['spellcheck', 'false'],
+  ])
+    term.textarea?.setAttribute(k, v);
   term.registerLinkProvider(linkProvider(() => s, term, el));
 
   // A program that redraws without taking the alternate screen can leave the
@@ -273,6 +298,9 @@ function connect(s: Session): Promise<boolean> {
     // The server replays scrollback on every attach, so start from a clean screen.
     // The first binary message is that replay (always sent, maybe empty);
     // bells inside it already rang.
+    // Only a daemon that has answered a ping can be found dead by a missing
+    // pong: an older one never answers.
+    let answers = false;
     ws.onopen = () => {
       s.out.drop(); // an older socket's unpainted bytes: the replay holds them
       s.term.reset();
@@ -280,11 +308,22 @@ function connect(s: Session): Promise<boolean> {
       s.parsingReplay = false;
       s.esc = 0;
       sendSize(s);
+      const hb = heartbeat(
+        (n) => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ ping: n })),
+        () => answers && dropped(),
+        timers,
+      );
+      beats.set(ws, hb);
+      hb.probe();
     };
     ws.onmessage = (e) => {
       if (s.ws !== ws) return; // a parked or replaced socket's late message
       if (typeof e.data === 'string') {
-        if (JSON.parse(e.data).exit) {
+        const msg = JSON.parse(e.data);
+        if (typeof msg.pong === 'number') {
+          answers = true;
+          beats.get(ws)?.pong(msg.pong);
+        } else if (msg.exit) {
           removeSession(s);
           finish(false);
         }
@@ -309,8 +348,12 @@ function connect(s: Session): Promise<boolean> {
       if (s !== store.active) s.unread.val = true;
     };
     // Dropped without an exit message (network blip, client lagged, daemon
-    // restarting): reattach only while this terminal is still on screen.
-    ws.onclose = () => {
+    // restarting, or found dead by its heartbeat): reattach only while this
+    // terminal is still on screen.
+    const dropped = () => {
+      beats.get(ws)?.stop();
+      ws.onclose = null;
+      if (ws.readyState < WebSocket.CLOSING) ws.close();
       if (s.ws !== ws) {
         finish(false);
         return;
@@ -325,5 +368,6 @@ function connect(s: Session): Promise<boolean> {
       finish(false);
       if (inView(s)) scheduleReconnect(s);
     };
+    ws.onclose = dropped;
   });
 }

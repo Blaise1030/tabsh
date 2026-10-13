@@ -148,12 +148,19 @@ export const sync = coalesceAsync(async () => {
   if (!store.active && store.sessions.length) go({ tab: (shownSessions()[0] ?? store.sessions[0]).id }, 'replace');
 });
 
+// The size each socket last told its shell: every resize makes a full-screen
+// program redraw, so an unchanged one isn't sent again.
+const sentSize = new WeakMap<WebSocket, string>();
+
 export function sendSize(s: Session): void {
   if (s !== store.active) return;
   s.fit.fit();
-  if (s.ws?.readyState === WebSocket.OPEN) {
-    s.ws.send(JSON.stringify({ cols: s.term.cols, rows: s.term.rows }));
-  }
+  const ws = s.ws;
+  if (ws?.readyState !== WebSocket.OPEN) return;
+  const { cols, rows } = s.term;
+  if (sentSize.get(ws) === `${cols}x${rows}`) return;
+  sentSize.set(ws, `${cols}x${rows}`);
+  ws.send(JSON.stringify({ cols, rows }));
 }
 
 // Only the router's tab step calls this; everything else calls go().

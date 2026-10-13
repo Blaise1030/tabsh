@@ -111,9 +111,15 @@ onApply((s) => {
 prefersLight?.addEventListener('change', () => current.applied.theme === 'tabsh' && applySettings(current.applied));
 
 for (const b of document.querySelectorAll<HTMLButtonElement>('[data-new-session]')) b.onclick = newSession;
+// A phone resizes in bursts (the keyboard sliding in, the address bar
+// collapsing, a turn): the terminal is fitted once it settles.
+let resizeTimer = 0;
 new ResizeObserver(() => {
-  const s = store.active;
-  if (s) requestAnimationFrame(() => sendSize(s));
+  window.clearTimeout(resizeTimer);
+  resizeTimer = window.setTimeout(() => {
+    const s = store.active;
+    if (s) requestAnimationFrame(() => sendSize(s));
+  }, 150);
 }).observe(document.getElementById('terms') as HTMLElement);
 window.addEventListener('focus', () => {
   sync().catch(() => {});

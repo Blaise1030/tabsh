@@ -123,20 +123,18 @@ async fn attach(
             },
             msg = stream.next() => match msg {
                 Some(Ok(Message::Binary(data))) => session.input.send(data)?,
-                // Text frames carry control messages: {"cols": N, "rows": N} resizes.
-                Some(Ok(Message::Text(text))) => {
-                    let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
-                        continue;
-                    };
-                    if let (Some(cols), Some(rows)) = (v["cols"].as_u64(), v["rows"].as_u64()) {
+                Some(Ok(Message::Text(text))) => match control(&text) {
+                    Control::Resize { cols, rows } => {
                         let _ = session.master.lock().unwrap().resize(PtySize {
-                            rows: rows as u16,
-                            cols: cols as u16,
+                            rows,
+                            cols,
                             pixel_width: 0,
                             pixel_height: 0,
                         });
                     }
-                }
+                    Control::Reply(reply) => sink.send(Message::Text(reply.into())).await?,
+                    Control::Ignore => {}
+                },
                 // The browser went away; the shell keeps running for a reattach.
                 Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
                 Some(Ok(_)) => {}
@@ -146,6 +144,32 @@ async fn attach(
 
     let _ = sink.close().await;
     Ok(())
+}
+
+/// What a text frame from the page asks for.
+#[derive(Debug, PartialEq)]
+enum Control {
+    Resize { cols: u16, rows: u16 },
+    /// Sent straight back: `{"ping": n}` gets `{"pong": n}`, so a page can
+    /// tell a live socket from one a phone's sleep left for dead.
+    Reply(String),
+    Ignore,
+}
+
+fn control(text: &str) -> Control {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(text) else {
+        return Control::Ignore;
+    };
+    if let (Some(cols), Some(rows)) = (v["cols"].as_u64(), v["rows"].as_u64()) {
+        return Control::Resize {
+            cols: cols as u16,
+            rows: rows as u16,
+        };
+    }
+    if !v["ping"].is_null() {
+        return Control::Reply(serde_json::json!({ "pong": v["ping"] }).to_string());
+    }
+    Control::Ignore
 }
 
 #[cfg(test)]
@@ -262,5 +286,19 @@ mod tests {
                 assert_eq!(w[1], w[0] + 1, "no gap or repeat at {}", w[0]);
             }
         }
+    }
+
+    #[test]
+    fn a_text_frame_is_a_resize_a_ping_or_nothing() {
+        assert_eq!(
+            control(r#"{"cols":80,"rows":24}"#),
+            Control::Resize { cols: 80, rows: 24 }
+        );
+        assert_eq!(
+            control(r#"{"ping":7}"#),
+            Control::Reply(r#"{"pong":7}"#.into())
+        );
+        assert_eq!(control("not json"), Control::Ignore);
+        assert_eq!(control(r#"{"cols":80}"#), Control::Ignore);
     }
 }
