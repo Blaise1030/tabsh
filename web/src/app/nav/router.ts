@@ -60,7 +60,9 @@ function quiet(r: NavigationResult): Promise<unknown> {
   return r.finished.catch(() => {});
 }
 
-const urlFor = (p: Place) => location.pathname + toQuery(p, new URLSearchParams(location.search));
+// The fragment rides along untouched: on another device it holds the token,
+// which a home-screen app saves with the address (`keepsTokenInAddress`).
+const urlFor = (p: Place) => location.pathname + toQuery(p, new URLSearchParams(location.search)) + location.hash;
 
 export function go(patch: Partial<Place>, how: How = 'push'): void {
   if (!started) {
@@ -72,7 +74,7 @@ export function go(patch: Partial<Place>, how: How = 'push'): void {
   const to = merge(current, patch, how);
   const history = how === 'push' && current.palette && isPaletteEntry() ? 'replace' : how;
   const url = urlFor(to);
-  if (url === location.pathname + location.search) return;
+  if (url === location.pathname + location.search + location.hash) return;
   quiet(navigation.navigate(url, { history, info: { to } satisfies Info }));
 }
 
