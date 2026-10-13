@@ -28,6 +28,7 @@ import { initTypingSound } from './sound/typing.ts';
 import { App } from './ui/app.ts';
 import { initDivider, initDrawerDivider } from './ui/divider.ts';
 import { initDrop } from './ui/drop.ts';
+import { initKeyboardInset } from './ui/keyboard.ts';
 import { initWelcome } from './welcome/view.ts';
 
 van.add(document.getElementById('app') as HTMLElement, ...App());
@@ -97,6 +98,7 @@ initPalette();
 initDivider();
 initDrawerDivider();
 initDrop();
+initKeyboardInset();
 
 // Applied settings restyle every terminal and the file pane (theme and font).
 onApply((s) => {
