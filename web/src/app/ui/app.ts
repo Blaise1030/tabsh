@@ -10,6 +10,7 @@ import { Sidebar } from '../explorer/sidebar.ts';
 import { paneShown } from '../files/open.ts';
 import { go } from '../nav/router.ts';
 import { grouping, TabStrip } from '../sessions/groups.ts';
+import { KeyBar } from '../sessions/keybar.ts';
 import { active, noTab } from '../sessions/store.ts';
 import { Welcome } from '../welcome/view.ts';
 import { Gate } from './gate.ts';
@@ -128,6 +129,7 @@ function Workspace(): HTMLElement {
         ),
         Gate(),
       ),
+      KeyBar(),
     ),
     div({ id: 'pane-divider', hidden: () => !paneShown.val }),
     aside({ id: 'pane', hidden: () => !paneShown.val, tabindex: '-1', 'aria-label': 'File' }),

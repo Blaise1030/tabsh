@@ -18,6 +18,7 @@ import { scoped } from '../ui/keyed.ts';
 import { ring } from './bell.ts';
 import { scanBell } from './bell-scan.ts';
 import { coalescer } from './coalesce.ts';
+import { type ExtraKey, keyInput, withCtrl } from './extra-keys.ts';
 import { type Heartbeat, heartbeat, type Timers } from './heartbeat.ts';
 import { enqueueReconnect, nextReconnect, retryDelay, shouldDrainReconnects, terminalInView } from './reconnect.ts';
 import {
@@ -33,6 +34,7 @@ import {
 } from './store.ts';
 import { setName } from './tabs.ts';
 import { labelTab } from './tags.ts';
+import { watchTouch } from './touch.ts';
 
 const enc = new TextEncoder();
 
@@ -50,6 +52,17 @@ function inView(s: Session): boolean {
     drawer: place.drawer,
     documentHidden: document.hidden,
   });
+}
+
+// The touch key bar's Ctrl: held for the next key typed.
+export const ctrlHeld = van.state(false);
+
+// Types an extra key into the on-screen terminal, as if from its keyboard.
+export function typeKey(key: ExtraKey): void {
+  const s = store.active;
+  if (!s) return;
+  s.term.input(keyInput(key, s.term.modes.applicationCursorKeysMode), true);
+  s.term.scrollToBottom();
 }
 
 // Each open socket's heartbeat.
@@ -272,7 +285,15 @@ export function openSession(info: SessionInfo): Session {
   // Replayed scrollback holds queries programs sent long ago (e.g. OSC 11,
   // "what's your background colour?"); xterm answers them as it parses, and
   // sent on, the answers land in the shell as typed text on every reload.
-  term.onData((d) => !s.parsingReplay && s.ws?.readyState === WebSocket.OPEN && s.ws.send(enc.encode(d)));
+  term.onData((d) => {
+    if (s.parsingReplay || s.ws?.readyState !== WebSocket.OPEN) return;
+    if (ctrlHeld.val) {
+      ctrlHeld.val = false;
+      d = withCtrl(d);
+    }
+    s.ws.send(enc.encode(d));
+  });
+  watchTouch(term, el);
   term.onTitleChange((t) => t && !s.pinned && setName(s, t));
   watchWake();
   // Only the on-screen tab attaches; a sync that opens others parks them.
