@@ -892,6 +892,9 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
    thumb reach, with a grab bar on top. Basecoat's centring translate and
    zoom are replaced by a slide. */
 @media (max-width: 799px) {
+  /* iOS Safari zooms the page into a focused field whose text is under 16px
+     (the palette focuses its search on opening). */
+  input, textarea, select { font-size: max(16px, 1em); }
   .command-dialog > .command, #new-card #new-card-form, #new-card.big #new-card-form {
     top: auto; bottom: 0; left: 0; width: 100%; max-width: none;
     translate: 0 100%; scale: none;
