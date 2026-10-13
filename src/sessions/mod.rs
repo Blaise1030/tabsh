@@ -184,6 +184,11 @@ struct Output {
     exited: bool,
     /// Scrollback changed since the last flush to the database.
     dirty: bool,
+    /// Bytes this output has held, the restored scrollback included: where
+    /// a page that kept its screen resumes from (`ws::attach`).
+    total: u64,
+    /// Names this count: each shell, in each daemon run, starts a new one.
+    epoch: String,
 }
 
 #[derive(Serialize, Clone, Debug)]

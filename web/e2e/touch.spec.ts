@@ -1,7 +1,9 @@
 // A phone's terminal: the key bar types what the phone keyboard lacks, and a
 // finger drags the scrollback by whole lines (sessions/keybar.ts, touch.ts).
 import type { Page } from '@playwright/test';
-import { expect, openApp, test, typeInTerminal } from './fixture.ts';
+import { dropSessions, expect, openApp, test, typeInTerminal } from './fixture.ts';
+
+type TouchType = 'touchStart' | 'touchMove' | 'touchEnd';
 
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
@@ -12,6 +14,8 @@ function sentFrames(page: Page): string[] {
   });
   return sent;
 }
+
+test.beforeEach(async ({ page, daemon }) => dropSessions(page, daemon));
 
 test('the key bar types Ctrl chords and arrows into the shell', async ({ page, daemon }) => {
   const sent = sentFrames(page);
@@ -44,7 +48,7 @@ test('a finger drags the scrollback', async ({ page, daemon }) => {
   if (!box) throw new Error('no terminal screen');
   const x = box.x + box.width / 2;
   const cdp = await page.context().newCDPSession(page);
-  const touch = (type: string, y: number) =>
+  const touch = (type: TouchType, y: number) =>
     cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
   await touch('touchStart', box.y + 40);
   for (let y = box.y + 40; y <= box.y + 340; y += 20) await touch('touchMove', y);
@@ -62,7 +66,7 @@ test('a pinch sets this device’s font size, and fewer columns fit', async ({ p
   const cx = box.x + box.width / 2;
   const cy = box.y + 200;
   const cdp = await page.context().newCDPSession(page);
-  const pinch = (type: string, half: number) =>
+  const pinch = (type: TouchType, half: number) =>
     cdp.send('Input.dispatchTouchEvent', {
       type,
       touchPoints:

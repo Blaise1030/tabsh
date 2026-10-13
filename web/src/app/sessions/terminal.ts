@@ -102,8 +102,8 @@ export function parkedMs(s: Session): number | null {
 function park(s: Session): void {
   reconnectQueue = reconnectQueue.filter((id) => id !== s.id);
   reconnectAttempts.delete(s.id);
-  // Output not yet painted goes: the next attach replays it.
-  s.out.drop();
+  // Output not yet painted is painted: the next attach resumes after it.
+  s.out.flush();
   const ws = s.ws;
   if (!ws) return;
   parkedAt.set(s, performance.now());
@@ -268,6 +268,7 @@ export function openSession(info: SessionInfo): Session {
       (handle) => cancelAnimationFrame(handle),
     ),
     closed: false,
+    stream: null,
     replaying: false,
     parsingReplay: false,
     esc: 0,
@@ -306,7 +307,8 @@ export function openSession(info: SessionInfo): Session {
 // this so the next tab's replay doesn't overlap.
 function connect(s: Session): Promise<boolean> {
   return new Promise((resolve) => {
-    const ws = new WebSocket(socketUrl(s.id));
+    const seen = s.stream;
+    const ws = new WebSocket(socketUrl(s.id) + (seen ? `&resume=${seen.epoch}:${seen.at}` : ''));
     ws.binaryType = 'arraybuffer';
     s.ws = ws;
     let settled = false;
@@ -316,15 +318,16 @@ function connect(s: Session): Promise<boolean> {
       resolve(ok);
     };
 
-    // The server replays scrollback on every attach, so start from a clean screen.
-    // The first binary message is that replay (always sent, maybe empty);
-    // bells inside it already rang.
+    // The first binary message is the replay (always sent, maybe empty);
+    // bells inside it already rang. The text frame before it says whether
+    // it is the whole scrollback, for a clean screen, or only what this
+    // screen missed (`resumed`).
     // Only a daemon that has answered a ping can be found dead by a missing
     // pong: an older one never answers.
     let answers = false;
+    let resumed = false;
     ws.onopen = () => {
-      s.out.drop(); // an older socket's unpainted bytes: the replay holds them
-      s.term.reset();
+      s.stream = null;
       s.replaying = true;
       s.parsingReplay = false;
       s.esc = 0;
@@ -344,6 +347,9 @@ function connect(s: Session): Promise<boolean> {
         if (typeof msg.pong === 'number') {
           answers = true;
           beats.get(ws)?.pong(msg.pong);
+        } else if (msg.stream) {
+          s.stream = { epoch: msg.stream.epoch, at: msg.stream.at };
+          resumed = msg.stream.resumed === true && seen?.epoch === msg.stream.epoch;
         } else if (msg.exit) {
           removeSession(s);
           finish(false);
@@ -356,6 +362,12 @@ function connect(s: Session): Promise<boolean> {
       if (s.replaying) {
         s.replaying = false;
         s.parsingReplay = true;
+        if (resumed) {
+          s.out.flush(); // an older socket's unpainted bytes come before these
+        } else {
+          s.out.drop(); // an older socket's unpainted bytes: the replay holds them
+          s.term.reset();
+        }
         s.out.replay(bytes, () => {
           if (s.ws === ws) s.parsingReplay = false; // not an older socket's replay
           finish(true);
@@ -364,6 +376,7 @@ function connect(s: Session): Promise<boolean> {
       }
       // A burst paints once a frame, not once a message; bell and unread
       // still follow each chunk.
+      if (s.stream) s.stream.at += bytes.length;
       s.out.push(bytes);
       if (scanned.bell) ring(s);
       if (s !== store.active) s.unread.val = true;

@@ -15,9 +15,11 @@ export interface Coalescer {
   // xterm's parsed callback (which ends parsingReplay). Output pending from
   // an older socket is dropped first: the replay already holds it.
   replay(bytes: Uint8Array, parsed: () => void): void;
-  // Forget what is pending: the socket is parked or closed, and the next
-  // attach replays the scrollback anyway.
+  // Forget what is pending: the next attach replays the whole scrollback.
   drop(): void;
+  // Write what is pending now: the socket is parked or closed, and the next
+  // attach resumes after the bytes already received.
+  flush(): void;
 }
 
 export function coalescer(
@@ -67,5 +69,10 @@ export function coalescer(
       write(bytes, parsed);
     },
     drop,
+    flush() {
+      const bytes = take();
+      drop();
+      if (bytes) write(bytes);
+    },
   };
 }

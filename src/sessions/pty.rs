@@ -13,9 +13,10 @@ use std::{
     collections::{HashSet, VecDeque},
     io::{Read, Write},
     sync::{
-        Arc, Condvar, Mutex,
-        atomic::{AtomicBool, Ordering},
+        Arc, Condvar, Mutex, OnceLock,
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
+    time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::broadcast;
 
@@ -241,11 +242,13 @@ pub(super) fn type_launch_line(st: &AppState, id: &str, session: &Session) {
 impl Output {
     pub(super) fn new(scrollback: VecDeque<u8>) -> Self {
         Output {
+            total: scrollback.len() as u64,
             scrollback,
             trimmed_modes: ModeTracker::default(),
             tx: broadcast::channel(1024).0,
             exited: false,
             dirty: false,
+            epoch: new_epoch(),
         }
     }
 
@@ -258,19 +261,38 @@ impl Output {
         let excess = self.scrollback.len().saturating_sub(SCROLLBACK_BYTES);
         self.trimmed_modes.feed(self.scrollback.drain(..excess));
         self.dirty = true;
+        self.total += chunk.len() as u64;
         let _ = self.tx.send(Event::Output(chunk));
     }
 
-    /// The scrollback as one buffer, for a replay or a save. Callers hold the
-    /// `output` lock, which the reader needs for every chunk, so the ring's
-    /// two halves are copied whole rather than walked byte by byte.
+    /// The scrollback as one buffer, for a replay or a save.
     pub(super) fn scrollback_bytes(&self) -> Vec<u8> {
+        self.scrollback_from(0)
+    }
+
+    /// The scrollback from its `skip`th byte on. Callers hold the `output`
+    /// lock, which the reader needs for every chunk, so the ring's two halves
+    /// are copied whole rather than walked byte by byte.
+    pub(super) fn scrollback_from(&self, skip: usize) -> Vec<u8> {
         let (front, back) = self.scrollback.as_slices();
-        let mut bytes = Vec::with_capacity(front.len() + back.len());
-        bytes.extend_from_slice(front);
-        bytes.extend_from_slice(back);
+        let mut bytes = Vec::with_capacity(self.scrollback.len().saturating_sub(skip));
+        bytes.extend_from_slice(front.get(skip..).unwrap_or_default());
+        bytes.extend_from_slice(&back[skip.saturating_sub(front.len()).min(back.len())..]);
         bytes
     }
+}
+
+/// A name for a new output's byte count, unique across shells and daemon
+/// runs: the daemon's start time and a counter.
+fn new_epoch() -> String {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    static START: OnceLock<u128> = OnceLock::new();
+    let start = START.get_or_init(|| {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos())
+    });
+    format!("{start:x}-{:x}", NEXT.fetch_add(1, Ordering::Relaxed))
 }
 
 /// The shell terminals run: `$SHELL`, else the account's login shell (a

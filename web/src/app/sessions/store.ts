@@ -28,6 +28,10 @@ export interface Session {
   // Live output on its way to xterm, written once a frame.
   out: Coalescer;
   closed: boolean;
+  // How much of the shell's output this screen holds, named by the daemon's
+  // epoch for it: a reattach asks for only what came after. Null when the
+  // daemon doesn't count (an older one).
+  stream: { epoch: string; at: number } | null;
   replaying: boolean;
   // xterm is still parsing the replay: its answers to queries in it go nowhere.
   parsingReplay: boolean;
