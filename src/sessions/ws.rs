@@ -1,10 +1,16 @@
 //! The WebSocket a browser tab attaches to a running shell through.
 
 use super::{Event, Output, Session, pty};
-use crate::{AppState, error::BoxError};
+use crate::{
+    AppState,
+    auth::Credential,
+    error::BoxError,
+    remote::{Closed, Holder, admit, closed_for, policy_close},
+};
 use axum::{
+    Extension,
     extract::{
-        Query, State,
+        ConnectInfo, Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::{HeaderMap, StatusCode, header},
@@ -12,15 +18,21 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use portable_pty::PtySize;
-use std::collections::HashMap;
+use std::{collections::HashMap, net::SocketAddr};
 use tokio::sync::broadcast;
 
 pub(super) async fn ws_handler(
     ws: WebSocketUpgrade,
     headers: HeaderMap,
     Query(params): Query<HashMap<String, String>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    credential: Option<Extension<Credential>>,
     State(st): State<AppState>,
 ) -> Response {
+    // Before the shell is opened, so a revoke in between is not missed.
+    let Some((closed, holder)) = admit(&st, peer, credential) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
     // Browsers let any site open a WebSocket to localhost and always send
     // Origin when they do; `guard` has checked it is a hosted UI with the
     // token. Without one this isn't a browser we can vouch for.
@@ -37,7 +49,7 @@ pub(super) async fn ws_handler(
         }
     };
     ws.on_upgrade(move |socket| async move {
-        if let Err(e) = attach(socket, &session).await {
+        if let Err(e) = attach(socket, &session, (closed, holder)).await {
             eprintln!("session {id} error: {e}");
         }
     })
@@ -65,7 +77,11 @@ impl Output {
     }
 }
 
-async fn attach(socket: WebSocket, session: &Session) -> Result<(), BoxError> {
+async fn attach(
+    socket: WebSocket,
+    session: &Session,
+    (mut closed, holder): (broadcast::Receiver<Closed>, Holder),
+) -> Result<(), BoxError> {
     let (mut sink, mut stream) = socket.split();
 
     // The lock is let go before anything is sent: a slow client never
@@ -85,6 +101,10 @@ async fn attach(socket: WebSocket, session: &Session) -> Result<(), BoxError> {
 
     loop {
         tokio::select! {
+            () = closed_for(&mut closed, &holder) => {
+                sink.send(policy_close()).await?;
+                break;
+            }
             ev = rx.recv() => match ev {
                 Ok(Event::Output(data)) => sink.send(Message::Binary(data)).await?,
                 // The daemon replaced this shell (its card's first prompt

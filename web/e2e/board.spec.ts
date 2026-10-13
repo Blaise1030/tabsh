@@ -450,7 +450,7 @@ test('a long note is clamped, with Show more', async ({ page, daemon, project })
     await col(page, 'backlog').locator('header .btn').click();
     await newCard(page, name, project);
   }
-  // A note as a hook sets it; titles are cut at 60 characters, two lines at most.
+  // A note as a hook sets it; titles are cut at 200 characters, two lines at most.
   const id = await card(page, 'Long').getAttribute('data-id');
   await page.request.patch(`${daemon.baseUrl}/api/sessions/${id}/status`, {
     headers: { Authorization: `Bearer ${daemon.token}` },

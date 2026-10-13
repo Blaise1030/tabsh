@@ -34,6 +34,10 @@ const featureRules = [
     specs: ['welcome', 'board', 'palette'],
   },
   {
+    paths: [/^src\/remote\//, /^web\/src\/app\/remote\//],
+    specs: ['remote'],
+  },
+  {
     paths: [/^web\/src\/app\/sound\//],
     specs: ['typing-sound'],
   },

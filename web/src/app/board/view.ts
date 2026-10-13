@@ -20,8 +20,11 @@ import {
   asStatus,
   type BoardFilter,
   COLUMNS,
+  clippedTooltip,
   DEFAULT_COMMAND,
   dropOrder,
+  fittingCount,
+  folderName,
   foldersOf,
   group,
   matchesFilter,
@@ -298,6 +301,8 @@ const agentIcon = (s: Session) => () => {
 
 // A card in the list layout: one line, as Linear's list rows: its status,
 // name and note, then its tags, folder, agent, time in status and menu.
+// Tags and the folder give up width before the title does; whatever they
+// clip is the tooltip.
 function Row(s: Session): HTMLElement {
   const status = van.derive(() => s.card.val.status);
   const row: HTMLElement = article(
@@ -312,19 +317,159 @@ function Row(s: Session): HTMLElement {
           ? span(
               { class: 'card-tags' },
               s.tags.val.map((t) => tagBadge(t)),
+              span({ class: 'badge tag-more', hidden: true }),
             )
           : '',
       span(
-        { class: 'card-meta row-folder' },
+        {
+          class: 'card-meta row-folder',
+          'data-path': () => shortPath(s.card.val.cwd) || '~',
+        },
         icons.folder(),
-        span(() => shortPath(s.card.val.cwd) || '~'),
+        span(() => folderName(s.card.val.cwd) || '~'),
       ),
       span({ class: 'card-meta' }, agentIcon(s)),
       span({ class: 'card-meta row-since' }, () => since(s.card.val.statusAt, now.val)),
       CardMenuButton(s),
     ),
   );
+  const fit = () => fitRowEnd(row, s.tags.val);
+  measures.set(row, fit);
+  van.derive(() => {
+    s.tags.val;
+    s.card.val.cwd;
+    requestAnimationFrame(fit);
+  });
   return row;
+}
+
+// Tags that don't fit collapse into colored dots; hovering them lists those
+// tags. The folder shows its name, or only its icon once squeezed to a
+// sliver; hovering it shows the name, then the whole path.
+function fitRowEnd(row: HTMLElement, tags: string[]): void {
+  const folder = row.querySelector<HTMLElement>('.row-folder');
+  folder?.classList.remove('icon-only');
+  const box = row.querySelector<HTMLElement>('.row-end .card-tags');
+  if (box) layoutTags(box, tags);
+  const pathText = folder?.querySelector('span');
+  if (folder && pathText) {
+    const name = pathText.textContent ?? '';
+    const full = folder.dataset.path || name;
+    const cut = clippedTooltip(name, pathText.scrollWidth, pathText.clientWidth) !== '';
+    if (cut && pathText.clientWidth < 32) folder.classList.add('icon-only');
+    const tip = full !== name ? `${name}\n${full}` : cut ? name : '';
+    if (tip) folder.title = tip;
+    else folder.removeAttribute('title');
+  }
+}
+
+// Hidden tag names for each overflow pill, and the one popup on the page.
+const overflowNames = new WeakMap<HTMLElement, string[]>();
+const pillBound = new WeakSet<HTMLElement>();
+let tagPop: HTMLElement | null = null;
+let hideTagPop = 0;
+let closeTagPopOnScroll: (() => void) | null = null;
+
+function paintPill(more: HTMLElement, names: string[]): void {
+  more.replaceChildren(...names.map((name) => i({ style: `--tag: ${tagColor(name)}`, 'aria-hidden': 'true' })));
+  if (names.length) more.setAttribute('aria-label', names.join(', '));
+  else more.removeAttribute('aria-label');
+  overflowNames.set(more, names);
+}
+
+function closeTagPop(): void {
+  window.clearTimeout(hideTagPop);
+  if (closeTagPopOnScroll) window.removeEventListener('scroll', closeTagPopOnScroll, true);
+  closeTagPopOnScroll = null;
+  tagPop?.remove();
+  tagPop = null;
+}
+
+function scheduleHideTagPop(): void {
+  window.clearTimeout(hideTagPop);
+  hideTagPop = window.setTimeout(closeTagPop, 150);
+}
+
+// The pill sits in a masked, scrolling board, so the list of hidden tags is
+// fixed on the body, just under the pill.
+function openTagPop(more: HTMLElement): void {
+  const names = overflowNames.get(more) ?? [];
+  if (names.length === 0 || more.hidden) return;
+  closeTagPop();
+  tagPop = div(
+    {
+      class: 'tag-more-pop',
+      role: 'tooltip',
+      onmouseenter: () => window.clearTimeout(hideTagPop),
+      onmouseleave: () => scheduleHideTagPop(),
+    },
+    names.map((name) => tagBadge(name)),
+  );
+  document.body.append(tagPop);
+  const r = more.getBoundingClientRect();
+  const w = tagPop.offsetWidth;
+  const h = tagPop.offsetHeight;
+  const left = Math.max(8, Math.min(r.left, innerWidth - w - 8));
+  let top = r.bottom + 6;
+  if (top + h > innerHeight - 8) top = Math.max(8, r.top - h - 6);
+  tagPop.style.left = `${left}px`;
+  tagPop.style.top = `${top}px`;
+  closeTagPopOnScroll = () => closeTagPop();
+  window.addEventListener('scroll', closeTagPopOnScroll, true);
+}
+
+function bindTagPop(more: HTMLElement): void {
+  if (pillBound.has(more)) return;
+  pillBound.add(more);
+  more.addEventListener('mouseenter', () => openTagPop(more));
+  more.addEventListener('mouseleave', () => scheduleHideTagPop());
+}
+
+function layoutTags(box: HTMLElement, names: string[]): void {
+  const badges = [...box.querySelectorAll<HTMLElement>(':scope > .tag-badge')];
+  const more = box.querySelector<HTMLElement>(':scope > .tag-more');
+  if (!more || badges.length === 0) return;
+  // Unlocked while measuring, so the box takes the width the row leaves it.
+  // Locked after, or flex shrinks it again past the fit and clips the last item.
+  box.style.flexShrink = '';
+  for (const b of badges) b.hidden = false;
+  more.hidden = true;
+  paintPill(more, []);
+  if (box.clientWidth === 0) return;
+  if (box.scrollWidth <= box.clientWidth + 1) {
+    box.style.flexShrink = '0';
+    return;
+  }
+
+  const gap = Number.parseFloat(getComputedStyle(box).columnGap) || 0;
+  const widths = badges.map((b) => b.getBoundingClientRect().width);
+  const available = box.clientWidth;
+  // The pill's width is one dot per hidden tag, so measure it, fit, and
+  // measure again once that count is known.
+  more.hidden = false;
+  bindTagPop(more);
+  paintPill(more, names);
+  let count = fittingCount(widths, gap, available, more.getBoundingClientRect().width);
+  for (let n = 0; n < 3; n++) {
+    const hidden = names.slice(count);
+    if (hidden.length === 0) break;
+    paintPill(more, hidden);
+    const next = fittingCount(widths, gap, available, more.getBoundingClientRect().width);
+    if (next === count) break;
+    count = next;
+  }
+  const overflow = names.slice(count);
+  badges.forEach((b, i) => {
+    b.hidden = i >= count;
+  });
+  box.style.flexShrink = '0';
+  if (overflow.length === 0) {
+    more.hidden = true;
+    paintPill(more, []);
+    return;
+  }
+  more.hidden = false;
+  paintPill(more, overflow);
 }
 
 // A card: its session's name, status, folder, note and time in status. Its

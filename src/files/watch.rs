@@ -22,10 +22,16 @@ use super::{
     resolve::session_base_dir,
     tree::{TREE_LIMIT_PATHS, list_tree, tree_path, tree_root, visible_names, walker},
 };
-use crate::{AppState, sessions};
+use crate::{
+    AppState,
+    auth::Credential,
+    remote::{Closed, Holder, admit, closed_for, policy_close},
+    sessions,
+};
 use axum::{
+    Extension,
     extract::{
-        Query, State,
+        ConnectInfo, Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::StatusCode,
@@ -379,8 +385,14 @@ fn registry() -> &'static Registry {
 pub(super) async fn watch_handler(
     ws: WebSocketUpgrade,
     Query(q): Query<TreeQuery>,
+    ConnectInfo(peer): ConnectInfo<std::net::SocketAddr>,
+    credential: Option<Extension<Credential>>,
     State(st): State<AppState>,
 ) -> Response {
+    // Before anything is awaited, so a revoke in between is not missed.
+    let Some((closed, holder)) = admit(&st, peer, credential) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
     let session = q.session.unwrap_or_default();
     let (cwd_st, id) = (st.clone(), session.clone());
     let root = tokio::task::spawn_blocking(move || tree_root(&session_base_dir(&cwd_st, &id)))
@@ -399,7 +411,7 @@ pub(super) async fn watch_handler(
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     }
-    ws.on_upgrade(move |socket| relay(socket, st, session, follow))
+    ws.on_upgrade(move |socket| relay(socket, st, session, follow, (closed, holder)))
 }
 
 /// What a socket follows: the project root of its tab, and the watcher on it
@@ -468,12 +480,22 @@ async fn move_to(registry: &Registry, follow: &mut Follow, root: PathBuf, limit:
 
 /// Forwards the watcher's messages, and says when the tab's root changes,
 /// until the browser or the session goes away.
-async fn relay(socket: WebSocket, st: AppState, session: String, mut follow: Follow) {
+async fn relay(
+    socket: WebSocket,
+    st: AppState,
+    session: String,
+    mut follow: Follow,
+    (mut closed, holder): (broadcast::Receiver<Closed>, Holder),
+) {
     let (mut sink, mut stream) = socket.split();
     let mut check = tokio::time::interval_at(tokio::time::Instant::now() + ROOT_CHECK, ROOT_CHECK);
     check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         let text = tokio::select! {
+            () = closed_for(&mut closed, &holder) => {
+                let _ = sink.send(policy_close()).await;
+                break;
+            }
             change = follow.next_change() => match change {
                 Ok(text) => text.to_string(),
                 // Behind: some changes were dropped, so start over.
@@ -889,7 +911,7 @@ mod tests {
             .unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let app = router(st);
+        let app = router(st).into_make_service_with_connect_info::<std::net::SocketAddr>();
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let query = if token { "&token=t0k3n" } else { "" };
         let mut req = format!("ws://{addr}/api/files/watch?session=s1{query}")
@@ -936,7 +958,7 @@ mod tests {
             .unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let app = router(st.clone());
+        let app = router(st.clone()).into_make_service_with_connect_info::<std::net::SocketAddr>();
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let (mut socket, _) = tokio_tungstenite::connect_async(format!(
             "ws://{addr}/api/files/watch?session=s1&token=t0k3n"

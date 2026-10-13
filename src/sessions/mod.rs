@@ -402,6 +402,7 @@ mod tests {
             .header("Host", "127.0.0.1:7681")
             .header("Authorization", "Bearer t0k3n")
             .header("Content-Type", "application/json")
+            .extension(crate::test_support::loopback_peer())
             .body(axum::body::Body::from(body.to_string()))
             .unwrap();
         let res = crate::state::router(st.clone()).oneshot(req).await.unwrap();
@@ -515,6 +516,7 @@ mod tests {
                 .header("Host", "127.0.0.1:7681")
                 .header("Authorization", "Bearer t0k3n")
                 .header("Content-Type", "application/json")
+                .extension(crate::test_support::loopback_peer())
                 .body(axum::body::Body::from(body.to_string()))
                 .unwrap();
             crate::state::router(st.clone()).oneshot(req)

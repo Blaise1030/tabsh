@@ -62,6 +62,7 @@ export function pages(ctx: {
   toggleBoard(): void;
   toggleBoardLayout(): void;
   showWelcome(): void;
+  openRemote(): void;
   searchFiles(): void;
   canGoBack: boolean;
   goBack(): void;
@@ -214,6 +215,12 @@ export function pages(ctx: {
               icon: icons.preview,
               keywords: 'onboarding tour intro',
               run: ctx.showWelcome,
+            },
+            {
+              label: 'Open on another device…',
+              icon: icons.info,
+              keywords: 'phone tablet tailscale remote qr share pair',
+              run: ctx.openRemote,
             },
             {
               label: 'Performance…',

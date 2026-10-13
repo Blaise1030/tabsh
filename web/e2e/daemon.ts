@@ -33,13 +33,16 @@ function freePort(): Promise<number> {
   });
 }
 
-export async function startDaemon(): Promise<Daemon> {
+// `env` is merged over the daemon's environment, e.g. TABSH_REMOTE_ADDRESS for
+// the specs that need the second listener.
+export async function startDaemon(opts: { env?: Record<string, string> } = {}): Promise<Daemon> {
   const bin = process.env.TABSH_BIN ?? defaultBin;
   const dir = await mkdtemp(path.join(tmpdir(), 'tabsh-e2e-'));
   const port = await freePort();
   const child = spawn(bin, [String(port)], {
     env: {
       ...process.env,
+      ...opts.env,
       TABSH_DB: path.join(dir, 'state.db'),
       TABSH_NO_BROWSER: '1', // the browser is playwright's to open, not the daemon's
     },

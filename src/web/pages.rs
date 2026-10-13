@@ -7,7 +7,7 @@ use axum::{
 };
 use std::net::SocketAddr;
 
-use crate::AppState;
+use crate::{AppState, remote::is_loopback};
 
 /// The app page, built from web/ (`npm run build` there copies it here). The
 /// daemon serves its own copy at /app/ for browsers that won't let the hosted
@@ -71,7 +71,7 @@ pub(crate) async fn open_app(
     let Some(app_url) = &st.app_url else {
         return axum::http::StatusCode::NOT_FOUND.into_response();
     };
-    if peer.ip().is_loopback() {
+    if is_loopback(peer) {
         Redirect::temporary(&format!("{app_url}#token={}", st.token)).into_response()
     } else {
         Redirect::temporary(app_url).into_response()
@@ -84,7 +84,7 @@ pub(crate) async fn open_local_app(
     State(st): State<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
 ) -> Redirect {
-    if peer.ip().is_loopback() {
+    if is_loopback(peer) {
         Redirect::temporary(&format!("/app/#token={}", st.token))
     } else {
         Redirect::temporary("/app/")
@@ -291,5 +291,24 @@ mod tests {
             assert!(assets::has_app_asset(name), "missing {name}");
         }
         assert!(assets::has_js_asset());
+    }
+
+    #[tokio::test]
+    async fn only_this_machine_is_handed_the_token() {
+        let st = crate::test_support::test_state();
+        let location = |peer: SocketAddr| {
+            let st = st.clone();
+            async move {
+                let res = open_local_app(State(st), ConnectInfo(peer))
+                    .await
+                    .into_response();
+                res.headers()[header::LOCATION].to_str().unwrap().to_owned()
+            }
+        };
+        // HOST=:: takes IPv4 connections as IPv4-mapped IPv6 addresses.
+        let mapped = SocketAddr::from(([0, 0, 0, 0, 0, 0xffff, 0x7f00, 1], 50000));
+        assert_eq!(location(mapped).await, "/app/#token=t0k3n");
+        let remote = SocketAddr::from(([100, 64, 0, 1], 50000));
+        assert_eq!(location(remote).await, "/app/");
     }
 }

@@ -4,6 +4,7 @@ mod cli;
 mod error;
 mod files;
 mod perf;
+mod remote;
 mod sessions;
 mod settings;
 mod state;
@@ -74,6 +75,10 @@ async fn daemon() {
         format!("{origin}/app/{daemon}").into()
     });
     let self_url = self_url(&host, &port);
+    let remote = remote::load(&db).unwrap_or_else(|e| panic!("failed to read {db_path}: {e}"));
+    let port_number: u16 = port
+        .parse()
+        .unwrap_or_else(|e| panic!("invalid port {port}: {e}"));
     let state = AppState {
         db: Arc::new(Mutex::new(db)),
         live: Default::default(),
@@ -85,6 +90,9 @@ async fn daemon() {
         app_url,
         self_url: self_url.into(),
         events: tokio::sync::broadcast::channel(256).0,
+        remote: Arc::new(remote),
+        port: port_number,
+        host: fixed_host(&host),
     };
 
     let flusher = state.clone();
@@ -101,6 +109,10 @@ async fn daemon() {
         .await
         .unwrap_or_else(|e| panic!("failed to bind {addr}: {e}"));
     println!("tabsh listening on http://{addr} (state: {db_path})");
+    // With a fixed `HOST` the second listener's bind could never succeed.
+    if state.host.is_none() && remote::is_enabled(&state) {
+        remote::listen::keep_trying(state.clone());
+    }
     let local_host = match host.parse::<std::net::IpAddr>() {
         Ok(ip) if ip.is_loopback() || ip.is_unspecified() => web::guard::LOCAL_NAME.into(),
         _ => host.clone(),
@@ -140,6 +152,18 @@ async fn shutdown_signal() {
     }
 }
 
+/// `host` when it isn't a loopback address: a name other than `localhost`, or
+/// an address on another interface (or every one, `0.0.0.0`).
+fn fixed_host(host: &str) -> Option<Arc<str>> {
+    if host.eq_ignore_ascii_case("localhost") {
+        return None;
+    }
+    match host.parse::<std::net::IpAddr>() {
+        Ok(ip) if ip.is_loopback() => None,
+        _ => Some(host.into()),
+    }
+}
+
 /// Where shells (and `tabsh status`) reach the daemon: loopback when it
 /// listens on every interface, and IPv6 literals in brackets.
 fn self_url(host: &str, port: &str) -> String {
@@ -165,5 +189,21 @@ mod self_url_tests {
         assert_eq!(self_url("::", "7681"), "http://127.0.0.1:7681");
         assert_eq!(self_url("::1", "7681"), "http://[::1]:7681");
         assert_eq!(self_url("example.test", "1"), "http://example.test:1");
+    }
+}
+
+#[cfg(test)]
+mod fixed_host_tests {
+    use super::fixed_host;
+
+    #[test]
+    fn only_a_non_loopback_host_is_fixed() {
+        assert_eq!(fixed_host("127.0.0.1"), None);
+        assert_eq!(fixed_host("::1"), None);
+        assert_eq!(fixed_host("localhost"), None);
+        assert_eq!(fixed_host("LocalHost"), None);
+        assert_eq!(fixed_host("192.168.1.2").as_deref(), Some("192.168.1.2"));
+        assert_eq!(fixed_host("0.0.0.0").as_deref(), Some("0.0.0.0"));
+        assert_eq!(fixed_host("example.test").as_deref(), Some("example.test"));
     }
 }

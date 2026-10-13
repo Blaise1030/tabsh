@@ -66,7 +66,7 @@ pub(crate) fn prompt_title(prompt: &str) -> Option<String> {
     Some(format!("{}…", cut.trim_end()))
 }
 
-const PROMPT_TITLE_CHARS: usize = 60;
+const PROMPT_TITLE_CHARS: usize = 200;
 
 /// A command as one line of plain words: whitespace runs (newlines too)
 /// become one space and control characters are dropped.
@@ -587,6 +587,7 @@ mod tests {
             .header("Host", "127.0.0.1:7681")
             .header("Authorization", "Bearer t0k3n")
             .header("Content-Type", "application/json")
+            .extension(crate::test_support::loopback_peer())
             .body(axum::body::Body::from(body.to_string()))
             .unwrap();
         let res = router(st.clone()).oneshot(req).await.unwrap();
@@ -1083,8 +1084,8 @@ mod tests {
             Some("Fix the login bug")
         );
         assert_eq!(prompt_title(" \n\u{1b}\n").as_deref(), None);
-        let long = prompt_title(&"word ".repeat(40)).unwrap();
-        assert_eq!(long.chars().count(), 60);
+        let long = prompt_title(&"word ".repeat(60)).unwrap();
+        assert_eq!(long.chars().count(), 200);
         assert!(long.ends_with("word…"), "{long}");
     }
 
@@ -1222,6 +1223,7 @@ mod tests {
             .header("Host", "127.0.0.1:7681")
             .header("Authorization", "Bearer t0k3n")
             .header("Content-Type", "application/json")
+            .extension(crate::test_support::loopback_peer())
             .body(axum::body::Body::from(body.to_string()))
             .unwrap();
         router(st.clone()).oneshot(req).await.unwrap().status()
