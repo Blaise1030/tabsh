@@ -1,5 +1,37 @@
 # Changelog
 
+## v0.1.27
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.26...v0.1.27)
+
+### Features
+
+- **remote:** Device tokens and the sharing flag ([2a855c4](https://github.com/Blaise1030/tabsh/commit/2a855c4))
+- **guard:** Remote peers need a token on every route ([73c1350](https://github.com/Blaise1030/tabsh/commit/73c1350))
+- **remote:** Listen on the Tailscale address ([c0421ae](https://github.com/Blaise1030/tabsh/commit/c0421ae))
+- **remote:** /api/remote to share and pair devices ([c741861](https://github.com/Blaise1030/tabsh/commit/c741861))
+- **remote:** Revoking a device closes its sockets ([8f9fe76](https://github.com/Blaise1030/tabsh/commit/8f9fe76))
+- **remote:** Open on another device dialog ([88fd284](https://github.com/Blaise1030/tabsh/commit/88fd284))
+- **web:** Open on another device is a palette page, not its own dialog ([e815d6a](https://github.com/Blaise1030/tabsh/commit/e815d6a))
+
+### Fixes
+
+- **remote:** Write a device's last_seen off the async workers ([d7c33d2](https://github.com/Blaise1030/tabsh/commit/d7c33d2))
+- **remote:** Tighten the Tailscale pick and the listener's start ([d753a34](https://github.com/Blaise1030/tabsh/commit/d753a34))
+- **remote:** Localhost is loopback; a fixed HOST doesn't retry the bind ([a50d44f](https://github.com/Blaise1030/tabsh/commit/a50d44f))
+- **remote:** Refuse a socket whose device was revoked before it subscribed ([0610285](https://github.com/Blaise1030/tabsh/commit/0610285))
+- **remote:** Keep a failed change's message and a new device's link when the QR fails ([0819197](https://github.com/Blaise1030/tabsh/commit/0819197))
+- **ci:** A guard change runs the full e2e suite ([adfe196](https://github.com/Blaise1030/tabsh/commit/adfe196))
+- **remote:** The state database is readable by its owner only ([163f04c](https://github.com/Blaise1030/tabsh/commit/163f04c))
+- **remote:** A fixed HOST still lets other machines in with the token ([82acc58](https://github.com/Blaise1030/tabsh/commit/82acc58))
+- **remote:** Turning sharing off closes another machine's main-token sockets ([be0df6c](https://github.com/Blaise1030/tabsh/commit/be0df6c))
+- **remote:** One switch of sharing at a time ([5e06c8e](https://github.com/Blaise1030/tabsh/commit/5e06c8e))
+- **remote:** A device's link isn't shown again when the dialog reopens ([92e034c](https://github.com/Blaise1030/tabsh/commit/92e034c))
+- **web:** Another device keeps the token in its address, for a home-screen app ([1966f64](https://github.com/Blaise1030/tabsh/commit/1966f64))
+- **web:** The router keeps the address's fragment, so a home-screen app keeps its token ([a103460](https://github.com/Blaise1030/tabsh/commit/a103460))
+- **web:** On a phone, fields are 16px so iOS doesn't zoom into the palette ([1084233](https://github.com/Blaise1030/tabsh/commit/1084233))
+- **web:** On a phone, the palette and New card sit above the on-screen keyboard ([fd6891a](https://github.com/Blaise1030/tabsh/commit/fd6891a))
+
 ## v0.1.26
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.25...v0.1.26)
