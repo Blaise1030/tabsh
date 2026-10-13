@@ -14,7 +14,15 @@ instead, stop it and run `brew services start tabsh`, then open
 http://127.0.0.1:7681 to pair this browser. Upgrade with `brew upgrade tabsh`
 (then `brew services restart tabsh` if you use the service).
 
-No Homebrew? Build it with Rust:
+No Homebrew? Install the release binary to `~/.local/bin` (macOS or Linux,
+checksum-verified):
+
+```sh
+curl -fsSL https://tabsh.cc/install.sh | sh
+```
+
+Re-run it to upgrade. Set `TABSH_VERSION` to pin a release or
+`TABSH_INSTALL_DIR` to install elsewhere. Or build it with Rust:
 `cargo install --git https://github.com/Blaise1030/tabsh`.
 
 Safari (and every iOS browser) won't let https://tabsh.cc reach the daemon, so

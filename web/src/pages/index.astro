@@ -1,6 +1,6 @@
 ---
 import Site from '../layouts/Site.astro';
-import { DAEMON_URL, INSTALL_COMMAND, REPO_URL } from '../site';
+import { DAEMON_URL, INSTALL_COMMAND, REPO_URL, SCRIPT_INSTALL_COMMAND } from '../site';
 
 const features = [
   ['Shells outlive the tab', 'Close, reload, quit: they reattach', ''],
@@ -59,7 +59,7 @@ const SETUP_PROMPT = 'Run `tabsh setup` and follow it.';
 
       <pre class="cmd"><span class="mark">$</span> {INSTALL_COMMAND}  <button type="button" class="copy" data-copy={INSTALL_COMMAND} aria-label="Copy install command">[copy]</button>
 <span class="mark">$</span> tabsh  <span class="mark"># opens the app in your browser, paired</span>
-<span class="mark"># no Homebrew? cargo install --git {REPO_URL}</span></pre>
+<span class="mark"># no Homebrew? {SCRIPT_INSTALL_COMMAND}</span></pre>
 
       <p class="caption">
         <span class="mark">fig. 1</span> what you get when you install: the full app, running&nbsp;live.

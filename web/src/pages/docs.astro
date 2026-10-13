@@ -1,6 +1,6 @@
 ---
 import Site from '../layouts/Site.astro';
-import { DAEMON_URL, INSTALL_COMMAND, REPO_URL } from '../site';
+import { DAEMON_URL, INSTALL_COMMAND, REPO_URL, SCRIPT_INSTALL_COMMAND } from '../site';
 
 // The line the board's "Set up with Claude Code" button sends (board/model.ts).
 const SETUP_PROMPT =
@@ -37,7 +37,8 @@ const CARGO_INSTALL = `cargo install --git ${REPO_URL}`;
   </p>
   <pre class="cmd"><span class="mark">$</span> {INSTALL_COMMAND}  <button type="button" class="copy" data-copy={INSTALL_COMMAND} aria-label="Copy install command">[copy]</button>
 <span class="mark">$</span> tabsh
-<span class="mark"># no Homebrew? {CARGO_INSTALL}</span></pre>
+<span class="mark"># no Homebrew? {SCRIPT_INSTALL_COMMAND}</span>
+<span class="mark"># or build it: {CARGO_INSTALL}</span></pre>
   <p>
     That process runs until you close its terminal. To keep the daemon running from
     login, stop it and run <code>brew services start tabsh</code>, then open <code>{DAEMON_URL}</code> once in this browser.
