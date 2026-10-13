@@ -127,8 +127,9 @@ async fn attach(
         .replay(resume.as_ref().map(|(e, at)| (e.as_str(), *at)));
     // Before the history, so the page knows whether to clear its screen,
     // and the count to resume from next time.
-    let stream_info = serde_json::json!({ "stream": { "epoch": epoch, "at": at, "resumed": resumed } });
-    sink.send(Message::Text(stream_info.to_string().into())).await?;
+    let info = serde_json::json!({ "epoch": epoch, "at": at, "resumed": resumed });
+    let frame = serde_json::json!({ "stream": info }).to_string();
+    sink.send(Message::Text(frame.into())).await?;
     // Always sent, even empty: the page treats the first binary message as
     // replayed history (e.g. to skip old bells in it).
     sink.send(Message::Binary(history.into())).await?;
