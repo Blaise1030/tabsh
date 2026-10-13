@@ -147,7 +147,9 @@ A refactor must not change any of these.
     is loopback. A request without a peer address is refused.
   - A device token can't reach `/api/remote*`.
 - **Token:** it arrives in the URL fragment and is cleared from the address
-  bar before any request. Nothing rendered from a file can read it.
+  bar before any request, except on another device (the page's host is a
+  non-loopback IP), where a home-screen app needs it in its saved address.
+  Nothing rendered from a file can read it.
 - **File previews:**
   - HTML renders in `<iframe sandbox="allow-scripts allow-popups">`.
   - Markdown renders in `<iframe sandbox="allow-same-origin">`. Scripts stay off, so a file still cannot read the token or call the daemon; same origin only lets the pane read a text selection and offer Comment. SVG renders in `<iframe sandbox="">`.
