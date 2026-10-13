@@ -26,37 +26,35 @@ const test = base.extend<{ remote: Daemon }>({
 
 const port = (daemon: Daemon) => new URL(daemon.baseUrl).port;
 
-// The dialog, opened from the palette's Help group.
-async function openDialog(page: Page) {
+// The palette's Open on another device page, from its Help group.
+async function openDevices(page: Page) {
   await page.locator('#settings-btn').click();
   await page.locator('#palette-input').fill('another device');
   await page.getByRole('menuitem', { name: 'Open on another device…' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Open on another device' });
-  // The dialog element itself has no box (Basecoat lays the form out as the
-  // panel), so playwright calls it hidden: the title stands for it.
-  await expect(dialog.getByRole('heading', { name: 'Open on another device' })).toBeVisible();
-  return dialog;
+  await expect(page.locator('#palette-input')).toHaveAttribute('placeholder', /^Search devices/);
+  return page.locator('#palette-menu');
 }
 
-// Turns sharing on in the open dialog and waits for the controls it unlocks.
+const item = (page: Page, name: string | RegExp) => page.locator('#palette-menu').getByRole('menuitem', { name });
+
+// Turns sharing on and waits for the row it unlocks.
 async function shareOn(page: Page) {
-  const dialog = page.getByRole('dialog', { name: 'Open on another device' });
-  const share = dialog.getByRole('switch', { name: 'Share over Tailscale' });
-  await expect(share).not.toBeChecked();
-  await share.check();
-  await expect(dialog.getByRole('button', { name: 'Add device' })).toBeVisible();
-  return dialog;
+  await expect(item(page, /^Share over Tailscale/)).toContainText('Off');
+  await item(page, /^Share over Tailscale/).click();
+  await expect(item(page, 'Add device…')).toBeVisible();
 }
 
-// Adds a device in the open dialog and returns its link.
+// Adds a device, named in the palette's input, and returns its link.
 async function addDevice(page: Page): Promise<string> {
-  const dialog = page.getByRole('dialog', { name: 'Open on another device' });
-  await expect(dialog.getByRole('textbox', { name: 'Device name' })).toHaveValue('iPhone');
-  await dialog.getByRole('button', { name: 'Add device' }).click();
-  await expect(dialog.locator('.remote-qr svg')).toBeVisible();
-  const link = dialog.getByRole('textbox', { name: 'Device link' });
-  await expect(link).toHaveValue(/^http:\/\/\[::1\]:\d+\/app\/#token=.+/);
-  return link.inputValue();
+  await item(page, 'Add device…').click();
+  await expect(page.locator('#palette-input')).toHaveValue('iPhone');
+  const added = page.waitForResponse((res) => res.url().endsWith('/api/remote/devices'));
+  await page.locator('#palette-input').press('Enter');
+  const { url } = await (await added).json();
+  await expect(page.locator('#palette-menu .palette-figure svg')).toBeVisible();
+  await expect(item(page, /^Copy link/)).toBeVisible();
+  expect(url).toMatch(/^http:\/\/\[::1\]:\d+\/app\/#token=.+/);
+  return url;
 }
 
 // A second browser (its own storage, as a phone would have) opened on the
@@ -85,27 +83,29 @@ async function statusFor(playwright: PlaywrightWorkerArgs['playwright'], daemon:
 
 test('share, pair a device and revoke it', async ({ page, browser, playwright, remote }) => {
   await openApp(page, remote);
-  await openDialog(page);
-  const dialog = await shareOn(page);
+  await openDevices(page);
+  await shareOn(page);
   const link = await addDevice(page);
   expect(link.startsWith(`http://[::1]:${port(remote)}/app/#token=`)).toBe(true);
-  await expect(dialog.getByRole('button', { name: 'Copy link' })).toBeVisible();
-  await expect(dialog.locator('.remote-device-seen')).toHaveText('Not used yet');
+  await expect(item(page, /^iPhone/)).toContainText('Not used yet');
 
   // Pairing over the second listener: the device sees the tab strip.
   const device = await pairDevice(browser, link);
   const token = new URL(link).hash.replace(/^#token=/, '');
   expect(await statusFor(playwright, remote, token)).toBe(200);
 
-  // Reopened, the dialog reads the device's use.
-  await dialog.getByRole('button', { name: 'Close' }).click();
-  await expect(dialog.getByRole('heading')).toBeHidden();
-  await openDialog(page);
-  await expect(dialog.locator('.remote-device-name')).toHaveText('iPhone');
-  await expect(dialog.locator('.remote-device-seen')).toHaveText('Just now');
+  // Reopened, the page reads the device's use, and the link is gone.
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#palette')).not.toHaveAttribute('open');
+  await openDevices(page);
+  await expect(item(page, /^iPhone/)).toContainText('Just now');
+  await expect(page.locator('#palette-menu .palette-figure')).toHaveCount(0);
 
-  await dialog.getByRole('button', { name: 'Revoke' }).click();
-  await expect(dialog.locator('.remote-device')).toHaveCount(0);
+  await item(page, /^iPhone/).click();
+  await item(page, /^Revoke/).click();
+  await expect(item(page, 'Add device…')).toBeVisible();
+  await expect(item(page, /^iPhone/)).toHaveCount(0);
 
   // The revoked token is refused. (Not asserted as the pairing gate: over
   // loopback a page's Origin-less GET of /api/about passes with any token, so
@@ -116,10 +116,10 @@ test('share, pair a device and revoke it', async ({ page, browser, playwright, r
   await device.context().close();
 });
 
-test('a device added after the dialog closed is not shown when it reopens', async ({ page, remote }) => {
+test('a device added after the page was left is not shown when it reopens', async ({ page, remote }) => {
   await openApp(page, remote);
-  await openDialog(page);
-  const dialog = await shareOn(page);
+  await openDevices(page);
+  await shareOn(page);
 
   let release = () => {};
   const held = new Promise<void>((resolve) => {
@@ -130,40 +130,39 @@ test('a device added after the dialog closed is not shown when it reopens', asyn
     await route.continue();
   });
   const added = page.waitForResponse((res) => res.url().endsWith('/api/remote/devices'));
-  await dialog.getByRole('button', { name: 'Add device' }).click();
-  await dialog.getByRole('button', { name: 'Close' }).click();
-  await expect(dialog.getByRole('heading')).toBeHidden();
+  await item(page, 'Add device…').click();
+  await page.locator('#palette-input').press('Enter');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#palette')).not.toHaveAttribute('open');
 
-  // The add finishes with the dialog closed, ending on its own refresh.
-  const refreshed = page.waitForResponse((res) => new URL(res.url()).pathname === '/api/remote');
   release();
   await added;
-  await refreshed;
 
-  await openDialog(page);
-  await expect(dialog.locator('.remote-device-name')).toHaveText('iPhone');
-  await expect(dialog.getByRole('textbox', { name: 'Device link' })).toBeHidden();
-  await expect(dialog.locator('.remote-qr svg')).toHaveCount(0);
+  await openDevices(page);
+  await expect(item(page, /^iPhone/)).toBeVisible();
+  await expect(item(page, /^Copy link/)).toHaveCount(0);
+  await expect(page.locator('#palette-menu .palette-figure')).toHaveCount(0);
 });
 
-test('a device page cannot open the dialog', async ({ page, browser, remote }) => {
+test('a device page cannot manage sharing', async ({ page, browser, remote }) => {
   await openApp(page, remote);
-  await openDialog(page);
+  await openDevices(page);
   await shareOn(page);
   const link = await addDevice(page);
 
   const device = await pairDevice(browser, link);
-  const dialog = await openDialog(device);
-  await expect(dialog).toContainText('Open this on the Mac running tabsh.');
-  await expect(dialog.getByRole('switch', { name: 'Share over Tailscale' })).toBeHidden();
-  await expect(dialog.getByRole('button', { name: 'Add device' })).toBeHidden();
+  await openDevices(device);
+  await expect(item(device, 'Open this on the Mac running tabsh.')).toBeVisible();
+  await expect(item(device, /^Share over Tailscale/)).toHaveCount(0);
+  await expect(item(device, 'Add device…')).toHaveCount(0);
   await device.context().close();
 });
 
 test('turning sharing off ends access', async ({ page, browser, playwright, remote }) => {
   await openApp(page, remote);
-  await openDialog(page);
-  const dialog = await shareOn(page);
+  await openDevices(page);
+  await shareOn(page);
   const link = await addDevice(page);
   const token = new URL(link).hash.replace(/^#token=/, '');
   const device = await pairDevice(browser, link);
@@ -175,8 +174,9 @@ test('turning sharing off ends access', async ({ page, browser, playwright, remo
   expect((await before.get(about, { headers })).status()).toBe(200);
   await before.dispose();
 
-  await dialog.getByRole('switch', { name: 'Share over Tailscale' }).uncheck();
-  await expect(dialog.getByRole('button', { name: 'Add device' })).toBeHidden();
+  await item(page, /^Share over Tailscale/).click();
+  await expect(item(page, 'Add device…')).toHaveCount(0);
+  await expect(item(page, /^Share over Tailscale/)).toContainText('Off');
 
   // A fresh connection finds nothing listening on [::1].
   await expect(async () => {

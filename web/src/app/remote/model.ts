@@ -1,4 +1,4 @@
-// What the Open on another device dialog shows, from the daemon's answer.
+// What the palette's Open on another device page shows, from the daemon's answer.
 // Pure: no DOM, so `node --test` loads it.
 
 export interface RemoteDevice {
@@ -26,6 +26,20 @@ export function remoteScreen(info: RemoteInfo | 'forbidden'): RemoteScreen {
   if (info.host !== null) return 'host';
   if (info.address === null) return 'no-tailscale';
   return info.enabled ? 'on' : 'off';
+}
+
+// What a screen with no controls says instead.
+export function remoteMessage(info: RemoteInfo | 'forbidden'): string | null {
+  switch (remoteScreen(info)) {
+    case 'forbidden':
+      return 'Open this on the Mac running tabsh.';
+    case 'host':
+      return `tabsh already listens on ${(info as RemoteInfo).host}. Sharing is set by HOST.`;
+    case 'no-tailscale':
+      return 'Install Tailscale on this Mac and the other device, sign both in to the same account, then reopen this.';
+    default:
+      return null;
+  }
 }
 
 // How long ago a device last used its link; `now` is unix seconds.

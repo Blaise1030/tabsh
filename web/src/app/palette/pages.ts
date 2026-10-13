@@ -1,4 +1,7 @@
 // The command palette's pages: settings to pick, pages to open, and actions.
+
+import { lastSeen, remoteMessage, remoteScreen } from '../remote/model.ts';
+import type { RemoteView } from '../remote/share.ts';
 import { CARD_SOUNDS, FONT_SIZES, FONTS, THEMES, type ThemeColors, TYPING_SOUNDS } from '../settings/catalog.ts';
 import { type KeyId, keyLabel } from '../settings/keys.ts';
 import {
@@ -34,6 +37,7 @@ export interface PaletteItem {
   disabled?: boolean; // greyed out and not selectable
   edit?: TextEdit;
   copy?: string;
+  figure?: Element; // drawn full size in place of the row, not selectable
 }
 // The palette's input becomes a text box holding `value`. Enter saves:
 // `save` says why it can't (the input stays open), or the page to show.
@@ -62,7 +66,10 @@ export function pages(ctx: {
   toggleBoard(): void;
   toggleBoardLayout(): void;
   showWelcome(): void;
-  openRemote(): void;
+  remote: RemoteView;
+  toggleSharing(): void;
+  addDevice(name: string): void;
+  revokeDevice(id: string): void;
   searchFiles(): void;
   canGoBack: boolean;
   goBack(): void;
@@ -220,7 +227,7 @@ export function pages(ctx: {
               label: 'Open on another device…',
               icon: icons.info,
               keywords: 'phone tablet tailscale remote qr share pair',
-              run: ctx.openRemote,
+              go: 'remote',
             },
             {
               label: 'Performance…',
@@ -303,6 +310,30 @@ export function pages(ctx: {
         },
       ],
     }),
+    remote: () => remotePage(ctx),
+    ...Object.fromEntries(
+      remoteDevices(ctx.remote).map((d) => [
+        `remote:${d.id}`,
+        (): PalettePage => ({
+          placeholder: `${d.name}…`,
+          groups: [
+            {
+              heading: d.name,
+              items: [
+                {
+                  label: 'Revoke',
+                  icon: icons.trash,
+                  hint: lastSeen(d, Date.now() / 1000),
+                  keywords: 'remove delete forget unpair',
+                  run: () => ctx.revokeDevice(d.id),
+                  go: 'remote',
+                },
+              ],
+            },
+          ],
+        }),
+      ]),
+    ),
     ...Object.fromEntries(saved.providers.map((_, i) => [`provider:${i}`, () => providerPage(saved.providers, i)])),
     theme: () => {
       const entries = Object.entries(THEMES);
@@ -503,4 +534,84 @@ function providerPage(list: Provider[], i: number): PalettePage {
         : []),
     ],
   };
+}
+
+function remoteDevices(remote: RemoteView) {
+  return remote.info && remote.info !== 'forbidden' ? remote.info.devices : [];
+}
+
+// Open on another device: sharing over Tailscale, adding a device (its link
+// and QR shown once) and the devices, each opening its page to revoke it.
+function remotePage(ctx: { remote: RemoteView; toggleSharing(): void; addDevice(name: string): void }): PalettePage {
+  const { info, problem, busy, added } = ctx.remote;
+  const notes: PaletteItem[] = [];
+  if (problem) notes.push({ label: problem, disabled: true });
+  if (info === null) notes.push({ label: 'Loading…', disabled: true });
+  const screen = info === null ? null : remoteScreen(info);
+  const message = info === null ? null : remoteMessage(info);
+  if (message) notes.push({ label: message, disabled: true });
+  const groups: PalettePage['groups'] = [];
+  if (notes.length) groups.push({ heading: 'Open on another device', items: notes });
+  if (info === null || info === 'forbidden' || (screen !== 'on' && screen !== 'off')) {
+    return { placeholder: 'Search devices…', groups };
+  }
+  groups.push({
+    heading: 'Sharing',
+    items: [
+      {
+        label: 'Share over Tailscale',
+        icon: icons.activity,
+        hint: info.enabled ? `On · ${info.address}:${info.port}` : 'Off',
+        keywords: 'tailscale share remote on off enable disable',
+        checked: info.enabled,
+        disabled: busy,
+        run: ctx.toggleSharing,
+        go: 'remote',
+      },
+      ...(info.error ? [{ label: info.error, disabled: true }] : []),
+    ],
+  });
+  if (!info.enabled) return { placeholder: 'Search devices…', groups };
+  if (added) {
+    groups.push({
+      heading: 'New device · shown once',
+      items: [
+        ...(added.qr ? [{ label: 'Scan with the other device', figure: added.qr }] : []),
+        {
+          label: 'Copy link',
+          icon: icons.send,
+          hint: 'or open it on the other device',
+          keywords: 'link url copy clipboard',
+          copy: added.url,
+        },
+      ],
+    });
+  }
+  groups.push({
+    heading: 'Devices',
+    items: [
+      {
+        label: 'Add device…',
+        icon: icons.plus,
+        keywords: 'new pair phone tablet qr',
+        disabled: busy,
+        edit: {
+          value: 'iPhone',
+          placeholder: 'Name the device, then Enter  (Esc to cancel)',
+          save: (name) => {
+            ctx.addDevice(name.trim());
+            return { next: 'remote' };
+          },
+        },
+      },
+      ...info.devices.map((d) => ({
+        label: d.name,
+        icon: icons.info,
+        hint: lastSeen(d, Date.now() / 1000),
+        keywords: 'device revoke',
+        go: `remote:${d.id}`,
+      })),
+    ],
+  });
+  return { placeholder: 'Search devices…', groups };
 }

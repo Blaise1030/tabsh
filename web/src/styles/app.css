@@ -774,27 +774,12 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .board-onboarding-more { display: inline-flex; align-items: center; gap: .25rem; height: 1.75rem; padding-inline: .625rem; color: var(--muted-foreground); font-size: .8rem; font-weight: 500; text-decoration: none; text-underline-offset: 4px; }
 .board-onboarding-more:hover { text-decoration: underline; }
 
-/* Open on another device: Basecoat centres the form as the panel. */
-#remote-form { width: min(28rem, 100% - 2rem); max-width: none; gap: 1rem; }
-#remote .remote-body { display: flex; flex-direction: column; gap: 1rem; }
-#remote .remote-body > [hidden] { display: none; }
-.remote-message, .remote-error, .remote-hint { margin: 0; font-size: .875rem; line-height: 1.5; }
-.remote-message, .remote-hint { color: var(--muted-foreground); }
-.remote-error { color: var(--destructive, #dc2626); }
-.remote-switch { display: flex; align-items: center; gap: .5rem; font-size: .875rem; font-weight: 500; }
-.remote-share { display: flex; flex-direction: column; gap: .5rem; }
-.remote-add, .remote-link-row { display: flex; gap: .5rem; }
-.remote-add .input, .remote-link-row .input { flex: 1; min-width: 0; }
-.remote-new { display: flex; flex-direction: column; align-items: center; gap: .5rem; }
-.remote-qr { width: 14rem; max-width: 100%; border-radius: var(--radius, .5rem); overflow: hidden; }
-.remote-qr svg { display: block; width: 100%; height: auto; }
-.remote-link-row { width: 100%; }
-.remote-link { font-family: var(--font-mono, ui-monospace, monospace); font-size: .75rem; }
-.remote-devices { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: var(--radius, .5rem); }
-.remote-device { display: flex; align-items: center; gap: .75rem; padding: .5rem .75rem; font-size: .875rem; }
-.remote-device + .remote-device { border-top: 1px solid var(--border); }
-.remote-device-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
-.remote-device-seen { color: var(--muted-foreground); font-size: .8125rem; }
+/* A palette page's notes wrap rather than cut off (Open on another device's
+   messages are a sentence). Its QR code is drawn full size and at full
+   contrast: Basecoat greys disabled rows and sizes a row's svg as an icon. */
+#palette-menu [role='menuitem'][aria-disabled='true'] > span { white-space: normal; }
+#palette-menu [role='menuitem'].palette-figure { justify-content: center; padding-block: .5rem; opacity: 1; }
+#palette-menu .palette-figure svg { width: 12rem; height: 12rem; max-width: 100%; border-radius: var(--radius, .5rem); }
 
 /* New card, after Linear's New issue: folder and agent as chips at the top,
    the prompt as a borderless body, the column and tags as chips under it,
