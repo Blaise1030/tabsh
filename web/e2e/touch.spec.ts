@@ -33,6 +33,10 @@ test('the key bar types Ctrl chords and arrows into the shell', async ({ page, d
 
   await bar.getByRole('button', { name: 'Up' }).tap();
   await expect.poll(() => sent.join('')).toContain('\u001b[A');
+
+  await bar.getByRole('button', { name: 'Space' }).tap();
+  await bar.getByRole('button', { name: 'Enter' }).tap();
+  await expect.poll(() => sent.join('')).toContain(' \r');
   await expect(page.locator('.term.active .xterm-helper-textarea')).toBeFocused();
 });
 

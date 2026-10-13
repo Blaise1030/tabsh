@@ -1,5 +1,6 @@
 // The touch key bar under the terminal: the keys a phone keyboard lacks (Esc,
-// Ctrl, Tab, arrows) and symbols it hides a page away. Shown on touch screens
+// Ctrl, Tab, arrows), Space and Enter in reach, and symbols it hides a page
+// away. Shown on touch screens
 // only (CSS). Its buttons never take focus, so the keyboard stays up.
 import van from 'vanjs-core';
 import type { ExtraKey } from './extra-keys.ts';
@@ -11,6 +12,8 @@ const { button, div } = van.tags;
 const KEYS: [ExtraKey, string, string][] = [
   ['esc', 'Esc', 'Escape'],
   ['tab', 'Tab', 'Tab'],
+  ['space', 'Space', 'Space'],
+  ['enter', '⏎', 'Enter'],
   ['up', '↑', 'Up'],
   ['down', '↓', 'Down'],
   ['left', '←', 'Left'],

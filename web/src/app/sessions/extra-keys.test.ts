@@ -7,6 +7,11 @@ test('Esc and Tab type their control codes', () => {
   assert.equal(keyInput('tab', true), '\t');
 });
 
+test('Enter is a carriage return and Space a space', () => {
+  assert.equal(keyInput('enter', false), '\r');
+  assert.equal(keyInput('space', true), ' ');
+});
+
 test('a symbol types itself', () => {
   assert.equal(keyInput('|', true), '|');
   assert.equal(keyInput('~', false), '~');
