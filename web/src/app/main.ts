@@ -8,6 +8,7 @@ import { initNotify } from './board/notify.ts';
 import { initBoard } from './board/view.ts';
 import { daemonFetch, initGate, waitForDaemon } from './daemon/client.ts';
 import { LOCAL_APP, MIXED_BLOCKED } from './daemon/config.ts';
+import { keepsTokenInAddress } from './daemon/parse.ts';
 import { adoptToken } from './daemon/token.ts';
 import { initExplorer } from './explorer/explorer.ts';
 import { initFilePane, loadedPane, restoreFiles } from './files/open.ts';
@@ -27,14 +28,16 @@ import { initTypingSound } from './sound/typing.ts';
 import { App } from './ui/app.ts';
 import { initDivider, initDrawerDivider } from './ui/divider.ts';
 import { initDrop } from './ui/drop.ts';
+import { initKeyboardInset } from './ui/keyboard.ts';
 import { initWelcome } from './welcome/view.ts';
 
 van.add(document.getElementById('app') as HTMLElement, ...App());
 
-// The pairing link puts the token in the fragment; take it and clear it
-// before anything talks to the daemon.
+// The pairing link puts the token in the fragment; take it before anything
+// talks to the daemon, and clear it except on another device.
 const launched = adoptToken(location.hash);
-if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+if (location.hash && !keepsTokenInAddress(location.hostname))
+  history.replaceState(null, '', location.pathname + location.search);
 // A link with the token comes from a running daemon (it opens one at
 // startup), so it's safe to go straight to its copy. Without one the
 // daemon may be down, and the gate explains how to start it.
@@ -95,6 +98,7 @@ initPalette();
 initDivider();
 initDrawerDivider();
 initDrop();
+initKeyboardInset();
 
 // Applied settings restyle every terminal and the file pane (theme and font).
 onApply((s) => {
@@ -107,9 +111,15 @@ onApply((s) => {
 prefersLight?.addEventListener('change', () => current.applied.theme === 'tabsh' && applySettings(current.applied));
 
 for (const b of document.querySelectorAll<HTMLButtonElement>('[data-new-session]')) b.onclick = newSession;
+// A phone resizes in bursts (the keyboard sliding in, the address bar
+// collapsing, a turn): the terminal is fitted once it settles.
+let resizeTimer = 0;
 new ResizeObserver(() => {
-  const s = store.active;
-  if (s) requestAnimationFrame(() => sendSize(s));
+  window.clearTimeout(resizeTimer);
+  resizeTimer = window.setTimeout(() => {
+    const s = store.active;
+    if (s) requestAnimationFrame(() => sendSize(s));
+  }, 150);
 }).observe(document.getElementById('terms') as HTMLElement);
 window.addEventListener('focus', () => {
   sync().catch(() => {});

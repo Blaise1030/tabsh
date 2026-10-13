@@ -33,10 +33,32 @@ export function setPreviewing(on: boolean): void {
   previewing = on;
 }
 
+// A font size pinched on this device, which outranks the stored one: a phone
+// wants a different size from the desktop the settings were chosen on. Kept
+// in this browser only; choosing a size in the palette clears it.
+const DEVICE_FONT = 'tabsh.fontSize.device';
+let deviceFont: number | null = null;
+try {
+  deviceFont = Number(localStorage.getItem(DEVICE_FONT)) || null;
+} catch {}
+
+function storeDeviceFont(size: number | null): void {
+  deviceFont = size;
+  try {
+    if (size === null) localStorage.removeItem(DEVICE_FONT);
+    else localStorage.setItem(DEVICE_FONT, String(size));
+  } catch {}
+}
+
+export function setDeviceFontSize(size: number): void {
+  storeDeviceFont(size);
+  applySettings(current.applied);
+}
+
 export const terminalOptions = (s: Settings) => ({
   theme: THEMES[s.theme].colors,
   fontFamily: fontStack(FONTS[s.font]),
-  fontSize: s.fontSize,
+  fontSize: deviceFont ?? s.fontSize,
 });
 
 // Web fonts must be fully loaded before xterm measures character cells.
@@ -87,6 +109,7 @@ export async function loadSettings(): Promise<void> {
 // The one writer of stored settings: patch `current.saved`, tell the
 // listeners, apply, and PUT the whole object once.
 export function saveSettings(patch: Partial<Settings>): void {
+  if (patch.fontSize !== undefined) storeDeviceFont(null);
   current.saved = { ...current.saved, ...patch };
   for (const fn of savedListeners) fn(current.saved);
   applySettings(current.saved);

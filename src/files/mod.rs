@@ -237,7 +237,7 @@ async fn file_raw(Query(q): Query<FileQuery>) -> Response {
 mod tests {
     use crate::{
         state::router,
-        test_support::{scratch, test_state},
+        test_support::{loopback_peer, scratch, test_state},
     };
     use axum::body::to_bytes;
     use axum::http::{Method, Request, StatusCode};
@@ -250,6 +250,7 @@ mod tests {
             .header("Host", "127.0.0.1:7681")
             .header("Origin", "https://tabsh.cc")
             .header("Authorization", "Bearer t0k3n")
+            .extension(loopback_peer())
             .body(axum::body::Body::empty())
             .unwrap()
     }
@@ -286,7 +287,8 @@ mod tests {
     fn tree_request(session: &str, auth: &[(&str, &str)]) -> Request<axum::body::Body> {
         let mut req = Request::builder()
             .uri(format!("/api/files/tree?session={session}"))
-            .header("Host", "127.0.0.1:7681");
+            .header("Host", "127.0.0.1:7681")
+            .extension(loopback_peer());
         for (name, value) in auth {
             req = req.header(*name, *value);
         }
@@ -353,6 +355,7 @@ mod tests {
             .header("Host", "127.0.0.1:7681")
             .header("Origin", "https://tabsh.cc")
             .header("Authorization", "Bearer t0k3n")
+            .extension(loopback_peer())
             .body(axum::body::Body::empty())
             .unwrap();
         let res = router(test_state()).oneshot(req).await.unwrap();

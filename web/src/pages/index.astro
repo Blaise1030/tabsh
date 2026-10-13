@@ -1,6 +1,6 @@
 ---
 import Site from '../layouts/Site.astro';
-import { DAEMON_URL, INSTALL_COMMAND, REPO_URL } from '../site';
+import { DAEMON_URL, INSTALL_COMMAND, REPO_URL, SCRIPT_INSTALL_COMMAND } from '../site';
 
 const features = [
   ['Shells outlive the tab', 'Close, reload, quit: they reattach', ''],
@@ -59,7 +59,7 @@ const SETUP_PROMPT = 'Run `tabsh setup` and follow it.';
 
       <pre class="cmd"><span class="mark">$</span> {INSTALL_COMMAND}  <button type="button" class="copy" data-copy={INSTALL_COMMAND} aria-label="Copy install command">[copy]</button>
 <span class="mark">$</span> tabsh  <span class="mark"># opens the app in your browser, paired</span>
-<span class="mark"># no Homebrew? cargo install --git {REPO_URL}</span></pre>
+<span class="mark"># no Homebrew? {SCRIPT_INSTALL_COMMAND}</span></pre>
 
       <p class="caption">
         <span class="mark">fig. 1</span> what you get when you install: the full app, running&nbsp;live.
@@ -177,7 +177,7 @@ const SETUP_PROMPT = 'Run `tabsh setup` and follow it.';
         <li><b>You hear about it.</b> A desktop notification and a chime when an agent needs you or is done.</li>
         <li><b>Agents pick up where they left off</b> when tabsh restarts.</li>
       </ol>
-      <p class="muted"><span class="mark">&gt;</span> <a href="/docs/">How to set this up</a>, the hooks the agent runs, and how to undo it.</p>
+      <p class="muted"><span class="mark">&gt;</span> <a href="/docs/">How to set this up</a>, the hooks the agent runs, how to undo it, and <a href="/docs/#tailscale">Tailscale</a> if you need another device.</p>
 
       <h2 id="how"><span class="mark">##</span> HOW IT CONNECTS</h2>
       <p>
@@ -224,6 +224,14 @@ const SETUP_PROMPT = 'Run `tabsh setup` and follow it.';
             The daemon listens on 127.0.0.1 only and answers only the tabsh app carrying your token. The
             token rides in the URL fragment, which browsers never send to a server. Keystrokes never
             leave your machine.
+          </p>
+        </details>
+        <details>
+          <summary>Can I open it from my phone or another computer?</summary>
+          <p>
+            Keep the daemon on loopback — exposing the port on the network would be plain HTTP to a
+            shell. If you need another of your devices, put Tailscale (Serve or an SSH tunnel) in
+            front of it. Use the Tailscale IP, not MagicDNS. <a href="/docs/#tailscale">How to set that up</a>.
           </p>
         </details>
         <details>

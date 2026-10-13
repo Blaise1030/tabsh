@@ -386,6 +386,7 @@ mod tests {
             .uri("/api/performance?token=t0k3n")
             .header("Host", "127.0.0.1:7681")
             .header("Origin", "https://tabsh.cc")
+            .extension(crate::test_support::loopback_peer())
             .body(axum::body::Body::empty())
             .unwrap();
         let res = app.oneshot(req).await.unwrap();

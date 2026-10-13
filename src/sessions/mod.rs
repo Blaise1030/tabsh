@@ -184,6 +184,11 @@ struct Output {
     exited: bool,
     /// Scrollback changed since the last flush to the database.
     dirty: bool,
+    /// Bytes this output has held, the restored scrollback included: where
+    /// a page that kept its screen resumes from (`ws::attach`).
+    total: u64,
+    /// Names this count: each shell, in each daemon run, starts a new one.
+    epoch: String,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -402,6 +407,7 @@ mod tests {
             .header("Host", "127.0.0.1:7681")
             .header("Authorization", "Bearer t0k3n")
             .header("Content-Type", "application/json")
+            .extension(crate::test_support::loopback_peer())
             .body(axum::body::Body::from(body.to_string()))
             .unwrap();
         let res = crate::state::router(st.clone()).oneshot(req).await.unwrap();
@@ -515,6 +521,7 @@ mod tests {
                 .header("Host", "127.0.0.1:7681")
                 .header("Authorization", "Bearer t0k3n")
                 .header("Content-Type", "application/json")
+                .extension(crate::test_support::loopback_peer())
                 .body(axum::body::Body::from(body.to_string()))
                 .unwrap();
             crate::state::router(st.clone()).oneshot(req)

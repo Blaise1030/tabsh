@@ -7,6 +7,15 @@ import { daemonFetch } from '../daemon/client.ts';
 import { searchFiles, toggleExplorer } from '../explorer/explorer.ts';
 import { loadedPane } from '../files/open.ts';
 import { back, backPastPalette, forward, go, here, isLeavingPalette, isPaletteEntry, onPlace } from '../nav/router.ts';
+import {
+  addRemoteDevice,
+  forgetRemote,
+  loadRemote,
+  onRemoteChange,
+  remoteView,
+  revokeRemoteDevice,
+  toggleSharing,
+} from '../remote/share.ts';
 import { cycleTab, store } from '../sessions/store.ts';
 import { comboFromEvent, comboProblem, type KeyId, matchesKey } from '../settings/keys.ts';
 import type { Settings } from '../settings/schema.ts';
@@ -52,6 +61,10 @@ function palettePages(): ReturnType<typeof pages> {
     toggleBoard: () => toggleBoard(),
     toggleBoardLayout,
     showWelcome,
+    remote: remoteView(),
+    toggleSharing: () => void toggleSharing(),
+    addDevice: (name) => void addRemoteDevice(name),
+    revokeDevice: (id) => void revokeRemoteDevice(id),
     searchFiles,
     canGoBack: navigation.canGoBack,
     goBack: backPastPalette,
@@ -92,6 +105,12 @@ function showPage(name: string): void {
 const SWATCH = ['red', 'green', 'yellow', 'blue', 'magenta'] as const;
 
 function PaletteRow({ id, item }: MenuGroup['items'][number]): HTMLElement {
+  if (item.figure) {
+    return div(
+      { role: 'menuitem', id, class: 'palette-figure', 'aria-disabled': 'true', 'data-filter': item.label },
+      item.figure,
+    );
+  }
   const props: Record<string, string> = {
     role: 'menuitem',
     id,
@@ -212,6 +231,8 @@ function updatePaletteFades(): void {
 
 // The palette step's half: open on `at`, or closed. It never navigates.
 function showPalette(at: string | null): void {
+  const wasRemote = isRemotePage(page.val);
+  if (!isRemotePage(at)) forgetRemote();
   if (!at) {
     page.val = null;
     if (paletteEl().open) paletteEl().close();
@@ -230,8 +251,12 @@ function showPalette(at: string | null): void {
     loadPerformance().then(() => {
       if (page.val === 'performance') showPage('performance');
     });
+  // Read afresh on the way in; redrawn by `onRemoteChange` once it lands.
+  if (isRemotePage(at) && !wasRemote) void loadRemote();
   showPage(at);
 }
+
+const isRemotePage = (name: string | null) => name === 'remote' || !!name?.startsWith('remote:');
 
 // Opening the palette is a push; when it is already open, it closes.
 export function openPalette(at: string = 'root'): void {
@@ -310,14 +335,22 @@ export function initPalette(): void {
     const at = page.val;
     if (back && at && at !== 'root') {
       e.preventDefault(); // also stops Escape from closing the dialog
-      go({ palette: at.startsWith('provider:') ? 'providers' : 'root' }, 'replace');
+      const up = at.startsWith('provider:') ? 'providers' : at.startsWith('remote:') ? 'remote' : 'root';
+      go({ palette: up }, 'replace');
     }
   });
 
   // Closing without picking reverts any preview. A close the place didn't
   // ask for (Esc, the backdrop, an item) takes the palette out of it: Back
   // over the entry that opened it, else a replace, so no step reopens it.
+  // A sharing change that lands redraws the page showing it, unless a name is
+  // being typed there.
+  onRemoteChange(() => {
+    if (paletteEl().open && isRemotePage(page.val) && !editing) showPage(page.val as string);
+  });
+
   paletteEl().addEventListener('close', () => {
+    forgetRemote();
     recording = null;
     editing = null;
     setPreviewing(false);

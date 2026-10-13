@@ -1,6 +1,12 @@
 /* The app page (pages/app/index.astro). */
 html, body { height: 100%; margin: 0; overflow: hidden; background: var(--background); color: var(--foreground); }
 body { display: flex; flex-direction: column; }
+/* The page reaches the screen's edges (viewport-fit=cover), its background
+   behind the notch, status bar and home indicator; the app sits inside them. */
+body {
+  box-sizing: border-box;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
 /* The mount point (#app) adds no box: its children lay out as the body's. */
 #app { display: contents; }
 :root { --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif; }
@@ -402,6 +408,29 @@ file-tree-container {
 .term.active { display: block; }
 .term-bottom { position: absolute; right: 1rem; bottom: .75rem; z-index: 5; border-radius: 9999px; box-shadow: 0 2px 8px rgb(0 0 0 / .25); }
 .term-bottom[hidden] { display: none; }
+/* The touch key bar (sessions/keybar.ts): touch screens only. */
+.keybar { display: none; }
+@media (pointer: coarse) {
+  .keybar:not([hidden]) {
+    flex: none; display: flex; gap: .375rem; overflow-x: auto; scrollbar-width: none;
+    padding: .375rem .5rem;
+  }
+  .keybar button {
+    flex: none; min-width: 2.75rem; height: 2.25rem; padding: 0 .625rem; border: 0;
+    border-radius: calc(var(--radius, .5rem) - 2px); background: var(--muted); color: var(--foreground);
+    font: 500 .875rem var(--font-sans); touch-action: manipulation; -webkit-user-select: none; user-select: none;
+  }
+  .keybar button[aria-pressed="true"] { background: var(--foreground); color: var(--background); }
+  /* While you type in a terminal, it ends above the keyboard, so the prompt
+     stays in sight (iOS lays the keyboard over the page). The body's
+     safe-area padding already keeps it off the bottom of the screen. */
+  body:has(.term .xterm-helper-textarea:focus) #main {
+    padding-bottom: max(0px, var(--keyboard, 0px) - env(safe-area-inset-bottom));
+  }
+  /* Long press selects (sessions/touch.ts), not the system's text callout. */
+  .term { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+  .term .xterm-viewport { overscroll-behavior: contain; }
+}
 /* Glowing frame around the window while a file is dragged over it: drop it
    on the terminal to type its path at the prompt. */
 #drop-glow {
@@ -444,7 +473,8 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
    right. */
 #welcome {
   position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none;
-  margin: 0; border: 0; border-radius: 0; padding: 0; overflow: hidden;
+  margin: 0; border: 0; border-radius: 0; overflow: hidden; box-sizing: border-box;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   background: var(--background); color: var(--foreground);
 }
 #welcome[open] { display: flex; align-items: stretch; justify-content: center; }
@@ -774,6 +804,13 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .board-onboarding-more { display: inline-flex; align-items: center; gap: .25rem; height: 1.75rem; padding-inline: .625rem; color: var(--muted-foreground); font-size: .8rem; font-weight: 500; text-decoration: none; text-underline-offset: 4px; }
 .board-onboarding-more:hover { text-decoration: underline; }
 
+/* A palette page's notes wrap rather than cut off (Open on another device's
+   messages are a sentence). Its QR code is drawn full size and at full
+   contrast: Basecoat greys disabled rows and sizes a row's svg as an icon. */
+#palette-menu [role='menuitem'][aria-disabled='true'] > span { white-space: normal; }
+#palette-menu [role='menuitem'].palette-figure { justify-content: center; padding-block: .5rem; opacity: 1; }
+#palette-menu .palette-figure svg { width: 12rem; height: 12rem; max-width: 100%; border-radius: var(--radius, .5rem); }
+
 /* New card, after Linear's New issue: folder and agent as chips at the top,
    the prompt as a borderless body, the column and tags as chips under it,
    then attach, Create more and Create. */
@@ -885,14 +922,21 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
    thumb reach, with a grab bar on top. Basecoat's centring translate and
    zoom are replaced by a slide. */
 @media (max-width: 799px) {
+  /* iOS Safari zooms the page into a focused field whose text is under 16px
+     (the palette focuses its search on opening). */
+  input, textarea, select { font-size: max(16px, 1em); }
   .command-dialog > .command, #new-card #new-card-form, #new-card.big #new-card-form {
-    top: auto; bottom: 0; left: 0; width: 100%; max-width: none;
+    top: auto; bottom: var(--keyboard, 0px); left: 0; width: 100%; max-width: none;
     translate: 0 100%; scale: none;
     border-bottom-width: 0; border-radius: 1rem 1rem 0 0;
     transition-duration: .4s; transition-timing-function: cubic-bezier(.32, .72, 0, 1);
   }
-  .command-dialog > .command { max-height: 85dvh; padding-top: .75rem; padding-bottom: env(safe-area-inset-bottom); }
-  #new-card #new-card-form { max-height: 92dvh; padding-top: 1.375rem; padding-bottom: calc(1rem + env(safe-area-inset-bottom)); }
+  /* Clear of the home indicator, unless the keyboard is up and covers it. */
+  .command-dialog > .command, #new-card #new-card-form {
+    --sheet-inset: max(0px, env(safe-area-inset-bottom) - var(--keyboard, 0px));
+  }
+  .command-dialog > .command { max-height: calc(85dvh - var(--keyboard, 0px)); padding-top: .75rem; padding-bottom: var(--sheet-inset); }
+  #new-card #new-card-form { max-height: calc(92dvh - var(--keyboard, 0px)); padding-top: 1.375rem; padding-bottom: calc(1rem + var(--sheet-inset)); }
   .command-dialog[open] > .command, #new-card[open] #new-card-form { translate: 0 0; }
   @starting-style {
     .command-dialog[open] > .command, #new-card[open] #new-card-form { translate: 0 100%; }

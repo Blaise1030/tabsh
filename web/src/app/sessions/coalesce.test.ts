@@ -137,3 +137,15 @@ test('a replay cancels a scheduled frame: it never fires later', () => {
   assert.equal(scheduled.size, 0); // the frame was cancelled, not left to run
   assert.deepEqual(written, ['history']);
 });
+
+test('flush writes what is pending at once, and the frame then writes nothing', () => {
+  const { c, written, frame } = rig();
+  c.push(enc.encode('a'));
+  c.push(enc.encode('b'));
+  c.flush();
+  assert.deepEqual(written, ['ab']);
+  frame();
+  assert.deepEqual(written, ['ab']);
+  c.flush();
+  assert.deepEqual(written, ['ab'], 'nothing pending, nothing written');
+});

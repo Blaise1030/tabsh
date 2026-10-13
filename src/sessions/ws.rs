@@ -1,10 +1,16 @@
 //! The WebSocket a browser tab attaches to a running shell through.
 
 use super::{Event, Output, Session, pty};
-use crate::{AppState, error::BoxError};
+use crate::{
+    AppState,
+    auth::Credential,
+    error::BoxError,
+    remote::{Closed, Holder, admit, closed_for, policy_close},
+};
 use axum::{
+    Extension,
     extract::{
-        Query, State,
+        ConnectInfo, Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::{HeaderMap, StatusCode, header},
@@ -12,15 +18,21 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use portable_pty::PtySize;
-use std::collections::HashMap;
+use std::{collections::HashMap, net::SocketAddr};
 use tokio::sync::broadcast;
 
 pub(super) async fn ws_handler(
     ws: WebSocketUpgrade,
     headers: HeaderMap,
     Query(params): Query<HashMap<String, String>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    credential: Option<Extension<Credential>>,
     State(st): State<AppState>,
 ) -> Response {
+    // Before the shell is opened, so a revoke in between is not missed.
+    let Some((closed, holder)) = admit(&st, peer, credential) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
     // Browsers let any site open a WebSocket to localhost and always send
     // Origin when they do; `guard` has checked it is a hosted UI with the
     // token. Without one this isn't a browser we can vouch for.
@@ -28,6 +40,7 @@ pub(super) async fn ws_handler(
         return StatusCode::FORBIDDEN.into_response();
     }
     let id = params.get("id").cloned().unwrap_or_default();
+    let resume = params.get("resume").and_then(|v| resume_param(v));
     let session = match pty::open(st, id.clone()).await {
         Ok(Some(s)) => s,
         Ok(None) => return StatusCode::NOT_FOUND.into_response(),
@@ -37,44 +50,86 @@ pub(super) async fn ws_handler(
         }
     };
     ws.on_upgrade(move |socket| async move {
-        if let Err(e) = attach(socket, &session).await {
+        if let Err(e) = attach(socket, &session, resume, (closed, holder)).await {
             eprintln!("session {id} error: {e}");
         }
     })
 }
 
 /// What a client attaching gets: the history to replay, and the live output
-/// that follows it with nothing missed or repeated.
+/// that follows it with nothing missed or repeated. A client that kept its
+/// screen gets, as `resumed` history, only the bytes it missed.
 struct Replay {
     history: Vec<u8>,
+    resumed: bool,
+    epoch: String,
+    /// The output's byte count where the history ends.
+    at: u64,
     exited: bool,
     rx: broadcast::Receiver<Event>,
 }
 
+/// `resume=<epoch>:<offset>`: the count a page has seen of an output.
+fn resume_param(v: &str) -> Option<(String, u64)> {
+    let (epoch, at) = v.split_once(':')?;
+    Some((epoch.to_owned(), at.parse().ok()?))
+}
+
 impl Output {
     /// Taken under the `output` lock, which the shell's reader also needs
-    /// for every chunk, so it only copies.
-    fn replay(&self) -> Replay {
-        let mut history = self.trimmed_modes.replay_prefix();
-        history.extend_from_slice(&self.scrollback_bytes());
+    /// for every chunk, so it only copies. A resume is honoured only within
+    /// the same count and while its bytes are still in the scrollback.
+    fn replay(&self, resume: Option<(&str, u64)>) -> Replay {
+        let start = self.total - self.scrollback.len() as u64;
+        let from = resume
+            .filter(|&(epoch, at)| epoch == self.epoch && (start..=self.total).contains(&at))
+            .map(|(_, at)| at);
+        let history = match from {
+            Some(at) => self.scrollback_from((at - start) as usize),
+            None => {
+                let mut history = self.trimmed_modes.replay_prefix();
+                history.extend_from_slice(&self.scrollback_bytes());
+                history
+            }
+        };
         Replay {
             history,
+            resumed: from.is_some(),
+            epoch: self.epoch.clone(),
+            at: self.total,
             exited: self.exited,
             rx: self.tx.subscribe(),
         }
     }
 }
 
-async fn attach(socket: WebSocket, session: &Session) -> Result<(), BoxError> {
+async fn attach(
+    socket: WebSocket,
+    session: &Session,
+    resume: Option<(String, u64)>,
+    (mut closed, holder): (broadcast::Receiver<Closed>, Holder),
+) -> Result<(), BoxError> {
     let (mut sink, mut stream) = socket.split();
 
     // The lock is let go before anything is sent: a slow client never
     // holds up the shell's output.
     let Replay {
         history,
+        resumed,
+        epoch,
+        at,
         exited,
         mut rx,
-    } = session.output.lock().unwrap().replay();
+    } = session
+        .output
+        .lock()
+        .unwrap()
+        .replay(resume.as_ref().map(|(e, at)| (e.as_str(), *at)));
+    // Before the history, so the page knows whether to clear its screen,
+    // and the count to resume from next time.
+    let info = serde_json::json!({ "epoch": epoch, "at": at, "resumed": resumed });
+    let frame = serde_json::json!({ "stream": info }).to_string();
+    sink.send(Message::Text(frame.into())).await?;
     // Always sent, even empty: the page treats the first binary message as
     // replayed history (e.g. to skip old bells in it).
     sink.send(Message::Binary(history.into())).await?;
@@ -85,6 +140,10 @@ async fn attach(socket: WebSocket, session: &Session) -> Result<(), BoxError> {
 
     loop {
         tokio::select! {
+            () = closed_for(&mut closed, &holder) => {
+                sink.send(policy_close()).await?;
+                break;
+            }
             ev = rx.recv() => match ev {
                 Ok(Event::Output(data)) => sink.send(Message::Binary(data)).await?,
                 // The daemon replaced this shell (its card's first prompt
@@ -103,20 +162,18 @@ async fn attach(socket: WebSocket, session: &Session) -> Result<(), BoxError> {
             },
             msg = stream.next() => match msg {
                 Some(Ok(Message::Binary(data))) => session.input.send(data)?,
-                // Text frames carry control messages: {"cols": N, "rows": N} resizes.
-                Some(Ok(Message::Text(text))) => {
-                    let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
-                        continue;
-                    };
-                    if let (Some(cols), Some(rows)) = (v["cols"].as_u64(), v["rows"].as_u64()) {
+                Some(Ok(Message::Text(text))) => match control(&text) {
+                    Control::Resize { cols, rows } => {
                         let _ = session.master.lock().unwrap().resize(PtySize {
-                            rows: rows as u16,
-                            cols: cols as u16,
+                            rows,
+                            cols,
                             pixel_width: 0,
                             pixel_height: 0,
                         });
                     }
-                }
+                    Control::Reply(reply) => sink.send(Message::Text(reply.into())).await?,
+                    Control::Ignore => {}
+                },
                 // The browser went away; the shell keeps running for a reattach.
                 Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
                 Some(Ok(_)) => {}
@@ -126,6 +183,35 @@ async fn attach(socket: WebSocket, session: &Session) -> Result<(), BoxError> {
 
     let _ = sink.close().await;
     Ok(())
+}
+
+/// What a text frame from the page asks for.
+#[derive(Debug, PartialEq)]
+enum Control {
+    Resize {
+        cols: u16,
+        rows: u16,
+    },
+    /// Sent straight back: `{"ping": n}` gets `{"pong": n}`, so a page can
+    /// tell a live socket from one a phone's sleep left for dead.
+    Reply(String),
+    Ignore,
+}
+
+fn control(text: &str) -> Control {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(text) else {
+        return Control::Ignore;
+    };
+    if let (Some(cols), Some(rows)) = (v["cols"].as_u64(), v["rows"].as_u64()) {
+        return Control::Resize {
+            cols: cols as u16,
+            rows: rows as u16,
+        };
+    }
+    if !v["ping"].is_null() {
+        return Control::Reply(serde_json::json!({ "pong": v["ping"] }).to_string());
+    }
+    Control::Ignore
 }
 
 #[cfg(test)]
@@ -169,7 +255,7 @@ mod tests {
                 .min()
                 .unwrap()
         };
-        let held = best(&|| output.lock().unwrap().replay().history.len());
+        let held = best(&|| output.lock().unwrap().replay(None).history.len());
         let walk = best(&|| {
             let out = output.lock().unwrap();
             out.scrollback.iter().copied().collect::<Vec<u8>>().len()
@@ -185,7 +271,7 @@ mod tests {
         for _ in 0..64 {
             out.append(Bytes::from(vec![b'y'; 8192]));
         }
-        let replay = out.replay();
+        let replay = out.replay(None);
         assert!(
             replay.history.starts_with(b"\x1b[?1049h"),
             "trimmed modes first"
@@ -219,7 +305,7 @@ mod tests {
         };
         let mut attaches = Vec::new();
         while !producer.is_finished() {
-            attaches.push(output.lock().unwrap().replay());
+            attaches.push(output.lock().unwrap().replay(None));
             std::thread::sleep(Duration::from_micros(200));
         }
         producer.join().unwrap();
@@ -242,5 +328,69 @@ mod tests {
                 assert_eq!(w[1], w[0] + 1, "no gap or repeat at {}", w[0]);
             }
         }
+    }
+
+    // A page that kept its screen asks for what came after the bytes it saw.
+    #[test]
+    fn a_resume_sends_only_the_bytes_missed() {
+        let mut out = Output::new(VecDeque::from(b"old ".to_vec()));
+        out.append(Bytes::from_static(b"seen "));
+        let at = out.replay(None).at;
+        out.append(Bytes::from_static(b"missed"));
+        let epoch = out.epoch.clone();
+
+        let resumed = out.replay(Some((&epoch, at)));
+        assert!(resumed.resumed);
+        assert_eq!(resumed.history, b"missed");
+        assert_eq!(resumed.at, at + 6);
+
+        let caught_up = out.replay(Some((&epoch, resumed.at)));
+        assert!(caught_up.resumed);
+        assert!(caught_up.history.is_empty());
+    }
+
+    // Anything it can't vouch for gets the whole scrollback again: another
+    // shell's (or daemon's) count, bytes since trimmed off, or a count ahead.
+    #[test]
+    fn a_resume_it_cannot_honour_replays_everything() {
+        let out = full();
+        let epoch = out.epoch.clone();
+        let whole = out.replay(None);
+        assert!(!whole.resumed);
+        for resume in [
+            ("other", whole.at),
+            (epoch.as_str(), 0),
+            (epoch.as_str(), whole.at + 1),
+        ] {
+            let replay = out.replay(Some(resume));
+            assert!(!replay.resumed, "{resume:?}");
+            assert_eq!(replay.history.len(), whole.history.len(), "{resume:?}");
+        }
+        assert_ne!(
+            Output::new(VecDeque::new()).epoch,
+            epoch,
+            "each shell counts afresh"
+        );
+    }
+
+    #[test]
+    fn a_resume_names_an_epoch_and_an_offset() {
+        assert_eq!(resume_param("ab-1:42"), Some(("ab-1".into(), 42)));
+        assert_eq!(resume_param("ab-1"), None);
+        assert_eq!(resume_param("ab-1:x"), None);
+    }
+
+    #[test]
+    fn a_text_frame_is_a_resize_a_ping_or_nothing() {
+        assert_eq!(
+            control(r#"{"cols":80,"rows":24}"#),
+            Control::Resize { cols: 80, rows: 24 }
+        );
+        assert_eq!(
+            control(r#"{"ping":7}"#),
+            Control::Reply(r#"{"pong":7}"#.into())
+        );
+        assert_eq!(control("not json"), Control::Ignore);
+        assert_eq!(control(r#"{"cols":80}"#), Control::Ignore);
     }
 }

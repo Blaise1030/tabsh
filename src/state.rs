@@ -1,6 +1,6 @@
 //! The daemon's shared state, and the router that puts every route behind the guard.
 
-use crate::{board, files, perf, sessions, settings, upload, web};
+use crate::{board, files, perf, remote, sessions, settings, upload, web};
 use axum::{Router, middleware};
 use rusqlite::Connection;
 use sessions::Session;
@@ -30,6 +30,13 @@ pub(crate) struct AppState {
     pub(crate) self_url: Arc<str>,
     /// Card status changes, for `/api/board/events`.
     pub(crate) events: tokio::sync::broadcast::Sender<crate::board::BoardEvent>,
+    /// Sharing with other devices: the flag and the device tokens.
+    pub(crate) remote: Arc<remote::Remote>,
+    /// The port this daemon was asked to listen on.
+    pub(crate) port: u16,
+    /// The `HOST` this daemon listens on, when it isn't a loopback address:
+    /// it already listens beyond this machine, so sharing is not switched here.
+    pub(crate) host: Option<Arc<str>>,
 }
 
 /// Builds the app router with all routes and the guard middleware applied.
@@ -42,6 +49,7 @@ pub(crate) fn router(state: AppState) -> Router {
         .merge(files::routes())
         .merge(settings::routes())
         .merge(upload::routes())
+        .merge(remote::routes())
         .layer(middleware::from_fn_with_state(
             state.clone(),
             web::guard::guard,
@@ -52,7 +60,7 @@ pub(crate) fn router(state: AppState) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::test_state;
+    use crate::test_support::{loopback_peer, test_state};
     use axum::http::{Method, StatusCode};
 
     #[tokio::test]
@@ -94,6 +102,10 @@ mod tests {
             (Method::GET, "/api/files/tree?session=x"),
             (Method::GET, "/api/files/watch?session=x"),
             (Method::GET, "/ws?id=x"),
+            (Method::GET, "/api/remote"),
+            (Method::PUT, "/api/remote"),
+            (Method::POST, "/api/remote/devices"),
+            (Method::DELETE, "/api/remote/devices/x"),
             (Method::GET, "/nope"),
         ];
 
@@ -104,6 +116,7 @@ mod tests {
                 .uri(*path)
                 .header("Host", "127.0.0.1:7681")
                 .header("Origin", "https://tabsh.cc")
+                .extension(loopback_peer())
                 .body(axum::body::Body::empty())
                 .unwrap();
             let app = router(state.clone());
@@ -123,6 +136,7 @@ mod tests {
             .uri(format!("/_astro/{}", first_asset))
             .header("Host", "127.0.0.1:7681")
             .header("Origin", "https://tabsh.cc")
+            .extension(loopback_peer())
             .body(axum::body::Body::empty())
             .unwrap();
         let app = router(state.clone());
@@ -145,6 +159,7 @@ mod tests {
                 .method(Method::GET)
                 .uri(*path)
                 .header("Host", "127.0.0.1:7681")
+                .extension(loopback_peer())
                 .body(axum::body::Body::empty())
                 .unwrap();
             let app = router(state.clone());
@@ -163,6 +178,7 @@ mod tests {
             .uri("/api/sessions")
             .header("Host", "127.0.0.1:7681")
             .header("Origin", "https://evil.example")
+            .extension(loopback_peer())
             .body(axum::body::Body::empty())
             .unwrap();
         let app = router(state.clone());
@@ -179,6 +195,7 @@ mod tests {
             .uri("/api/sessions")
             .header("Host", "evil.example")
             .header("Origin", "https://tabsh.cc")
+            .extension(loopback_peer())
             .body(axum::body::Body::empty())
             .unwrap();
         let app = router(state.clone());
@@ -196,6 +213,7 @@ mod tests {
             .header("Host", "127.0.0.1:7681")
             .header("Origin", "https://tabsh.cc")
             .header("Authorization", "Bearer t0k3n")
+            .extension(loopback_peer())
             .body(axum::body::Body::empty())
             .unwrap();
         let app = router(state);

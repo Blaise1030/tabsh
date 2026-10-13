@@ -18,6 +18,8 @@ import { scoped } from '../ui/keyed.ts';
 import { ring } from './bell.ts';
 import { scanBell } from './bell-scan.ts';
 import { coalescer } from './coalesce.ts';
+import { type ExtraKey, keyInput, withCtrl } from './extra-keys.ts';
+import { type Heartbeat, heartbeat, type Timers } from './heartbeat.ts';
 import { enqueueReconnect, nextReconnect, retryDelay, shouldDrainReconnects, terminalInView } from './reconnect.ts';
 import {
   active,
@@ -32,6 +34,7 @@ import {
 } from './store.ts';
 import { setName } from './tabs.ts';
 import { labelTab } from './tags.ts';
+import { watchTouch } from './touch.ts';
 
 const enc = new TextEncoder();
 
@@ -51,10 +54,37 @@ function inView(s: Session): boolean {
   });
 }
 
+// The touch key bar's Ctrl: held for the next key typed.
+export const ctrlHeld = van.state(false);
+
+// Types an extra key into the on-screen terminal, as if from its keyboard.
+export function typeKey(key: ExtraKey): void {
+  const s = store.active;
+  if (!s) return;
+  s.term.input(keyInput(key, s.term.modes.applicationCursorKeysMode), true);
+  s.term.scrollToBottom();
+}
+
+// Each open socket's heartbeat.
+const beats = new WeakMap<WebSocket, Heartbeat>();
+const timers: Timers = { set: (fn, ms) => window.setTimeout(fn, ms), clear: (id) => window.clearTimeout(id) };
+
+// Back from sleep or a dropped network, the on-screen socket may be dead
+// though it still says open: ask it now rather than at the next ping.
+function probeActive(): void {
+  const ws = store.active?.ws;
+  if (ws) beats.get(ws)?.probe();
+}
+
 function watchWake(): void {
   if (wakeWatched) return;
   wakeWatched = true;
-  document.addEventListener('visibilitychange', () => syncTerminalVisibility());
+  document.addEventListener('visibilitychange', () => {
+    syncTerminalVisibility();
+    if (!document.hidden) probeActive();
+  });
+  window.addEventListener('online', probeActive);
+  window.addEventListener('pageshow', probeActive);
   onActivate(() => syncTerminalVisibility());
 }
 
@@ -72,8 +102,8 @@ export function parkedMs(s: Session): number | null {
 function park(s: Session): void {
   reconnectQueue = reconnectQueue.filter((id) => id !== s.id);
   reconnectAttempts.delete(s.id);
-  // Output not yet painted goes: the next attach replays it.
-  s.out.drop();
+  // Output not yet painted is painted: the next attach resumes after it.
+  s.out.flush();
   const ws = s.ws;
   if (!ws) return;
   parkedAt.set(s, performance.now());
@@ -167,6 +197,14 @@ export function openSession(info: SessionInfo): Session {
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
   term.open(el);
+  // Phone keyboards otherwise correct, capitalise and predict into the shell.
+  for (const [k, v] of [
+    ['autocorrect', 'off'],
+    ['autocapitalize', 'off'],
+    ['autocomplete', 'off'],
+    ['spellcheck', 'false'],
+  ])
+    term.textarea?.setAttribute(k, v);
   term.registerLinkProvider(linkProvider(() => s, term, el));
 
   // A program that redraws without taking the alternate screen can leave the
@@ -230,6 +268,7 @@ export function openSession(info: SessionInfo): Session {
       (handle) => cancelAnimationFrame(handle),
     ),
     closed: false,
+    stream: null,
     replaying: false,
     parsingReplay: false,
     esc: 0,
@@ -247,7 +286,15 @@ export function openSession(info: SessionInfo): Session {
   // Replayed scrollback holds queries programs sent long ago (e.g. OSC 11,
   // "what's your background colour?"); xterm answers them as it parses, and
   // sent on, the answers land in the shell as typed text on every reload.
-  term.onData((d) => !s.parsingReplay && s.ws?.readyState === WebSocket.OPEN && s.ws.send(enc.encode(d)));
+  term.onData((d) => {
+    if (s.parsingReplay || s.ws?.readyState !== WebSocket.OPEN) return;
+    if (ctrlHeld.val) {
+      ctrlHeld.val = false;
+      d = withCtrl(d);
+    }
+    s.ws.send(enc.encode(d));
+  });
+  watchTouch(term, el);
   term.onTitleChange((t) => t && !s.pinned && setName(s, t));
   watchWake();
   // Only the on-screen tab attaches; a sync that opens others parks them.
@@ -260,7 +307,8 @@ export function openSession(info: SessionInfo): Session {
 // this so the next tab's replay doesn't overlap.
 function connect(s: Session): Promise<boolean> {
   return new Promise((resolve) => {
-    const ws = new WebSocket(socketUrl(s.id));
+    const seen = s.stream;
+    const ws = new WebSocket(socketUrl(s.id) + (seen ? `&resume=${seen.epoch}:${seen.at}` : ''));
     ws.binaryType = 'arraybuffer';
     s.ws = ws;
     let settled = false;
@@ -270,21 +318,39 @@ function connect(s: Session): Promise<boolean> {
       resolve(ok);
     };
 
-    // The server replays scrollback on every attach, so start from a clean screen.
-    // The first binary message is that replay (always sent, maybe empty);
-    // bells inside it already rang.
+    // The first binary message is the replay (always sent, maybe empty);
+    // bells inside it already rang. The text frame before it says whether
+    // it is the whole scrollback, for a clean screen, or only what this
+    // screen missed (`resumed`).
+    // Only a daemon that has answered a ping can be found dead by a missing
+    // pong: an older one never answers.
+    let answers = false;
+    let resumed = false;
     ws.onopen = () => {
-      s.out.drop(); // an older socket's unpainted bytes: the replay holds them
-      s.term.reset();
+      s.stream = null;
       s.replaying = true;
       s.parsingReplay = false;
       s.esc = 0;
       sendSize(s);
+      const hb = heartbeat(
+        (n) => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ ping: n })),
+        () => answers && dropped(),
+        timers,
+      );
+      beats.set(ws, hb);
+      hb.probe();
     };
     ws.onmessage = (e) => {
       if (s.ws !== ws) return; // a parked or replaced socket's late message
       if (typeof e.data === 'string') {
-        if (JSON.parse(e.data).exit) {
+        const msg = JSON.parse(e.data);
+        if (typeof msg.pong === 'number') {
+          answers = true;
+          beats.get(ws)?.pong(msg.pong);
+        } else if (msg.stream) {
+          s.stream = { epoch: msg.stream.epoch, at: msg.stream.at };
+          resumed = msg.stream.resumed === true && seen?.epoch === msg.stream.epoch;
+        } else if (msg.exit) {
           removeSession(s);
           finish(false);
         }
@@ -296,6 +362,12 @@ function connect(s: Session): Promise<boolean> {
       if (s.replaying) {
         s.replaying = false;
         s.parsingReplay = true;
+        if (resumed) {
+          s.out.flush(); // an older socket's unpainted bytes come before these
+        } else {
+          s.out.drop(); // an older socket's unpainted bytes: the replay holds them
+          s.term.reset();
+        }
         s.out.replay(bytes, () => {
           if (s.ws === ws) s.parsingReplay = false; // not an older socket's replay
           finish(true);
@@ -304,13 +376,18 @@ function connect(s: Session): Promise<boolean> {
       }
       // A burst paints once a frame, not once a message; bell and unread
       // still follow each chunk.
+      if (s.stream) s.stream.at += bytes.length;
       s.out.push(bytes);
       if (scanned.bell) ring(s);
       if (s !== store.active) s.unread.val = true;
     };
     // Dropped without an exit message (network blip, client lagged, daemon
-    // restarting): reattach only while this terminal is still on screen.
-    ws.onclose = () => {
+    // restarting, or found dead by its heartbeat): reattach only while this
+    // terminal is still on screen.
+    const dropped = () => {
+      beats.get(ws)?.stop();
+      ws.onclose = null;
+      if (ws.readyState < WebSocket.CLOSING) ws.close();
       if (s.ws !== ws) {
         finish(false);
         return;
@@ -325,5 +402,6 @@ function connect(s: Session): Promise<boolean> {
       finish(false);
       if (inView(s)) scheduleReconnect(s);
     };
+    ws.onclose = dropped;
   });
 }

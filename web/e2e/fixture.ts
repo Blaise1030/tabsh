@@ -95,6 +95,16 @@ export async function openApp(page: Page, daemon: Daemon): Promise<void> {
   await expect(page.locator('#tabs .tab').first()).toBeVisible();
 }
 
+// Close every session, so a spec starts on a fresh shell, not one an earlier
+// spec left mid-command on the shared daemon.
+export async function dropSessions(page: Page, daemon: Daemon): Promise<void> {
+  const headers = { Authorization: `Bearer ${daemon.token}` };
+  const list = await page.request.get(`${daemon.baseUrl}/api/sessions`, { headers });
+  for (const s of (await list.json()) as { id: string }[]) {
+    await page.request.delete(`${daemon.baseUrl}/api/sessions/${s.id}`, { headers });
+  }
+}
+
 // Click "new terminal" and wait for the tab strip and the terminal itself;
 // the shell's prompt arrives over the socket a moment later.
 // The app opens its first terminal by itself (main.ts); this clicks "new
