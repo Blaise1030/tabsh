@@ -10,6 +10,8 @@ use axum::{
 include!(concat!(env!("OUT_DIR"), "/sounds.rs"));
 // The app page's bundled scripts and styles, from src/app-assets (see build.rs).
 include!(concat!(env!("OUT_DIR"), "/app_assets.rs"));
+// The PWA manifest, service worker and icons, from web/public/app (see build.rs).
+include!(concat!(env!("OUT_DIR"), "/pwa_assets.rs"));
 
 /// Helper to check if an asset with the given name exists.
 #[cfg(test)]
@@ -86,6 +88,38 @@ pub(crate) async fn app_asset(Path(name): Path<String>) -> Response {
         .into_response()
 }
 
+/// A PWA file under /app/ (manifest, service worker, icons): public like
+/// the page's bundles, since the browser fetches them without the token.
+pub(crate) async fn pwa_asset(Path(name): Path<String>) -> Response {
+    let Some((_, bytes)) = PWA_ASSETS.iter().find(|(n, _)| *n == name) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let kind = if name.ends_with(".webmanifest") {
+        "application/manifest+json; charset=utf-8"
+    } else if name.ends_with(".js") {
+        "text/javascript; charset=utf-8"
+    } else if name.ends_with(".png") {
+        "image/png"
+    } else {
+        "application/octet-stream"
+    };
+    // The worker and manifest must revalidate so an update is picked up.
+    let cache = if name.ends_with(".png") {
+        "max-age=86400"
+    } else {
+        "no-cache"
+    };
+    (
+        [
+            (header::CONTENT_TYPE, kind),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            (header::CACHE_CONTROL, cache),
+        ],
+        *bytes,
+    )
+        .into_response()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -93,5 +127,22 @@ mod tests {
     #[test]
     fn typing_sounds_are_embedded() {
         assert!(SOUNDS.iter().any(|(name, _)| name.ends_with(".mp3")));
+    }
+
+    #[test]
+    fn pwa_assets_are_embedded() {
+        for name in [
+            "manifest.webmanifest",
+            "sw.js",
+            "icon-192.png",
+            "icon-512.png",
+            "icon-maskable-512.png",
+            "apple-touch-icon.png",
+        ] {
+            assert!(
+                PWA_ASSETS.iter().any(|(n, _)| *n == name),
+                "missing PWA asset {name}"
+            );
+        }
     }
 }

@@ -18,6 +18,11 @@ import '../../styles/app.css';
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="tabsh">
+  <!-- Installable as a PWA: manifest, theme and home-screen icon. The paths
+       are relative so the daemon's own copy at /app/ resolves the same. -->
+  <meta name="theme-color" content="#18181b">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
 
   <title>tabsh</title>
   <link rel="icon" id="favicon" type="image/svg+xml" href="data:,">
