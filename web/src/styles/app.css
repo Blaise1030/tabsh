@@ -55,8 +55,9 @@ html.themed {
 }
 #palette-menu.fade-top { --fade-t: 3rem; }
 #palette-menu.fade-bottom { --fade-b: 3rem; }
-/* A long hint (About's state path) is cut short rather than pushing the row wide. */
-#palette-menu [data-shortcut] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A long label or hint (About's state path, the providers list) is cut short
+   on one line rather than wrapping or pushing the row wide. */
+#palette-menu .palette-label, #palette-menu [data-shortcut] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .board-cards.fade-top { --fade-t: 4rem; }
 .board-cards.fade-bottom { --fade-b: 4rem; }
 /* A mask clips everything painted inside, fixed popovers too: a card's open

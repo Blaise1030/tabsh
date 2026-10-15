@@ -9,7 +9,10 @@ import '../../styles/app.css';
   <!-- The daemon to connect to; `?daemon=` overrides it per visit. The daemon
        empties it when it serves this page itself, meaning "this origin". -->
   <meta name="tabsh-daemon" content={DAEMON_URL}>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <!-- maximum-scale stops iOS zooming into a focused field smaller than 16px;
+       Safari still lets the reader pinch-zoom. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+
   <title>tabsh</title>
   <link rel="icon" id="favicon" type="image/svg+xml" href="data:,">
   <link rel="preconnect" href="https://fonts.googleapis.com">

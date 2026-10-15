@@ -131,7 +131,7 @@ function PaletteRow({ id, item }: MenuGroup['items'][number]): HTMLElement {
             SWATCH.map((c) => i({ style: `background:${swatch[c]}` })),
           )
         : ''),
-    span(item.label),
+    span({ class: 'palette-label' }, item.label),
     item.hint ? span({ 'data-shortcut': '' }, item.hint) : '',
     item.key || item.checked ? span({ 'data-indicator': '' }, icons.check()) : '',
   );
