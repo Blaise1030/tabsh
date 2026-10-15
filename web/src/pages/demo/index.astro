@@ -9,7 +9,9 @@ import '../../styles/app.css';
   <!-- The app, framed on the landing page, talking to a pretend daemon in
        memory (demo/daemon.ts) instead of the visitor's. -->
   <meta name="tabsh-daemon" content={DEMO}>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- maximum-scale stops iOS zooming into a focused field smaller than 16px;
+       Safari still lets the reader pinch-zoom. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
   <title>tabsh demo</title>
   <link rel="icon" id="favicon" type="image/svg+xml" href="data:,">
   <link rel="preconnect" href="https://fonts.googleapis.com">

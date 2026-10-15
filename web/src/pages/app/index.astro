@@ -9,7 +9,16 @@ import '../../styles/app.css';
   <!-- The daemon to connect to; `?daemon=` overrides it per visit. The daemon
        empties it when it serves this page itself, meaning "this origin". -->
   <meta name="tabsh-daemon" content={DAEMON_URL}>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <!-- maximum-scale stops iOS zooming into a focused field smaller than 16px;
+       Safari still lets the reader pinch-zoom. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <!-- Added to a phone's home screen, the page opens full screen, with no
+       browser bars; the body's safe-area padding clears the status bar. -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="tabsh">
+
   <title>tabsh</title>
   <link rel="icon" id="favicon" type="image/svg+xml" href="data:,">
   <link rel="preconnect" href="https://fonts.googleapis.com">

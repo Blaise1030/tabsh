@@ -5,7 +5,7 @@
 import van, { type State } from 'vanjs-core';
 import { DOCS_URL } from '../../site.ts';
 import { api } from '../daemon/client.ts';
-import { go, onPlace } from '../nav/router.ts';
+import { go, here, onPlace } from '../nav/router.ts';
 import { tagColor } from '../sessions/labels.ts';
 import { newSession, openTab, type Session, sendSize, sessionList, store } from '../sessions/store.ts';
 import { orderTabs } from '../sessions/tabs.ts';
@@ -14,6 +14,7 @@ import { syncTerminalVisibility } from '../sessions/terminal.ts';
 import { matchesKey } from '../settings/keys.ts';
 import type { BoardLayout } from '../settings/schema.ts';
 import { current, keyHint, onSaved, saveSetting } from '../settings/settings.ts';
+import { phone } from '../ui/dom.ts';
 import { glyph, icons, providerIcon } from '../ui/icons.ts';
 import { keyed } from '../ui/keyed.ts';
 import {
@@ -202,12 +203,14 @@ export function toggleBoardLayout(): void {
 }
 
 // The Board button's and its shortcut's three steps: the terminals, the board
-// as columns, the board as a list, and back to the terminals.
+// as columns, the board as a list, and back to the terminals. A phone has no
+// terminals view: only columns and list.
 export function cycleBoard(): void {
   if (!boardOpen()) {
     if (layout.val !== 'columns') saveSetting('boardLayout', 'columns');
     toggleBoard(true);
   } else if (layout.val === 'columns') saveSetting('boardLayout', 'list');
+  else if (phone.matches) saveSetting('boardLayout', 'columns');
   else toggleBoard(false);
 }
 
@@ -810,14 +813,26 @@ export function Board(): HTMLElement {
   return el;
 }
 
+// On a phone, the terminals view (a start view, a link, Back, a turn into
+// phone size) is the board with the terminal in its drawer.
+const PHONE_FIX = { view: 'board', drawer: true } as const;
+
+// Startup's place, whose view step doesn't run when it is the default
+// (the terminals), gets the same fix once the router has started.
+export function leaveTermsOnPhone(): void {
+  if (phone.matches && here().view === 'terms') go(PHONE_FIX, 'replace');
+}
+
 export function initBoard(): void {
   onPlace('view', (to) => {
-    showBoard(to.view === 'board');
+    const fix = to.view === 'terms' && phone.matches ? PHONE_FIX : undefined;
+    showBoard(to.view === 'board' || !!fix);
     // Board alone parks terminals so a drag that launches an agent does not
     // flood xterm while the cards are on screen.
     syncTerminalVisibility();
-    return undefined;
+    return fix;
   });
+  phone.addEventListener('change', leaveTermsOnPhone);
   onPlace('drawer', (to) => {
     drawer.val = to.drawer;
     if (to.drawer) queueMicrotask(() => store.active?.term.focus()); // once VanJS shows it

@@ -23,8 +23,11 @@ test('the explorer shows the tab\'s project and opens a file in the pane', async
   await cdInTerminal(page, `${project}/src`, 'in-src');
 
   await test.step('the button opens the sidebar on the repo root', async () => {
+    const x = async (sel: string) => (await page.locator(sel).boundingBox())!.x;
+    expect(await x('#explorer-btn')).toBeGreaterThan(await x('#tabs'));
     await page.locator('#explorer-btn').click();
     await expect(page.locator('#explorer')).toBeVisible();
+    expect(await x('#explorer')).toBeGreaterThan(await x('#terms'));
     for (const name of ['README.md', 'src', 'docs', '.env.example']) await expect(row(name)).toBeVisible();
     await expect(row('target')).toHaveCount(0);
     await expect(row('main.rs')).toHaveCount(0); // src is closed
@@ -41,6 +44,9 @@ test('the explorer shows the tab\'s project and opens a file in the pane', async
     await row('main.rs').click();
     await expect(page.locator('#pane')).toBeVisible();
     await expect(page.locator('#pane .pane-head')).toContainText('main.rs');
+    // The tree keeps the window's right edge; the file opens beside it.
+    const box = async (sel: string) => (await page.locator(sel).boundingBox())!;
+    expect((await box('#explorer')).x).toBeGreaterThan((await box('#pane')).x);
   });
 
   await test.step('the width survives a reload', async () => {
@@ -50,7 +56,7 @@ test('the explorer shows the tab\'s project and opens a file in the pane', async
     const y = handle.y + handle.height / 2;
     await page.mouse.move(handle.x + 0.5, y);
     await page.mouse.down();
-    await page.mouse.move(handle.x + 100, y, { steps: 5 });
+    await page.mouse.move(handle.x - 100, y, { steps: 5 });
     const saved = settingsSaved();
     await page.mouse.up();
     await saved;

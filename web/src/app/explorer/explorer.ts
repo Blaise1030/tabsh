@@ -142,7 +142,7 @@ function initResize(divider: HTMLElement): void {
   const ws = document.getElementById('workspace') as HTMLElement;
   let dragged: number | null = null;
   const widthAt = (x: number) =>
-    Math.round(Math.min(EXPLORER_WIDTH.max, Math.max(EXPLORER_WIDTH.min, x - aside.getBoundingClientRect().left)));
+    Math.round(Math.min(EXPLORER_WIDTH.max, Math.max(EXPLORER_WIDTH.min, aside.getBoundingClientRect().right - x)));
   divider.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
     e.preventDefault();

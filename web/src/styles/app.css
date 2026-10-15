@@ -55,8 +55,9 @@ html.themed {
 }
 #palette-menu.fade-top { --fade-t: 3rem; }
 #palette-menu.fade-bottom { --fade-b: 3rem; }
-/* A long hint (About's state path) is cut short rather than pushing the row wide. */
-#palette-menu [data-shortcut] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A long label or hint (About's state path, the providers list) is cut short
+   on one line rather than wrapping or pushing the row wide. */
+#palette-menu .palette-label, #palette-menu [data-shortcut] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .board-cards.fade-top { --fade-t: 4rem; }
 .board-cards.fade-bottom { --fade-b: 4rem; }
 /* A mask clips everything painted inside, fixed popovers too: a card's open
@@ -214,6 +215,9 @@ html.themed {
 @media (max-width: 799px) {
   #frame.in-drawer { flex-basis: 100%; }
   #stage:has(#frame.in-drawer) :is(#board, #drawer-divider) { display: none; }
+  /* The card's terminal has the screen: its drawer bar is the only header,
+     and Close is the way back. */
+  #app:has(#frame.in-drawer) > .tabbar, #drawer-expand { display: none; }
 }
 .drawer-bar { display: flex; align-items: center; gap: .375rem; padding: .125rem .5rem; }
 .drawer-bar[hidden] { display: none; }
@@ -414,13 +418,21 @@ file-tree-container {
   .keybar:not([hidden]) {
     flex: none; display: flex; gap: .375rem; overflow-x: auto; scrollbar-width: none;
     padding: .375rem .5rem;
+    --fade-l: 0px; --fade-r: 0px;
+    mask-image: linear-gradient(to right, transparent, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent);
+    transition: --fade-l .2s ease, --fade-r .2s ease;
   }
+  .keybar.fade-left { --fade-l: 2.5rem; }
+  .keybar.fade-right { --fade-r: 2.5rem; }
   .keybar button {
-    flex: none; min-width: 2.75rem; height: 2.25rem; padding: 0 .625rem; border: 0;
+    flex: none; min-width: 2.75rem; height: 2.75rem; padding: 0 .625rem; border: 0;
     border-radius: calc(var(--radius, .5rem) - 2px); background: var(--muted); color: var(--foreground);
     font: 500 .875rem var(--font-sans); touch-action: manipulation; -webkit-user-select: none; user-select: none;
   }
   .keybar button[aria-pressed="true"] { background: var(--foreground); color: var(--background); }
+  .keybar button svg { width: 1rem; height: 1rem; margin: 0 auto; }
+  /* The bars' icon buttons get the same thumb-sized target. */
+  :is(.tabbar, .drawer-bar) .btn[data-size^="icon"] { width: 2.75rem; height: 2.75rem; }
   /* While you type in a terminal, it ends above the keyboard, so the prompt
      stays in sight (iOS lays the keyboard over the page). The body's
      safe-area padding already keeps it off the bottom of the screen. */
@@ -431,6 +443,21 @@ file-tree-container {
   .term { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
   .term .xterm-viewport { overscroll-behavior: contain; }
 }
+/* The key bar's paste sheet: a text box on the screen's bottom edge, above
+   the keyboard, where the phone's own Paste works. */
+.paste-sheet {
+  inset: auto 0 var(--keyboard, 0px); margin: 0; width: 100%; max-width: none; box-sizing: border-box;
+  padding: .75rem .75rem calc(.75rem + max(0px, env(safe-area-inset-bottom) - var(--keyboard, 0px)));
+  border: 1px solid var(--border); border-bottom: 0; border-radius: 1rem 1rem 0 0;
+  background: var(--popover); color: var(--popover-foreground);
+}
+.paste-sheet::backdrop { background: rgb(0 0 0 / .4); }
+.paste-sheet textarea {
+  display: block; width: 100%; box-sizing: border-box; resize: none; padding: .5rem;
+  border: 1px solid var(--input); border-radius: calc(var(--radius, .5rem) - 2px);
+  background: var(--background); color: var(--foreground); font: 16px ui-monospace, Menlo, monospace;
+}
+.paste-actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: .5rem; }
 /* Glowing frame around the window while a file is dragged over it: drop it
    on the terminal to type its path at the prompt. */
 #drop-glow {

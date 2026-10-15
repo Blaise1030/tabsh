@@ -1,7 +1,7 @@
 // The arithmetic behind a terminal's touch gestures (sessions/touch.ts):
 // pinching the font size, scrolling by whole lines, selecting words. Pure.
 
-export const MIN_FONT = 8;
+export const MIN_FONT = 11; // smaller is unreadable on a phone
 export const MAX_FONT = 28;
 
 // The font size a pinch reaches: the starting size scaled by how far the

@@ -5,6 +5,7 @@ import { linesFor, MAX_FONT, MIN_FONT, pinchFont, spanBetween, wordAt } from './
 test('a pinch scales the font by the fingers’ spread, within bounds', () => {
   assert.equal(pinchFont(14, 100, 100), 14);
   assert.equal(pinchFont(14, 100, 50), MIN_FONT);
+  assert.equal(MIN_FONT, 11, 'a phone keeps a readable floor');
   assert.equal(pinchFont(12, 100, 125), 15);
   assert.equal(pinchFont(20, 100, 300), MAX_FONT);
   assert.equal(pinchFont(14, 0, 50), MAX_FONT, 'a zero start gap does not divide by zero');
