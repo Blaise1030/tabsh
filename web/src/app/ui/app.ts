@@ -64,12 +64,6 @@ function TabBar(): HTMLElement {
       },
       boardIcon, // the list's while the board shows as a list
     ),
-    barButton(icons.explorer, {
-      'aria-label': 'Toggle file explorer',
-      title: 'Toggle file explorer',
-      id: 'explorer-btn',
-      'aria-pressed': () => String(explorerOpen.val),
-    }),
     TabStrip(),
     barButton(icons.plus, { 'aria-label': 'New terminal', title: 'New terminal', 'data-new-session': '' }),
     barButton(icons.group, {
@@ -80,12 +74,18 @@ function TabBar(): HTMLElement {
       'aria-pressed': () => String(grouping.val !== 'none'),
     }),
     FilterButton(),
+    barButton(icons.explorer, {
+      'aria-label': 'Toggle file explorer',
+      title: 'Toggle file explorer',
+      id: 'explorer-btn',
+      'aria-pressed': () => String(explorerOpen.val),
+    }),
     barButton(icons.settings, { class: 'btn settings-btn', 'aria-label': 'Settings', id: 'settings-btn' }),
   );
 }
 
-// The drawer's own bar, standing in for the tab bar's: close (in front of
-// the sidebar), the file explorer, the card's name and status, and the full
+// The drawer's own bar, standing in for the tab bar's: close, the card's name
+// and status, the file explorer (over the sidebar, on the right) and the full
 // terminal view.
 function DrawerBar(): HTMLElement {
   return header(
@@ -96,14 +96,14 @@ function DrawerBar(): HTMLElement {
       id: 'drawer-close',
       onclick: () => go({ drawer: false }),
     }),
+    span({ class: 'drawer-title' }, () => active.val?.name.val ?? ''),
+    DrawerMoveButton(() => active.val),
     barButton(icons.explorer, {
       'aria-label': 'Toggle file explorer',
       title: 'Toggle file explorer',
       'aria-pressed': () => String(explorerOpen.val),
       onclick: toggleExplorer,
     }),
-    span({ class: 'drawer-title' }, () => active.val?.name.val ?? ''),
-    DrawerMoveButton(() => active.val),
     barButton(icons.expand, {
       'aria-label': 'Open in terminals',
       title: 'Open in terminals',
@@ -113,11 +113,10 @@ function DrawerBar(): HTMLElement {
   );
 }
 
-// The terminal layout: file sidebar, terminals and file pane.
+// The terminal layout: terminals, file pane and file sidebar.
 function Workspace(): HTMLElement {
   return div(
     { id: 'workspace' },
-    ...Sidebar(),
     div(
       { id: 'main' },
       div(
@@ -129,10 +128,11 @@ function Workspace(): HTMLElement {
         ),
         Gate(),
       ),
-      KeyBar(),
+      ...KeyBar(),
     ),
     div({ id: 'pane-divider', hidden: () => !paneShown.val }),
     aside({ id: 'pane', hidden: () => !paneShown.val, tabindex: '-1', 'aria-label': 'File' }),
+    ...Sidebar(),
   );
 }
 

@@ -67,6 +67,7 @@ export const icons: Record<
   | 'tag'
   | 'chevronRight'
   | 'paperclip'
+  | 'clipboardPaste'
   | 'shrink'
   | 'claude'
   | 'openai'
@@ -175,6 +176,16 @@ export const icons: Record<
       path({
         d: 'm16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551',
       }),
+    ),
+  ),
+  clipboardPaste: draw(({ path, rect, svg }) =>
+    svg(
+      { ...LUCIDE },
+      path({ d: 'M11 14h10' }),
+      path({ d: 'M16 4h2a2 2 0 0 1 2 2v1.344' }),
+      path({ d: 'm17 18 4-4-4-4' }),
+      path({ d: 'M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 1.793-1.113' }),
+      rect({ x: '8', y: '2', width: '8', height: '4', rx: '1' }),
     ),
   ),
   close: draw(({ path, svg }) => svg({ ...LUCIDE }, path({ d: 'M18 6 6 18' }), path({ d: 'm6 6 12 12' }))),

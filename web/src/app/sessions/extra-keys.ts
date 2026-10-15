@@ -1,6 +1,20 @@
 // What the touch key bar's keys type: the keys a phone keyboard lacks. Pure.
 
-export type ExtraKey = 'esc' | 'tab' | 'enter' | 'space' | 'up' | 'down' | 'left' | 'right' | '|' | '~' | '/' | '-';
+export type ExtraKey =
+  | 'esc'
+  | 'tab'
+  | 'shift-tab'
+  | 'ctrl-c'
+  | 'enter'
+  | 'space'
+  | 'up'
+  | 'down'
+  | 'left'
+  | 'right'
+  | '|'
+  | '~'
+  | '/'
+  | '-';
 
 const ARROWS: Record<string, string> = { up: 'A', down: 'B', right: 'C', left: 'D' };
 
@@ -10,6 +24,8 @@ export function keyInput(key: ExtraKey, appCursor: boolean): string {
   if (key.length === 1) return key;
   if (key === 'esc') return '\x1b';
   if (key === 'tab') return '\t';
+  if (key === 'shift-tab') return '\x1b[Z';
+  if (key === 'ctrl-c') return '\x03';
   if (key === 'enter') return '\r';
   if (key === 'space') return ' ';
   return `${appCursor ? '\x1bO' : '\x1b['}${ARROWS[key]}`;

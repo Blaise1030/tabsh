@@ -7,6 +7,11 @@ test('Esc and Tab type their control codes', () => {
   assert.equal(keyInput('tab', true), '\t');
 });
 
+test('Shift+Tab is back-tab, and ^C is one tap of Ctrl+C', () => {
+  assert.equal(keyInput('shift-tab', false), '\x1b[Z');
+  assert.equal(keyInput('ctrl-c', true), '\x03');
+});
+
 test('Enter is a carriage return and Space a space', () => {
   assert.equal(keyInput('enter', false), '\r');
   assert.equal(keyInput('space', true), ' ');

@@ -7,14 +7,14 @@ import { applySettings, current, onApply, saveSetting } from '../settings/settin
 export function initDivider(): void {
   const ws = document.getElementById('workspace') as HTMLElement;
   const divider = document.getElementById('pane-divider') as HTMLElement;
+  const pane = document.getElementById('pane') as HTMLElement;
   let frac: number | null = null;
   let startX = 0;
   let moved = false;
   let frame = 0;
-  const widthAt = (x: number) => {
-    const r = ws.getBoundingClientRect();
-    return Math.min(0.8, Math.max(0.2, (r.right - x) / r.width));
-  };
+  // From the pane's right edge, not the workspace's: the file sidebar may sit past it.
+  const widthAt = (x: number) =>
+    Math.min(0.8, Math.max(0.2, (pane.getBoundingClientRect().right - x) / ws.getBoundingClientRect().width));
   divider.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
     e.preventDefault();

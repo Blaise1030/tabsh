@@ -1,5 +1,6 @@
-// The sidebar's chrome: the root's name, the folders-only note, the tree's
-// host and the message shown in its place, then the divider that resizes it.
+// The sidebar's chrome, on the workspace's right: the divider that resizes it,
+// then the root's name, the folders-only note, the tree's host and the
+// message shown in its place.
 // All of it follows explorer.ts's states; the tree's host is made once here
 // and filled by view.ts. The root's name and path come from the disk: text
 // and an attribute value only.
@@ -10,6 +11,7 @@ const { aside, div, p } = van.tags;
 
 export function Sidebar(): HTMLElement[] {
   return [
+    div({ id: 'explorer-divider', hidden: () => !open.val }),
     aside(
       {
         id: 'explorer',
@@ -26,6 +28,5 @@ export function Sidebar(): HTMLElement[] {
       div({ id: 'explorer-tree', hidden: () => message.val !== null }),
       p({ id: 'explorer-msg', hidden: () => !message.val }, () => message.val ?? ''),
     ),
-    div({ id: 'explorer-divider', hidden: () => !open.val }),
   ];
 }

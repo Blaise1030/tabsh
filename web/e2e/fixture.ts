@@ -72,7 +72,8 @@ export { test, expect };
 // Pair the page with the daemon and wait for the app: the token rides in the
 // URL fragment, exactly as in the link the daemon prints, and the page clears
 // it from the address bar before talking to the API.
-export async function openApp(page: Page, daemon: Daemon): Promise<void> {
+// On a phone (`phone: true`) the app opens on the board, its first terminal in the drawer.
+export async function openApp(page: Page, daemon: Daemon, { phone = false } = {}): Promise<void> {
   // The daemon outlives a spec, and so do its saved `explorerOpen` and
   // `welcomeSeen`: a spec that closes the sidebar as it ends may be torn down
   // before that save lands, and one that leaves the tour unseen would meet
@@ -88,6 +89,10 @@ export async function openApp(page: Page, daemon: Daemon): Promise<void> {
     expect(put.status()).toBe(204);
   }
   await page.goto(`${daemon.baseUrl}/app/#token=${daemon.token}`);
+  if (phone) {
+    await expect(page.locator('#frame.in-drawer .term.active .xterm-screen')).toBeVisible();
+    return;
+  }
   await expect(page.locator('#tabs')).toBeVisible();
   // A fresh daemon has no sessions, so the app opens its first terminal by
   // itself once paired (main.ts). Waiting for it means the page is settled:
