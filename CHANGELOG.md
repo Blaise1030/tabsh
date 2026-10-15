@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.1.28
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.27...v0.1.28)
+
+### Features
+
+- **web:** Mobile terminal polish ([0d2c0f0](https://github.com/Blaise1030/tabsh/commit/0d2c0f0))
+
+### Fixes
+
+- **web:** Stop focus zoom on wide touch screens; one-line palette labels ([01e1026](https://github.com/Blaise1030/tabsh/commit/01e1026))
+
 ## v0.1.27
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.26...v0.1.27)
