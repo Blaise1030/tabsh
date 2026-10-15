@@ -12,6 +12,11 @@ fn main() {
         "APP_ASSETS",
         "app_assets.rs",
     );
+    embed(
+        &manifest.join("web/public/app"),
+        "PWA_ASSETS",
+        "pwa_assets.rs",
+    );
 }
 
 fn embed(root: &Path, name: &str, out_file: &str) {

@@ -15,6 +15,7 @@ import { initFilePane, loadedPane, restoreFiles } from './files/open.ts';
 import { rememberedFiles } from './files/remember.ts';
 import { startRouter } from './nav/router.ts';
 import { initPalette } from './palette/palette.ts';
+import { initPwa } from './pwa/register.ts';
 import { initBell } from './sessions/bell.ts';
 import { initTabGroups } from './sessions/groups.ts';
 import { initTabRouting, newSession, newTabAt, savedActive, sendSize, store, sync } from './sessions/store.ts';
@@ -43,6 +44,7 @@ if (location.hash && !keepsTokenInAddress(location.hostname))
 // daemon may be down, and the gate explains how to start it.
 if (MIXED_BLOCKED && launched) location.replace(LOCAL_APP);
 initGate();
+initPwa();
 
 // What the file pane needs from the rest of the page.
 initFilePane(

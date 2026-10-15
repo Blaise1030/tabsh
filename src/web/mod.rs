@@ -7,7 +7,7 @@ pub(crate) mod pages;
 use axum::{Router, routing::get};
 
 use crate::AppState;
-use assets::{app_asset, sound};
+use assets::{app_asset, pwa_asset, sound};
 use pages::{about, local_app, open_app, open_local_app};
 
 pub(crate) fn routes() -> Router<AppState> {
@@ -19,6 +19,7 @@ pub(crate) fn routes() -> Router<AppState> {
             get(|| async { axum::response::Redirect::permanent("/app/") }),
         )
         .route("/app/", get(local_app))
+        .route("/app/{name}", get(pwa_asset))
         .route("/sounds/{*path}", get(sound))
         .route("/_astro/{name}", get(app_asset))
         .route("/api/about", get(about))

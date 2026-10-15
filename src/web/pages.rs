@@ -26,7 +26,7 @@ static APP_PAGE: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
 /// The hosted site's policy for /app/ (web/public/_headers), for our copy.
 const APP_CSP: &str = "default-src 'none'; script-src 'self' https://cdn.jsdelivr.net; \
 style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; \
-img-src data: blob:; frame-src blob:; connect-src 'self' ws://tabsh.localhost:* ws://localhost:* ws://127.0.0.1:*; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+img-src 'self' data: blob:; frame-src blob:; connect-src 'self' ws://tabsh.localhost:* ws://localhost:* ws://127.0.0.1:*; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 
 /// Opens the app in the default browser, unless there's no one at this
 /// machine's screen to see it (an SSH session, a Linux box without a
@@ -245,6 +245,8 @@ mod tests {
             "img-src",
             "frame-src",
             "default-src",
+            "manifest-src",
+            "worker-src",
         ] {
             assert_eq!(
                 directive(APP_CSP, name),

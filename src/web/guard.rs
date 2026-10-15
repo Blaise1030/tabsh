@@ -137,12 +137,23 @@ fn is_page(method: &Method, path: &str) -> bool {
             || is_public_asset(method, path))
 }
 
-/// The page's bundled scripts and styles: read-only, same for everyone.
+/// The page's bundled scripts and styles, and its named PWA files
+/// (manifest, service worker, icons, which the browser fetches without
+/// the token): read-only, same for everyone.
 fn is_public_asset(method: &Method, path: &str) -> bool {
     (method == Method::GET || method == Method::HEAD)
-        && path
+        && (path
             .strip_prefix("/_astro/")
             .is_some_and(|rest| !rest.is_empty() && !rest.contains('/'))
+            || matches!(
+                path,
+                "/app/manifest.webmanifest"
+                    | "/app/sw.js"
+                    | "/app/icon-192.png"
+                    | "/app/icon-512.png"
+                    | "/app/icon-maskable-512.png"
+                    | "/app/apple-touch-icon.png"
+            ))
 }
 
 fn host_is_address(headers: &HeaderMap) -> bool {
