@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.29
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.28...v0.1.29)
+
+### Features
+
+- **web:** Make the app installable as a PWA ([f437718](https://github.com/Blaise1030/tabsh/commit/f437718))
+
 ## v0.1.28
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.27...v0.1.28)
