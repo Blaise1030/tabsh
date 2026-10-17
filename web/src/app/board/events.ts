@@ -9,7 +9,7 @@
 import { boardEventsUrl } from '../daemon/client.ts';
 import { type ActivityKind, activityEffect } from '../sessions/activity.ts';
 import { ring } from '../sessions/bell.ts';
-import { store, sync } from '../sessions/store.ts';
+import { findTerm, onScreen, store, sync } from '../sessions/store.ts';
 import { orderTabs, setName } from '../sessions/tabs.ts';
 import { parkedMs } from '../sessions/terminal.ts';
 import { asStatus, dropOrder } from './model.ts';
@@ -57,9 +57,9 @@ export function initBoardEvents(): void {
 }
 
 function onActivity(ev: ActivityEvent): void {
-  const s = store.sessions.find((x) => x.id === ev.session);
+  const s = findTerm(ev.session);
   if (!s) return;
-  const target = { closed: s.closed, parkedMs: parkedMs(s), active: s === store.active };
+  const target = { closed: s.closed, parkedMs: parkedMs(s), active: s === onScreen() };
   const effect = activityEffect(target, ev.activity, ev.age_ms ?? 0);
   if (effect.unread) s.unread.val = true;
   if (effect.ring) ring(s);

@@ -232,8 +232,9 @@ async fn set_agent_status(
         .unwrap()
         .query_row(
             "SELECT id FROM sessions
-             WHERE agent_session = ?1
-                OR (length(agent_session) = 36 AND substr(?1, -36) = agent_session)
+             WHERE parent IS NULL
+               AND (agent_session = ?1
+                OR (length(agent_session) = 36 AND substr(?1, -36) = agent_session))
              ORDER BY position LIMIT 1",
             params![session],
             |r| r.get(0),
@@ -279,17 +280,21 @@ fn apply_status(
         .map(|n| n.trim().chars().take(NOTE_CHARS).collect::<String>())
         .filter(|n| !n.is_empty());
     let mut db = st.db.lock().unwrap();
-    let row: Option<(String, Option<String>)> = db
+    let row: Option<(String, Option<String>, Option<String>)> = db
         .query_row(
-            "SELECT status, resume_command FROM sessions WHERE id = ?1",
+            "SELECT status, resume_command, parent FROM sessions WHERE id = ?1",
             params![id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get::<_, Option<String>>(2)?)),
         )
         .optional()
         .map_err(internal_error)?;
-    let Some((current, template)) = row else {
+    let Some((current, template, parent)) = row else {
         return Err(StatusCode::NOT_FOUND);
     };
+    // A hook in a side shell changes nothing: the card's agent drives status.
+    if parent.is_some() {
+        return Err(StatusCode::CONFLICT);
+    }
     // A hook means an agent is running in the card: a restart resumes it.
     let resume = (record_agent && source == Source::Hook)
         .then(|| {
@@ -352,7 +357,9 @@ fn apply_status(
 /// `dropOrder` does with no card to go before.
 fn append_to_column(db: &mut Connection, id: &str, status: &str) -> rusqlite::Result<()> {
     let rest: Vec<(String, String)> = db
-        .prepare("SELECT id, status FROM sessions WHERE id != ?1 ORDER BY position")?
+        .prepare(
+            "SELECT id, status FROM sessions WHERE id != ?1 AND parent IS NULL ORDER BY position",
+        )?
         .query_map(params![id], |r| Ok((r.get(0)?, r.get(1)?)))?
         .collect::<Result<_, _>>()?;
     let at = rest
@@ -376,7 +383,14 @@ pub(crate) const STATUSES: [&str; 5] = [
 /// What `set_prompt` reads of a card: its status, the line its drag types,
 /// that line's launch template, its agent's conversation, and whether its
 /// name was chosen.
-type BacklogCard = (String, Option<String>, Option<String>, Option<String>, bool);
+type BacklogCard = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    bool,
+    Option<String>,
+);
 
 #[derive(Deserialize)]
 struct SetPrompt {
@@ -414,16 +428,28 @@ fn edit_prompt(st: &AppState, id: &str, body: SetPrompt) -> Result<Json<SessionI
     let db = st.db.lock().unwrap();
     let card: Option<BacklogCard> = db
         .query_row(
-            "SELECT status, pending_input, pending_command, agent_session, pinned
+            "SELECT status, pending_input, pending_command, agent_session, pinned, parent
              FROM sessions WHERE id = ?1",
             params![id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get::<_, Option<String>>(5)?,
+                ))
+            },
         )
         .optional()
         .map_err(internal_error)?;
-    let Some((status, line, stored_command, agent_session, pinned)) = card else {
+    let Some((status, line, stored_command, agent_session, pinned, parent)) = card else {
         return Err(StatusCode::NOT_FOUND);
     };
+    if parent.is_some() {
+        return Err(StatusCode::CONFLICT);
+    }
     // Any other column means the card already started: its agent has the
     // prompt. Backlog is also the one column a drag can still start it from.
     if status != "backlog" {
@@ -542,6 +568,7 @@ pub(crate) fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             "agent_session",
             "ALTER TABLE sessions ADD COLUMN agent_session TEXT",
         ),
+        ("parent", "ALTER TABLE sessions ADD COLUMN parent TEXT"),
     ] {
         if !cols.iter().any(|c| c == name) {
             conn.execute(ddl, [])?;
@@ -609,7 +636,7 @@ mod tests {
         st.db
             .lock()
             .unwrap()
-            .prepare("SELECT id FROM sessions ORDER BY position")
+            .prepare("SELECT id FROM sessions WHERE parent IS NULL ORDER BY position")
             .unwrap()
             .query_map([], |r| r.get(0))
             .unwrap()
@@ -657,6 +684,23 @@ mod tests {
         )
         .await;
         assert_eq!(order(&st), [c, d, b, a], "same status: stays put");
+    }
+
+    #[tokio::test]
+    async fn a_side_terminal_stays_out_of_the_board_order() {
+        let st = test_state();
+        let card = new_card(&st);
+        let side = crate::sessions::store::insert_card(
+            &st.db.lock().unwrap(),
+            &crate::sessions::store::NewCard {
+                parent: Some(&card),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        patch(&st, &card, serde_json::json!({"status": "in_progress"})).await;
+        assert_eq!(order(&st), [card]);
+        assert!(crate::sessions::exists(&st, &side.id));
     }
 
     // A drag to In progress starts the card's shell (no tab need be

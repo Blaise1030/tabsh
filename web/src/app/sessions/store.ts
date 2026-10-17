@@ -7,14 +7,15 @@ import type { Card } from '../board/model.ts';
 import { applyCard, cardOf } from '../board/status.ts';
 import { api } from '../daemon/client.ts';
 import { loadedPane } from '../files/open.ts';
-import { go, onPlace } from '../nav/router.ts';
+import { go, here, onPlace } from '../nav/router.ts';
 import { clearBell, updateBadge } from './bell.ts';
 import type { Coalescer } from './coalesce.ts';
 import { newTabGroup, scrollToTab, shownSessions, stepTab } from './groups.ts';
 import { coalesceAsync } from './reconnect.ts';
+import { splitSessions } from './split.ts';
 import { orderTabs, setName } from './tabs.ts';
 import { adoptTag } from './tags.ts';
-import { openSession } from './terminal.ts';
+import { openSession, syncTerminalVisibility } from './terminal.ts';
 
 // A tab's session holds live resources (xterm, the socket) and is never
 // replaced; what its tab shows is in states, each assigned whole.
@@ -46,6 +47,10 @@ export interface Session {
   leaving: State<boolean>;
   // A name the user chose: the shell's title doesn't replace it.
   pinned: boolean;
+  // Set on a side terminal: the card it belongs to.
+  parent: string | null;
+  // The card's side terminals, in position order. Empty on a side terminal.
+  sides: State<Session[]>;
 }
 export interface SessionInfo {
   id: string;
@@ -61,6 +66,7 @@ export interface SessionInfo {
   pending_command?: string | null;
   // The agent it runs (its launch or resume command), if any.
   agent_command?: string | null;
+  parent?: string | null;
 }
 
 const activateListeners: (() => void)[] = [];
@@ -73,6 +79,22 @@ export function onActivate(fn: () => void): void {
 // active one, which only the router's tab step sets (through activate).
 export const sessionList: State<Session[]> = van.state([]);
 export const active: State<Session | null> = van.state(null);
+// The terminal on screen: a side terminal named by the place, else the active card.
+export const screen: State<Session | null> = van.state(null);
+export function onScreen(): Session | null {
+  return screen.val;
+}
+export function findTerm(id: string): Session | undefined {
+  for (const card of sessionList.val) {
+    if (card.id === id) return card;
+    const side = card.sides.val.find((s) => s.id === id);
+    if (side) return side;
+  }
+  return undefined;
+}
+export function allTerms(): Session[] {
+  return sessionList.val.flatMap((card) => [card, ...card.sides.val]);
+}
 export const store: { readonly sessions: Session[]; readonly active: Session | null } = {
   get sessions() {
     return sessionList.val;
@@ -134,13 +156,15 @@ export async function newTabAt(cwd: string): Promise<void> {
 // callers (every socket dropping after sleep, window focus, board events)
 // share one run so the page doesn't stampede the daemon.
 export const sync = coalesceAsync(async () => {
-  // Only tabs open before the list was asked for can be missing from it: one
-  // opened while it was on its way is new, not gone.
-  const asked = new Set(store.sessions);
+  // Only sessions open before the list was asked for can be missing from it:
+  // one opened while it was on its way is new, not gone.
+  const askedCards = new Set(store.sessions);
+  const askedSides = new Set(store.sessions.flatMap((s) => s.sides.val));
   const list = (await api<SessionInfo[]>('GET', '')) ?? [];
-  const ids = new Set(list.map((s) => s.id));
-  for (const s of store.sessions.filter((s) => asked.has(s) && !ids.has(s.id))) removeSession(s);
-  for (const info of list) {
+  const { cards, sides } = splitSessions(list);
+  const cardIds = new Set(cards.map((s) => s.id));
+  for (const s of store.sessions.filter((s) => askedCards.has(s) && !cardIds.has(s.id))) removeSession(s);
+  for (const info of cards) {
     const s = store.sessions.find((s) => s.id === info.id);
     if (s) {
       s.pinned = info.pinned;
@@ -148,7 +172,19 @@ export const sync = coalesceAsync(async () => {
       applyCard(s, cardOf(info));
     } else openSession(info);
   }
-  orderTabs(list.map((s) => s.id));
+  for (const card of store.sessions) {
+    const want = sides.get(card.id) ?? [];
+    const wantIds = new Set(want.map((s) => s.id));
+    for (const side of card.sides.val.filter((s) => askedSides.has(s) && !wantIds.has(s.id))) removeSession(side);
+    for (const info of want) {
+      const s = card.sides.val.find((x) => x.id === info.id);
+      if (s) {
+        s.pinned = info.pinned;
+        setName(s, info.name, false);
+      } else openSession(info);
+    }
+  }
+  orderTabs(cards.map((s) => s.id));
   if (!store.active && store.sessions.length) go({ tab: (shownSessions()[0] ?? store.sessions[0]).id }, 'replace');
 });
 
@@ -157,7 +193,7 @@ export const sync = coalesceAsync(async () => {
 const sentSize = new WeakMap<WebSocket, string>();
 
 export function sendSize(s: Session): void {
-  if (s !== store.active) return;
+  if (s !== onScreen()) return;
   s.fit.fit();
   const ws = s.ws;
   if (ws?.readyState !== WebSocket.OPEN) return;
@@ -173,17 +209,22 @@ export function activate(s: Session | null): void {
   noTab.val = !s;
   loadedPane()?.show(s?.id ?? null);
   updateBadge();
+  const termId = here().term;
+  const side = s && termId ? s.sides.val.find((x) => x.id === termId) : undefined;
+  screen.val = side ?? s;
   if (s) {
-    s.unread.val = false;
-    if (!document.hidden) clearBell(s);
-    // Its terminal (and a new tab) shows once VanJS applies the states, in a
-    // microtask queued before this one: scroll to its tab, fit and focus it
-    // then.
+    const shown = screen.val ?? s;
+    shown.unread.val = false;
+    if (!document.hidden) clearBell(shown);
+    // Its terminal shows once VanJS applies the states, in a microtask queued
+    // before this one: scroll to its tab, fit and focus what's on screen.
     queueMicrotask(() => {
       if (active.val !== s) return;
       scrollToTab(s);
-      sendSize(s);
-      s.term.focus();
+      const now = onScreen();
+      if (!now) return;
+      sendSize(now);
+      now.term.focus();
     });
   }
   rememberActive();
@@ -193,8 +234,10 @@ export function activate(s: Session | null): void {
 // A click on a tab: a move to it, or back to its terminal when it's already
 // the active one (the URL doesn't change, so there's no navigation).
 export function pick(s: Session): void {
-  if (s === store.active) s.term.focus();
-  else go({ tab: s.id });
+  if (s === store.active) {
+    if (onScreen() !== s) go({ term: null });
+    else s.term.focus();
+  } else go({ tab: s.id });
 }
 
 // The next/previous tab keybindings walk the shown tabs along the strip,
@@ -205,21 +248,40 @@ export function cycleTab(step: 1 | -1): void {
 }
 
 export async function closeSession(s: Session): Promise<void> {
-  if (!(loadedPane()?.confirmDiscard(s.id) ?? true)) return;
+  // The file pane is the card's. A side terminal has nothing of its own to discard.
+  if (!s.parent && !(loadedPane()?.confirmDiscard(s.id) ?? true)) return;
   // A running shell is killed and the server answers on the socket with
   // {"exit":true}; one that never started is just gone.
   await api('DELETE', `/${s.id}`).catch(() => {});
   if (s.ws?.readyState !== WebSocket.OPEN) removeSession(s);
 }
 
-export function removeSession(s: Session): void {
-  if (s.closed) return;
+function dropTerm(s: Session): void {
   s.closed = true;
   loadedPane()?.forget(s.id);
   s.ws?.close();
   s.out.drop(); // no frame writes to the disposed terminal
   s.term.dispose();
   s.el.remove();
+}
+
+export function removeSession(s: Session): void {
+  if (s.closed) return;
+  if (s.parent) {
+    dropTerm(s);
+    const card = store.sessions.find((c) => c.id === s.parent);
+    if (card) card.sides.val = card.sides.val.filter((t) => t !== s);
+    if (screen.val === s) {
+      screen.val = card ?? null;
+      go({ term: null }, 'replace');
+    }
+    return;
+  }
+  for (const side of [...s.sides.val]) {
+    if (!side.closed) dropTerm(side);
+  }
+  s.sides.val = [];
+  dropTerm(s);
   // Its tab collapses, then goes (the strip's exit).
   s.leaving.val = true;
   const i = store.sessions.indexOf(s);
@@ -227,6 +289,7 @@ export function removeSession(s: Session): void {
   setSessions(sessions); // its copies, and a group it was alone in, go too
   if (store.active === s) {
     active.val = null;
+    screen.val = null;
     // The next shown tab after it, else the last shown one before it.
     const rest = shownSessions();
     const next = rest.find((t) => sessions.indexOf(t) >= i) ?? rest.at(-1);
@@ -246,5 +309,37 @@ export function initTabRouting(): void {
     const first = shownSessions()[0] ?? store.sessions[0] ?? null;
     activate(first);
     if ((first?.id ?? null) !== to.tab) return { tab: first?.id ?? null };
+  });
+}
+
+function reveal(s: Session): void {
+  s.unread.val = false;
+  if (!document.hidden) clearBell(s);
+  // The socket follows the terminal on screen, including a side terminal.
+  syncTerminalVisibility();
+  queueMicrotask(() => {
+    if (onScreen() !== s) return;
+    sendSize(s);
+    s.term.focus();
+  });
+}
+
+// After the tab step: `term` names a side terminal of that card, or the agent.
+export function initTermRouting(): void {
+  onPlace('term', (to) => {
+    const card = store.sessions.find((s) => s.id === to.tab) ?? null;
+    if (!card) {
+      screen.val = null;
+      return;
+    }
+    const side = to.term ? card.sides.val.find((s) => s.id === to.term) : undefined;
+    if (to.term && !side) {
+      screen.val = card;
+      reveal(card);
+      return { term: null };
+    }
+    const shown = side ?? card;
+    screen.val = shown;
+    reveal(shown);
   });
 }

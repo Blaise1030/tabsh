@@ -8,7 +8,7 @@ import van, { type State } from 'vanjs-core';
 import { daemonFetch } from '../daemon/client.ts';
 import { openInPane } from '../files/open.ts';
 import { go, here, onPlace } from '../nav/router.ts';
-import { newTabAt, onActivate, store } from '../sessions/store.ts';
+import { newTabAt, onActivate, onScreen, store } from '../sessions/store.ts';
 import { matchesKey } from '../settings/keys.ts';
 import { EXPLORER_WIDTH } from '../settings/schema.ts';
 import { applySettings, current, keyHint, onApply, saveSetting } from '../settings/settings.ts';
@@ -119,7 +119,7 @@ export function initExplorer(): void {
     open.val = to.explorer;
     if (to.explorer && !wasOpen) void refresh();
     watch();
-    if (heldFocus) store.active?.term.focus();
+    if (heldFocus) onScreen()?.term.focus();
     if (to.explorer !== current.saved.explorerOpen) saveSetting('explorerOpen', to.explorer);
     return undefined;
   });

@@ -425,14 +425,8 @@ fn spawn_session(
         if restarting {
             return;
         }
-        if let Err(e) = st
-            .db
-            .lock()
-            .unwrap()
-            .execute("DELETE FROM sessions WHERE id = ?1", params![id])
-        {
-            eprintln!("failed to delete session {id}: {e}");
-        }
+        // A card's exit takes its side terminals. Not on restart: the row stays.
+        super::forget_exited(&st, &id);
     });
 
     Ok(session)

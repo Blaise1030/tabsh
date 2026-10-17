@@ -18,7 +18,18 @@ import { initPalette } from './palette/palette.ts';
 import { initPwa } from './pwa/register.ts';
 import { initBell } from './sessions/bell.ts';
 import { initTabGroups } from './sessions/groups.ts';
-import { initTabRouting, newSession, newTabAt, savedActive, sendSize, store, sync } from './sessions/store.ts';
+import {
+  allTerms,
+  initTabRouting,
+  initTermRouting,
+  newSession,
+  newTabAt,
+  onScreen,
+  savedActive,
+  sendSize,
+  store,
+  sync,
+} from './sessions/store.ts';
 import { initTabStrip } from './sessions/tabs.ts';
 import { initTabLabels } from './sessions/tags.ts';
 import { syncTerminalVisibility } from './sessions/terminal.ts';
@@ -63,9 +74,9 @@ initFilePane(
         fontSize: current.applied.fontSize,
       };
     },
-    layout: () => store.active && sendSize(store.active),
+    layout: () => onScreen() && sendSize(onScreen()!),
     newTabAt,
-    focusTerminal: () => store.active?.term.focus(),
+    focusTerminal: () => onScreen()?.term.focus(),
     paste(sessionId, text) {
       const s = store.sessions.find((x) => x.id === sessionId);
       if (!s || s.closed) return 'closed';
@@ -86,6 +97,7 @@ addEventListener('beforeunload', (e) => {
 });
 
 initTabRouting();
+initTermRouting();
 initBell();
 initTabStrip();
 initTabLabels();
@@ -105,9 +117,10 @@ initKeyboardInset();
 // Applied settings restyle every terminal and the file pane (theme and font).
 onApply((s) => {
   const opts = terminalOptions(s);
-  for (const { term } of store.sessions) Object.assign(term.options, opts);
+  for (const { term } of allTerms()) Object.assign(term.options, opts);
   loadedPane()?.applyTheme();
-  if (store.active) sendSize(store.active);
+  const shown = onScreen();
+  if (shown) sendSize(shown);
 });
 // Follow the system's light/dark switch live while the tabsh theme is on.
 prefersLight?.addEventListener('change', () => current.applied.theme === 'tabsh' && applySettings(current.applied));
@@ -119,7 +132,7 @@ let resizeTimer = 0;
 new ResizeObserver(() => {
   window.clearTimeout(resizeTimer);
   resizeTimer = window.setTimeout(() => {
-    const s = store.active;
+    const s = onScreen();
     if (s) requestAnimationFrame(() => sendSize(s));
   }, 150);
 }).observe(document.getElementById('terms') as HTMLElement);

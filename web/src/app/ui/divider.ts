@@ -1,7 +1,7 @@
 // The divider between the terminals and the file pane. The width is live
 // while dragging and saved once on release; a click without a drag splits
 // them equally.
-import { sendSize, store } from '../sessions/store.ts';
+import { onScreen, sendSize } from '../sessions/store.ts';
 import { applySettings, current, onApply, saveSetting } from '../settings/settings.ts';
 
 export function initDivider(): void {
@@ -34,7 +34,8 @@ export function initDivider(): void {
     if (!frame) {
       frame = requestAnimationFrame(() => {
         frame = 0;
-        if (store.active) sendSize(store.active);
+        const shown = onScreen();
+        if (shown) sendSize(shown);
       });
     }
   });
@@ -60,10 +61,19 @@ export function initDrawerDivider(): void {
   let frac: number | null = null;
   let startX = 0;
   let moved = false;
+  // The stage has no box while the split is showing (it is display:contents,
+  // so the terminal can be a full-height column). Measure the board and the
+  // terminal instead. --drawer-width lives on the document: the body's grid
+  // reads it, and the stage is not an ancestor of the body.
   const widthAt = (x: number) => {
-    const r = stage.getBoundingClientRect();
-    return Math.min(0.85, Math.max(0.25, (r.right - x) / r.width));
+    const board = document.getElementById('board') as HTMLElement;
+    const frame = document.getElementById('frame') as HTMLElement;
+    const left = board.getBoundingClientRect().left;
+    const right = frame.getBoundingClientRect().right;
+    const width = right - left;
+    return Math.min(0.85, Math.max(0.25, width > 0 ? (right - x) / width : 0.5));
   };
+  const setWidth = (frac: number) => document.documentElement.style.setProperty('--drawer-width', String(frac));
   divider.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
@@ -78,7 +88,7 @@ export function initDrawerDivider(): void {
     if (!moved && Math.abs(e.clientX - startX) < 4) return;
     moved = true;
     frac = widthAt(e.clientX);
-    stage.style.setProperty('--drawer-width', String(frac)); // the terminal refits through its ResizeObserver
+    setWidth(frac); // the terminal refits through its ResizeObserver
   });
   const end = (e: PointerEvent) => {
     if (frac === null) return;
@@ -91,5 +101,5 @@ export function initDrawerDivider(): void {
   divider.addEventListener('pointerup', end);
   divider.addEventListener('pointercancel', end);
   divider.title = 'Drag to resize, click to split equally';
-  onApply((s) => stage.style.setProperty('--drawer-width', String(s.drawerWidth)));
+  onApply((s) => setWidth(s.drawerWidth));
 }

@@ -138,11 +138,11 @@ pub(crate) fn running_shells(st: &AppState) -> Vec<(String, u32)> {
 /// Running shells and all sessions, for the About dialog.
 pub(crate) fn counts(st: &AppState) -> rusqlite::Result<(usize, i64)> {
     let running = st.live.lock().unwrap().len();
-    let total = st
-        .db
-        .lock()
-        .unwrap()
-        .query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))?;
+    let total = st.db.lock().unwrap().query_row(
+        "SELECT COUNT(*) FROM sessions WHERE parent IS NULL",
+        [],
+        |r| r.get(0),
+    )?;
     Ok((running, total))
 }
 
@@ -208,6 +208,8 @@ pub(crate) struct SessionInfo {
     /// The agent it runs, by its launch template or else its resume command,
     /// so the board can show which one.
     pub(crate) agent_command: Option<String>,
+    /// Set on a side terminal: the card it belongs to. Null on a card.
+    pub(crate) parent: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -231,6 +233,8 @@ struct NewSession {
     command: Option<String>,
     /// The agent provider's resume command, `{session}` for the conversation.
     resume: Option<String>,
+    /// The card this side terminal belongs to. One level only.
+    parent: Option<String>,
 }
 
 async fn list_sessions(State(st): State<AppState>) -> Result<Json<Vec<SessionInfo>>, StatusCode> {
@@ -253,6 +257,9 @@ async fn create_session(
     body: Option<Json<NewSession>>,
 ) -> Result<Json<SessionInfo>, StatusCode> {
     let body = body.map(|Json(b)| b).unwrap_or_default();
+    if let Some(parent) = body.parent.clone() {
+        return create_side(&st, &parent, body);
+    }
     if let Some(cwd_path) = body.cwd.as_deref()
         && !std::path::Path::new(cwd_path).is_dir()
     {
@@ -303,8 +310,65 @@ async fn create_session(
         resume: resume.as_deref(),
         agent_session: agent_session.as_deref(),
         resume_input: resume_input.as_deref(),
+        parent: None,
     };
     let db = st.db.lock().unwrap();
+    store::insert_card(&db, &card)
+        .map(Json)
+        .map_err(internal_error)
+}
+
+/// A side terminal of `parent`: a shell in that card's folder, named the
+/// lowest free `Terminal N` among that card's side terminals. It is not a card.
+fn create_side(
+    st: &AppState,
+    parent: &str,
+    body: NewSession,
+) -> Result<Json<SessionInfo>, StatusCode> {
+    if body.prompt.is_some() || body.command.is_some() || body.resume.is_some() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let saved = {
+        let db = st.db.lock().unwrap();
+        db.query_row(
+            "SELECT parent, cwd FROM sessions WHERE id = ?1",
+            params![parent],
+            |r| {
+                Ok((
+                    r.get::<_, Option<String>>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(internal_error)?
+    };
+    let Some((their_parent, saved_cwd)) = saved else {
+        return Err(StatusCode::BAD_REQUEST);
+    };
+    if their_parent.is_some() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let cwd = match body.cwd {
+        Some(cwd) => Some(cwd),
+        None => cwd(st, parent)
+            .map(|p| p.to_string_lossy().into_owned())
+            .or(saved_cwd),
+    };
+    if let Some(cwd_path) = cwd.as_deref()
+        && !std::path::Path::new(cwd_path).is_dir()
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let db = st.db.lock().unwrap();
+    let name = store::next_side_name(&db, parent).map_err(internal_error)?;
+    let card = store::NewCard {
+        cwd: cwd.as_deref(),
+        name: Some(&name),
+        parent: Some(parent),
+        pinned: false,
+        ..Default::default()
+    };
     store::insert_card(&db, &card)
         .map(Json)
         .map_err(internal_error)
@@ -349,7 +413,74 @@ async fn delete_session(State(st): State<AppState>, Path(id): Path<String>) -> S
         .unwrap_or_else(internal_error)
 }
 
+/// Closes each side terminal of a card, through [`close`].
+pub(crate) fn close_children(st: &AppState, parent: &str) {
+    let ids: Vec<String> = st
+        .db
+        .lock()
+        .unwrap()
+        .prepare("SELECT id FROM sessions WHERE parent = ?1")
+        .and_then(|mut stmt| {
+            stmt.query_map(params![parent], |r| r.get(0))?
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .unwrap_or_default();
+    for id in ids {
+        let _ = close(st, &id);
+    }
+}
+
+/// The reader thread, once a shell has exited (not a restart): the row goes,
+/// and a card takes its side terminals with it.
+pub(crate) fn forget_exited(st: &AppState, id: &str) {
+    let parent: Option<Option<String>> = st
+        .db
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT parent FROM sessions WHERE id = ?1",
+            params![id],
+            |r| r.get(0),
+        )
+        .optional()
+        .ok()
+        .flatten();
+    let Some(parent) = parent else {
+        return;
+    };
+    if let Err(e) = st
+        .db
+        .lock()
+        .unwrap()
+        .execute("DELETE FROM sessions WHERE id = ?1", params![id])
+    {
+        eprintln!("failed to delete session {id}: {e}");
+        return;
+    }
+    if parent.is_none() {
+        close_children(st, id);
+    }
+}
+
+fn is_card(st: &AppState, id: &str) -> bool {
+    st.db
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT parent FROM sessions WHERE id = ?1",
+            params![id],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .ok()
+        .flatten()
+        .is_some_and(|parent| parent.is_none())
+}
+
 fn close(st: &AppState, id: &str) -> StatusCode {
+    if is_card(st, id) {
+        close_children(st, id);
+    }
     // Waits out a start of this tab's shell, so that shell is killed too.
     let _turn = st.starting.turn(id);
     let live = st.live.lock().unwrap();
@@ -400,10 +531,15 @@ mod tests {
     use axum::http::{Method, Request};
     use tower::ServiceExt;
 
-    async fn create(st: &AppState, body: serde_json::Value) -> (StatusCode, serde_json::Value) {
+    async fn req(
+        st: &AppState,
+        method: Method,
+        uri: &str,
+        body: serde_json::Value,
+    ) -> (StatusCode, serde_json::Value) {
         let req = Request::builder()
-            .method(Method::POST)
-            .uri("/api/sessions")
+            .method(method)
+            .uri(uri)
             .header("Host", "127.0.0.1:7681")
             .header("Authorization", "Bearer t0k3n")
             .header("Content-Type", "application/json")
@@ -416,6 +552,10 @@ mod tests {
             .await
             .unwrap();
         (code, serde_json::from_slice(&bytes).unwrap_or_default())
+    }
+
+    async fn create(st: &AppState, body: serde_json::Value) -> (StatusCode, serde_json::Value) {
+        req(st, Method::POST, "/api/sessions", body).await
     }
 
     fn pending(st: &AppState, id: &serde_json::Value) -> Option<String> {
@@ -641,5 +781,131 @@ mod tests {
         assert_eq!(pending(&st, &body["id"]), None);
         let (_, body) = create(&st, serde_json::json!({})).await;
         assert_eq!(body["name"], "Terminal 1");
+    }
+
+    #[tokio::test]
+    async fn a_side_terminal_belongs_to_its_card_and_takes_the_lowest_free_name() {
+        let st = test_state();
+        let (_, card) = create(&st, serde_json::json!({"cwd": "/tmp"})).await;
+        let parent = card["id"].as_str().unwrap();
+        let (code, side) = create(&st, serde_json::json!({"parent": parent})).await;
+        assert_eq!(code, StatusCode::OK);
+        assert_eq!(side["parent"], parent);
+        assert_eq!(side["name"], "Terminal 1");
+        assert_eq!(side["cwd"], "/tmp");
+        let (_, second) = create(&st, serde_json::json!({"parent": parent})).await;
+        assert_eq!(second["name"], "Terminal 2");
+        close(&st, second["id"].as_str().unwrap());
+        let (_, again) = create(&st, serde_json::json!({"parent": parent})).await;
+        assert_eq!(again["name"], "Terminal 2");
+        close(&st, side["id"].as_str().unwrap());
+        let (_, reused) = create(&st, serde_json::json!({"parent": parent})).await;
+        assert_eq!(reused["name"], "Terminal 1");
+    }
+
+    #[tokio::test]
+    async fn a_side_terminal_is_refused_without_a_card_or_with_an_agent() {
+        let st = test_state();
+        let (missing, _) = create(&st, serde_json::json!({"parent": "nope"})).await;
+        assert_eq!(missing, StatusCode::BAD_REQUEST);
+        let (_, card) = create(&st, serde_json::json!({})).await;
+        let parent = card["id"].as_str().unwrap();
+        let (_, side) = create(&st, serde_json::json!({"parent": parent})).await;
+        let (nested, _) = create(&st, serde_json::json!({"parent": side["id"]})).await;
+        assert_eq!(nested, StatusCode::BAD_REQUEST);
+        for extra in [
+            serde_json::json!({"parent": parent, "prompt": "go"}),
+            serde_json::json!({"parent": parent, "command": "true"}),
+            serde_json::json!({"parent": parent, "resume": "agent --resume={session}"}),
+        ] {
+            let (code, _) = create(&st, extra).await;
+            assert_eq!(code, StatusCode::BAD_REQUEST);
+        }
+    }
+
+    #[tokio::test]
+    async fn the_session_list_carries_parent_and_counts_count_cards() {
+        let st = test_state();
+        let (_, card) = create(&st, serde_json::json!({})).await;
+        let (_, side) = create(&st, serde_json::json!({"parent": card["id"]})).await;
+        let list = list_sessions(State(st.clone())).await.unwrap().0;
+        let side_row = list.iter().find(|s| s.id == side["id"]).unwrap();
+        assert_eq!(
+            side_row.parent.as_deref(),
+            Some(card["id"].as_str().unwrap())
+        );
+        assert_eq!(
+            list.iter().find(|s| s.id == card["id"]).unwrap().parent,
+            None
+        );
+        assert_eq!(counts(&st).unwrap().1, 1);
+    }
+
+    #[tokio::test]
+    async fn status_and_prompt_refuse_a_side_terminal() {
+        let st = test_state();
+        let (_, card) = create(&st, serde_json::json!({})).await;
+        let (_, side) = create(&st, serde_json::json!({"parent": card["id"]})).await;
+        let id = side["id"].as_str().unwrap();
+        let (status, _) = req(
+            &st,
+            Method::PATCH,
+            &format!("/api/sessions/{id}/status"),
+            serde_json::json!({"status": "in_progress"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        let (prompt, _) = req(
+            &st,
+            Method::PATCH,
+            &format!("/api/sessions/{id}/prompt"),
+            serde_json::json!({"prompt": "go"}),
+        )
+        .await;
+        assert_eq!(prompt, StatusCode::CONFLICT);
+    }
+
+    #[test]
+    fn closing_a_card_closes_its_side_terminals_and_a_side_exit_leaves_the_card() {
+        let st = test_state();
+        let card = insert_session(&st.db.lock().unwrap(), Some("/tmp")).unwrap();
+        let side = store::insert_card(
+            &st.db.lock().unwrap(),
+            &store::NewCard {
+                parent: Some(&card.id),
+                cwd: Some("/tmp"),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        forget_exited(&st, &card.id);
+        assert!(!exists(&st, &card.id));
+        assert!(!exists(&st, &side.id));
+
+        let card = insert_session(&st.db.lock().unwrap(), None).unwrap();
+        let side = store::insert_card(
+            &st.db.lock().unwrap(),
+            &store::NewCard {
+                parent: Some(&card.id),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        forget_exited(&st, &side.id);
+        assert!(exists(&st, &card.id));
+        assert!(!exists(&st, &side.id));
+
+        let card = insert_session(&st.db.lock().unwrap(), None).unwrap();
+        let side = store::insert_card(
+            &st.db.lock().unwrap(),
+            &store::NewCard {
+                parent: Some(&card.id),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(close(&st, &card.id), StatusCode::NO_CONTENT);
+        assert!(!exists(&st, &card.id));
+        assert!(!exists(&st, &side.id));
     }
 }

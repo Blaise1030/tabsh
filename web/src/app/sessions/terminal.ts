@@ -22,11 +22,14 @@ import { type ExtraKey, keyInput, withCtrl } from './extra-keys.ts';
 import { type Heartbeat, heartbeat, type Timers } from './heartbeat.ts';
 import { enqueueReconnect, nextReconnect, retryDelay, shouldDrainReconnects, terminalInView } from './reconnect.ts';
 import {
-  active,
+  allTerms,
+  findTerm,
   onActivate,
+  onScreen,
   removeSession,
   type Session,
   type SessionInfo,
+  screen,
   sendSize,
   setSessions,
   store,
@@ -47,7 +50,7 @@ function inView(s: Session): boolean {
   const place = here();
   return terminalInView({
     sessionId: s.id,
-    activeId: store.active?.id ?? null,
+    screenId: onScreen()?.id ?? null,
     view: place.view,
     drawer: place.drawer,
     documentHidden: document.hidden,
@@ -59,7 +62,7 @@ export const ctrlHeld = van.state(false);
 
 // Types an extra key into the on-screen terminal, as if from its keyboard.
 export function typeKey(key: ExtraKey): void {
-  const s = store.active;
+  const s = onScreen();
   if (!s) return;
   s.term.input(keyInput(key, s.term.modes.applicationCursorKeysMode), true);
   s.term.scrollToBottom();
@@ -72,7 +75,7 @@ const timers: Timers = { set: (fn, ms) => window.setTimeout(fn, ms), clear: (id)
 // Back from sleep or a dropped network, the on-screen socket may be dead
 // though it still says open: ask it now rather than at the next ping.
 function probeActive(): void {
-  const ws = store.active?.ws;
+  const ws = onScreen()?.ws;
   if (ws) beats.get(ws)?.probe();
 }
 
@@ -133,10 +136,10 @@ async function drainReconnects(): Promise<void> {
   draining = true;
   try {
     while (reconnectQueue.length && shouldDrainReconnects(document.hidden)) {
-      const { next, rest } = nextReconnect(reconnectQueue, store.active?.id ?? null);
+      const { next, rest } = nextReconnect(reconnectQueue, onScreen()?.id ?? null);
       reconnectQueue = rest;
       if (!next) break;
-      const s = store.sessions.find((x) => x.id === next);
+      const s = findTerm(next);
       if (!s || s.closed || !inView(s)) {
         reconnectAttempts.delete(next);
         continue;
@@ -168,7 +171,7 @@ async function drainReconnects(): Promise<void> {
 // are not racing a queued reconnect after startup or a tab switch.
 export function syncTerminalVisibility(): void {
   watchWake();
-  for (const s of store.sessions) {
+  for (const s of allTerms()) {
     if (s.closed) continue;
     if (inView(s)) {
       const state = s.ws?.readyState;
@@ -182,11 +185,12 @@ export function syncTerminalVisibility(): void {
 // Opens a session's tab and terminal, once: a session already open (a sync
 // can list a new tab before its POST answers) is returned as it is.
 export function openSession(info: SessionInfo): Session {
-  const known = store.sessions.find((x) => x.id === info.id);
+  const known = findTerm(info.id);
   if (known) return known;
   const { id, name } = info;
-  // Shown while its tab is the active one (until it's closed and gone).
-  const el = scoped(() => van.tags.div({ class: () => (active.val?.id === id ? 'term active' : 'term') }));
+  const parent = info.parent ?? null;
+  // Shown while this terminal is the one on screen.
+  const el = scoped(() => van.tags.div({ class: () => (screen.val?.id === id ? 'term active' : 'term') }));
   document.getElementById('terms')?.append(el);
 
   const term = new Terminal({
@@ -279,9 +283,22 @@ export function openSession(info: SessionInfo): Session {
     repo: van.state<string | null>(null),
     leaving: van.state(false),
     pinned: info.pinned,
+    parent,
+    sides: van.state<Session[]>([]),
   };
-  setSessions([...store.sessions, s]);
-  labelTab(s);
+  if (parent) {
+    const card = store.sessions.find((c) => c.id === parent);
+    if (!card) {
+      s.closed = true;
+      s.term.dispose();
+      el.remove();
+      return s;
+    }
+    card.sides.val = [...card.sides.val, s];
+  } else {
+    setSessions([...store.sessions, s]);
+    labelTab(s);
+  }
 
   // Replayed scrollback holds queries programs sent long ago (e.g. OSC 11,
   // "what's your background colour?"); xterm answers them as it parses, and
@@ -379,7 +396,7 @@ function connect(s: Session): Promise<boolean> {
       if (s.stream) s.stream.at += bytes.length;
       s.out.push(bytes);
       if (scanned.bell) ring(s);
-      if (s !== store.active) s.unread.val = true;
+      if (s !== onScreen()) s.unread.val = true;
     };
     // Dropped without an exit message (network blip, client lagged, daemon
     // restarting, or found dead by its heartbeat): reattach only while this

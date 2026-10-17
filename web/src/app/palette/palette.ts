@@ -16,7 +16,7 @@ import {
   revokeRemoteDevice,
   toggleSharing,
 } from '../remote/share.ts';
-import { cycleTab, store } from '../sessions/store.ts';
+import { cycleTab, onScreen, store } from '../sessions/store.ts';
 import { comboFromEvent, comboProblem, type KeyId, matchesKey } from '../settings/keys.ts';
 import type { Settings } from '../settings/schema.ts';
 import { applySettings, current, keyHint, saveSetting, setPreviewing } from '../settings/settings.ts';
@@ -355,7 +355,7 @@ export function initPalette(): void {
     editing = null;
     setPreviewing(false);
     applySettings(current.saved);
-    store.active?.term.focus();
+    onScreen()?.term.focus();
     if (!here().palette || isLeavingPalette()) return;
     if (isPaletteEntry()) back();
     else go({ palette: null }, 'replace');

@@ -7,7 +7,7 @@
 // browser asks for permission on the first click in the page (it won't ask
 // unprompted).
 import { go } from '../nav/router.ts';
-import { type Session, store } from '../sessions/store.ts';
+import { type Session, onScreen as shownTerm } from '../sessions/store.ts';
 import { playChime } from '../sound/chime.ts';
 import type { Status } from './model.ts';
 import { drawer, shown } from './view.ts';
@@ -17,7 +17,7 @@ const SAYS: Partial<Record<Status, string>> = { needs_input: 'Needs your input',
 const supported = () => typeof Notification !== 'undefined';
 
 // Whether `s`'s terminal is what the user is looking at.
-const onScreen = (s: Session) => document.hasFocus() && store.active === s && (!shown.val || drawer.val);
+const onScreen = (s: Session) => document.hasFocus() && shownTerm() === s && (!shown.val || drawer.val);
 
 export function notifyStatus(s: Session, status: Status, note: string | null): void {
   const says = SAYS[status];

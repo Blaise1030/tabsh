@@ -7,7 +7,7 @@ import { uploadFile } from '../daemon/client.ts';
 import { shellQuote } from '../ui/drop-paths.ts';
 import { icons } from '../ui/icons.ts';
 import type { ExtraKey } from './extra-keys.ts';
-import { active, type Session } from './store.ts';
+import { onScreen, type Session } from './store.ts';
 import { ctrlHeld, typeKey } from './terminal.ts';
 
 const { button, dialog, div, input, textarea } = van.tags;
@@ -37,7 +37,7 @@ export function KeyBar(): HTMLElement[] {
   const [esc, ...rest] = KEYS;
   const [pasteButton, sheet] = Paste();
   const bar = div(
-    { class: 'keybar', role: 'toolbar', 'aria-label': 'Terminal keys', hidden: () => !active.val },
+    { class: 'keybar', role: 'toolbar', 'aria-label': 'Terminal keys', hidden: () => !onScreen() },
     ...Attach(),
     pasteButton,
     key(...esc),
@@ -80,7 +80,7 @@ function Attach(): HTMLElement[] {
     onchange: async () => {
       const files = [...(picker.files ?? [])];
       picker.value = '';
-      const target = active.val;
+      const target = onScreen();
       if (!target || !files.length) return;
       try {
         const paths = await Promise.all(files.map(uploadFile));
@@ -145,7 +145,7 @@ function Paste(): [HTMLElement, HTMLDialogElement] {
     ),
   ) as HTMLDialogElement;
   const open = async () => {
-    const s = active.val;
+    const s = onScreen();
     if (!s) return;
     if (navigator.clipboard?.readText) {
       try {
