@@ -1,6 +1,8 @@
 // A BEL from a shell, unless you're looking at that terminal, marks its tab
 // and badges the favicon and title until you visit it.
-import { type Session, store } from './store.ts';
+
+import { bellsWhen } from './bells.ts';
+import { onScreen, type Session, store } from './store.ts';
 
 const faviconSvg = (badge: boolean) =>
   'data:image/svg+xml,' +
@@ -18,7 +20,24 @@ const favicon = () => document.getElementById('favicon') as HTMLLinkElement;
 const rings = new WeakMap<Session, number>(); // a session → its latest ring or clear
 
 export function ring(s: Session): void {
-  if (s === store.active && !document.hidden && document.hasFocus()) return;
+  if (
+    !bellsWhen({
+      onScreen: onScreen() === s,
+      windowFocused: document.hasFocus(),
+      documentHidden: document.hidden,
+    })
+  ) {
+    return;
+  }
+  markBell(s);
+  // A side terminal's bell also marks its card: the strip tab and the badge.
+  if (s.parent) {
+    const card = store.sessions.find((c) => c.id === s.parent);
+    if (card) markBell(card);
+  }
+}
+
+function markBell(s: Session): void {
   const n = (rings.get(s) ?? 0) + 1;
   rings.set(s, n);
   if (s.bell.val && !document.hidden) {
@@ -55,7 +74,7 @@ export function updateBadge(): void {
 
 export function initBell(): void {
   // Coming back to the browser tab counts as seeing the active terminal.
-  const seen = () => !document.hidden && clearBell(store.active);
+  const seen = () => !document.hidden && clearBell(onScreen());
   document.addEventListener('visibilitychange', seen);
   addEventListener('focus', seen);
   favicon().href = FAVICON;

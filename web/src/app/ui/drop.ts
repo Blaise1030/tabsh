@@ -4,7 +4,7 @@
 // first and the saved copy's path is used.
 import { CARD_DRAG, drawer, shown } from '../board/view.ts';
 import { uploadFile } from '../daemon/client.ts';
-import { store } from '../sessions/store.ts';
+import { onScreen } from '../sessions/store.ts';
 import { localPaths, shellQuote } from './drop-paths.ts';
 
 // Not a card dragged on the board, nor anything while the board hides the
@@ -49,7 +49,7 @@ export function initDrop(): void {
     // carries its id as text) isn't for the terminal.
     if (e.defaultPrevented || !isDroppable(e.dataTransfer)) return;
     e.preventDefault();
-    const target = store.active;
+    const target = onScreen();
     if (!target) return;
     try {
       const text = await textForDrop(e.dataTransfer);

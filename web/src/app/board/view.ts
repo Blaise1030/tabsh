@@ -7,7 +7,7 @@ import { DOCS_URL } from '../../site.ts';
 import { api } from '../daemon/client.ts';
 import { go, here, onPlace } from '../nav/router.ts';
 import { tagColor } from '../sessions/labels.ts';
-import { newSession, openTab, type Session, sendSize, sessionList, store } from '../sessions/store.ts';
+import { newSession, onScreen, openTab, type Session, sendSize, sessionList, store } from '../sessions/store.ts';
 import { orderTabs } from '../sessions/tabs.ts';
 import { onTagsChange, tagBadge } from '../sessions/tags.ts';
 import { syncTerminalVisibility } from '../sessions/terminal.ts';
@@ -226,9 +226,10 @@ function showBoard(open: boolean): void {
   // The terminals show once VanJS applies the state, in a microtask queued
   // before this one: fit and focus the active one then.
   queueMicrotask(() => {
-    if (shown.val || !store.active) return;
-    sendSize(store.active);
-    store.active.term.focus();
+    const term = onScreen();
+    if (shown.val || !term) return;
+    sendSize(term);
+    term.term.focus();
   });
 }
 
@@ -302,10 +303,10 @@ const agentIcon = (s: Session) => () => {
   return agent ? span({ class: 'card-agent', title: agent }, providerIcon(agent)()) : '';
 };
 
-// A card in the list layout: one line, as Linear's list rows: its status,
-// name and note, then its tags, folder, agent, time in status and menu.
-// Tags and the folder give up width before the title does; whatever they
-// clip is the tooltip.
+// A card in the list layout: status, name and note, then tags, folder, agent,
+// time and menu. On a wide row that cluster stays on the right. On a narrow
+// one it wraps to the next line, aligned to the bottom right; the name stays
+// top left. Tags and the folder still collapse when they themselves clip.
 function Row(s: Session): HTMLElement {
   const status = van.derive(() => s.card.val.status);
   const row: HTMLElement = article(
@@ -835,7 +836,7 @@ export function initBoard(): void {
   phone.addEventListener('change', leaveTermsOnPhone);
   onPlace('drawer', (to) => {
     drawer.val = to.drawer;
-    if (to.drawer) queueMicrotask(() => store.active?.term.focus()); // once VanJS shows it
+    if (to.drawer) queueMicrotask(() => onScreen()?.term.focus()); // once VanJS shows it
     syncTerminalVisibility();
     return undefined;
   });

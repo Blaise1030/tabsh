@@ -135,7 +135,7 @@ fn save(state: &AppState, id: &str, session: &Session, scrollback: Vec<u8>) {
 /// The columns `SessionInfo` is read from, in `info_row`'s order.
 pub(crate) const INFO_COLUMNS: &str =
     "id, name, status, status_at, note, cwd, pinned, pending_prompt, pending_command,
-     COALESCE(pending_command, resume_command)";
+     COALESCE(pending_command, resume_command), parent";
 
 pub(super) fn info_row(r: &rusqlite::Row) -> rusqlite::Result<SessionInfo> {
     Ok(SessionInfo {
@@ -149,6 +149,7 @@ pub(super) fn info_row(r: &rusqlite::Row) -> rusqlite::Result<SessionInfo> {
         pending_prompt: r.get(7)?,
         pending_command: r.get(8)?,
         agent_command: r.get(9)?,
+        parent: r.get(10)?,
     })
 }
 
@@ -185,6 +186,8 @@ pub(crate) struct NewCard<'a> {
     /// startup command), and the line that resumes it.
     pub(crate) agent_session: Option<&'a str>,
     pub(crate) resume_input: Option<&'a str>,
+    /// The card this row is a side terminal of. None for a card.
+    pub(crate) parent: Option<&'a str>,
 }
 
 impl Default for NewCard<'_> {
@@ -200,8 +203,23 @@ impl Default for NewCard<'_> {
             resume: None,
             agent_session: None,
             resume_input: None,
+            parent: None,
         }
     }
+}
+
+/// Lowest `Terminal N` not used by `parent`'s side terminals.
+pub(super) fn next_side_name(db: &Connection, parent: &str) -> rusqlite::Result<String> {
+    let names: Vec<String> = db
+        .prepare("SELECT name FROM sessions WHERE parent = ?1")?
+        .query_map(params![parent], |r| r.get(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut n = 1;
+    let taken = |n: u32| names.iter().any(|name| name == &format!("Terminal {n}"));
+    while taken(n) {
+        n += 1;
+    }
+    Ok(format!("Terminal {n}"))
 }
 
 #[cfg(test)]
@@ -227,7 +245,7 @@ pub(crate) fn insert_card(db: &Connection, card: &NewCard) -> rusqlite::Result<S
         Some(n) => n.to_owned(),
         None => {
             let names: Vec<String> = db
-                .prepare("SELECT name FROM sessions")?
+                .prepare("SELECT name FROM sessions WHERE parent IS NULL")?
                 .query_map([], |r| r.get(0))?
                 .collect::<Result<Vec<_>, _>>()?;
             let n = names
@@ -241,9 +259,9 @@ pub(crate) fn insert_card(db: &Connection, card: &NewCard) -> rusqlite::Result<S
     };
     db.execute(
         "INSERT INTO sessions (id, name, position, cwd, status, status_at, pending_input, pending_prompt,
-                                pending_command, pinned, resume_command, agent_session, resume_input)
+                                pending_command, pinned, resume_command, agent_session, resume_input, parent)
          VALUES (?1, ?2, (SELECT COALESCE(MAX(position), 0) + 1 FROM sessions), ?3, ?4, unixepoch(), ?5, ?6,
-                 ?7, ?8, ?9, ?10, ?11)",
+                 ?7, ?8, ?9, ?10, ?11, ?12)",
         params![
             id,
             name,
@@ -255,7 +273,8 @@ pub(crate) fn insert_card(db: &Connection, card: &NewCard) -> rusqlite::Result<S
             card.pinned,
             card.resume,
             card.agent_session,
-            card.resume_input
+            card.resume_input,
+            card.parent
         ],
     )?;
     Ok(info(db, &id)?.expect("just inserted"))
@@ -610,6 +629,7 @@ mod tests {
                 resume: None,
                 agent_session: None,
                 resume_input: None,
+                parent: None,
             },
         )
         .unwrap();
@@ -647,6 +667,7 @@ mod tests {
         let s = info(&db, "old").unwrap().unwrap();
         assert_eq!(s.status, "backlog");
         assert!(s.status_at > 1_700_000_000);
+        assert_eq!(s.parent, None);
         // Opening twice is fine (migration is idempotent).
         drop(db);
         open_db(path).unwrap();

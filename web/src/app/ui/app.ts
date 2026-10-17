@@ -11,6 +11,7 @@ import { paneShown } from '../files/open.ts';
 import { go } from '../nav/router.ts';
 import { grouping, TabStrip } from '../sessions/groups.ts';
 import { KeyBar } from '../sessions/keybar.ts';
+import { SessionBar } from '../sessions/session-bar.ts';
 import { active, noTab } from '../sessions/store.ts';
 import { Welcome } from '../welcome/view.ts';
 import { Gate } from './gate.ts';
@@ -119,6 +120,7 @@ function Workspace(): HTMLElement {
     { id: 'workspace' },
     div(
       { id: 'main' },
+      SessionBar(),
       div(
         { id: 'terms' },
         div(

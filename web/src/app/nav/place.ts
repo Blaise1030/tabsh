@@ -1,7 +1,9 @@
 export type View = 'terms' | 'board';
-export type Step = 'tab' | 'view' | 'drawer' | 'file' | 'explorer' | 'palette';
+export type Step = 'tab' | 'term' | 'view' | 'drawer' | 'file' | 'explorer' | 'palette';
 export type Place = {
   tab: string | null;
+  // The side terminal on screen inside `tab`. Null shows the card's agent.
+  term: string | null;
   view: View;
   // On the board: the tab's terminal shows in a drawer beside it.
   drawer: boolean;
@@ -13,6 +15,7 @@ export type Place = {
 
 export const HOME: Place = {
   tab: null,
+  term: null,
   view: 'terms',
   drawer: false,
   file: null,
@@ -20,9 +23,9 @@ export const HOME: Place = {
   explorer: false,
   palette: null,
 };
-export const STEPS: readonly Step[] = ['tab', 'view', 'drawer', 'file', 'explorer', 'palette'];
+export const STEPS: readonly Step[] = ['tab', 'term', 'view', 'drawer', 'file', 'explorer', 'palette'];
 
-const KEYS = ['tab', 'view', 'drawer', 'file', 'line', 'explorer', 'palette'];
+const KEYS = ['tab', 'term', 'view', 'drawer', 'file', 'line', 'explorer', 'palette'];
 const MAX_FILE = 4096;
 const MAX_VALUE = 128;
 
@@ -31,6 +34,8 @@ export function fromQuery(q: URLSearchParams): Partial<Place> {
   const out: Partial<Place> = {};
   const tab = q.get('tab');
   if (tab && tab.length <= MAX_VALUE) out.tab = tab;
+  const term = q.get('term');
+  if (term && term.length <= MAX_VALUE) out.term = term;
   const view = q.get('view');
   if (view === 'terms' || view === 'board') out.view = view;
   if (view === 'board' && q.get('drawer') === '1') out.drawer = true;
@@ -50,6 +55,7 @@ export function toQuery(p: Place, keep: URLSearchParams): string {
   const q = new URLSearchParams(keep);
   for (const k of KEYS) q.delete(k);
   if (p.tab) q.set('tab', p.tab);
+  if (p.term) q.set('term', p.term);
   if (p.view !== 'terms') q.set('view', p.view);
   if (p.drawer) q.set('drawer', '1');
   if (p.file) {
@@ -68,6 +74,7 @@ export function merge(from: Place, patch: Partial<Place>, how: 'push' | 'replace
   if (to.view !== 'board') to.drawer = false;
   if (how === 'push' && patch.palette === undefined) to.palette = null;
   if (patch.tab !== undefined && patch.tab !== from.tab && patch.file === undefined) to.file = null;
+  if (patch.tab !== undefined && patch.tab !== from.tab && patch.term === undefined) to.term = null;
   if (patch.file !== undefined && patch.line === undefined) to.line = null;
   if (!to.file) to.line = null;
   return to;
@@ -76,6 +83,7 @@ export function merge(from: Place, patch: Partial<Place>, how: 'push' | 'replace
 export function changed(from: Place, to: Place): Step[] {
   const out: Step[] = [];
   if (from.tab !== to.tab) out.push('tab');
+  if (from.term !== to.term) out.push('term');
   if (from.view !== to.view) out.push('view');
   if (from.drawer !== to.drawer) out.push('drawer');
   if (from.file !== to.file || from.line !== to.line) out.push('file');

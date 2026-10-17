@@ -11,6 +11,7 @@ test('round-trips a full place', () => {
     drawer: true,
     file: '/r/src/main.rs',
     line: 42,
+    term: 'side',
     explorer: true,
     palette: 'root',
   };
@@ -52,6 +53,16 @@ test('merge: a new tab drops the file', () => {
   assert.equal(moved.file, null);
   assert.equal(moved.line, null);
   assert.equal(merge(from, { tab: 'a' }, 'push').file, '/x');
+});
+
+test('term is read and written, and a new tab clears it', () => {
+  assert.equal(q('tab=a&term=side').term, 'side');
+  assert.equal(toQuery({ ...HOME, tab: 'a', term: 'side' }, new URLSearchParams()), '?tab=a&term=side');
+  assert.equal(q(`term=${'a'.repeat(129)}`).term, undefined);
+  const from = { ...HOME, tab: 'a', term: 'side' };
+  assert.equal(merge(from, { tab: 'b' }, 'push').term, null);
+  assert.equal(merge(from, { tab: 'a' }, 'push').term, 'side');
+  assert.equal(merge(from, { tab: 'b', term: 'other' }, 'push').term, 'other');
 });
 
 test('changed lists steps in order', () => {

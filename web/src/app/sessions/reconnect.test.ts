@@ -45,13 +45,13 @@ test('reconnects wait while the page is hidden', () => {
 test('only the on-screen terminal is in view', () => {
   const base = {
     sessionId: 'a',
-    activeId: 'a',
+    screenId: 'a',
     view: 'terms' as const,
     drawer: false,
     documentHidden: false,
   };
   assert.equal(terminalInView(base), true);
-  assert.equal(terminalInView({ ...base, activeId: 'b' }), false);
+  assert.equal(terminalInView({ ...base, screenId: 'b' }), false);
   assert.equal(terminalInView({ ...base, documentHidden: true }), false);
   assert.equal(terminalInView({ ...base, view: 'board', drawer: false }), false);
   assert.equal(terminalInView({ ...base, view: 'board', drawer: true }), true);
