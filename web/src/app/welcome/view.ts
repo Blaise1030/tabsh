@@ -291,9 +291,9 @@ function AppPreview(): HTMLElement {
     { class: 'board-card board-row' },
     i({ class: 'status-glyph', 'data-status': 'needs_input' }, glyph('needs_input')),
     span({ class: 'card-title' }, 'claude'),
-    span({ class: 'row-note' }, 'Run the tests before I commit?'),
     div(
       { class: 'row-end' },
+      span({ class: 'row-note' }, 'Run the tests before I commit?'),
       span({ class: 'card-meta row-folder' }, icons.folder(), span('~/code/shop')),
       span({ class: 'card-agent' }, icons.claude()),
       span({ class: 'card-meta row-since' }, '5m'),

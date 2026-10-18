@@ -831,19 +831,20 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .board-row {
   flex-direction: row; flex-wrap: wrap; align-items: center; align-content: center;
   column-gap: .625rem; row-gap: .125rem;
-  min-height: 2.5rem; padding: .25rem .5rem .25rem .75rem;
+  min-height: 2.5rem; padding: .25rem .5rem .25rem calc(.75rem + 14px + .375rem);
   border: 0; border-radius: calc(var(--radius, .5rem) - 2px); background: transparent;
 }
-/* The title keeps the top line, at the left. Once the row is too narrow for
-   the trailing cluster beside a readable title, that cluster wraps and sits
-   at the bottom right. Its floor leaves room for the status glyph (14px and
-   its .375rem gap) so the two never split across lines. */
-.board-row > .status-glyph { margin-right: -.25rem; }
+/* The title keeps the top line, at the left. Once the full title, the note's
+   floor and the trailing cluster don't fit on one line, the note and cluster
+   wrap: the note under the title, the cluster at the bottom right. The status
+   glyph (14px and its .375rem gap) hangs in the row's left padding, so the
+   second line starts under the title and the glyph never leaves its line. */
+.board-row > .status-glyph { margin-left: calc(-14px - .375rem); margin-right: -.25rem; }
 .board-row .card-title {
-  flex: 1 1 0; min-width: min(12rem, 100% - 14px - .375rem);
+  flex: 0 1 auto; min-width: 0; max-width: 100%;
   display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
-.row-note { flex: 1 1 0; min-width: 0; color: var(--muted-foreground); font-size: .75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-note { flex: 1 1 6rem; width: 6rem; min-width: 0; color: var(--muted-foreground); font-size: .75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row-end {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;
   gap: .375rem .625rem; margin-left: auto; flex: 1 0 auto; max-width: 100%;

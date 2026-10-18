@@ -303,19 +303,20 @@ const agentIcon = (s: Session) => () => {
   return agent ? span({ class: 'card-agent', title: agent }, providerIcon(agent)()) : '';
 };
 
-// A card in the list layout: status, name and note, then tags, folder, agent,
-// time and menu. On a wide row that cluster stays on the right. On a narrow
-// one it wraps to the next line, aligned to the bottom right; the name stays
-// top left. Tags and the folder still collapse when they themselves clip.
+// A card in the list layout: status and name, then note, tags, folder, agent,
+// time and menu. On a wide row the note follows the name and the rest sits on
+// the right. On a narrow one they wrap to the next line: the note under the
+// name, the rest at the bottom right. Tags and the folder still collapse when
+// they themselves clip.
 function Row(s: Session): HTMLElement {
   const status = van.derive(() => s.card.val.status);
   const row: HTMLElement = article(
     cardProps(s, 'board-card board-row', () => row),
     statusGlyph(() => status.val),
     span({ class: 'card-title', title: () => s.name.val }, () => s.name.val),
-    () => (s.card.val.note ? span({ class: 'row-note' }, s.card.val.note) : ''),
     div(
       { class: 'row-end' },
+      () => (s.card.val.note ? span({ class: 'row-note' }, s.card.val.note) : ''),
       () =>
         s.tags.val.length
           ? span(
