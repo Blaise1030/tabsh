@@ -3,11 +3,14 @@ name: Release
 # Runs when a merged release PR lands on main (package.json's version changed
 # and has no tag yet): checks and builds the site, builds the daemon for macOS
 # and Linux, and runs full e2e before publishing the GitHub release. Then it
-# updates Homebrew and deploys the site to Cloudflare.
+# updates Homebrew and deploys the site to Cloudflare. A manual dispatch
+# releases the current version instead, if it has no tag yet — use it to
+# re-run a release that failed after its release PR merged.
 on:
   push:
     branches: [main]
     paths: [package.json]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -30,7 +33,8 @@ jobs:
           version=$(node -p "require('./package.json').version")
           echo "version=$version" >> "$GITHUB_OUTPUT"
           before=$(git show HEAD^:package.json 2>/dev/null | node -p 'JSON.parse(require("fs").readFileSync(0)).version' 2>/dev/null || true)
-          if [ -n "$before" ] && [ "$before" != "$version" ] && [ -z "$(git ls-remote --tags origin "refs/tags/v$version")" ]; then
+          tagged=$(git ls-remote --tags origin "refs/tags/v$version")
+          if [ -z "$tagged" ] && { [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] || { [ -n "$before" ] && [ "$before" != "$version" ]; }; }; then
             echo "release=true" >> "$GITHUB_OUTPUT"
           else
             echo "No new version to release (was ${before:-none}, now $version)."
