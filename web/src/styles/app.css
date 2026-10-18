@@ -829,16 +829,18 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 #board.list .board-cards[hidden],
 .welcome-preview-board.list .board-cards[hidden] { display: none; }
 .board-row {
-  flex-direction: row; flex-wrap: wrap; align-items: center; align-content: flex-start;
+  flex-direction: row; flex-wrap: wrap; align-items: center; align-content: center;
   column-gap: .625rem; row-gap: .125rem;
   min-height: 2.5rem; padding: .25rem .5rem .25rem .75rem;
   border: 0; border-radius: calc(var(--radius, .5rem) - 2px); background: transparent;
 }
 /* The title keeps the top line, at the left. Once the row is too narrow for
    the trailing cluster beside a readable title, that cluster wraps and sits
-   at the bottom right. */
+   at the bottom right. Its floor leaves room for the status glyph (14px and
+   its .375rem gap) so the two never split across lines. */
+.board-row > .status-glyph { margin-right: -.25rem; }
 .board-row .card-title {
-  flex: 1 1 0; min-width: min(12rem, 100%);
+  flex: 1 1 0; min-width: min(12rem, 100% - 14px - .375rem);
   display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
 .row-note { flex: 1 1 0; min-width: 0; color: var(--muted-foreground); font-size: .75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
