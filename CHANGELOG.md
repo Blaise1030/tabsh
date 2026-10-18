@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.32
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.31...v0.1.32)
+
+### Fixes
+
+- **web:** List rows center one line and keep the status icon with the title ([f609e64](https://github.com/Blaise1030/tabsh/commit/f609e64))
+
 ## v0.1.31
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.29...v0.1.31)
