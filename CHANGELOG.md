@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.1.31
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.29...v0.1.31)
+
+### Features
+
+- Side terminals — more shells inside a card ([637e4ba](https://github.com/Blaise1030/tabsh/commit/637e4ba))
+
+### Fixes
+
+- **web:** Rebuild the embedded app with a clean npm ci ([6d8bd39](https://github.com/Blaise1030/tabsh/commit/6d8bd39))
+
 ## v0.1.30
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.29...v0.1.30)
