@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.33
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.32...v0.1.33)
+
+### Fixes
+
+- **web:** List row note follows the title, and wraps under it ([0cf3631](https://github.com/Blaise1030/tabsh/commit/0cf3631))
+
 ## v0.1.32
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.31...v0.1.32)
