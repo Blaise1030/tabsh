@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.30
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.29...v0.1.30)
+
+### Features
+
+- Side terminals — more shells inside a card ([637e4ba](https://github.com/Blaise1030/tabsh/commit/637e4ba))
+
 ## v0.1.29
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.28...v0.1.29)
