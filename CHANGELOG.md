@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.34
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.33...v0.1.34)
+
+### Fixes
+
+- **web:** Remove extra spacing before card timestamps ([cc1fd19](https://github.com/Blaise1030/tabsh/commit/cc1fd19))
+
 ## v0.1.33
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.32...v0.1.33)
