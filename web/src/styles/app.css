@@ -875,7 +875,6 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .row-folder.icon-only > span { display: none; }
 .row-end > .card-meta:not(.row-folder),
 .row-end > .card-move { flex: none; }
-.row-since { min-width: 1.75rem; justify-content: flex-end; }
 .board-row.drop-before::before { left: 0; right: 0; top: -1px; }
 .board-row.drop-before:first-child::before { top: -1px; }
 .board-onboarding { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; padding: 1.5rem; text-align: center; text-wrap: balance; }
