@@ -1,7 +1,7 @@
 // A phone's terminal: the key bar types what the phone keyboard lacks, and a
 // finger drags the scrollback by whole lines (sessions/keybar.ts, touch.ts).
 import type { Page } from '@playwright/test';
-import { dropSessions, expect, openApp, test, typeInTerminal } from './fixture.ts';
+import { dropSessions, expect, openApp, setOnboarded, test, typeInTerminal } from './fixture.ts';
 
 type TouchType = 'touchStart' | 'touchMove' | 'touchEnd';
 
@@ -82,6 +82,46 @@ test('a phone has no tab mode: the board as columns or a list, terminals in the 
   await page.goto(`${daemon.baseUrl}/app/?view=terms`);
   await expect(page.locator('#frame')).toHaveClass(/in-drawer/);
   await expect.poll(view).toBe('board');
+});
+
+test('a long-press opens a card menu, and its trailing click does not open the card', async ({
+  page,
+  daemon,
+  project,
+}) => {
+  const visibleMenu = page.locator('.move-menu [data-popover][aria-hidden="false"]');
+  await setOnboarded(page, daemon, true);
+  const made = await page.request.post(`${daemon.baseUrl}/api/sessions`, {
+    headers: { Authorization: `Bearer ${daemon.token}` },
+    data: { prompt: 'Long press me', command: 'true', cwd: project },
+  });
+  expect(made.status()).toBe(200);
+  await openApp(page, daemon, { phone: true });
+  await page.locator('#drawer-close').tap();
+  const menuCard = page.locator('#board .board-card').filter({ hasText: 'Long press me' });
+  await expect(menuCard).toBeVisible();
+  await expect(menuCard.locator('.card-move')).toHaveCount(0);
+
+  const box = await menuCard.boundingBox();
+  const point = { clientX: (box?.x ?? 0) + 20, clientY: (box?.y ?? 0) + 20 };
+  await menuCard.dispatchEvent('pointerdown', { pointerType: 'touch', button: 0, isPrimary: true, ...point });
+  await expect(visibleMenu).toHaveCount(1, { timeout: 2_000 });
+  await menuCard.dispatchEvent('pointerup', { pointerType: 'touch', button: 0, isPrimary: true, ...point });
+
+  // The click a touch makes after lifting neither opens the card nor closes the menu.
+  await menuCard.dispatchEvent('click');
+  await expect(page.locator('#frame')).toBeHidden();
+  await expect(visibleMenu).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(visibleMenu).toHaveCount(0);
+
+  // Moving the finger cancels the press.
+  const touch = { pointerType: 'touch', button: 0, isPrimary: true };
+  await menuCard.dispatchEvent('pointerdown', { ...touch, ...point });
+  await menuCard.dispatchEvent('pointermove', { ...touch, ...point, clientX: point.clientX + 24 });
+  await page.waitForTimeout(650);
+  await expect(visibleMenu).toHaveCount(0);
+  await menuCard.dispatchEvent('pointerup', { ...touch, ...point });
 });
 
 test('the key bar fades at an edge with more keys past it', async ({ page, daemon }) => {
