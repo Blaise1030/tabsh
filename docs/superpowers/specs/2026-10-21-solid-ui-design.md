@@ -121,8 +121,12 @@ node, and each is pinned by the e2e spec named:
 
 **Interop.** Two functions, ~10 lines, used only at a seam:
 
-- `fromVan(state)` — an accessor pushed by `van.derive`.
-- `toVan(accessor)` — a `van.state` pushed by a Solid effect.
+- `fromVan(state)` — an accessor pushed by `van.derive`, memoised per state
+  object so every reader shares one derive.
+
+`toVan` is deliberately not built: no Solid state needs to be read by a VanJS
+view under this order, and adding it would put an async effect under legacy
+code.
 
 An adapter may live for one slice only. The final slice greps them out.
 
@@ -148,8 +152,10 @@ An adapter may live for one slice only. The final slice greps them out.
   the window-level capture listeners in the board stay `addEventListener`.
   All other handlers keep the delegated form. Pinned by `board`, `dialogs`,
   `palette`.
-- Menus appended to `document.body` today (`move-menu`, `tags-submenu`, the
-  tag popover, the new-card folder picker) use `<Portal>` so Solid owns them.
+- Menus that live inside a component (`move-menu`, `tags-submenu`, the
+  new-card filter popover) use `<Portal>` so Solid owns them. The tag
+  popover is opened imperatively from a tab and keeps the host it appends to
+  `document.body`, rendered by `render` and disposed on close.
 - Exit animations: `ui/presence.tsx` holds a key's node while it animates out
   (`animationend` or a timeout) and cancels the exit if the key returns. Its
   list arithmetic lives in `ui/presence.ts` with a `node --test` test. It
@@ -197,8 +203,9 @@ e2e specs, and leaves the app usable. The full suite runs at slices 1, 4, 8.
    `ui/presence.*`, `ui/interop.ts`, `no-markup` widened to `.tsx`.
    Features still initialise into their containers. e2e: `smoke`,
    `navigation`, `welcome`.
-2. **Sessions.** `store.ts` signals and session accessors, `tab.tsx`,
-   `groups.tsx`, `session-bar.tsx`, `keybar.tsx`, `tags.tsx`, `terminal.tsx`.
+2. **Sessions.** `terminal.tsx`, `session-bar.tsx`, `keybar.tsx`, `tab.tsx`,
+   `groups.tsx`, `tags.tsx`. The VanJS states stay canonical; Solid reads
+   them through `fromVan`.
    e2e: `tabs`, `tab-groups`, `side-terminals`, `replay`, `resume`,
    `inactive-terminal-pause`, `active-terminal-coalesce`, `touch`,
    `spawn-under-load`, `attach-under-load`, `flush-under-load`.
@@ -215,10 +222,23 @@ e2e specs, and leaves the app usable. The full suite runs at slices 1, 4, 8.
    e2e: `pane`, `editor-comments`.
 7. **Welcome and remote.** `welcome/view.tsx`, remote pages.
    e2e: `welcome`, `remote`.
-8. **Cleanup.** Delete `interop`, `keyed.*`, VanJS and React from
+8. **State flip.** The remaining shared states and every `Session` field
+   become signals with accessors and setters; every `.val` call site moves in
+   one mechanical pass, by directory, and the `fromVan` imports go. Full e2e
+   suite. This is the only slice that changes a state's shape, and it lands
+   once no VanJS consumer is left.
+9. **Cleanup.** Delete `interop`, `keyed.*`, VanJS and React from
    `package.json`/lock; grep for `vanjs-core`, `van.`, `.val`, `scoped`,
    `State<`; rewrite `architecture.md`; `npm run build`; commit
    `src/app.html` and `src/app-assets/`; full suite and cargo checks.
+
+**State order.** Keeping VanJS canonical while the UI moves means an
+unmigrated feature is bit-identical through every slice, and `fromVan` is a
+synchronous read rather than a Solid effect pushing into VanJS. The cost is
+one mechanical pass at slice 8, covered by the full e2e suite. The
+alternative — signals first, `toVan` mirrors for unmigrated VanJS — puts an
+async hop under every legacy view for the length of the migration and is why
+it was rejected.
 
 **Risk.** The largest behaviour surfaces are the tab strip (slice 2), the
 board's drag and menus (slice 3) and the file pane (slice 6). If work stops,
