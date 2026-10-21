@@ -36,7 +36,7 @@ import {
   since,
   tagsInUse,
 } from './model.ts';
-import { CardMenuButton } from './move-menu.ts';
+import { CardMenu, type CardMenuHandle } from './move-menu.ts';
 import { setStatus } from './status.ts';
 
 const { a, article, button, div, h2, header, i, input, label, p, section, span } = van.tags;
@@ -278,15 +278,73 @@ const resized = new ResizeObserver(() => {
 });
 
 // What a card and a row share: a click or Enter opens its terminal in the
-// drawer, and it drags to a new status or place.
-function cardProps(s: Session, cls: string, el: () => HTMLElement) {
+// drawer, it drags to a new status or place, and right-clicking (or
+// long-pressing on a phone) opens its menu at the pointer. Shift+F10 opens it
+// for the keyboard.
+const LONG_PRESS_MS = 500;
+const PRESS_SLOP_PX = 8;
+
+function cardProps(s: Session, cls: string, el: () => HTMLElement, menu: CardMenuHandle) {
+  // A long press opens the menu; the click that follows lifting must not open
+  // the card (nor close the menu as an outside click).
+  let press: { id: number; x: number; y: number; timer: number } | null = null;
+  let ignoreClickUntil = 0;
+  const cancelPress = () => {
+    if (press) window.clearTimeout(press.timer);
+    press = null;
+  };
+  menu.onCloseFocus(() => el().focus({ preventScroll: true }));
+  menu.anchorAt(() => el());
   return {
     class: cls,
     draggable: true,
     tabindex: '0',
+    'aria-haspopup': 'menu',
+    'aria-keyshortcuts': 'Shift+F10 ContextMenu',
     'data-id': s.id,
-    onclick: () => go({ tab: s.id, drawer: true }),
-    onkeydown: (e: KeyboardEvent) => e.target === el() && e.key === 'Enter' && el().click(),
+    oncontextmenu: (e: MouseEvent) => {
+      e.preventDefault();
+      menu.openAt(e.clientX, e.clientY);
+    },
+    onpointerdown: (e: PointerEvent) => {
+      if (e.pointerType !== 'touch' || !e.isPrimary) return;
+      if ((e.target as Element).closest('button, a, input, .move-menu')) return;
+      cancelPress();
+      const { pointerId: id, clientX: x, clientY: y } = e;
+      const timer = window.setTimeout(() => {
+        press = null;
+        ignoreClickUntil = performance.now() + 800;
+        menu.openAt(x, y);
+      }, LONG_PRESS_MS);
+      press = { id, x, y, timer };
+    },
+    onpointermove: (e: PointerEvent) => {
+      if (press && e.pointerId === press.id && Math.hypot(e.clientX - press.x, e.clientY - press.y) > PRESS_SLOP_PX)
+        cancelPress();
+    },
+    onpointerup: (e: PointerEvent) => {
+      if (press && e.pointerId === press.id) cancelPress();
+    },
+    onpointercancel: cancelPress,
+    onclick: (e: MouseEvent) => {
+      if (performance.now() < ignoreClickUntil) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      go({ tab: s.id, drawer: true });
+    },
+    onkeydown: (e: KeyboardEvent) => {
+      if (e.target !== el()) return;
+      if (e.key === 'Enter') {
+        el().click();
+        return;
+      }
+      if (e.key !== 'ContextMenu' && !(e.shiftKey && e.key === 'F10')) return;
+      e.preventDefault();
+      const r = el().getBoundingClientRect();
+      menu.openAt(r.right - 8, r.top + 8, true);
+    },
     ondragstart: (e: DragEvent) => {
       e.dataTransfer?.setData(CARD_DRAG, s.id);
       el().classList.add('dragging');
@@ -303,15 +361,16 @@ const agentIcon = (s: Session) => () => {
   return agent ? span({ class: 'card-agent', title: agent }, providerIcon(agent)()) : '';
 };
 
-// A card in the list layout: status and name, then note, tags, folder, agent,
-// time and menu. On a wide row the note follows the name and the rest sits on
-// the right. On a narrow one they wrap to the next line: the note under the
-// name, the rest at the bottom right. Tags and the folder still collapse when
-// they themselves clip.
+// A card in the list layout: status and name, then note, tags, folder, agent
+// and time. On a wide row the note follows the name and the rest sits on the
+// right. On a narrow one they wrap to the next line: the note under the name,
+// the rest at the bottom right. Tags and the folder still collapse when they
+// themselves clip.
 function Row(s: Session): HTMLElement {
   const status = van.derive(() => s.card.val.status);
+  const menu = CardMenu(s);
   const row: HTMLElement = article(
-    cardProps(s, 'board-card board-row', () => row),
+    cardProps(s, 'board-card board-row', () => row, menu),
     statusGlyph(() => status.val),
     span({ class: 'card-title', title: () => s.name.val }, () => s.name.val),
     div(
@@ -335,8 +394,8 @@ function Row(s: Session): HTMLElement {
       ),
       span({ class: 'card-meta' }, agentIcon(s)),
       span({ class: 'card-meta row-since' }, () => since(s.card.val.statusAt, now.val)),
-      CardMenuButton(s),
     ),
+    menu.root,
   );
   const fit = () => fitRowEnd(row, s.tags.val);
   measures.set(row, fit);
@@ -486,13 +545,13 @@ function Card(s: Session): HTMLElement {
   const note = van.derive(() => s.card.val.note);
   const open = van.state(false);
   const cut = van.state(false);
+  const menu = CardMenu(s);
   const card: HTMLElement = article(
-    cardProps(s, 'board-card', () => card),
+    cardProps(s, 'board-card', () => card, menu),
     div(
       { class: 'card-top' },
       span({ class: 'card-title' }, () => s.name.val),
       statusGlyph(() => status.val),
-      CardMenuButton(s),
     ),
     div(
       { class: 'card-meta' },
@@ -523,6 +582,7 @@ function Card(s: Session): HTMLElement {
           )
         : '',
     div({ class: 'card-meta' }, agentIcon(s), () => since(s.card.val.statusAt, now.val)),
+    menu.root,
   );
   // A clamped box reports no overflow in scrollHeight, so this compares its
   // text's height with the clamp lifted. Hidden (height 0), nothing is cut.

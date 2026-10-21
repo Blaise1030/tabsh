@@ -490,6 +490,8 @@ file-tree-container {
   /* Long press selects (sessions/touch.ts), not the system's text callout. */
   .term { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
   .term .xterm-viewport { overscroll-behavior: contain; }
+  /* Long press opens a card's menu (board/view.ts), not the callout. */
+  .board-card { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 }
 /* The key bar's paste sheet: a text box on the screen's bottom edge, above
    the keyboard, where the phone's own Paste works. */
@@ -771,16 +773,18 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .badge.tag-badge { gap: .375rem; color: var(--foreground); font-weight: 500; background: color-mix(in srgb, var(--tag) 22%, transparent); }
 .badge.tag-badge i { width: .5rem; height: .5rem; border-radius: 999px; background: var(--tag); }
 .status-glyph { display: inline-flex; flex-shrink: 0; color: var(--muted-foreground); }
-/* A card's glyph opens its Move menu (board/move-menu.ts). */
-.card-move { all: unset; display: inline-flex; flex-shrink: 0; padding: .1875rem; margin: -.1875rem -.1875rem -.1875rem 0; border-radius: calc(var(--radius, .5rem) - 4px); cursor: pointer; color: var(--muted-foreground); }
-.card-move > svg { width: 16px; height: 16px; }
-.card-move:hover, .card-move:focus-visible, .card-move[aria-expanded="true"] { color: var(--foreground); }
-.card-move:hover, .card-move:focus-visible, .card-move[aria-expanded="true"] { background: var(--muted); }
 .drawer-move-label { display: inline-flex; align-items: center; gap: .375rem; }
 .drawer-move-label > svg { width: 14px; height: 14px; color: var(--muted-foreground); }
-/* Basecoat's dropdown, its popover fixed under the button (placed by
-   move-menu.ts) so a scrolling column doesn't clip it. */
+/* The menu's root is only its listeners: the trigger (hidden on a card) and
+   its fixed popover take no room in the card or the drawer's bar. */
+.move-menu { display: contents; }
+.move-menu > button[hidden] { display: none; }
+/* Basecoat's dropdown, its popover fixed where move-menu.ts placed it so a
+   scrolling column doesn't clip it. */
 .move-menu > [data-popover] { position: fixed; margin-top: 0; }
+/* A list row's menu is placed at the pointer, so it appears there at once
+   instead of animating the dropdown's scale and position. */
+.board-row .move-menu > [data-popover] { transition: none; }
 .move-menu :is([role="menuitemradio"], [role="menuitem"]) > span { flex: 1; }
 .move-menu .menu-danger { color: var(--destructive); }
 .move-menu .tags-row > svg { width: 14px; height: 14px; }
@@ -834,6 +838,14 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
   min-height: 2.5rem; padding: .25rem .5rem .25rem calc(.75rem + 14px + .375rem);
   border: 0; border-radius: calc(var(--radius, .5rem) - 2px); background: transparent;
 }
+/* A row's hover is half the heading's tint: the band stays the stronger
+   surface, while the row responds without looking selected. */
+#board.list .board-row:hover,
+#board.list .board-row:focus-visible,
+.welcome-preview-board.list .board-row:hover,
+.welcome-preview-board.list .board-row:focus-visible {
+  background: color-mix(in srgb, var(--foreground) 4%, transparent);
+}
 /* The title keeps the top line, at the left. Once the full title, the note's
    floor and the trailing cluster don't fit on one line, the note and cluster
    wrap: the note under the title, the cluster at the bottom right. The status
@@ -873,8 +885,7 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .row-folder > svg { flex: none; }
 .row-folder.icon-only { flex: none; min-width: 0; }
 .row-folder.icon-only > span { display: none; }
-.row-end > .card-meta:not(.row-folder),
-.row-end > .card-move { flex: none; }
+.row-end > .card-meta:not(.row-folder) { flex: none; }
 .board-row.drop-before::before { left: 0; right: 0; top: -1px; }
 .board-row.drop-before:first-child::before { top: -1px; }
 .board-onboarding { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; padding: 1.5rem; text-align: center; text-wrap: balance; }

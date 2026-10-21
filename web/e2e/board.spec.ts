@@ -29,6 +29,7 @@ const WRITES_PROMPT = "printf '%s' {prompt} > prompt.txt";
 // The welcome tour's preview reuses these classes, so the board is named.
 const card = (page: Page, name: string) => page.locator('#board .board-card').filter({ hasText: name });
 const col = (page: Page, status: string) => page.locator(`#board .board-col[data-status="${status}"]`);
+const visibleMenu = (page: Page) => page.locator('.move-menu [data-popover][aria-hidden="false"]');
 
 // Opens the board on its own: with a tab open it shows that tab in its
 // drawer, so this closes the drawer, giving the columns the whole width.
@@ -119,6 +120,24 @@ test('the board shortcut steps through columns and a list', async ({ page, daemo
   await page.keyboard.press(BOARD_KEY);
   await expect(page.locator('#board')).toHaveClass(/\blist\b/);
   await expect(col(page, 'backlog').locator('.board-row').filter({ hasText: 'List me' })).toBeVisible();
+  // The status heading keeps its band; a hovered row is lighter than it.
+  const header = col(page, 'backlog').locator('header');
+  const boardBg = await page.locator('#board').evaluate((el) => getComputedStyle(el).backgroundColor);
+  const headerBg = await header.evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(headerBg).not.toBe(boardBg);
+  const row = card(page, 'List me');
+  await row.hover();
+  const rowBg = await row.evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(rowBg).not.toBe(headerBg);
+  // A row has no menu button either: right-click opens the same menu.
+  await expect(row.locator('.card-move')).toHaveCount(0);
+  await row.click({ button: 'right' });
+  await expect(visibleMenu(page)).toHaveCount(1);
+  // A list row's menu is placed at the pointer, so it appears without the
+  // dropdown's opening transition.
+  expect(await visibleMenu(page).evaluate((el) => getComputedStyle(el).transitionDuration)).toBe('0s');
+  await page.keyboard.press('Escape');
+  await expect(visibleMenu(page)).toHaveCount(0);
   const settings = await page.request.get(`${daemon.baseUrl}/api/settings`, {
     headers: { Authorization: `Bearer ${daemon.token}` },
   });
@@ -212,10 +231,55 @@ test("a completed card is archived from its menu, and has no Archive button", as
   });
   await expect(col(page, 'completed').locator('.board-card').filter({ hasText: 'Ship it' })).toBeVisible();
   await expect(card(page, 'Ship it').getByRole('button', { name: 'Archive' })).toHaveCount(0);
-  await card(page, 'Ship it').locator('.card-move').click();
+  await card(page, 'Ship it').click({ button: 'right' });
   await page.locator('.move-menu [data-popover][aria-hidden="false"] [role="menuitem"]').filter({ hasText: 'Archive' }).click();
   await expect(col(page, 'completed').locator('.board-card')).toHaveCount(0);
   await expect(col(page, 'archived').locator('.board-card').filter({ hasText: 'Ship it' })).toBeVisible();
+});
+
+test('a card menu opens on right-click or from the keyboard, with no menu button', async ({ page, daemon, project }) => {
+  await openApp(page, daemon);
+  await boardAlone(page);
+  await col(page, 'backlog').locator('header .btn').click();
+  await newCard(page, 'Menu me', project);
+  const menuCard = card(page, 'Menu me');
+  await expect(page.locator('#board .card-move')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Card menu' })).toHaveCount(0);
+
+  // Right-click opens it at the pointer without opening the card.
+  await menuCard.click({ button: 'right' });
+  await expect(visibleMenu(page)).toHaveCount(1);
+  await expect(page.locator('#frame')).toBeHidden();
+  await page.keyboard.press('Escape');
+  await expect(visibleMenu(page)).toHaveCount(0);
+
+  // Opened at the window's edge, it clamps inside.
+  const size = page.viewportSize()!;
+  await menuCard.dispatchEvent('contextmenu', { clientX: size.width - 2, clientY: size.height - 2, button: 2 });
+  await expect(visibleMenu(page)).toBeVisible();
+  // The dropdown eases into place for ~100ms; wait for it to rest before
+  // measuring it.
+  await expect
+    .poll(async () => {
+      const b = await visibleMenu(page).boundingBox();
+      return !!b && b.x >= 0 && b.y >= 0 && b.x + b.width <= size.width && b.y + b.height <= size.height;
+    })
+    .toBe(true);
+  const box = (await visibleMenu(page).boundingBox())!;
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(size.width);
+  expect(box.y + box.height).toBeLessThanOrEqual(size.height);
+  await page.keyboard.press('Escape');
+  await expect(visibleMenu(page)).toHaveCount(0);
+
+  // Shift+F10 opens it for the keyboard, and Escape returns focus to the card.
+  await menuCard.focus();
+  await page.keyboard.press('Shift+F10');
+  await expect(visibleMenu(page)).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(visibleMenu(page)).toHaveCount(0);
+  await expect(menuCard).toBeFocused();
 });
 
 test('the board hides the tabs, and shows the open tab in its drawer', async ({ page, daemon }) => {
@@ -291,7 +355,7 @@ test("a card's Move menu sets its status, on the board and in the drawer", async
   await col(page, 'backlog').locator('header .btn').click();
   await newCard(page, 'Move me', project);
 
-  await card(page, 'Move me').locator('.card-move').click();
+  await card(page, 'Move me').click({ button: 'right' });
   await expect(item('Backlog')).toHaveAttribute('aria-disabled', 'true');
   await item('Completed').click();
   await expect(shownMenu).toHaveCount(0);
@@ -299,7 +363,7 @@ test("a card's Move menu sets its status, on the board and in the drawer", async
   await expect(page.locator('#board')).toBeVisible(); // the click didn't open the card
 
   // Escape closes it without a move.
-  await card(page, 'Move me').locator('.card-move').click();
+  await card(page, 'Move me').click({ button: 'right' });
   await expect(shownMenu).toHaveCount(1);
   await page.keyboard.press('Escape');
   await expect(shownMenu).toHaveCount(0);
@@ -314,15 +378,15 @@ test("a card's Move menu sets its status, on the board and in the drawer", async
   // An archived card has no buttons of its own; its menu restores it.
   await page.locator('#drawer-close').click();
   await expect(card(page, 'Move me').getByRole('button', { name: /Restore|Delete/ })).toHaveCount(0);
-  await card(page, 'Move me').locator('.card-move').click();
+  await card(page, 'Move me').click({ button: 'right' });
   await item('Restore').click();
   await expect(col(page, 'backlog').locator('.board-card').filter({ hasText: 'Move me' })).toBeVisible();
-  await card(page, 'Move me').locator('.card-move').click();
+  await card(page, 'Move me').click({ button: 'right' });
   await item('Archive').click();
   await expect(col(page, 'archived').locator('.board-card').filter({ hasText: 'Move me' })).toBeVisible();
 
   // Delete session closes it: its card and its tab go.
-  await card(page, 'Move me').locator('.card-move').click();
+  await card(page, 'Move me').click({ button: 'right' });
   await item('Delete session').click();
   await expect(card(page, 'Move me')).toHaveCount(0);
   await expect(col(page, 'archived').locator('.col-count')).toHaveText('0');
@@ -340,7 +404,7 @@ test("a card's menu has a Tags submenu: tags made and toggled there show on the 
   await col(page, 'backlog').locator('header .btn').click();
   await newCard(page, 'Tag from menu', project);
 
-  await card(page, 'Tag from menu').locator('.card-move').click();
+  await card(page, 'Tag from menu').click({ button: 'right' });
   await page.locator('.move-menu [data-popover][aria-hidden="false"] .tags-row').click();
   await expect(submenu).toBeVisible();
   await submenu.getByRole('textbox', { name: 'New tag' }).fill('bug');
@@ -411,7 +475,7 @@ test('a hook moving a card to Needs input or Completed notifies; a move on the b
   expect((await notes())[1]).toEqual(['Notify me', 'Completed']);
 
   // A move made on the board doesn't.
-  await card(page, 'Notify me').locator('.card-move').click();
+  await card(page, 'Notify me').click({ button: 'right' });
   await page.locator('.move-menu [data-popover][aria-hidden="false"] [role^="menuitem"]').filter({ hasText: 'Needs input' }).click();
   await expect(col(page, 'needs_input').locator('.board-card').filter({ hasText: 'Notify me' })).toBeVisible();
   const chimed = await oscillators();
