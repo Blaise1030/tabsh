@@ -20,17 +20,40 @@ export type StartView = (typeof START_VIEWS)[number];
 // the card's first prompt, and `resume`, typed after tabsh restarts, with
 // `{session}` for the conversation ('' for none). `{session}` in `command`
 // too means tabsh names the conversation, so it resumes without hooks.
+// `acp`, when present, is the command that speaks ACP for a UI-mode card.
 export interface Provider {
   name: string;
   command: string;
   resume: string;
+  acp?: string;
 }
 
 export const DEFAULT_PROVIDERS: Provider[] = [
-  { name: 'Claude Code', command: 'claude {prompt}', resume: 'claude --resume {session}' },
-  { name: 'Codex', command: 'codex {prompt}', resume: 'codex resume {session}' },
+  {
+    name: 'Claude Code',
+    command: 'claude {prompt}',
+    resume: 'claude --resume {session}',
+    acp: 'npx --yes @agentclientprotocol/claude-agent-acp',
+  },
+  {
+    name: 'Codex',
+    command: 'codex {prompt}',
+    resume: 'codex resume {session}',
+    acp: 'npx --yes @agentclientprotocol/codex-acp',
+  },
   // Cursor's CLI is `agent`. `--resume=<id>` continues one chat.
-  { name: 'Cursor CLI', command: 'agent {prompt}', resume: 'agent --resume={session}' },
+  {
+    name: 'Cursor CLI',
+    command: 'agent {prompt}',
+    resume: 'agent --resume={session}',
+    acp: 'cursor-agent acp',
+  },
+  {
+    name: 'OpenCode',
+    command: 'opencode --session ses_{session} --prompt {prompt}',
+    resume: 'opencode --session ses_{session}',
+    acp: 'opencode acp',
+  },
 ];
 
 // The stock list before Cursor CLI replaced Gemini CLI and OpenCode. An
@@ -44,6 +67,15 @@ const PREVIOUS_PROVIDERS: Provider[] = [
     command: 'opencode --session ses_{session} --prompt {prompt}',
     resume: 'opencode --session ses_{session}',
   },
+];
+
+// The stock list before providers carried an ACP command (and before
+// OpenCode returned to the defaults). An install still on it picks up the
+// new list, ACP commands included.
+const PRE_ACP_PROVIDERS: Provider[] = [
+  { name: 'Claude Code', command: 'claude {prompt}', resume: 'claude --resume {session}' },
+  { name: 'Codex', command: 'codex {prompt}', resume: 'codex resume {session}' },
+  { name: 'Cursor CLI', command: 'agent {prompt}', resume: 'agent --resume={session}' },
 ];
 
 export const MAX_PROVIDERS = 12;
@@ -63,17 +95,22 @@ function cleanProviders(stored: Record<string, unknown>): Provider[] {
   for (const p of stored.providers as Record<string, unknown>[]) {
     const [name, command] = [text(p?.name), text(p?.command)];
     if (!name || !command || list.some((q) => q.name === name)) continue;
-    list.push({ name, command, resume: text(p.resume) });
+    const provider: Provider = { name, command, resume: text(p.resume) };
+    const acp = text(p.acp);
+    if (acp) provider.acp = acp;
+    list.push(provider);
   }
   if (!list.length) return DEFAULT_PROVIDERS;
-  const stock =
-    list.length === PREVIOUS_PROVIDERS.length &&
+  const isStock = (stock: Provider[]) =>
+    list.length === stock.length &&
     list.every(
       (p, i) =>
-        p.name === PREVIOUS_PROVIDERS[i].name &&
-        p.command === PREVIOUS_PROVIDERS[i].command &&
-        p.resume === PREVIOUS_PROVIDERS[i].resume,
+        p.name === stock[i].name &&
+        p.command === stock[i].command &&
+        p.resume === stock[i].resume &&
+        (p.acp ?? '') === (stock[i].acp ?? ''),
     );
+  const stock = isStock(PREVIOUS_PROVIDERS) || isStock(PRE_ACP_PROVIDERS);
   return stock ? DEFAULT_PROVIDERS : list.slice(0, MAX_PROVIDERS);
 }
 
