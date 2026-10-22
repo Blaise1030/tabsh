@@ -84,8 +84,14 @@ async fn history(
 }
 
 struct StreamState {
+    st: AppState,
+    id: String,
     replay: VecDeque<UiChunk>,
     rx: Option<tokio::sync::broadcast::Receiver<UiChunk>>,
+    /// Chunks already sent: a resubscribe's replay skips this many, so
+    /// a chat started after this stream opened arrives gap-free and
+    /// without duplicates (`subscribe` snapshots under the history lock).
+    seen: usize,
 }
 
 async fn stream(
@@ -97,25 +103,39 @@ async fn stream(
     }
     let (replay, rx) = st.chats.subscribe(&id);
     let state = StreamState {
+        st,
+        id,
         replay: replay.into(),
         rx,
+        seen: 0,
     };
     let stream = futures_util::stream::unfold(state, |mut state| async {
         loop {
             if let Some(chunk) = state.replay.pop_front() {
+                state.seen += 1;
                 let data = serde_json::to_string(&chunk).unwrap_or_default();
                 return Some((Ok(Event::default().data(data)), state));
             }
             match &mut state.rx {
                 Some(rx) => match rx.recv().await {
                     Ok(chunk) => {
+                        state.seen += 1;
                         let data = serde_json::to_string(&chunk).unwrap_or_default();
                         return Some((Ok(Event::default().data(data)), state));
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => return None,
                 },
-                None => std::future::pending().await,
+                // No chat is live yet: poll until one starts, then take
+                // its replay (past what we already sent) plus receiver.
+                None => {
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    let (history, rx) = state.st.chats.subscribe(&state.id);
+                    if rx.is_some() {
+                        state.replay = history.into_iter().skip(state.seen).collect();
+                        state.rx = rx;
+                    }
+                }
             }
         }
     });
@@ -440,6 +460,48 @@ mod tests {
             .unwrap();
         let text = String::from_utf8_lossy(&first);
         assert!(text.contains("data:"), "first SSE bytes: {text}");
+        st.chats.forget(&id);
+    }
+
+    #[tokio::test]
+    async fn chat_stream_before_start_receives_later_chunks() {
+        use futures_util::StreamExt;
+        let st = test_state();
+        let id = create_ui_card(&st, "early-bird").await;
+        assert!(!st.chats.is_live(&id));
+
+        // Subscribe before any chat exists for the card.
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri(format!("/api/sessions/{id}/chat/stream"))
+            .header("Host", "127.0.0.1:7681")
+            .header("Authorization", "Bearer [REDACTED]")
+            .extension(crate::test_support::loopback_peer())
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let res = crate::state::router(st.clone())
+            .oneshot(request)
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let mut stream = Box::pin(res.into_body().into_data_stream());
+
+        // The chat only starts now; its chunks must reach this stream.
+        move_in_progress(&st, &id).await;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        let mut received = String::new();
+        while !received.contains("fake reply: early-bird") {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "pre-live SSE subscriber never saw the chat; got: {received}"
+            );
+            let next = tokio::time::timeout(std::time::Duration::from_secs(5), stream.next())
+                .await
+                .expect("SSE stream stalled before the chat started")
+                .expect("SSE stream ended before the chat started")
+                .unwrap();
+            received.push_str(&String::from_utf8_lossy(&next));
+        }
         st.chats.forget(&id);
     }
 

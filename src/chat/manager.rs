@@ -14,7 +14,7 @@ use std::{
 };
 
 use rusqlite::{OptionalExtension, params};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 
 use super::{
     acp::AcpClient,
@@ -62,16 +62,28 @@ impl LiveChat {
         if let Err(e) = transcript::append(&self.data_dir, &self.card_id, &chunk) {
             eprintln!("chat: failed to write transcript of {}: {e}", self.card_id);
         }
-        self.history
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .push(chunk.clone());
+        // Push and broadcast under the history lock: `subscribe` clones
+        // the history and subscribes under the same lock, so a chunk is
+        // always in exactly one of a subscriber's replay or live stream.
+        let mut history = self.history.lock().unwrap_or_else(|e| e.into_inner());
+        history.push(chunk.clone());
         let _ = self.tx.send(chunk);
     }
 }
 
+/// A start in flight: its handshake runs outside every lock, waiters
+/// park on `done` until the live chat (or the failure) is published.
+struct Starting {
+    done: watch::Sender<bool>,
+}
+
+enum Entry {
+    Live(Arc<LiveChat>),
+    Starting(Arc<Starting>),
+}
+
 struct Inner {
-    live: Mutex<HashMap<String, Arc<LiveChat>>>,
+    live: Mutex<HashMap<String, Entry>>,
     data_dir: PathBuf,
 }
 
@@ -126,6 +138,12 @@ impl ChatManager {
     }
 
     pub(crate) fn is_live(&self, session_id: &str) -> bool {
+        self.live(session_id).is_some()
+    }
+
+    /// Live, or a start is handshaking: either way no other agent
+    /// surface (a PTY) may start for this card.
+    pub(crate) fn is_live_or_starting(&self, session_id: &str) -> bool {
         self.inner
             .live
             .lock()
@@ -139,11 +157,18 @@ impl ChatManager {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .get(session_id)
-            .cloned()
+            .and_then(|e| match e {
+                Entry::Live(live) => Some(live.clone()),
+                Entry::Starting(_) => None,
+            })
     }
 
-    /// Starts the card's ACP agent (idempotent) and, when
-    /// `initial_prompt` is non-empty, sends it as the first prompt.
+    /// Starts the card's ACP agent and, when `initial_prompt` is
+    /// non-empty, sends it as a prompt. The first caller reserves the
+    /// card before handshaking; concurrent callers wait for that one
+    /// agent, then dispatch their own prompt to it exactly once. A
+    /// failed handshake clears the reservation, and a waiter retries
+    /// as the new starter.
     pub(crate) async fn start(
         &self,
         session_id: &str,
@@ -151,11 +176,70 @@ impl ChatManager {
         cwd: &Path,
         initial_prompt: Option<&str>,
     ) -> ChatResult<()> {
-        if self.is_live(session_id) {
-            return Ok(());
+        let (live, _won) = self.start_inner(session_id, acp_command, cwd).await?;
+        if let Some(prompt) = initial_prompt.filter(|p| !p.trim().is_empty()) {
+            self.dispatch(&live, prompt);
         }
-        let (cmd, args) = split_command(acp_command)?;
-        let (client, acp_session_id) = tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
+        Ok(())
+    }
+
+    /// Starts the chat unless it is already live (or starting): only
+    /// the caller that actually starts the agent sends the prompt, so
+    /// a repeated board launch never replays it.
+    pub(crate) async fn ensure_started(
+        &self,
+        session_id: &str,
+        acp_command: &str,
+        cwd: &Path,
+        initial_prompt: Option<&str>,
+    ) -> ChatResult<()> {
+        let (live, won) = self.start_inner(session_id, acp_command, cwd).await?;
+        if won && let Some(prompt) = initial_prompt.filter(|p| !p.trim().is_empty()) {
+            self.dispatch(&live, prompt);
+        }
+        Ok(())
+    }
+
+    /// The one agent for the card: `(live, this call started it)`.
+    async fn start_inner(
+        &self,
+        session_id: &str,
+        acp_command: &str,
+        cwd: &Path,
+    ) -> ChatResult<(Arc<LiveChat>, bool)> {
+        enum Action {
+            Existing(Arc<LiveChat>),
+            Wait(Arc<Starting>),
+            Reserve(Arc<Starting>),
+        }
+        let starting = loop {
+            let action = {
+                let mut map = self.inner.live.lock().unwrap_or_else(|e| e.into_inner());
+                match map.get(session_id) {
+                    Some(Entry::Live(live)) => Action::Existing(live.clone()),
+                    Some(Entry::Starting(s)) => Action::Wait(s.clone()),
+                    None => {
+                        let s = Arc::new(Starting {
+                            done: watch::channel(false).0,
+                        });
+                        map.insert(session_id.to_string(), Entry::Starting(s.clone()));
+                        Action::Reserve(s)
+                    }
+                }
+            };
+            match action {
+                Action::Existing(live) => return Ok((live, false)),
+                Action::Wait(s) => {
+                    let mut rx = s.done.subscribe();
+                    // Err only means the starter is gone; loop to retry.
+                    let _ = rx.wait_for(|done| *done).await;
+                }
+                Action::Reserve(s) => break s,
+            }
+        };
+
+        let handshake = tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
+            let (cmd, args) = split_command(acp_command)?;
             let client = AcpClient::spawn(&cmd, &args, cwd)
                 .await
                 .map_err(|e| ChatError::Failed(e.to_string()))?;
@@ -170,7 +254,22 @@ impl ChatManager {
             Ok::<_, ChatError>((client, acp_session_id))
         })
         .await
-        .map_err(|_| ChatError::Failed("ACP agent handshake timed out".into()))??;
+        .map_err(|_| ChatError::Failed("ACP agent handshake timed out".into()))
+        .and_then(|r| r);
+
+        let (client, acp_session_id) = match handshake {
+            Ok(pair) => pair,
+            Err(e) => {
+                let mut map = self.inner.live.lock().unwrap_or_else(|e| e.into_inner());
+                if matches!(map.get(session_id), Some(Entry::Starting(s)) if Arc::ptr_eq(s, &starting))
+                {
+                    map.remove(session_id);
+                }
+                drop(map);
+                let _ = starting.done.send(true);
+                return Err(e);
+            }
+        };
 
         let client = Arc::new(client);
         let mut rx = client.event_stream();
@@ -184,11 +283,7 @@ impl ChatManager {
         });
         {
             let mut map = self.inner.live.lock().unwrap_or_else(|e| e.into_inner());
-            if map.contains_key(session_id) {
-                // Another start won the race; this agent dies on drop.
-                return Ok(());
-            }
-            map.insert(session_id.to_string(), live.clone());
+            map.insert(session_id.to_string(), Entry::Live(live.clone()));
         }
 
         // Drain agent events concurrently so chunks reach the transcript
@@ -202,23 +297,10 @@ impl ChatManager {
                 }
             }
         });
-
-        if let Some(prompt) = initial_prompt.filter(|p| !p.trim().is_empty()) {
-            self.dispatch(&live, prompt);
-        }
-        Ok(())
-    }
-
-    /// Starts the chat unless it is already live.
-    pub(crate) async fn ensure_started(
-        &self,
-        session_id: &str,
-        acp_command: &str,
-        cwd: &Path,
-        initial_prompt: Option<&str>,
-    ) -> ChatResult<()> {
-        self.start(session_id, acp_command, cwd, initial_prompt)
-            .await
+        // Publish only once the live chat is in the map: waiters that
+        // wake now find it and dispatch onto the one agent.
+        let _ = starting.done.send(true);
+        Ok((live, true))
     }
 
     /// Records `text` as the user's chunk and runs it as an ACP prompt on
@@ -255,11 +337,12 @@ impl ChatManager {
     /// Drops the live chat, if any; the agent process dies with its last
     /// client reference (`kill_on_drop`).
     pub(crate) fn forget(&self, session_id: &str) {
-        self.inner
-            .live
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(session_id);
+        let mut map = self.inner.live.lock().unwrap_or_else(|e| e.into_inner());
+        // A start in flight is not forgotten: it publishes (or clears)
+        // its own reservation when its handshake settles.
+        if matches!(map.get(session_id), Some(Entry::Live(_))) {
+            map.remove(session_id);
+        }
     }
 
     /// The assembled transcript: the live history when a chat is running,
@@ -282,12 +365,12 @@ impl ChatManager {
     ) -> (Vec<UiChunk>, Option<broadcast::Receiver<UiChunk>>) {
         match self.live(session_id) {
             Some(live) => {
-                let history = live
-                    .history
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .clone();
-                (history, Some(live.tx.subscribe()))
+                // Clone and subscribe under the history lock: `record`
+                // pushes and broadcasts under the same lock, so no chunk
+                // can fall between the replay snapshot and the receiver.
+                let history = live.history.lock().unwrap_or_else(|e| e.into_inner());
+                let rx = live.tx.subscribe();
+                (history.clone(), Some(rx))
             }
             None => (transcript::load(&self.inner.data_dir, session_id), None),
         }
@@ -374,5 +457,93 @@ async fn launch_ui_async(st: AppState, id: String) {
             }
         }
         Err(e) => eprintln!("chat: failed to start UI card {id}: {e}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fake_acp_command() -> String {
+        let (cmd, args) = crate::chat::acp::fake_agent();
+        format!("{cmd} {}", args.join(" "))
+    }
+
+    fn test_manager() -> ChatManager {
+        let unique = crate::auth::random_hex(8).unwrap_or_else(|_| "test".into());
+        ChatManager::new(std::env::temp_dir().join(format!("tabsh-chats-test-{unique}")))
+    }
+
+    fn user_texts(chunks: &[UiChunk]) -> Vec<String> {
+        chunks
+            .iter()
+            .filter_map(|c| match c {
+                UiChunk::UserText { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn all_text(chunks: &[UiChunk]) -> String {
+        chunks
+            .iter()
+            .filter_map(|c| serde_json::to_value(c).ok())
+            .filter_map(|v| v["text"].as_str().map(str::to_string))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn concurrent_starts_spawn_one_agent_and_dispatch_both_prompts() {
+        let chats = test_manager();
+        let cmd = fake_acp_command();
+        let cwd = Path::new("/tmp");
+        let (a, b) = tokio::join!(
+            chats.start("card-1", &cmd, cwd, Some("one")),
+            chats.start("card-1", &cmd, cwd, Some("two")),
+        );
+        a.unwrap();
+        b.unwrap();
+        assert!(chats.is_live("card-1"));
+
+        // Both prompts answered by the one agent; neither dropped, neither doubled.
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+        loop {
+            let history = chats.history("card-1");
+            let text = all_text(&history);
+            if text.contains("fake reply: one") && text.contains("fake reply: two") {
+                let mut sent = user_texts(&history);
+                sent.sort();
+                assert_eq!(sent, vec!["one".to_string(), "two".to_string()]);
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "history: {text}");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        chats.forget("card-1");
+    }
+
+    #[tokio::test]
+    async fn failed_start_clears_the_reservation() {
+        let chats = test_manager();
+        assert!(
+            chats
+                .start(
+                    "card-x",
+                    "/nonexistent-agent-xyz acp",
+                    Path::new("/tmp"),
+                    Some("hi")
+                )
+                .await
+                .is_err()
+        );
+        assert!(!chats.is_live_or_starting("card-x"));
+        // A later start with a working command succeeds on the same card.
+        let cmd = fake_acp_command();
+        chats
+            .start("card-x", &cmd, Path::new("/tmp"), Some("hi"))
+            .await
+            .unwrap();
+        assert!(chats.is_live("card-x"));
+        chats.forget("card-x");
     }
 }
