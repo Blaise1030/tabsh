@@ -280,15 +280,22 @@ fn apply_status(
         .map(|n| n.trim().chars().take(NOTE_CHARS).collect::<String>())
         .filter(|n| !n.is_empty());
     let mut db = st.db.lock().unwrap();
-    let row: Option<(String, Option<String>, Option<String>)> = db
+    let row: Option<(String, Option<String>, Option<String>, String)> = db
         .query_row(
-            "SELECT status, resume_command, parent FROM sessions WHERE id = ?1",
+            "SELECT status, resume_command, parent, mode FROM sessions WHERE id = ?1",
             params![id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get::<_, Option<String>>(2)?)),
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                    r.get(3)?,
+                ))
+            },
         )
         .optional()
         .map_err(internal_error)?;
-    let Some((current, template, parent)) = row else {
+    let Some((current, template, parent, mode)) = row else {
         return Err(StatusCode::NOT_FOUND);
     };
     // A hook in a side shell changes nothing: the card's agent drives status.
@@ -335,7 +342,12 @@ fn apply_status(
         .ok_or(StatusCode::NOT_FOUND)?;
     drop(db);
     if apply && rules::launches(&body.status, source) {
-        crate::sessions::launch(st, id);
+        // A UI card starts its ACP chat; it never gets a PTY launch line.
+        if mode == "ui" {
+            crate::chat::manager::launch_ui(st, id);
+        } else {
+            crate::sessions::launch(st, id);
+        }
     }
     if apply {
         let _ = st.events.send(BoardEvent::Status(StatusEvent {
@@ -572,6 +584,10 @@ pub(crate) fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         (
             "mode",
             "ALTER TABLE sessions ADD COLUMN mode TEXT NOT NULL DEFAULT 'tui'",
+        ),
+        (
+            "acp_command",
+            "ALTER TABLE sessions ADD COLUMN acp_command TEXT",
         ),
     ] {
         if !cols.iter().any(|c| c == name) {

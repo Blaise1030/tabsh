@@ -126,6 +126,10 @@ pub(crate) async fn open(st: AppState, id: String) -> Result<Option<Arc<Session>
 /// saved scrollback) if the session exists but isn't running yet. Blocks:
 /// async code calls [`open`].
 pub(crate) fn get_or_spawn(st: &AppState, id: &str) -> Result<Option<Arc<Session>>, BoxError> {
+    // One active agent surface per card: a live chat refuses a PTY start.
+    if st.chats.is_live(id) {
+        return Err(format!("a chat is live for session {id}").into());
+    }
     let running = || st.live.lock().unwrap().get(id).cloned();
     if let Some(s) = running() {
         return Ok(Some(s));

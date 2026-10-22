@@ -389,15 +389,11 @@ impl AcpClient {
     }
 }
 
+/// The fake agent is a test-only Python script tests write to a temp file
+/// and spawn through the real `AcpClient` stdio path — no extra binary
+/// target ships in the daemon. Shared by the chat manager/route tests.
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::chat::normalize::{UiChunk, to_chunks};
-
-    /// The fake agent is a test-only Python script this test writes to a
-    /// temp file and spawns through the real `AcpClient` stdio path — no
-    /// extra binary target ships in the daemon.
-    const FAKE_AGENT_PY: &str = r#"
+pub(crate) const FAKE_AGENT_PY: &str = r#"
 import json, sys
 
 def send(obj):
@@ -476,21 +472,27 @@ while True:
               "error": {"code": -32601, "message": "unknown method"}})
 "#;
 
-    fn fake_agent() -> (String, Vec<String>) {
-        let path = std::env::temp_dir().join(format!(
-            "tabsh-fake-acp-{}-{}.py",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::write(&path, FAKE_AGENT_PY).unwrap();
-        (
-            "python3".to_string(),
-            vec![path.to_string_lossy().into_owned()],
-        )
-    }
+#[cfg(test)]
+pub(crate) fn fake_agent() -> (String, Vec<String>) {
+    let path = std::env::temp_dir().join(format!(
+        "tabsh-fake-acp-{}-{}.py",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::write(&path, FAKE_AGENT_PY).unwrap();
+    (
+        "python3".to_string(),
+        vec![path.to_string_lossy().into_owned()],
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::chat::normalize::{UiChunk, to_chunks};
 
     #[tokio::test]
     async fn acp_client_prompt_receives_session_update() {

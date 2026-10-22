@@ -18,6 +18,7 @@ pub(crate) fn test_state() -> AppState {
         app_url: None,
         self_url: "http://127.0.0.1:7681".into(),
         events: tokio::sync::broadcast::channel(256).0,
+        chats: crate::chat::ChatManager::from_db_path(":memory:"),
         remote: Arc::new(remote),
         port: 7681,
         host: None,

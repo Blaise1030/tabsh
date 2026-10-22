@@ -1,6 +1,6 @@
 //! The daemon's shared state, and the router that puts every route behind the guard.
 
-use crate::{board, files, perf, remote, sessions, settings, upload, web};
+use crate::{board, chat, files, perf, remote, sessions, settings, upload, web};
 use axum::{Router, middleware};
 use rusqlite::Connection;
 use sessions::Session;
@@ -30,6 +30,8 @@ pub(crate) struct AppState {
     pub(crate) self_url: Arc<str>,
     /// Card status changes, for `/api/board/events`.
     pub(crate) events: tokio::sync::broadcast::Sender<crate::board::BoardEvent>,
+    /// Live ACP chats for UI-mode cards, one per card at most.
+    pub(crate) chats: crate::chat::ChatManager,
     /// Sharing with other devices: the flag and the device tokens.
     pub(crate) remote: Arc<remote::Remote>,
     /// The port this daemon was asked to listen on.
@@ -45,6 +47,7 @@ pub(crate) fn router(state: AppState) -> Router {
         .merge(web::routes())
         .merge(perf::routes())
         .merge(sessions::routes())
+        .merge(chat::routes())
         .merge(board::routes())
         .merge(files::routes())
         .merge(settings::routes())
@@ -86,6 +89,11 @@ mod tests {
             (Method::DELETE, "/api/sessions/x"),
             (Method::PATCH, "/api/sessions/x/status"),
             (Method::PATCH, "/api/sessions/x/prompt"),
+            (Method::GET, "/api/sessions/x/chat"),
+            (Method::GET, "/api/sessions/x/chat/stream"),
+            (Method::POST, "/api/sessions/x/chat/message"),
+            (Method::POST, "/api/sessions/x/chat/stop"),
+            (Method::POST, "/api/sessions/x/chat/approve"),
             (Method::PATCH, "/api/board/agents/x/status"),
             (Method::GET, "/api/board/events"),
             (Method::GET, "/api/settings"),

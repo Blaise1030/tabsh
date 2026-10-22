@@ -212,6 +212,8 @@ pub(crate) struct SessionInfo {
     pub(crate) parent: Option<String>,
     /// How the card runs: `"tui"` (a PTY shell) or `"ui"` (an ACP chat).
     pub(crate) mode: String,
+    /// The provider's ACP command stored at create, for `"ui"` cards.
+    pub(crate) acp_command: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -239,6 +241,8 @@ struct NewSession {
     parent: Option<String>,
     /// `"tui"` or `"ui"`; omitted means `"tui"`.
     mode: Option<String>,
+    /// The provider's ACP command, for a `"ui"` card.
+    acp_command: Option<String>,
 }
 
 async fn list_sessions(State(st): State<AppState>) -> Result<Json<Vec<SessionInfo>>, StatusCode> {
@@ -321,6 +325,11 @@ async fn create_session(
         resume_input: resume_input.as_deref(),
         parent: None,
         mode,
+        acp_command: body
+            .acp_command
+            .as_deref()
+            .map(str::trim)
+            .filter(|c| !c.is_empty()),
     };
     let db = st.db.lock().unwrap();
     store::insert_card(&db, &card)
@@ -488,6 +497,7 @@ fn is_card(st: &AppState, id: &str) -> bool {
 }
 
 fn close(st: &AppState, id: &str) -> StatusCode {
+    st.chats.forget(id);
     if is_card(st, id) {
         close_children(st, id);
     }

@@ -91,6 +91,7 @@ async fn daemon() {
         app_url,
         self_url: self_url.into(),
         events: tokio::sync::broadcast::channel(256).0,
+        chats: chat::ChatManager::from_db_path(&db_path),
         remote: Arc::new(remote),
         port: port_number,
         host: fixed_host(&host),

@@ -2,7 +2,7 @@
 
 // Consumers (manager/routes) land in Tasks 4/6; tests exercise this now.
 #![allow(dead_code)]
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::acp::AcpEvent;
@@ -11,7 +11,7 @@ use super::acp::AcpEvent;
 ///
 /// Locked shape for Tasks 4/6: a flat object discriminated by `type`
 /// (snake_case). Variants are only added, never renamed or removed.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub(crate) enum UiChunk {
     /// Streaming agent text (`agent_message_chunk`).
