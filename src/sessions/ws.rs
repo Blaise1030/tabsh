@@ -9,6 +9,7 @@ use crate::{
 };
 use axum::{
     Extension,
+    body::Bytes,
     extract::{
         ConnectInfo, Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
@@ -138,14 +139,40 @@ async fn attach(
         return Ok(());
     }
 
+    let mut pending: Option<BatchEnd> = None;
     loop {
+        // A control event that ended the last batch is handled before more
+        // output, so a bell, exit or restart stays in order with its bytes.
+        if let Some(end) = pending.take() {
+            match end {
+                BatchEnd::Lagged => break,
+                BatchEnd::Bell => sink.send(Message::Text(r#"{"bell":true}"#.into())).await?,
+                BatchEnd::Restart => {
+                    sink.send(Message::Text(r#"{"restart":true}"#.into()))
+                        .await?;
+                    break;
+                }
+                BatchEnd::Exit => {
+                    sink.send(Message::Text(r#"{"exit":true}"#.into())).await?;
+                    break;
+                }
+            }
+            continue;
+        }
+
         tokio::select! {
             () = closed_for(&mut closed, &holder) => {
                 sink.send(policy_close()).await?;
                 break;
             }
             ev = rx.recv() => match ev {
-                Ok(Event::Output(data)) => sink.send(Message::Binary(data)).await?,
+                Ok(Event::Output(first)) => {
+                    // A burst arrives as one frame, not one frame per read.
+                    let (batch, end) = batch_output(first, &mut rx);
+                    sink.send(Message::Binary(batch)).await?;
+                    pending = end;
+                }
+                Ok(Event::Bell) => sink.send(Message::Text(r#"{"bell":true}"#.into())).await?,
                 // The daemon replaced this shell (its card's first prompt
                 // changed): the tab reattaches to the replacement.
                 Ok(Event::Restart) => {
@@ -183,6 +210,59 @@ async fn attach(
 
     let _ = sink.close().await;
     Ok(())
+}
+
+/// How much output one WebSocket frame carries before the next one.
+const MAX_FRAME: usize = 64 * 1024;
+
+/// A control event that ended a batch, or a lag that must drop the socket.
+#[derive(Debug, PartialEq, Eq)]
+enum BatchEnd {
+    Bell,
+    Exit,
+    Restart,
+    Lagged,
+}
+
+/// Collects `first` and whatever output is already queued behind it, until
+/// the batch reaches `MAX_FRAME` (the output that crosses it is kept whole),
+/// so a burst arrives in one frame. A control event is returned for the
+/// caller to handle after the bytes, keeping their order.
+fn batch_output(first: Bytes, rx: &mut broadcast::Receiver<Event>) -> (Bytes, Option<BatchEnd>) {
+    let mut queued = Vec::new();
+    let mut len = first.len();
+    while len < MAX_FRAME {
+        match rx.try_recv() {
+            Ok(Event::Output(data)) => {
+                len += data.len();
+                queued.push(data);
+            }
+            Ok(Event::Bell) => return (join(first, queued), Some(BatchEnd::Bell)),
+            Ok(Event::Exit) => return (join(first, queued), Some(BatchEnd::Exit)),
+            Ok(Event::Restart) => return (join(first, queued), Some(BatchEnd::Restart)),
+            Err(broadcast::error::TryRecvError::Empty) => break,
+            Err(broadcast::error::TryRecvError::Closed) => {
+                return (join(first, queued), Some(BatchEnd::Exit));
+            }
+            Err(broadcast::error::TryRecvError::Lagged(_)) => {
+                return (join(first, queued), Some(BatchEnd::Lagged));
+            }
+        }
+    }
+    (join(first, queued), None)
+}
+
+/// One buffer for a batch. A lone chunk is sent as it came, without a copy.
+fn join(first: Bytes, queued: Vec<Bytes>) -> Bytes {
+    if queued.is_empty() {
+        return first;
+    }
+    let mut batch = Vec::with_capacity(queued.iter().map(Bytes::len).sum::<usize>() + first.len());
+    batch.extend_from_slice(&first);
+    for data in queued {
+        batch.extend_from_slice(&data);
+    }
+    batch.into()
 }
 
 /// What a text frame from the page asks for.
@@ -230,7 +310,7 @@ mod tests {
     fn full() -> Output {
         let mut out = Output::new(VecDeque::new());
         for _ in 0..SCROLLBACK_BYTES / 4096 + 10 {
-            out.append(Bytes::from(vec![b'x'; 4096]));
+            out.append(Bytes::from(vec![b'x'; 4096]), false);
         }
         out
     }
@@ -267,9 +347,9 @@ mod tests {
     #[test]
     fn a_replay_is_bounded_by_the_scrollback() {
         let mut out = full();
-        out.append(Bytes::from_static(b"\x1b[?1049h"));
+        out.append(Bytes::from_static(b"\x1b[?1049h"), false);
         for _ in 0..64 {
-            out.append(Bytes::from(vec![b'y'; 8192]));
+            out.append(Bytes::from(vec![b'y'; 8192]), false);
         }
         let replay = out.replay(None);
         assert!(
@@ -298,7 +378,7 @@ mod tests {
                 // Fewer chunks than the channel holds, so no receiver lags.
                 for i in 0..1000u32 {
                     let chunk = Bytes::from(format!("<{i}>"));
-                    output.lock().unwrap().append(chunk);
+                    output.lock().unwrap().append(chunk, false);
                     std::thread::sleep(Duration::from_micros(50));
                 }
             })
@@ -334,9 +414,9 @@ mod tests {
     #[test]
     fn a_resume_sends_only_the_bytes_missed() {
         let mut out = Output::new(VecDeque::from(b"old ".to_vec()));
-        out.append(Bytes::from_static(b"seen "));
+        out.append(Bytes::from_static(b"seen "), false);
         let at = out.replay(None).at;
-        out.append(Bytes::from_static(b"missed"));
+        out.append(Bytes::from_static(b"missed"), false);
         let epoch = out.epoch.clone();
 
         let resumed = out.replay(Some((&epoch, at)));
@@ -378,6 +458,88 @@ mod tests {
         assert_eq!(resume_param("ab-1:42"), Some(("ab-1".into(), 42)));
         assert_eq!(resume_param("ab-1"), None);
         assert_eq!(resume_param("ab-1:x"), None);
+    }
+
+    fn output(rx: &mut broadcast::Receiver<Event>) -> Bytes {
+        match rx.try_recv() {
+            Ok(Event::Output(data)) => data,
+            other => panic!("expected output, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn queued_output_is_coalesced_into_one_frame() {
+        let (tx, mut rx) = broadcast::channel(16);
+        for part in [&b"one"[..], b"two", b"three"] {
+            tx.send(Event::Output(Bytes::copy_from_slice(part)))
+                .unwrap();
+        }
+        let (batch, end) = batch_output(output(&mut rx), &mut rx);
+        assert_eq!(&batch[..], b"onetwothree");
+        assert_eq!(end, None);
+    }
+
+    #[test]
+    fn a_lone_chunk_is_not_copied() {
+        let (tx, mut rx) = broadcast::channel(16);
+        let first = Bytes::from_static(b"solo");
+        let ptr = first.as_ptr();
+        tx.send(Event::Output(first.clone())).unwrap();
+        let (batch, end) = batch_output(output(&mut rx), &mut rx);
+        assert_eq!(batch.as_ptr(), ptr, "the common case reuses its buffer");
+        assert_eq!(end, None);
+    }
+
+    #[test]
+    fn a_control_event_ends_a_batch_in_order() {
+        let (tx, mut rx) = broadcast::channel(16);
+        tx.send(Event::Output(Bytes::from_static(b"before")))
+            .unwrap();
+        tx.send(Event::Bell).unwrap();
+        tx.send(Event::Output(Bytes::from_static(b"after")))
+            .unwrap();
+        let (batch, end) = batch_output(output(&mut rx), &mut rx);
+        assert_eq!(&batch[..], b"before");
+        assert_eq!(end, Some(BatchEnd::Bell));
+        assert_eq!(&output(&mut rx)[..], b"after", "the rest stays queued");
+    }
+
+    #[test]
+    fn a_batch_stops_at_the_frame_cap() {
+        let (tx, mut rx) = broadcast::channel(16);
+        let chunk = Bytes::from(vec![b'x'; MAX_FRAME / 4]);
+        for _ in 0..5 {
+            tx.send(Event::Output(chunk.clone())).unwrap();
+        }
+        let (batch, end) = batch_output(output(&mut rx), &mut rx);
+        assert_eq!(batch.len(), MAX_FRAME);
+        assert_eq!(end, None);
+        assert!(
+            matches!(rx.try_recv(), Ok(Event::Output(_))),
+            "output past the cap waits for the next frame"
+        );
+    }
+
+    #[test]
+    fn a_first_chunk_larger_than_the_cap_is_sent_whole() {
+        let (tx, mut rx) = broadcast::channel(16);
+        tx.send(Event::Output(Bytes::from(vec![b'x'; MAX_FRAME + 1])))
+            .unwrap();
+        tx.send(Event::Output(Bytes::from_static(b"next"))).unwrap();
+        let (batch, end) = batch_output(output(&mut rx), &mut rx);
+        assert_eq!(batch.len(), MAX_FRAME + 1);
+        assert_eq!(end, None);
+        assert_eq!(&output(&mut rx)[..], b"next");
+    }
+
+    #[test]
+    fn a_closed_channel_ends_the_batch_as_an_exit() {
+        let (tx, mut rx) = broadcast::channel(4);
+        tx.send(Event::Output(Bytes::from_static(b"last"))).unwrap();
+        drop(tx);
+        let (batch, end) = batch_output(output(&mut rx), &mut rx);
+        assert_eq!(&batch[..], b"last");
+        assert_eq!(end, Some(BatchEnd::Exit));
     }
 
     #[test]
