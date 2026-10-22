@@ -5,25 +5,26 @@ machine. Open them from any browser tab at https://tabsh.cc, and they survive
 reloads, restarts and closed laptops.
 
 ```sh
-brew install blaise1030/tap/tabsh
+curl -fsSL https://tabsh.cc/install.sh | sh
 tabsh   # opens the app in your browser, paired
 ```
 
-That runs tabsh until you close the terminal. To keep it running from login
-instead, stop it and run `brew services start tabsh`, then open
-http://127.0.0.1:7681 to pair this browser. Upgrade with `brew upgrade tabsh`
-(then `brew services restart tabsh` if you use the service).
-
-No Homebrew? Install the release binary to `~/.local/bin` (macOS or Linux,
-checksum-verified):
-
-```sh
-curl -fsSL https://tabsh.cc/install.sh | sh
-```
-
-Re-run it to upgrade. Set `TABSH_VERSION` to pin a release or
+That installs the release binary to `~/.local/bin` (macOS or Linux,
+checksum-verified), then runs tabsh until you close the terminal. Re-run the
+installer to upgrade. Set `TABSH_VERSION` to pin a release or
 `TABSH_INSTALL_DIR` to install elsewhere. Or build it with Rust:
 `cargo install --git https://github.com/Blaise1030/tabsh`.
+
+Prefer Homebrew? Install with:
+
+```sh
+brew install blaise1030/tap/tabsh
+```
+
+To keep the Homebrew install running from login, run
+`brew services start tabsh`, then open http://127.0.0.1:7681 to pair this
+browser. Upgrade with `brew upgrade tabsh` (then `brew services restart tabsh`
+if you use the service).
 
 Safari (and every iOS browser) won't let https://tabsh.cc reach the daemon, so
 tabsh also serves the app itself, and tabsh.cc sends Safari there:

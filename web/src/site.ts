@@ -2,8 +2,8 @@
 export const DAEMON_URL = 'http://127.0.0.1:7681';
 
 export const REPO_URL = 'https://github.com/Blaise1030/tabsh';
-export const INSTALL_COMMAND = 'brew install blaise1030/tap/tabsh';
-export const SCRIPT_INSTALL_COMMAND = 'curl -fsSL https://tabsh.cc/install.sh | sh';
+export const INSTALL_COMMAND = 'curl -fsSL https://tabsh.cc/install.sh | sh';
+export const BREW_INSTALL_COMMAND = 'brew install blaise1030/tap/tabsh';
 
 export const SITE_URL = 'https://tabsh.cc';
 // Absolute: the app also runs from the daemon, which does not serve this page.
