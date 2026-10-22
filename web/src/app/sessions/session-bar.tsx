@@ -3,7 +3,7 @@ import { For, type JSX, Show } from 'solid-js';
 import { api } from '../daemon/client.ts';
 import { go } from '../nav/router.ts';
 import { icons } from '../ui/icons.tsx';
-import { active, closeSession, onScreen, type Session, type SessionInfo, screen } from './store.ts';
+import { active, closeSession, isChatCard, onScreen, type Session, type SessionInfo, screen } from './store.ts';
 import { openSession } from './terminal.tsx';
 
 export function SessionBar(): JSX.Element {
@@ -44,8 +44,9 @@ function AgentTab(props: { card: Session }): JSX.Element {
       role="tab"
       aria-selected={shown()}
       onClick={() => {
-        if (onScreen() === card) card.term.focus();
-        else go({ term: null });
+        if (onScreen() === card) {
+          if (!isChatCard(card)) card.term.focus();
+        } else go({ term: null });
       }}
     >
       <span class="tab-name">Agent</span>

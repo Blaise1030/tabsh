@@ -7,7 +7,7 @@ import { uploadFile } from '../daemon/client.ts';
 import { shellQuote } from '../ui/drop-paths.ts';
 import { icons } from '../ui/icons.tsx';
 import type { ExtraKey } from './extra-keys.ts';
-import { onScreen, type Session, screen } from './store.ts';
+import { isChatCard, onScreen, type Session, screen } from './store.ts';
 import { ctrlHeld, setCtrlHeld, typeKey } from './terminal.tsx';
 
 const KEYS: [ExtraKey, string, string][] = [
@@ -38,9 +38,14 @@ export function KeyBar(): JSX.Element {
   const ctrl = ctrlHeld;
   const [pasteButton, sheet] = Paste();
   let bar!: HTMLDivElement;
+  // The chat composer takes this row on a UI card. A side terminal keeps the keys.
+  const pty = () => {
+    const s = shown();
+    return s !== null && !isChatCard(s);
+  };
   const view = (
     <>
-      <div ref={bar} class="keybar" role="toolbar" aria-label="Terminal keys" hidden={!shown()}>
+      <div ref={bar} class="keybar" role="toolbar" aria-label="Terminal keys" hidden={!pty()}>
         <Attach />
         {pasteButton}
         {key(...esc)}

@@ -25,6 +25,7 @@ import {
   active,
   allTerms,
   findTerm,
+  isChatCard,
   onActivate,
   onScreen,
   removeSession,
@@ -176,7 +177,9 @@ export function syncTerminalVisibility(): void {
   watchWake();
   for (const s of allTerms()) {
     if (s.closed) continue;
-    if (inView(s)) {
+    // A UI card's agent surface is the chat panel, so it never attaches a PTY.
+    // Its side terminals still do, when one of them is on screen.
+    if (inView(s) && !isChatCard(s)) {
       const state = s.ws?.readyState;
       if (state !== WebSocket.OPEN && state !== WebSocket.CONNECTING) void connect(s);
     } else {
@@ -297,6 +300,7 @@ export function openSession(info: SessionInfo): Session {
     setLeaving: writeLeaving,
     pinned: info.pinned,
     parent,
+    mode: info.mode === 'ui' ? 'ui' : 'tui',
     sides: readSides,
     setSides: writeSides,
   };

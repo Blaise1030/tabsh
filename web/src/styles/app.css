@@ -440,6 +440,29 @@ file-tree-container {
    rows from the parent's full height, so parent padding overflows the page. */
 .term .xterm { padding: 6px 0 0 8px; }
 .term.active { display: block; }
+/* A UI card's chat, in the terminal's place: transcript, then the composer,
+   with the transcript fading out so the join is not a hard edge. */
+.chat { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; background: var(--background); color: var(--foreground); }
+.chat-transcript {
+  flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: .625rem;
+  padding: .75rem 1rem 1.5rem;
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 1.5rem), transparent);
+}
+.chat-user { align-self: flex-end; max-width: 40rem; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-text, .chat-thought, .chat-tool, .chat-plan, .chat-permission, .chat-error {
+  margin: 0; max-width: 46rem; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.chat-thought, .chat-tool, .chat-plan, .chat-permission { color: var(--muted-foreground); }
+.chat-tool, .chat-plan, .chat-permission { font-size: .8125rem; }
+.chat-error { color: var(--destructive, #ef4444); display: flex; flex-direction: column; gap: .25rem; }
+.chat-hint { color: var(--muted-foreground); font-size: .8125rem; }
+.chat-composer { display: flex; align-items: flex-end; gap: .5rem; padding: 0 .75rem .75rem; }
+.chat-composer textarea {
+  flex: 1; resize: none; min-height: 2.5rem; max-height: 8rem; border: 0; margin: 0;
+  background: transparent; color: inherit; font: inherit; padding: .5rem .25rem;
+}
+.chat-composer textarea:focus { outline: none; }
+.chat-composer .btn { flex: none; }
 .term-bottom { position: absolute; right: 1rem; bottom: .75rem; z-index: 5; border-radius: 9999px; box-shadow: 0 2px 8px rgb(0 0 0 / .25); }
 .term-bottom[hidden] { display: none; }
 /* The touch key bar (sessions/keybar.ts): touch screens only. */
@@ -466,7 +489,7 @@ file-tree-container {
   /* While you type in a terminal, it ends above the keyboard, so the prompt
      stays in sight (iOS lays the keyboard over the page). The body's
      safe-area padding already keeps it off the bottom of the screen. */
-  body:has(.term .xterm-helper-textarea:focus) #main {
+  body:has(.term .xterm-helper-textarea:focus, .chat-composer textarea:focus) #main {
     padding-bottom: max(0px, var(--keyboard, 0px) - env(safe-area-inset-bottom));
   }
   /* Long press selects (sessions/touch.ts), not the system's text callout. */

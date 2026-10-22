@@ -1,0 +1,100 @@
+// A UI card's agent surface: the stream's replay, then whatever the agent
+// says next, with the composer along the bottom. A dropped stream connects
+// again; the first chunk of that connection replaces the transcript, because
+// the daemon replays finished turns before the new ones.
+import { createEffect, createSignal, For, type JSX, onCleanup, Show } from 'solid-js';
+import { ApiError } from '../daemon/client.ts';
+import { type ChatChunk, readChatStream } from './client.ts';
+import { Composer } from './composer.tsx';
+import { chatLines, Part } from './parts.tsx';
+
+export function ChatPanel(props: { sessionId: string }): JSX.Element {
+  const [chunks, setChunks] = createSignal<ChatChunk[]>([]);
+  const [notice, setNotice] = createSignal<string | null>(null);
+  let transcript: HTMLDivElement | undefined;
+
+  createEffect(() => {
+    const id = props.sessionId;
+    const ac = new AbortController();
+    let gone = false;
+    onCleanup(() => {
+      gone = true;
+      ac.abort();
+    });
+    void (async () => {
+      // A stream error clears once the next connection delivers a chunk.
+      // A send error stays until the composer clears it.
+      let streamError = false;
+      while (!gone) {
+        let replaced = false;
+        let pending: ChatChunk[] | null = null;
+        let scheduled = false;
+        const flush = () => {
+          scheduled = false;
+          if (gone || !pending) return;
+          const next = pending;
+          pending = null;
+          setChunks(next);
+        };
+        try {
+          await readChatStream(id, ac.signal, (chunk) => {
+            if (gone) return;
+            if (!replaced) {
+              replaced = true;
+              pending = [chunk];
+              if (streamError) {
+                streamError = false;
+                setNotice(null);
+              }
+            } else {
+              pending = [...(pending ?? chunks()), chunk];
+            }
+            if (!scheduled) {
+              scheduled = true;
+              queueMicrotask(flush);
+            }
+          });
+        } catch (e) {
+          if (gone || ac.signal.aborted) return;
+          streamError = true;
+          setNotice(e instanceof ApiError ? e.message : 'The chat stream stopped.');
+        }
+        if (gone || ac.signal.aborted) return;
+        await wait(1000, ac.signal);
+      }
+    })();
+  });
+
+  createEffect(() => {
+    chunks();
+    notice();
+    const el = transcript;
+    if (el) el.scrollTop = el.scrollHeight;
+  });
+
+  return (
+    <section class="chat" aria-label="Chat">
+      <div class="chat-transcript" ref={transcript}>
+        <For each={chatLines(chunks())}>{(line) => <Part line={line} />}</For>
+        <Show when={notice()}>
+          {(message) => <Part line={{ chunk: { type: 'error', message: message() }, text: message() }} />}
+        </Show>
+      </div>
+      <Composer sessionId={props.sessionId} onError={setNotice} />
+    </section>
+  );
+}
+
+function wait(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}

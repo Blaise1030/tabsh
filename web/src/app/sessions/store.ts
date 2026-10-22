@@ -56,6 +56,9 @@ export interface Session {
   pinned: boolean;
   // Set on a side terminal: the card it belongs to.
   parent: string | null;
+  // How the card runs. A side terminal is always `tui`. Missing on an older
+  // payload (the demo) reads as `tui`.
+  mode: 'tui' | 'ui';
   // The card's side terminals, in position order. Empty on a side terminal.
   sides: Accessor<Session[]>;
   setSides: Setter<Session[]>;
@@ -97,6 +100,10 @@ export const [screen, setScreen] = createSignal<Session | null>(null);
 export const [shownTurn, setShownTurn] = createSignal<{ tab: boolean }>({ tab: false });
 export function onScreen(): Session | null {
   return screen();
+}
+// The card's agent is the chat panel: UI mode, and not a side terminal.
+export function isChatCard(s: Session): boolean {
+  return s.mode === 'ui' && s.parent === null;
 }
 export function findTerm(id: string): Session | undefined {
   for (const card of sessionList()) {
