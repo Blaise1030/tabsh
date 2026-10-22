@@ -2,9 +2,9 @@
 // (or both: the workspace in a drawer beside the board), and the drop glow.
 // Features find their parts by id once this is mounted.
 import { createMemo, For, type JSX, untrack } from 'solid-js';
-import { DrawerMoveButton } from '../board/move-menu.ts';
-import { NewCard } from '../board/new-card.ts';
-import { Board, drawer as boardDrawer, shown as boardShown, FilterButton, layout } from '../board/view.ts';
+import { DrawerMoveButton } from '../board/move-menu.tsx';
+import { NewCard } from '../board/new-card.tsx';
+import { Board, drawer as boardDrawer, shown as boardShown, FilterButton, layout } from '../board/view.tsx';
 import { open as explorerOpen, toggleExplorer } from '../explorer/explorer.ts';
 import { Sidebar } from '../explorer/sidebar.ts';
 import { paneShown } from '../files/open.ts';
@@ -114,7 +114,7 @@ function TabBar(): JSX.Element {
         // Grouping is on: the button stays lit.
         pressed={groups() !== 'none'}
       />
-      {untrack(FilterButton)}
+      <FilterButton />
       <BarButton
         icon={icons.explorer}
         label="Toggle file explorer"
@@ -148,7 +148,8 @@ function DrawerBar(): JSX.Element {
         onClick={() => go({ drawer: false })}
       />
       <span class="drawer-title">{title()}</span>
-      {untrack(() => DrawerMoveButton(() => active.val))}
+      {/* Made once: it follows the active card itself. */}
+      {untrack(() => DrawerMoveButton(tab))}
       <BarButton
         icon={icons.explorer}
         label="Toggle file explorer"
@@ -202,7 +203,7 @@ function Stage(): JSX.Element {
   const drawer = fromVan(boardDrawer);
   return (
     <div id="stage">
-      {untrack(Board)}
+      <Board />
       <div id="drawer-divider" hidden={!drawer()} />
       <div id="frame" class={drawer() ? 'in-drawer' : ''} hidden={shown() && !drawer()}>
         <DrawerBar />
@@ -216,7 +217,7 @@ export function App(): JSX.Element {
   return (
     <>
       <Palette />
-      {untrack(NewCard)}
+      <NewCard />
       <TabBar />
       <Stage />
       {untrack(Welcome)}

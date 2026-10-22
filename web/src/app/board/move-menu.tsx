@@ -1,23 +1,29 @@
 // A card's menu, as Basecoat's dropdown menu (its script opens and closes it,
 // and moves through it by keyboard): right-clicking a card, or long-pressing
-// one on a phone, opens it at the pointer (view.ts); the drawer's status
+// one on a phone, opens it at the pointer (view.tsx); the drawer's status
 // button opens it below itself. It lists the stages to move the card to (the
 // current one checked, and not picked again), its Tags (a submenu,
-// tags-submenu.ts), Edit for a Backlog card still waiting on its prompt
+// tags-submenu.tsx), Edit for a Backlog card still waiting on its prompt
 // (in the New card dialog), then Archive (Restore, for an archived card) and
 // Delete session.
 // Open, its popover is fixed where it was placed, so a column that scrolls
 // doesn't clip it; a pointer-opened menu closes once its card scrolls out of
 // view.
-import van from 'vanjs-core';
+// Its handlers are native: the root stops clicks and keys before they reach
+// the card, so Solid's delegated handlers on the document never see them.
+// A row's click goes on to Basecoat's menu, which closes the dropdown.
+// biome-ignore-all lint/a11y/useFocusableInteractive: Basecoat's rows: the menu keeps focus and marks the active row
+// biome-ignore-all lint/a11y/useSemanticElements: Basecoat's dropdown markup, which its script and styles read
+// biome-ignore-all lint/a11y/useAriaPropsForRole: Basecoat's dropdown markup, which its script and styles read
+// biome-ignore-all lint/a11y/noRedundantRoles: Basecoat's dropdown markup, which its script and styles read
+import { createMemo, type JSX, onCleanup, Show } from 'solid-js';
 import { closeSession, type Session } from '../sessions/store.ts';
 import { glyph, icons } from '../ui/icons.tsx';
+import { fromVan } from '../ui/interop.ts';
 import { STATUS_NAMES } from './glyph.ts';
 import { COLUMNS, type Status } from './model.ts';
 import { setStatus } from './status.ts';
-import { TagsSubmenu } from './tags-submenu.ts';
-
-const { button, div, hr, i, span } = van.tags;
+import { TagsSubmenu } from './tags-submenu.tsx';
 
 // Basecoat's root, and this file's own: placing its fixed popover again.
 type Dropdown = HTMLElement & {
@@ -35,94 +41,108 @@ export interface CardMenuHandle {
   anchorAt(fn: () => HTMLElement): void;
 }
 
-// Opens the New card dialog on a card, to edit it (set by new-card.ts).
+// Opens the New card dialog on a card, to edit it (set by new-card.tsx).
 let editCard: (s: Session) => void = () => {};
 export function setEditCard(fn: (s: Session) => void): void {
   editCard = fn;
 }
 
-const statusGlyph = (status: Status) => i({ class: 'status-glyph', 'data-status': status }, glyph(status));
+const StatusGlyph = (props: { status: Status }): JSX.Element => (
+  <i class="status-glyph" data-status={props.status}>
+    {glyph(props.status)}
+  </i>
+);
 
-function MoveMenu(s: () => Session | null, trigger: Record<string, string>, ...face: (() => Node)[]): CardMenuHandle {
-  const now = (): Status | null => s()?.card.val.status ?? null;
+// Built under its caller's owner (a card, or the drawer's bar), so its
+// bindings go with it.
+function MoveMenu(s: () => Session | null, trigger: Record<string, string>, face?: () => JSX.Element): CardMenuHandle {
+  const now = createMemo((): Status | null => {
+    const session = s();
+    return session ? fromVan(session.card)().status : null;
+  });
   const moveTo = (status: Status) => {
     const session = s();
     if (session && now() !== status) void setStatus(session, status).catch(console.error);
   };
-  const stages = COLUMNS.map(({ status }) =>
-    div(
-      {
-        role: 'menuitemradio',
-        'aria-checked': () => String(now() === status),
-        'aria-disabled': () => String(now() === status),
-        onclick: () => moveTo(status),
-      },
-      statusGlyph(status),
-      span(STATUS_NAMES[status]),
-      () => (now() === status ? icons.check() : span()),
-    ),
-  );
+  // Its prompt can change until it starts.
+  const editable = () => {
+    const session = s();
+    const card = session && fromVan(session.card)();
+    return session && card?.status === 'backlog' && card.prompt ? session : null;
+  };
+  const archived = () => now() === 'archived';
   const tags = TagsSubmenu(s);
-  const popover = div(
-    { 'data-popover': '', 'aria-hidden': 'true', 'data-align': 'end' },
-    div(
-      {
-        role: 'menu',
-        'aria-label': 'Card',
-        tabindex: '-1',
+  const stages = COLUMNS.map(({ status }) => (
+    <div
+      role="menuitemradio"
+      aria-checked={now() === status}
+      aria-disabled={now() === status}
+      on:click={() => moveTo(status)}
+    >
+      <StatusGlyph status={status} />
+      <span>{STATUS_NAMES[status]}</span>
+      {now() === status ? icons.check() : <span />}
+    </div>
+  ));
+  const popover = (
+    <div data-popover="" aria-hidden="true" data-align="end">
+      <div
+        role="menu"
+        aria-label="Card"
+        tabindex="-1"
         // Pointing at another row closes the Tags submenu.
-        onmouseover: (e: MouseEvent) => {
+        on:mouseover={(e) => {
           const row = (e.target as Element).closest('[role^="menuitem"]');
           if (row && row !== tags.row) tags.close();
-        },
-      },
-      div({ role: 'group', 'aria-label': 'Move to' }, div({ role: 'heading' }, 'Move to'), stages),
-      hr({ role: 'separator' }),
-      tags.row,
-      // Its prompt can change until it starts.
-      () => {
-        const session = s();
-        const card = session?.card.val;
-        return session && card?.status === 'backlog' && card.prompt
-          ? div(
-              { role: 'menuitem', class: 'menu-edit', onclick: () => editCard(session) },
-              icons.edit(),
-              span('Edit card'),
-            )
-          : span({ hidden: true });
-      },
-      hr({ role: 'separator' }),
-      // Archive, or for an archived card, Restore (to Backlog).
-      div(
-        { role: 'menuitem', onclick: () => moveTo(now() === 'archived' ? 'backlog' : 'archived') },
-        () => statusGlyph(now() === 'archived' ? 'backlog' : 'archived'),
-        () => span(now() === 'archived' ? 'Restore' : 'Archive'),
-      ),
-      div(
-        {
-          role: 'menuitem',
-          class: 'menu-danger',
-          onclick: () => {
+        }}
+      >
+        <div role="group" aria-label="Move to">
+          <div role="heading">Move to</div>
+          {stages}
+        </div>
+        <hr role="separator" />
+        {tags.row}
+        <Show when={editable()} keyed fallback={<span hidden />}>
+          {(session) => (
+            <div role="menuitem" class="menu-edit" on:click={() => editCard(session)}>
+              {icons.edit()}
+              <span>Edit card</span>
+            </div>
+          )}
+        </Show>
+        <hr role="separator" />
+        {/* Archive, or for an archived card, Restore (to Backlog). */}
+        <div role="menuitem" on:click={() => moveTo(archived() ? 'backlog' : 'archived')}>
+          <StatusGlyph status={archived() ? 'backlog' : 'archived'} />
+          <span>{archived() ? 'Restore' : 'Archive'}</span>
+        </div>
+        <div
+          role="menuitem"
+          class="menu-danger"
+          on:click={() => {
             const session = s();
             if (session) void closeSession(session);
-          },
-        },
-        icons.trash(),
-        span('Delete session'),
-      ),
-    ),
-  );
-  const open: HTMLElement = button(
-    {
-      type: 'button',
-      'aria-haspopup': 'menu',
-      'aria-expanded': 'false',
-      ...trigger,
+          }}
+        >
+          {icons.trash()}
+          <span>Delete session</span>
+        </div>
+      </div>
+    </div>
+  ) as HTMLElement;
+  const faced = face?.();
+  const open = (
+    <button
+      type="button"
+      aria-haspopup="menu"
+      aria-expanded="false"
       // Runs before Basecoat's own click (added later).
-      onclick: () => placeUnderTrigger(),
-    },
-    ...face,
-  );
+      on:click={() => placeUnderTrigger()}
+    >
+      {faced}
+    </button>
+  ) as HTMLElement;
+  for (const [k, v] of Object.entries(trigger)) open.setAttribute(k, v);
   // Under the drawer's button, its right edge at the button's.
   const placeUnderTrigger = () => {
     const r = open.getBoundingClientRect();
@@ -139,21 +159,22 @@ function MoveMenu(s: () => Session | null, trigger: Record<string, string>, ...f
     popover.style.top = `${Math.max(8, Math.min(y, innerHeight - height - 8))}px`;
   };
   // Clicks and keys inside stay here: they must not open or drag the card.
-  const root: Dropdown = div(
-    {
-      class: 'dropdown-menu move-menu',
-      onclick: (e: MouseEvent) => e.stopPropagation(),
-      onkeydown: (e: KeyboardEvent) => e.stopPropagation(),
+  const root = (
+    <div
+      class="dropdown-menu move-menu"
+      on:click={(e) => e.stopPropagation()}
+      on:keydown={(e) => e.stopPropagation()}
       // A right-click inside the open menu keeps it where it is.
-      oncontextmenu: (e: MouseEvent) => {
+      on:contextmenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
-      },
-    },
-    open,
-    popover,
-    tags.panel,
-  );
+      }}
+    >
+      {open}
+      {popover}
+      {tags.panel}
+    </div>
+  ) as Dropdown;
   let closeFocus: (() => void) | null = null;
   let anchor: (() => HTMLElement) | null = null;
   // → (or Enter, Space) on the highlighted Tags row opens the submenu; caught
@@ -171,14 +192,16 @@ function MoveMenu(s: () => Session | null, trigger: Record<string, string>, ...f
   );
   // The submenu closes with the dropdown; a closed menu hands focus back to
   // whatever opened it (the card), since Basecoat's trigger is hidden.
-  new MutationObserver(() => {
+  const closed = new MutationObserver(() => {
     if (open.getAttribute('aria-expanded') === 'true') return;
     tags.close();
     if (closeFocus && root.contains(document.activeElement)) closeFocus();
-  }).observe(open, {
+  });
+  closed.observe(open, {
     attributes: true,
     attributeFilter: ['aria-expanded'],
   });
+  onCleanup(() => closed.disconnect());
   root.place = () => {
     placeUnderTrigger();
     tags.close();
@@ -193,10 +216,10 @@ function MoveMenu(s: () => Session | null, trigger: Record<string, string>, ...f
   return {
     root,
     openAt,
-    onCloseFocus(fn) {
+    onCloseFocus(fn: () => void) {
       closeFocus = fn;
     },
-    anchorAt(fn) {
+    anchorAt(fn: () => HTMLElement) {
       anchor = fn;
     },
   };
@@ -204,13 +227,22 @@ function MoveMenu(s: () => Session | null, trigger: Record<string, string>, ...f
 
 // A card's menu: its trigger is hidden; the card opens it at the pointer.
 export const CardMenu = (s: Session): CardMenuHandle =>
-  MoveMenu(() => s, { hidden: 'true', tabindex: '-1', 'aria-hidden': 'true' });
+  MoveMenu(() => s, { hidden: '', tabindex: '-1', 'aria-hidden': 'true' });
 
 // The drawer bar's button: the active card's status, by name.
 export const DrawerMoveButton = (s: () => Session | null): HTMLElement =>
   MoveMenu(s, { class: 'btn drawer-move', 'data-variant': 'ghost', 'data-size': 'sm', title: 'Move to…' }, () => {
-    const status = s()?.card.val.status ?? 'backlog';
-    return span({ class: 'drawer-move-label' }, statusGlyph(status), STATUS_NAMES[status], icons.chevronDown());
+    const status = () => {
+      const session = s();
+      return session ? fromVan(session.card)().status : 'backlog';
+    };
+    return (
+      <span class="drawer-move-label">
+        <StatusGlyph status={status()} />
+        {STATUS_NAMES[status()]}
+        {icons.chevronDown()}
+      </span>
+    );
   }).root;
 
 // A fixed popover doesn't move with the page: as the board scrolls or the

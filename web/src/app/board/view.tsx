@@ -2,6 +2,8 @@
 // to its terminal; dragging one sets its status and its place in the tab
 // order. Its columns, cards and setup screen follow the sessions' states.
 // Names and notes are user text: child strings only.
+import { createEffect, createMemo, createSignal, For, type JSX, on, onCleanup, Show } from 'solid-js';
+import { Portal } from 'solid-js/web';
 import van, { type State } from 'vanjs-core';
 import { DOCS_URL } from '../../site.ts';
 import { api } from '../daemon/client.ts';
@@ -16,7 +18,7 @@ import type { BoardLayout } from '../settings/schema.ts';
 import { current, keyHint, onSaved, saveSetting } from '../settings/settings.ts';
 import { phone } from '../ui/dom.ts';
 import { glyph, icons, providerIcon } from '../ui/icons.tsx';
-import { keyed } from '../ui/keyed.ts';
+import { fromVan } from '../ui/interop.ts';
 import {
   asStatus,
   type BoardFilter,
@@ -36,10 +38,8 @@ import {
   since,
   tagsInUse,
 } from './model.ts';
-import { CardMenu, type CardMenuHandle } from './move-menu.ts';
+import { CardMenu, type CardMenuHandle } from './move-menu.tsx';
 import { setStatus } from './status.ts';
-
-const { a, article, button, div, h2, header, i, input, label, p, section, span } = van.tags;
 
 // Whether the board is shown (else the terminals are): set only by the
 // router's view step.
@@ -47,6 +47,11 @@ export const shown: State<boolean> = van.state(false);
 // Whether the active tab's terminal shows in a drawer beside the board: set
 // only by the router's drawer step.
 export const drawer: State<boolean> = van.state(false);
+// A new value each time the view or drawer step brings the terminal into
+// view: the board then fits and focuses it. Written by the last of those
+// steps to run, after `shown` and `drawer`, so VanJS flushes those (and the
+// page shows them) before this is heard.
+const viewTurn = van.state({});
 // Unix seconds, ticking every 30 s: keeps "time in status" fresh.
 const now = van.state(Math.floor(Date.now() / 1000));
 // Until the board is onboarded it shows its setup screen.
@@ -70,6 +75,11 @@ const saved = loadFilter();
 const filterTags: State<string[]> = van.state(saved.tags);
 const filterFolders: State<string[]> = van.state(saved.folders);
 const filterOpen: State<boolean> = van.state(false);
+// What the open filter menu lists: the tags and folders in use when it opened.
+const [filterChoices, setFilterChoices] = createSignal<{ tags: string[]; folders: string[] }>({
+  tags: [],
+  folders: [],
+});
 let filterMenu: HTMLElement | null = null;
 // Columns side by side, or one list of rows under each status's heading.
 export const layout: State<BoardLayout> = van.state(current.saved.boardLayout);
@@ -105,97 +115,137 @@ export function setNewCard(fn: (status: Status) => void): void {
 export const boardOpen = (): boolean => shown.val;
 
 function closeFilterMenu(): void {
-  filterMenu?.remove();
   filterMenu = null;
   filterOpen.val = false;
 }
 
-function checkRow(text: string, on: boolean, color: string | null, change: (on: boolean) => void): HTMLElement {
-  const box = input({ type: 'checkbox', class: 'input', checked: on, onchange: () => change(box.checked) });
-  const dot = i();
-  if (color) dot.style.background = color;
-  return label({ class: `label menu-check${color ? '' : ' repo'}` }, box, dot, span(text));
+function CheckRow(props: {
+  text: string;
+  checked: boolean;
+  color: string | null;
+  change: (checked: boolean) => void;
+}): JSX.Element {
+  const dot = props.color ? `background:${props.color}` : '';
+  let box!: HTMLInputElement;
+  return (
+    <label class={`label menu-check${props.color ? '' : ' repo'}`}>
+      <input
+        ref={box}
+        type="checkbox"
+        class="input"
+        checked={props.checked}
+        on:change={() => props.change(box.checked)}
+      />
+      <i style={dot} />
+      <span>{props.text}</span>
+    </label>
+  );
 }
 
-function toggleFilter(kind: 'tags' | 'folders', value: string, on: boolean): void {
+function toggleFilter(kind: 'tags' | 'folders', value: string, checked: boolean): void {
   const cur = kind === 'tags' ? filterTags : filterFolders;
   const list = cur.val.filter((x) => x !== value);
-  cur.val = on ? [...list, value] : list;
+  cur.val = checked ? [...list, value] : list;
   saveFilter();
 }
 
 // Beside Settings: tags and folders in use, each a checkbox. Checking one
 // narrows the columns; the menu stays open so several can be checked.
 function openFilterMenu(): void {
-  closeFilterMenu();
   const items = sessionList.val.map((s) => ({ card: s.card.val, tags: s.tags.val }));
   const tags = tagsInUse(items);
   const folders = foldersOf(items);
   filterTags.val = filterTags.val.filter((t) => tags.includes(t));
   filterFolders.val = filterFolders.val.filter((f) => folders.includes(f));
   saveFilter();
-  const parts: HTMLElement[] = [];
-  if (tags.length) {
-    parts.push(
-      div({ class: 'menu-heading' }, 'Tags'),
-      div(
-        { class: 'menu-list' },
-        ...tags.map((tag) =>
-          checkRow(tag, filterTags.val.includes(tag), tagColor(tag), (on) => toggleFilter('tags', tag, on)),
-        ),
-      ),
-    );
-  }
-  if (folders.length) {
-    if (parts.length) parts.push(div({ class: 'menu-sep' }));
-    parts.push(
-      div({ class: 'menu-heading' }, 'Folders'),
-      div(
-        { class: 'menu-list' },
-        ...folders.map((folder) =>
-          checkRow(shortPath(folder) || folder, filterFolders.val.includes(folder), null, (on) =>
-            toggleFilter('folders', folder, on),
-          ),
-        ),
-      ),
-    );
-  }
-  if (!parts.length) parts.push(div({ class: 'menu-hint' }, 'No tags or folders yet'));
-  const menu = div(
-    { class: 'row-menu tab-menu board-filter-menu', role: 'dialog', 'aria-label': 'Filter cards' },
-    ...parts,
-  );
-  document.body.append(menu);
-  const r = (document.getElementById('board-filter-btn') as HTMLElement).getBoundingClientRect();
-  menu.style.top = `${r.bottom + 4}px`;
-  menu.style.left = `${Math.max(8, r.right - menu.offsetWidth)}px`;
-  filterMenu = menu;
+  setFilterChoices({ tags, folders });
   filterOpen.val = true;
 }
 
-// Shown only while the board is open and past its setup screen.
-export function FilterButton(): HTMLElement {
-  return button(
-    {
-      type: 'button',
-      class: 'btn',
-      'data-variant': 'ghost',
-      'data-size': 'icon-sm',
-      'aria-label': 'Filter',
-      title: 'Filter',
-      id: 'board-filter-btn',
-      'aria-expanded': () => String(filterOpen.val),
-      'aria-pressed': () => String(filterTags.val.length > 0 || filterFolders.val.length > 0),
-      hidden: () => !(shown.val && onboarded.val),
-      onclick: () => (filterOpen.val ? closeFilterMenu() : openFilterMenu()),
-    },
-    icons.listFilter(),
+// The open filter menu, on the page's body: its rows are checked as the
+// filter was when it opened, and stay as they're toggled.
+function FilterMenu(): JSX.Element {
+  const { tags, folders } = filterChoices();
+  const checkedTags = fromVan(filterTags)();
+  const checkedFolders = fromVan(filterFolders)();
+  return (
+    <Portal
+      ref={(host) => {
+        const menu = host.firstElementChild as HTMLElement;
+        const r = (document.getElementById('board-filter-btn') as HTMLElement).getBoundingClientRect();
+        menu.style.top = `${r.bottom + 4}px`;
+        menu.style.left = `${Math.max(8, r.right - menu.offsetWidth)}px`;
+        filterMenu = menu;
+      }}
+    >
+      <div class="row-menu tab-menu board-filter-menu" role="dialog" aria-label="Filter cards">
+        <Show when={tags.length}>
+          <div class="menu-heading">Tags</div>
+          <div class="menu-list">
+            {tags.map((tag) => (
+              <CheckRow
+                text={tag}
+                checked={checkedTags.includes(tag)}
+                color={tagColor(tag)}
+                change={(checked) => toggleFilter('tags', tag, checked)}
+              />
+            ))}
+          </div>
+        </Show>
+        <Show when={folders.length}>
+          <Show when={tags.length}>
+            <div class="menu-sep" />
+          </Show>
+          <div class="menu-heading">Folders</div>
+          <div class="menu-list">
+            {folders.map((folder) => (
+              <CheckRow
+                text={shortPath(folder) || folder}
+                checked={checkedFolders.includes(folder)}
+                color={null}
+                change={(checked) => toggleFilter('folders', folder, checked)}
+              />
+            ))}
+          </div>
+        </Show>
+        <Show when={!tags.length && !folders.length}>
+          <div class="menu-hint">No tags or folders yet</div>
+        </Show>
+      </div>
+    </Portal>
   );
 }
 
-// The Board button's icon: the list's while the board shows as a list, else
-// the columns'.
-export const boardIcon = (): SVGSVGElement => (shown.val && layout.val === 'list' ? icons.rows() : icons.board());
+// Shown only while the board is open and past its setup screen.
+export function FilterButton(): JSX.Element {
+  const open = fromVan(filterOpen);
+  const tags = fromVan(filterTags);
+  const folders = fromVan(filterFolders);
+  const board = fromVan(shown);
+  const ready = fromVan(onboarded);
+  return (
+    <>
+      <button
+        type="button"
+        class="btn"
+        data-variant="ghost"
+        data-size="icon-sm"
+        aria-label="Filter"
+        title="Filter"
+        id="board-filter-btn"
+        aria-expanded={open()}
+        aria-pressed={tags().length > 0 || folders().length > 0}
+        hidden={!(board() && ready())}
+        onClick={() => (filterOpen.val ? closeFilterMenu() : openFilterMenu())}
+      >
+        {icons.listFilter()}
+      </button>
+      <Show when={open()}>
+        <FilterMenu />
+      </Show>
+    </>
+  );
+}
 
 // The board's other layout: columns or list.
 export function toggleBoardLayout(): void {
@@ -221,23 +271,17 @@ export function toggleBoard(open = !boardOpen()): void {
 
 function showBoard(open: boolean): void {
   shown.val = open;
-  if (!open) closeFilterMenu();
   if (open) return;
-  // The terminals show once VanJS applies the state, in a microtask queued
-  // before this one: fit and focus the active one then.
-  queueMicrotask(() => {
-    const term = onScreen();
-    if (shown.val || !term) return;
-    sendSize(term);
-    term.term.focus();
-  });
+  closeFilterMenu();
+  // With the drawer open, the drawer step follows to close it, and turns then.
+  if (!drawer.val) viewTurn.val = {};
 }
 
-const statusGlyph = (status: Status | (() => Status)) =>
-  i(
-    { class: 'status-glyph', 'data-status': status },
-    typeof status === 'function' ? () => glyph(status()) : glyph(status),
-  );
+const StatusGlyph = (props: { status: Status }): JSX.Element => (
+  <i class="status-glyph" data-status={props.status}>
+    {glyph(props.status)}
+  </i>
+);
 
 // Each card's check for a cut-off title or note, run again whenever the
 // board's size changes (shown, hidden, the window resized).
@@ -280,11 +324,20 @@ const resized = new ResizeObserver(() => {
 // What a card and a row share: a click or Enter opens its terminal in the
 // drawer, it drags to a new status or place, and right-clicking (or
 // long-pressing on a phone) opens its menu at the pointer. Shift+F10 opens it
-// for the keyboard.
+// for the keyboard. Its own click is delegated; its menu stops clicks at its
+// root, so they never reach it.
 const LONG_PRESS_MS = 500;
 const PRESS_SLOP_PX = 8;
 
-function cardProps(s: Session, cls: string, el: () => HTMLElement, menu: CardMenuHandle) {
+function CardFrame(props: {
+  session: Session;
+  class: string;
+  ref: (el: HTMLElement) => void;
+  children: JSX.Element;
+}): JSX.Element {
+  const s = props.session;
+  const menu: CardMenuHandle = CardMenu(s);
+  let el!: HTMLElement;
   // A long press opens the menu; the click that follows lifting must not open
   // the card (nor close the menu as an outside click).
   let press: { id: number; x: number; y: number; timer: number } | null = null;
@@ -293,118 +346,157 @@ function cardProps(s: Session, cls: string, el: () => HTMLElement, menu: CardMen
     if (press) window.clearTimeout(press.timer);
     press = null;
   };
-  menu.onCloseFocus(() => el().focus({ preventScroll: true }));
-  menu.anchorAt(() => el());
-  return {
-    class: cls,
-    draggable: true,
-    tabindex: '0',
-    'aria-haspopup': 'menu',
-    'aria-keyshortcuts': 'Shift+F10 ContextMenu',
-    'data-id': s.id,
-    oncontextmenu: (e: MouseEvent) => {
-      e.preventDefault();
-      menu.openAt(e.clientX, e.clientY);
-    },
-    onpointerdown: (e: PointerEvent) => {
-      if (e.pointerType !== 'touch' || !e.isPrimary) return;
-      if ((e.target as Element).closest('button, a, input, .move-menu')) return;
-      cancelPress();
-      const { pointerId: id, clientX: x, clientY: y } = e;
-      const timer = window.setTimeout(() => {
-        press = null;
-        ignoreClickUntil = performance.now() + 800;
-        menu.openAt(x, y);
-      }, LONG_PRESS_MS);
-      press = { id, x, y, timer };
-    },
-    onpointermove: (e: PointerEvent) => {
-      if (press && e.pointerId === press.id && Math.hypot(e.clientX - press.x, e.clientY - press.y) > PRESS_SLOP_PX)
-        cancelPress();
-    },
-    onpointerup: (e: PointerEvent) => {
-      if (press && e.pointerId === press.id) cancelPress();
-    },
-    onpointercancel: cancelPress,
-    onclick: (e: MouseEvent) => {
-      if (performance.now() < ignoreClickUntil) {
+  onCleanup(cancelPress);
+  menu.onCloseFocus(() => el.focus({ preventScroll: true }));
+  menu.anchorAt(() => el);
+  return (
+    <article
+      ref={(node) => {
+        el = node;
+        props.ref(node);
+      }}
+      class={props.class}
+      draggable={true}
+      tabindex="0"
+      aria-haspopup="menu"
+      aria-keyshortcuts="Shift+F10 ContextMenu"
+      data-id={s.id}
+      onContextMenu={(e) => {
         e.preventDefault();
-        e.stopPropagation();
-        return;
-      }
-      go({ tab: s.id, drawer: true });
-    },
-    onkeydown: (e: KeyboardEvent) => {
-      if (e.target !== el()) return;
-      if (e.key === 'Enter') {
-        el().click();
-        return;
-      }
-      if (e.key !== 'ContextMenu' && !(e.shiftKey && e.key === 'F10')) return;
-      e.preventDefault();
-      const r = el().getBoundingClientRect();
-      menu.openAt(r.right - 8, r.top + 8, true);
-    },
-    ondragstart: (e: DragEvent) => {
-      e.dataTransfer?.setData(CARD_DRAG, s.id);
-      el().classList.add('dragging');
-    },
-    ondragend: () => {
-      el().classList.remove('dragging');
-      clearDropMarks();
-    },
-  };
+        menu.openAt(e.clientX, e.clientY);
+      }}
+      onPointerDown={(e) => {
+        if (e.pointerType !== 'touch' || !e.isPrimary) return;
+        if ((e.target as Element).closest('button, a, input, .move-menu')) return;
+        cancelPress();
+        const { pointerId: id, clientX: x, clientY: y } = e;
+        const timer = window.setTimeout(() => {
+          press = null;
+          ignoreClickUntil = performance.now() + 800;
+          menu.openAt(x, y);
+        }, LONG_PRESS_MS);
+        press = { id, x, y, timer };
+      }}
+      onPointerMove={(e) => {
+        if (press && e.pointerId === press.id && Math.hypot(e.clientX - press.x, e.clientY - press.y) > PRESS_SLOP_PX)
+          cancelPress();
+      }}
+      onPointerUp={(e) => {
+        if (press && e.pointerId === press.id) cancelPress();
+      }}
+      on:pointercancel={cancelPress}
+      // Native, so stopping it here keeps it from the page: Basecoat's
+      // outside click on the document would close the menu just opened.
+      on:click={(e) => {
+        if (performance.now() < ignoreClickUntil) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }}
+      onClick={() => go({ tab: s.id, drawer: true })}
+      onKeyDown={(e) => {
+        if (e.target !== el) return;
+        if (e.key === 'Enter') {
+          el.click();
+          return;
+        }
+        if (e.key !== 'ContextMenu' && !(e.shiftKey && e.key === 'F10')) return;
+        e.preventDefault();
+        const r = el.getBoundingClientRect();
+        menu.openAt(r.right - 8, r.top + 8, true);
+      }}
+      on:dragstart={(e) => {
+        e.dataTransfer?.setData(CARD_DRAG, s.id);
+        el.classList.add('dragging');
+      }}
+      on:dragend={() => {
+        el.classList.remove('dragging');
+        clearDropMarks();
+      }}
+    >
+      {props.children}
+      {menu.root}
+    </article>
+  );
 }
 
-const agentIcon = (s: Session) => () => {
-  const agent = s.card.val.agent;
-  return agent ? span({ class: 'card-agent', title: agent }, providerIcon(agent)()) : '';
-};
+function AgentIcon(props: { session: Session }): JSX.Element {
+  const card = fromVan(props.session.card);
+  const agent = createMemo(() => card().agent);
+  return (
+    <Show when={agent()} keyed>
+      {(name) => (
+        <span class="card-agent" title={name}>
+          {providerIcon(name)()}
+        </span>
+      )}
+    </Show>
+  );
+}
+
+// The badges of a card's tags; a row's also hold the pill its overflow
+// collapses into (`layoutTags`). Called in a binding, so a change of tags
+// rebuilds it whole.
+function tagBox(tags: string[], pill: boolean): JSX.Element {
+  if (!tags.length) return null;
+  const badges = tags.map((t) => tagBadge(t));
+  return pill ? (
+    <span class="card-tags">
+      {badges}
+      <span class="badge tag-more" hidden />
+    </span>
+  ) : (
+    <div class="card-tags">{badges}</div>
+  );
+}
 
 // A card in the list layout: status and name, then note, tags, folder, agent
 // and time. On a wide row the note follows the name and the rest sits on the
 // right. On a narrow one they wrap to the next line: the note under the name,
 // the rest at the bottom right. Tags and the folder still collapse when they
 // themselves clip.
-function Row(s: Session): HTMLElement {
-  const status = van.derive(() => s.card.val.status);
-  const menu = CardMenu(s);
-  const row: HTMLElement = article(
-    cardProps(s, 'board-card board-row', () => row, menu),
-    statusGlyph(() => status.val),
-    span({ class: 'card-title', title: () => s.name.val }, () => s.name.val),
-    div(
-      { class: 'row-end' },
-      () => (s.card.val.note ? span({ class: 'row-note' }, s.card.val.note) : ''),
-      () =>
-        s.tags.val.length
-          ? span(
-              { class: 'card-tags' },
-              s.tags.val.map((t) => tagBadge(t)),
-              span({ class: 'badge tag-more', hidden: true }),
-            )
-          : '',
-      span(
-        {
-          class: 'card-meta row-folder',
-          'data-path': () => shortPath(s.card.val.cwd) || '~',
-        },
-        icons.folder(),
-        span(() => folderName(s.card.val.cwd) || '~'),
-      ),
-      span({ class: 'card-meta' }, agentIcon(s)),
-      span({ class: 'card-meta row-since' }, () => since(s.card.val.statusAt, now.val)),
-    ),
-    menu.root,
+function Row(props: { session: Session }): JSX.Element {
+  const s = props.session;
+  const card = fromVan(s.card);
+  const name = fromVan(s.name);
+  const tags = fromVan(s.tags);
+  const time = fromVan(now);
+  const status = createMemo(() => card().status);
+  const cwd = createMemo(() => card().cwd);
+  let row!: HTMLElement;
+  const fit = () => fitRowEnd(row, tags());
+  createEffect(
+    on([tags, cwd], () => {
+      requestAnimationFrame(fit);
+    }),
   );
-  const fit = () => fitRowEnd(row, s.tags.val);
-  measures.set(row, fit);
-  van.derive(() => {
-    s.tags.val;
-    s.card.val.cwd;
-    requestAnimationFrame(fit);
-  });
-  return row;
+  return (
+    <CardFrame
+      session={s}
+      class="board-card board-row"
+      ref={(el) => {
+        row = el;
+        measures.set(el, fit);
+      }}
+    >
+      <StatusGlyph status={status()} />
+      <span class="card-title" title={name()}>
+        {name()}
+      </span>
+      <div class="row-end">
+        <Show when={card().note}>{(note) => <span class="row-note">{note()}</span>}</Show>
+        {tagBox(tags(), true)}
+        <span class="card-meta row-folder" data-path={shortPath(cwd()) || '~'}>
+          {icons.folder()}
+          <span>{folderName(cwd()) || '~'}</span>
+        </span>
+        <span class="card-meta">
+          <AgentIcon session={s} />
+        </span>
+        <span class="card-meta row-since">{since(card().statusAt, time())}</span>
+      </div>
+    </CardFrame>
+  );
 }
 
 // Tags that don't fit collapse into colored dots; hovering them lists those
@@ -435,7 +527,14 @@ let hideTagPop = 0;
 let closeTagPopOnScroll: (() => void) | null = null;
 
 function paintPill(more: HTMLElement, names: string[]): void {
-  more.replaceChildren(...names.map((name) => i({ style: `--tag: ${tagColor(name)}`, 'aria-hidden': 'true' })));
+  more.replaceChildren(
+    ...names.map((name) => {
+      const dot = document.createElement('i');
+      dot.style.setProperty('--tag', tagColor(name));
+      dot.setAttribute('aria-hidden', 'true');
+      return dot;
+    }),
+  );
   if (names.length) more.setAttribute('aria-label', names.join(', '));
   else more.removeAttribute('aria-label');
   overflowNames.set(more, names);
@@ -460,24 +559,22 @@ function openTagPop(more: HTMLElement): void {
   const names = overflowNames.get(more) ?? [];
   if (names.length === 0 || more.hidden) return;
   closeTagPop();
-  tagPop = div(
-    {
-      class: 'tag-more-pop',
-      role: 'tooltip',
-      onmouseenter: () => window.clearTimeout(hideTagPop),
-      onmouseleave: () => scheduleHideTagPop(),
-    },
-    names.map((name) => tagBadge(name)),
-  );
-  document.body.append(tagPop);
+  const pop = document.createElement('div');
+  pop.className = 'tag-more-pop';
+  pop.setAttribute('role', 'tooltip');
+  pop.addEventListener('mouseenter', () => window.clearTimeout(hideTagPop));
+  pop.addEventListener('mouseleave', () => scheduleHideTagPop());
+  pop.append(...names.map((name) => tagBadge(name)));
+  tagPop = pop;
+  document.body.append(pop);
   const r = more.getBoundingClientRect();
-  const w = tagPop.offsetWidth;
-  const h = tagPop.offsetHeight;
+  const w = pop.offsetWidth;
+  const h = pop.offsetHeight;
   const left = Math.max(8, Math.min(r.left, innerWidth - w - 8));
   let top = r.bottom + 6;
   if (top + h > innerHeight - 8) top = Math.max(8, r.top - h - 6);
-  tagPop.style.left = `${left}px`;
-  tagPop.style.top = `${top}px`;
+  pop.style.left = `${left}px`;
+  pop.style.top = `${top}px`;
   closeTagPopOnScroll = () => closeTagPop();
   window.addEventListener('scroll', closeTagPopOnScroll, true);
 }
@@ -539,71 +636,75 @@ function layoutTags(box: HTMLElement, names: string[]): void {
 // A card: its session's name, status, folder, note and time in status. Its
 // title and note are clamped to two lines, with Show more when either is cut
 // off.
-function Card(s: Session): HTMLElement {
+function Card(props: { session: Session }): JSX.Element {
+  const s = props.session;
+  const card = fromVan(s.card);
+  const name = fromVan(s.name);
+  const tags = fromVan(s.tags);
+  const time = fromVan(now);
   // Only a change of status redraws the glyph (a new note doesn't).
-  const status = van.derive(() => s.card.val.status);
-  const note = van.derive(() => s.card.val.note);
-  const open = van.state(false);
-  const cut = van.state(false);
-  const menu = CardMenu(s);
-  const card: HTMLElement = article(
-    cardProps(s, 'board-card', () => card, menu),
-    div(
-      { class: 'card-top' },
-      span({ class: 'card-title' }, () => s.name.val),
-      statusGlyph(() => status.val),
-    ),
-    div(
-      { class: 'card-meta' },
-      icons.folder(),
-      span(() => shortPath(s.card.val.cwd) || '~'),
-    ),
-    () =>
-      s.tags.val.length
-        ? div(
-            { class: 'card-tags' },
-            s.tags.val.map((t) => tagBadge(t)),
-          )
-        : '',
-    () => (note.val ? div({ class: 'card-note' }, note.val) : ''),
-    () =>
-      cut.val || open.val
-        ? button(
-            {
-              type: 'button',
-              class: 'card-more',
-              onclick: (e: MouseEvent) => {
-                e.stopPropagation();
-                open.val = !open.val;
-              },
-              onkeydown: (e: KeyboardEvent) => e.stopPropagation(), // Enter/Space on the button must not open the card
-            },
-            () => (open.val ? 'Show less' : 'Show more'),
-          )
-        : '',
-    div({ class: 'card-meta' }, agentIcon(s), () => since(s.card.val.statusAt, now.val)),
-    menu.root,
-  );
+  const status = createMemo(() => card().status);
+  const note = createMemo(() => card().note);
+  const [open, setOpen] = createSignal(false);
+  const [cut, setCut] = createSignal(false);
+  let el!: HTMLElement;
   // A clamped box reports no overflow in scrollHeight, so this compares its
   // text's height with the clamp lifted. Hidden (height 0), nothing is cut.
   const measure = () => {
-    const texts = [...card.querySelectorAll<HTMLElement>('.card-title, .card-note')];
+    const texts = [...el.querySelectorAll<HTMLElement>('.card-title, .card-note')];
     const heights = () => texts.map((t) => t.clientHeight);
-    card.classList.remove('expanded');
+    el.classList.remove('expanded');
     const clamped = heights();
-    card.classList.add('expanded');
+    el.classList.add('expanded');
     const full = heights();
-    card.classList.toggle('expanded', open.val);
-    cut.val = full.some((h, j) => h > clamped[j] + 1);
+    el.classList.toggle('expanded', open());
+    setCut(full.some((h, j) => h > clamped[j] + 1));
   };
-  measures.set(card, measure);
-  van.derive(() => card.classList.toggle('expanded', open.val));
-  van.derive(() => {
-    s.name.val;
-    note.val;
-    requestAnimationFrame(measure); // once the new text is laid out
-  });
-  return card;
+  createEffect(() => el.classList.toggle('expanded', open()));
+  createEffect(
+    on([name, note], () => {
+      requestAnimationFrame(measure); // once the new text is laid out
+    }),
+  );
+  return (
+    <CardFrame
+      session={s}
+      class="board-card"
+      ref={(node) => {
+        el = node;
+        measures.set(node, measure);
+      }}
+    >
+      <div class="card-top">
+        <span class="card-title">{name()}</span>
+        <StatusGlyph status={status()} />
+      </div>
+      <div class="card-meta">
+        {icons.folder()}
+        <span>{shortPath(card().cwd) || '~'}</span>
+      </div>
+      {tagBox(tags(), false)}
+      <Show when={note()}>{(text) => <div class="card-note">{text()}</div>}</Show>
+      <Show when={cut() || open()}>
+        <button
+          type="button"
+          class="card-more"
+          // Native and stopped: the card's own click must not open it.
+          on:click={(e) => {
+            e.stopPropagation();
+            setOpen(!open());
+          }}
+          on:keydown={(e) => e.stopPropagation()} // Enter/Space on the button must not open the card
+        >
+          {open() ? 'Show less' : 'Show more'}
+        </button>
+      </Show>
+      <div class="card-meta">
+        <AgentIcon session={s} />
+        {since(card().statusAt, time())}
+      </div>
+    </CardFrame>
+  );
 }
 
 // The card the pointer is above the middle of, in `list`: the drop goes
@@ -653,96 +754,107 @@ type Columns = Record<Status, Session[]>;
 
 const ADDABLE: Status[] = ['backlog', 'in_progress'];
 
-function newCardButton(status: Status, name: string): HTMLButtonElement {
-  const btn = button(
-    {
-      type: 'button',
-      class: 'btn',
-      'data-variant': 'ghost',
-      'data-size': 'icon-xs',
-      title: `New card in ${name}`,
-      'aria-label': `New card in ${name}`,
-      onclick: () => newCard(status),
-    },
-    icons.plus(),
+function NewCardButton(props: { status: Status; name: string }): JSX.Element {
+  const { status, name } = props;
+  return (
+    <button
+      ref={(btn) => {
+        // The shortcut opens Backlog's dialog; In progress is only its own button.
+        if (status === 'backlog') keyHint(btn, `New card in ${name}`, 'keyNewCard');
+      }}
+      type="button"
+      class="btn"
+      data-variant="ghost"
+      data-size="icon-xs"
+      title={`New card in ${name}`}
+      aria-label={`New card in ${name}`}
+      onClick={() => newCard(status)}
+    >
+      {icons.plus()}
+    </button>
   );
-  // The shortcut opens Backlog's dialog; In progress is only its own button.
-  if (status === 'backlog') keyHint(btn, `New card in ${name}`, 'keyNewCard');
-  return btn;
 }
 
 // A status's cards: a column of cards, or in the list layout a heading over
 // its rows, which the heading folds away.
-function Column(status: Status, name: string, columns: State<Columns>, asList: boolean): HTMLElement {
-  const folded = () => asList && collapsed.val.includes(status);
-  const list = div({ class: 'board-cards', hidden: folded });
-  keyed(
-    list,
-    () => columns.val[status],
-    (s) => s.id,
-    (s) => (asList ? Row(s) : Card(s)),
-  );
+function Column(props: { status: Status; name: string; columns: () => Columns; asList: boolean }): JSX.Element {
+  const { status, name, columns, asList } = props;
+  const folds = fromVan(collapsed);
+  const folded = () => asList && folds().includes(status);
+  const count = () => String(columns()[status].length);
+  let list!: HTMLDivElement;
+  let col!: HTMLElement;
+  const lists = (
+    <div ref={list} class="board-cards" hidden={folded()}>
+      <For each={columns()[status]}>{(s) => (asList ? <Row session={s} /> : <Card session={s} />)}</For>
+    </div>
+  ) as HTMLElement;
   list.addEventListener('scroll', () => updateListFades(list), { passive: true });
   listSized.observe(list);
   // Cards coming and going change the list's height without resizing it.
-  new MutationObserver((changes) => {
+  const cardsMoved = new MutationObserver((changes) => {
     for (const c of changes) {
       for (const n of c.addedNodes) if (n instanceof Element) listSized.observe(n);
       for (const n of c.removedNodes) if (n instanceof Element) listSized.unobserve(n);
     }
     updateListFades(list);
-  }).observe(list, { childList: true });
+  });
+  cardsMoved.observe(list, { childList: true });
   for (const c of list.children) listSized.observe(c);
-  const col: HTMLElement = section(
-    {
-      class: 'board-col',
-      'data-status': status,
-      ondragover: (e: DragEvent) => {
+  onCleanup(() => {
+    cardsMoved.disconnect();
+    listSized.unobserve(list);
+    for (const c of list.children) listSized.unobserve(c);
+    resized.unobserve(col);
+  });
+  const header = asList ? (
+    <button type="button" class="col-toggle" aria-expanded={!folded()} onClick={() => toggleCollapsed(status)}>
+      {icons.chevronDown()}
+      <StatusGlyph status={status} />
+      <span class="col-name">{name}</span>
+      <span class="col-count">{count()}</span>
+    </button>
+  ) : (
+    <>
+      <StatusGlyph status={status} />
+      <span class="col-name">{name}</span>
+      <span class="col-count">{count()}</span>
+    </>
+  );
+  const node = (
+    <section
+      ref={col}
+      class="board-col"
+      data-status={status}
+      on:dragover={(e) => {
         e.preventDefault();
         clearDropMarks();
         if (folded()) return void col.classList.add('drop-into');
         const before = cardBefore(list, e.clientY);
         if (before) before.classList.add('drop-before');
         else list.classList.add('drop-end');
-      },
-      ondragleave: (e: DragEvent) => !col.contains(e.relatedTarget as Node) && clearDropMarks(),
-      ondrop: (e: DragEvent) => {
+      }}
+      on:dragleave={(e) => !col.contains(e.relatedTarget as Node) && clearDropMarks()}
+      on:drop={(e) => {
         e.preventDefault();
         const before = cardBefore(list, e.clientY)?.dataset.id ?? null; // while the dragged card is still marked
         endDrag();
         const id = e.dataTransfer?.getData(CARD_DRAG);
         if (id) void move(id, status, before);
-      },
-    },
-    header(
-      asList
-        ? button(
-            {
-              type: 'button',
-              class: 'col-toggle',
-              'aria-expanded': () => String(!folded()),
-              onclick: () => toggleCollapsed(status),
-            },
-            icons.chevronDown(),
-            statusGlyph(status),
-            span({ class: 'col-name' }, name),
-            span({ class: 'col-count' }, () => String(columns.val[status].length)),
-          )
-        : [
-            statusGlyph(status),
-            span({ class: 'col-name' }, name),
-            span({ class: 'col-count' }, () => String(columns.val[status].length)),
-          ],
-      // New cards start in Backlog or In progress; the others are reached by
-      // moving a card.
-      ADDABLE.includes(status) ? newCardButton(status, name) : '',
-    ),
-    list,
+      }}
+    >
+      <header>
+        {header}
+        {/* New cards start in Backlog or In progress; the others are reached by moving a card. */}
+        {ADDABLE.includes(status) && <NewCardButton status={status} name={name} />}
+      </header>
+      {lists}
+    </section>
   );
   // In the list layout, rows coming, going or folding move the board's own
   // scroll end.
   if (asList) resized.observe(col);
-  return col;
+  return node;
 }
 
 // Until the board is onboarded (the `boardOnboarded` setting), it shows this
@@ -776,51 +888,49 @@ export async function openSetupCard(opts: {
   }
 }
 
-function Onboarding(): HTMLElement {
-  const busy = van.state(false);
+function Onboarding(): JSX.Element {
+  const [busy, setBusy] = createSignal(false);
   async function setUp(): Promise<void> {
-    busy.val = true;
+    setBusy(true);
     const s = await openSetupCard({ command: DEFAULT_COMMAND, focus: false });
     if (!s) {
-      busy.val = false;
+      setBusy(false);
       return;
     }
     saveSetting('boardOnboarded', true);
     await setStatus(s, 'in_progress').catch(console.error); // starts its agent; the board stays open
   }
   // The shape of shadcn's Empty: header (icon, title, description), content, link.
-  return div(
-    { class: 'board-onboarding' },
-    div(
-      { class: 'board-onboarding-header' },
-      div({ class: 'board-onboarding-icon' }, icons.boardOnboarding()),
-      h2('Connect your agents'),
-      p(
-        'Cards move on their own when your coding agent reports what it is doing. Let Claude Code wire up its own hooks to get started.',
-      ),
-    ),
-    div(
-      { class: 'board-onboarding-actions' },
-      button(
-        { type: 'button', class: 'btn', 'data-size': 'sm', disabled: () => busy.val, onclick: () => void setUp() },
-        'Set up with Claude Code',
-      ),
-      button(
-        {
-          type: 'button',
-          class: 'btn',
-          'data-variant': 'outline',
-          'data-size': 'sm',
-          onclick: () => saveSetting('boardOnboarded', true),
-        },
-        'Skip',
-      ),
-    ),
-    a(
-      { class: 'board-onboarding-more', href: BOARD_DOCS, target: '_blank', rel: 'noopener noreferrer' },
-      'Learn more',
-      icons.arrowUpRight(),
-    ),
+  return (
+    <div class="board-onboarding">
+      <div class="board-onboarding-header">
+        <div class="board-onboarding-icon">{icons.boardOnboarding()}</div>
+        <h2>Connect your agents</h2>
+        <p>
+          Cards move on their own when your coding agent reports what it is doing. Let Claude Code wire up its own hooks
+          to get started.
+        </p>
+      </div>
+      <div class="board-onboarding-actions">
+        <button type="button" class="btn" data-size="sm" disabled={busy()} onClick={() => void setUp()}>
+          Set up with Claude Code
+        </button>
+        <button
+          type="button"
+          class="btn"
+          data-variant="outline"
+          data-size="sm"
+          onClick={() => saveSetting('boardOnboarded', true)}
+        >
+          Skip
+        </button>
+      </div>
+      {/* biome-ignore lint/a11y/noAmbiguousAnchorText: the setup screen's link to the board's docs, under its description */}
+      <a class="board-onboarding-more" href={BOARD_DOCS} target="_blank" rel="noopener noreferrer">
+        Learn more
+        {icons.arrowUpRight()}
+      </a>
+    </div>
   );
 }
 
@@ -828,51 +938,78 @@ function Onboarding(): HTMLElement {
 // or by a drop, never by a new card).
 const BOARD_COLUMNS: typeof COLUMNS = [...COLUMNS, { status: 'archived', name: 'Archived' }];
 
-// The board's parts: its setup screen, or its columns (keyed by layout too,
-// so switching layouts redraws them).
-const parts = () => BOARD_COLUMNS.map((c) => `${layout.val}:${c.status}`);
-
-export function Board(): HTMLElement {
-  const sessions = van.derive((): Columns => {
-    const filter = { tags: filterTags.val, folders: filterFolders.val };
-    const kept = sessionList.val.filter((s) => matchesFilter({ card: s.card.val, tags: s.tags.val }, filter));
-    const g = group(kept.map((s) => ({ s, card: s.card.val })));
+export function Board(): JSX.Element {
+  const isShown = fromVan(shown);
+  const inDrawer = fromVan(drawer);
+  const ready = fromVan(onboarded);
+  const shape = fromVan(layout);
+  const tagFilter = fromVan(filterTags);
+  const folderFilter = fromVan(filterFolders);
+  const list = fromVan(sessionList);
+  const sessions = createMemo((): Columns => {
+    const filter = { tags: tagFilter(), folders: folderFilter() };
+    const kept = list().filter((s) => matchesFilter({ card: fromVan(s.card)(), tags: fromVan(s.tags)() }, filter));
+    const g = group(kept.map((s) => ({ s, card: fromVan(s.card)() })));
     return Object.fromEntries(Object.entries(g).map(([k, v]) => [k, v.map((x) => x.s)])) as Columns;
   });
-  const el = section({
-    id: 'board',
-    'aria-label': 'Board',
-    hidden: () => !shown.val,
-    class: () => (layout.val === 'list' ? 'list' : ''),
-    // A click on the board's empty space closes the drawer; one on a card
-    // opens that card in it instead, and controls keep their own clicks.
-    onclick: (e: MouseEvent) => {
-      if (drawer.val && !(e.target as Element).closest('.board-card, button, a, input, .move-menu')) {
-        go({ drawer: false });
-      }
-    },
-  });
-  resized.observe(el);
-  el.addEventListener('scroll', updateBoardFades, { passive: true });
+  // Its parts: the setup screen, or its columns (keyed by layout too, so
+  // switching layouts redraws them).
+  const parts = () => (ready() ? BOARD_COLUMNS.map((c) => `${shape()}:${c.status}`) : ['onboarding']);
+  let el!: HTMLElement;
   // Columns replacing the setup screen change the scroll width without resizing the board.
-  van.derive(() => {
-    onboarded.val;
-    shown.val;
-    layout.val;
-    requestAnimationFrame(updateBoardFades);
-  });
-  keyed(
-    el,
-    () => (onboarded.val ? parts() : ['onboarding']),
-    (part) => part,
-    (part) => {
-      if (part === 'onboarding') return Onboarding();
-      const [kind, status] = part.split(':');
-      const c = BOARD_COLUMNS.find((x) => x.status === status) as (typeof COLUMNS)[number];
-      return Column(c.status, c.name, sessions, kind === 'list');
-    },
+  createEffect(
+    on([ready, isShown, shape], () => {
+      requestAnimationFrame(updateBoardFades);
+    }),
   );
-  return el;
+  // Each view turn, once the board's and the drawer's changes are on the
+  // page: the terminal now in view gets its size and the keyboard. A memo,
+  // so a mirror that fires again without a new turn doesn't take the
+  // keyboard back.
+  const turn = createMemo(fromVan(viewTurn));
+  createEffect(
+    on(
+      turn,
+      () => {
+        const term = onScreen();
+        if (!term || (isShown() && !inDrawer())) return;
+        sendSize(term);
+        term.term.focus();
+      },
+      { defer: true },
+    ),
+  );
+  onCleanup(() => resized.unobserve(el));
+  return (
+    // biome-ignore lint/a11y/useKeyWithClickEvents: a click on empty space closes the drawer; its own button does from the keyboard
+    <section
+      ref={(node) => {
+        el = node;
+        resized.observe(node);
+        node.addEventListener('scroll', updateBoardFades, { passive: true });
+      }}
+      id="board"
+      aria-label="Board"
+      hidden={!isShown()}
+      classList={{ list: shape() === 'list' }}
+      // A click on the board's empty space closes the drawer; one on a card
+      // opens that card in it instead, and controls keep their own clicks.
+      onClick={(e) => {
+        if (inDrawer() && !(e.target as Element).closest('.board-card, button, a, input, .move-menu')) {
+          go({ drawer: false });
+        }
+      }}
+    >
+      <For each={parts()}>
+        {(part) => {
+          if (part === 'onboarding') return <Onboarding />;
+          const [kind, status] = part.split(':');
+          const c = BOARD_COLUMNS.find((x) => x.status === status) as (typeof COLUMNS)[number];
+          return <Column status={c.status} name={c.name} columns={sessions} asList={kind === 'list'} />;
+        }}
+      </For>
+    </section>
+  );
 }
 
 // On a phone, the terminals view (a start view, a link, Back, a turn into
@@ -897,7 +1034,7 @@ export function initBoard(): void {
   phone.addEventListener('change', leaveTermsOnPhone);
   onPlace('drawer', (to) => {
     drawer.val = to.drawer;
-    if (to.drawer) queueMicrotask(() => onScreen()?.term.focus()); // once VanJS shows it
+    if (to.drawer || !shown.val) viewTurn.val = {};
     syncTerminalVisibility();
     return undefined;
   });

@@ -4,9 +4,9 @@
 import { createRoot } from 'solid-js';
 import { render } from 'solid-js/web';
 import { initBoardEvents } from './board/events.ts';
-import { initMoveMenu } from './board/move-menu.ts';
+import { initMoveMenu } from './board/move-menu.tsx';
 import { initNotify } from './board/notify.ts';
-import { initBoard, leaveTermsOnPhone } from './board/view.ts';
+import { initBoard, leaveTermsOnPhone } from './board/view.tsx';
 import { daemonFetch, initGate, waitForDaemon } from './daemon/client.ts';
 import { LOCAL_APP, MIXED_BLOCKED } from './daemon/config.ts';
 import { keepsTokenInAddress } from './daemon/parse.ts';

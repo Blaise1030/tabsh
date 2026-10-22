@@ -2,7 +2,7 @@
 // preview, recording a keybinding, editing a text (agent providers), the
 // keybindings that open it and switch tabs, and the settings button.
 import van from 'vanjs-core';
-import { toggleBoard, toggleBoardLayout } from '../board/view.ts';
+import { toggleBoard, toggleBoardLayout } from '../board/view.tsx';
 import { daemonFetch } from '../daemon/client.ts';
 import { searchFiles, toggleExplorer } from '../explorer/explorer.ts';
 import { loadedPane } from '../files/open.ts';

@@ -5,14 +5,16 @@
 // submenus, so the panel is the card menu's own: fixed beside the row (the
 // popover scales and clips, so it can't hold it), and kept out of Basecoat's
 // [role="menu"], whose clicks close the dropdown.
-import van, { type State } from 'vanjs-core';
+// Its handlers are native: the menu stops clicks and keys at its root, before
+// Solid's delegated handlers on the document would see them.
+// biome-ignore-all lint/a11y/useFocusableInteractive: Basecoat's rows: the menu keeps focus and marks the active row
+import { createSignal, For, Show } from 'solid-js';
 import { menuStep } from '../explorer/listing.ts';
 import { addTag, tagColor, toggleTag } from '../sessions/labels.ts';
 import type { Session } from '../sessions/store.ts';
 import { setTags, usedTags } from '../sessions/tags.tsx';
 import { icons } from '../ui/icons.tsx';
-
-const { div, i, input, label, span } = van.tags;
+import { fromVan } from '../ui/interop.ts';
 
 export interface TagsSubmenu {
   row: HTMLElement; // in the menu
@@ -36,36 +38,38 @@ export function TagsPanel(
   back: () => void,
   left = false,
 ): TagsPanel {
-  const shown: State<boolean> = van.state(false);
+  const [shown, setShown] = createSignal(false);
   // The tags offered: those in use when it opened, and any made since.
-  const offered: State<string[]> = van.state([]);
+  const [offered, setOffered] = createSignal<string[]>([]);
   const has = (tag: string) => get().includes(tag);
 
   const items = (): HTMLElement[] => [...panel.querySelectorAll<HTMLElement>('input')];
-  const field = input({
-    class: 'input',
-    placeholder: 'New tag…',
-    maxlength: '24',
-    autocomplete: 'off',
-    spellcheck: false,
-    'aria-label': 'New tag',
-    onkeydown: (e: KeyboardEvent) => {
-      if (e.key !== 'Enter' || e.isComposing) return;
-      e.preventDefault();
-      const added = addTag(get(), field.value);
-      set(added);
-      offered.val = [...new Set([...offered.val, ...added])].sort();
-      field.value = '';
-    },
-  });
-  const panel: HTMLElement = div(
-    {
-      class: 'tags-submenu',
-      role: 'menu',
-      'aria-label': 'Tags',
-      hidden: () => !shown.val,
+  const field = (
+    <input
+      class="input"
+      placeholder="New tag…"
+      maxLength={24}
+      autocomplete="off"
+      spellcheck={false}
+      aria-label="New tag"
+      on:keydown={(e) => {
+        if (e.key !== 'Enter' || e.isComposing) return;
+        e.preventDefault();
+        const added = addTag(get(), field.value);
+        set(added);
+        setOffered([...new Set([...offered(), ...added])].sort());
+        field.value = '';
+      }}
+    />
+  ) as HTMLInputElement;
+  const panel = (
+    <div
+      class="tags-submenu"
+      role="menu"
+      aria-label="Tags"
+      hidden={!shown()}
       // Arrows, Home and End move; Escape or ← goes back to the menu.
-      onkeydown: (e: KeyboardEvent) => {
+      on:keydown={(e) => {
         e.stopPropagation(); // Basecoat's dropdown would take these keys
         const all = items();
         const at = all.indexOf(document.activeElement as HTMLElement);
@@ -79,41 +83,55 @@ export function TagsPanel(
         if (to === null) return;
         e.preventDefault();
         all[to]?.focus();
-      },
-    },
-    field,
-    () =>
-      div(
-        { class: 'tags-submenu-list' },
-        offered.val.length ? '' : div({ class: 'tags-submenu-empty' }, 'No tags yet'),
-        ...offered.val.map((tag) => {
-          const box = input({
-            type: 'checkbox',
-            class: 'input',
-            tabindex: '-1',
-            checked: () => has(tag),
-            onchange: () => set(toggleTag(get(), tag, box.checked)),
-          });
-          return label({ class: 'label menu-check' }, box, i({ style: `background:${tagColor(tag)}` }), span(tag));
-        }),
-      ),
-  );
+      }}
+    >
+      {field}
+      <div class="tags-submenu-list">
+        <Show when={!offered().length}>
+          <div class="tags-submenu-empty">No tags yet</div>
+        </Show>
+        <For each={offered()}>
+          {(tag) => {
+            const dot = `background:${tagColor(tag)}`;
+            let box!: HTMLInputElement;
+            return (
+              <label class="label menu-check">
+                <input
+                  ref={box}
+                  type="checkbox"
+                  class="input"
+                  tabindex="-1"
+                  checked={has(tag)}
+                  on:change={() => set(toggleTag(get(), tag, box.checked))}
+                />
+                <i style={dot} />
+                <span>{tag}</span>
+              </label>
+            );
+          }}
+        </For>
+      </div>
+    </div>
+  ) as HTMLElement;
 
   function open(focus: boolean) {
-    if (!shown.val) offered.val = [...new Set([...usedTags(), ...get()])].sort();
-    shown.val = true;
-    // Once VanJS shows it.
+    if (!shown()) setOffered([...new Set([...usedTags(), ...get()])].sort());
+    setShown(true);
+    // Once it's laid out (and placed, by a submenu's frame queued first).
     if (focus) requestAnimationFrame(() => items()[0]?.focus());
   }
   function close() {
-    shown.val = false;
+    setShown(false);
   }
   return { panel, field, open, close };
 }
 
 export function TagsSubmenu(s: () => Session | null): TagsSubmenu {
   const tags = TagsPanel(
-    () => s()?.tags.val ?? [],
+    () => {
+      const session = s();
+      return session ? fromVan(session.tags)() : [];
+    },
     (next) => {
       const session = s();
       if (session) setTags(session, next);
@@ -143,7 +161,7 @@ export function TagsSubmenu(s: () => Session | null): TagsSubmenu {
     }
   };
   function open(focus: boolean) {
-    // Laid out once VanJS shows it: placed, then focused (queued next).
+    // Laid out by the next frame: placed, then focused (queued next).
     requestAnimationFrame(place);
     tags.open(focus);
     row.setAttribute('aria-expanded', 'true');
@@ -155,22 +173,23 @@ export function TagsSubmenu(s: () => Session | null): TagsSubmenu {
 
   // A menu row: its click (and Basecoat's Enter, which clicks it) must not
   // reach the menu, whose handler would close the dropdown.
-  const row: HTMLElement = div(
-    {
-      role: 'menuitem',
-      'aria-haspopup': 'menu',
-      'aria-expanded': 'false',
-      class: 'tags-row',
+  const row = (
+    <div
+      role="menuitem"
+      aria-haspopup="menu"
+      aria-expanded="false"
+      class="tags-row"
       // Opens it (pointing at the row already may have): never toggles shut.
-      onclick: (e: MouseEvent) => {
+      on:click={(e) => {
         e.stopPropagation();
         open(false);
-      },
-      onmouseenter: () => open(false),
-    },
-    icons.tag(),
-    span('Tags'),
-    icons.chevronRight(),
-  );
+      }}
+      on:mouseenter={() => open(false)}
+    >
+      {icons.tag()}
+      <span>Tags</span>
+      {icons.chevronRight()}
+    </div>
+  ) as HTMLElement;
   return { row, panel, open, close };
 }

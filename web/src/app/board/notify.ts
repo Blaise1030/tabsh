@@ -10,7 +10,7 @@ import { go } from '../nav/router.ts';
 import { type Session, onScreen as shownTerm } from '../sessions/store.ts';
 import { playChime } from '../sound/chime.ts';
 import type { Status } from './model.ts';
-import { drawer, shown } from './view.ts';
+import { drawer, shown } from './view.tsx';
 
 const SAYS: Partial<Record<Status, string>> = { needs_input: 'Needs your input', completed: 'Completed' };
 
