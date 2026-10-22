@@ -1,6 +1,10 @@
 // The command palette (Basecoat command-dialog): settings with live
 // preview, recording a keybinding, editing a text (agent providers), the
 // keybindings that open it and switch tabs, and the settings button.
+// biome-ignore-all lint/a11y/useFocusableInteractive: Basecoat's rows: the input keeps focus and marks the active row
+// biome-ignore-all lint/a11y/useSemanticElements: Basecoat's command markup, which its script and styles read
+// biome-ignore-all lint/a11y/useAriaPropsForRole: Basecoat's group heading, named by the group's aria-labelledby
+import { children, createEffect, createSignal, For, type JSX } from 'solid-js';
 import van from 'vanjs-core';
 import { toggleBoard, toggleBoardLayout } from '../board/view.tsx';
 import { daemonFetch } from '../daemon/client.ts';
@@ -25,12 +29,9 @@ import { previewSound } from '../sound/packs.ts';
 import { aboutRows, loadAbout } from '../ui/about.ts';
 import { isMac } from '../ui/dom.ts';
 import { icons } from '../ui/icons.tsx';
-import { keyed } from '../ui/keyed.ts';
 import { type Performance, performanceRows } from '../ui/performance.ts';
 import { showWelcome } from '../welcome/view.ts';
 import { type PaletteItem, pages, type TextEdit } from './pages.ts';
-
-const { div, i, span } = van.tags;
 
 const paletteEl = () => document.getElementById('palette') as HTMLDialogElement;
 const paletteCmd = () => document.getElementById('palette-command') as HTMLElement & { refresh?: () => void };
@@ -40,7 +41,7 @@ const paletteMenu = () => document.getElementById('palette-menu') as HTMLElement
 export const page = van.state<string | null>(null);
 let recording: KeyId | null = null; // the keybinding the next key press sets
 let editing: TextEdit | null = null; // the text the input holds instead of a search
-const itemsById = new Map<string, PaletteItem>();
+const rowItems = new WeakMap<Element, PaletteItem>();
 let performanceView: [string, string][] | null = null;
 
 async function loadPerformance(): Promise<void> {
@@ -72,15 +73,13 @@ function palettePages(): ReturnType<typeof pages> {
 }
 
 // A shown page's groups, each item with its menu id. Every render is new
-// (`n`), so a page shown again is built afresh, its checks and hints current.
+// objects, so a page shown again is built afresh, its checks and hints current.
 interface MenuGroup {
-  key: string;
   heading: string;
   id: string;
   items: { id: string; item: PaletteItem }[];
 }
-const menu = van.state<MenuGroup[]>([]);
-let renders = 0;
+const [menu, setMenu] = createSignal<MenuGroup[]>([]);
 
 function showPage(name: string): void {
   page.val = name;
@@ -90,68 +89,105 @@ function showPage(name: string): void {
   const { placeholder, groups } = palettePages()[name]();
   paletteInput().value = '';
   paletteInput().placeholder = name === 'root' ? placeholder : `${placeholder}  (Esc to go back)`;
-  const n = renders++;
   let k = 0;
-  menu.val = groups.map((g, gi) => ({
-    key: `${n}/${name}/${g.heading}`,
-    heading: g.heading,
-    id: `pg-${gi}`,
-    items: g.items.map((item) => ({ id: `pi-${k++}`, item })),
-  }));
+  setMenu(
+    groups.map((g, gi) => ({
+      heading: g.heading,
+      id: `pg-${gi}`,
+      items: g.items.map((item) => ({ id: `pi-${k++}`, item })),
+    })),
+  );
   if (name === 'root') applySettings(current.saved);
   paletteInput().focus();
 }
 
 const SWATCH = ['red', 'green', 'yellow', 'blue', 'magenta'] as const;
 
-function PaletteRow({ id, item }: MenuGroup['items'][number]): HTMLElement {
+// A row's click runs before Basecoat's on the menu, which then closes the
+// dialog unless the row is marked data-keep-command-open.
+function pick(row: Element, item: PaletteItem): void {
+  if (row.getAttribute('aria-hidden') === 'true') return;
+  if (item.go) {
+    item.run?.();
+    go({ palette: item.go }, 'replace');
+  } else if (item.record) startRecording(item.record);
+  else if (item.edit) startEditing(item.edit);
+  else if (item.copy !== undefined)
+    navigator.clipboard.writeText(item.copy).then(
+      () => (paletteInput().placeholder = `Copied ${item.label}  (Esc to go back)`),
+      () => {},
+    );
+  else if (item.key) saveSetting(item.key, item.value as never);
+  else item.run?.();
+}
+
+function PaletteRow(props: { id: string; item: PaletteItem }): JSX.Element {
+  const { id, item } = props;
   if (item.figure) {
-    return div(
-      { role: 'menuitem', id, class: 'palette-figure', 'aria-disabled': 'true', 'data-filter': item.label },
-      item.figure,
+    return (
+      <div role="menuitem" id={id} class="palette-figure" aria-disabled="true" data-filter={item.label}>
+        {item.figure}
+      </div>
     );
   }
-  const props: Record<string, string> = {
-    role: 'menuitem',
-    id,
-    'data-filter': item.label,
-    'data-keywords': item.keywords ?? '',
-  };
-  if (item.disabled) props['aria-disabled'] = 'true';
-  if (item.go || item.record || item.edit || item.copy !== undefined || item.disabled)
-    props['data-keep-command-open'] = '';
-  if ((item.key && current.saved[item.key] === item.value) || item.checked) props['data-checked'] = 'true';
+  const keep = !!(item.go || item.record || item.edit || item.copy !== undefined || item.disabled);
+  const checked = !!((item.key && current.saved[item.key] === item.value) || item.checked);
   const { swatch } = item;
-  return div(
-    props,
-    item.icon?.() ??
-      (swatch
-        ? span(
-            { class: 'swatch', style: `background:${swatch.background}` },
-            SWATCH.map((c) => i({ style: `background:${swatch[c]}` })),
-          )
-        : ''),
-    span({ class: 'palette-label' }, item.label),
-    item.hint ? span({ 'data-shortcut': '' }, item.hint) : '',
-    item.key || item.checked ? span({ 'data-indicator': '' }, icons.check()) : '',
+  const row = (
+    <div
+      role="menuitem"
+      id={id}
+      data-filter={item.label}
+      data-keywords={item.keywords ?? ''}
+      aria-disabled={item.disabled ? 'true' : undefined}
+      data-keep-command-open={keep ? '' : undefined}
+      data-checked={checked ? 'true' : undefined}
+      on:click={(e) => pick(e.currentTarget, item)}
+    >
+      {item.icon?.() ??
+        (swatch && (
+          <span class="swatch" style={{ background: swatch.background }}>
+            {SWATCH.map((c) => (
+              <i style={{ background: swatch[c] }} />
+            ))}
+          </span>
+        ))}
+      <span class="palette-label">{item.label}</span>
+      {item.hint && <span data-shortcut="">{item.hint}</span>}
+      {(item.key || item.checked) && <span data-indicator="">{icons.check()}</span>}
+    </div>
+  ) as HTMLElement;
+  rowItems.set(row, item);
+  return row;
+}
+
+function PaletteGroup(props: { group: MenuGroup }): JSX.Element {
+  const g = props.group;
+  return (
+    <div role="group" aria-labelledby={g.id}>
+      <span role="heading" id={g.id}>
+        {g.heading}
+      </span>
+      <For each={g.items}>{(row) => <PaletteRow id={row.id} item={row.item} />}</For>
+    </div>
   );
 }
 
-function PaletteGroup(g: MenuGroup): HTMLElement {
-  return div(
-    { role: 'group', 'aria-labelledby': g.id },
-    span({ role: 'heading', id: g.id }, g.heading),
-    g.items.map(PaletteRow),
-  );
+// The shown page's rows, inside #palette-menu; closed, it keeps the last page.
+export function PaletteRows(): JSX.Element {
+  const rows = children(() => <For each={menu()}>{(g) => <PaletteGroup group={g} />}</For>);
+  // Reads the rendered rows, so it runs once per page, after the insert has
+  // put them on the page (render effects run before user effects).
+  createEffect(() => {
+    if (rows.toArray().length) afterRender();
+  });
+  return <>{rows()}</>;
 }
 
-// After VanJS has put a render on the page: the ids now name its items (until
-// then they named the last render's, still on the page); Basecoat's command
-// menu caches its items, so it takes the new ones; then the page starts on
-// the current choice rather than the first entry.
-function afterRender(groups: MenuGroup[]): void {
-  itemsById.clear();
-  for (const g of groups) for (const { id, item } of g.items) itemsById.set(id, item);
+// Once a page's rows are on the page: Basecoat's command menu caches its
+// items, so it takes the new ones; then the page starts on the current choice
+// rather than the first entry.
+function afterRender(): void {
   paletteCmd().refresh?.();
   const chosen = paletteMenu().querySelector('[data-checked="true"]');
   if (chosen) {
@@ -276,18 +312,6 @@ export function openGroupPalette(): void {
 }
 
 export function initPalette(): void {
-  // The menu is the shown page's groups; closed, it keeps the last page.
-  keyed(
-    paletteMenu(),
-    () => menu.val,
-    (g) => g.key,
-    PaletteGroup,
-  );
-  // Registered after keyed's own derive on the same state, so it runs once
-  // the render is on the page.
-  van.derive(() => {
-    if (menu.val.length) afterRender(menu.val);
-  });
   paletteMenu().addEventListener('scroll', updatePaletteFades, { passive: true });
   // Filtering hides items after this handler's turn; measure once it has.
   paletteInput().addEventListener('input', () => requestAnimationFrame(updatePaletteFades));
@@ -297,7 +321,8 @@ export function initPalette(): void {
   // or for typing sounds and card chimes, heard once per highlight.
   let previewed: PaletteItem | undefined;
   new MutationObserver(() => {
-    const item = itemsById.get(paletteMenu().querySelector('[role="menuitem"].active')?.id ?? '');
+    const row = paletteMenu().querySelector('[role="menuitem"].active');
+    const item = row ? rowItems.get(row) : undefined;
     if (paletteEl().open && item?.key) applySettings({ ...current.saved, [item.key]: item.value } as Settings);
     if (paletteEl().open && item?.key === 'typingSound' && item !== previewed) previewSound(String(item.value));
     if (paletteEl().open && (item?.key === 'needsInputSound' || item?.key === 'completedSound') && item !== previewed)
@@ -305,26 +330,6 @@ export function initPalette(): void {
     if (paletteEl().open && item?.preview) item.preview();
     previewed = item;
   }).observe(paletteMenu(), { subtree: true, attributes: true, attributeFilter: ['class'] });
-
-  // Runs before Basecoat's own click handler, which then closes the dialog
-  // unless the item is marked data-keep-command-open.
-  paletteMenu().addEventListener('click', (e) => {
-    const el = (e.target as Element).closest('[role="menuitem"]');
-    const item = el && el.getAttribute('aria-hidden') !== 'true' ? itemsById.get(el.id) : undefined;
-    if (!item) return;
-    if (item.go) {
-      item.run?.();
-      go({ palette: item.go }, 'replace');
-    } else if (item.record) startRecording(item.record);
-    else if (item.edit) startEditing(item.edit);
-    else if (item.copy !== undefined)
-      navigator.clipboard.writeText(item.copy).then(
-        () => (paletteInput().placeholder = `Copied ${item.label}  (Esc to go back)`),
-        () => {},
-      );
-    else if (item.key) saveSetting(item.key, item.value as never);
-    else item.run?.();
-  });
 
   paletteInput().addEventListener('keydown', (e) => {
     if (editing) return;

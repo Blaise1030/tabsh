@@ -9,13 +9,14 @@ import { open as explorerOpen, toggleExplorer } from '../explorer/explorer.ts';
 import { Sidebar } from '../explorer/sidebar.ts';
 import { paneShown } from '../files/open.ts';
 import { go } from '../nav/router.ts';
+import { PaletteRows } from '../palette/palette.tsx';
 import { grouping, TabStrip } from '../sessions/groups.tsx';
 import { KeyBar } from '../sessions/keybar.tsx';
 import { SessionBar } from '../sessions/session-bar.tsx';
 import { active, noTab, type Session } from '../sessions/store.ts';
 import { TermHost, termSessions } from '../sessions/terminal.tsx';
 import { Welcome } from '../welcome/view.ts';
-import { Gate } from './gate.ts';
+import { Gate } from './gate.tsx';
 import { type Icon, icons } from './icons.tsx';
 import { fromVan } from './interop.ts';
 
@@ -40,7 +41,9 @@ function Palette(): JSX.Element {
             aria-controls="palette-menu"
           />
         </header>
-        <div role="menu" id="palette-menu" aria-orientation="vertical" data-empty="No results found." />
+        <div role="menu" id="palette-menu" aria-orientation="vertical" data-empty="No results found.">
+          <PaletteRows />
+        </div>
       </div>
     </dialog>
   );
@@ -184,7 +187,7 @@ function Workspace(): JSX.Element {
               New terminal
             </button>
           </div>
-          {untrack(Gate)}
+          <Gate />
           <For each={terms()}>{(s) => <TermHost session={s} />}</For>
         </div>
         <KeyBar />

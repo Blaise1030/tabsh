@@ -7,7 +7,7 @@ import { initBoardEvents } from './board/events.ts';
 import { initMoveMenu } from './board/move-menu.tsx';
 import { initNotify } from './board/notify.ts';
 import { initBoard, leaveTermsOnPhone } from './board/view.tsx';
-import { daemonFetch, initGate, waitForDaemon } from './daemon/client.ts';
+import { daemonFetch, waitForDaemon } from './daemon/client.ts';
 import { LOCAL_APP, MIXED_BLOCKED } from './daemon/config.ts';
 import { keepsTokenInAddress } from './daemon/parse.ts';
 import { adoptToken } from './daemon/token.ts';
@@ -15,7 +15,7 @@ import { initExplorer } from './explorer/explorer.ts';
 import { initFilePane, loadedPane, restoreFiles } from './files/open.ts';
 import { rememberedFiles } from './files/remember.ts';
 import { startRouter } from './nav/router.ts';
-import { initPalette } from './palette/palette.ts';
+import { initPalette } from './palette/palette.tsx';
 import { initPwa } from './pwa/register.ts';
 import { initBell } from './sessions/bell.ts';
 import { initTabGroups } from './sessions/groups.tsx';
@@ -55,7 +55,6 @@ if (location.hash && !keepsTokenInAddress(location.hostname))
 // startup), so it's safe to go straight to its copy. Without one the
 // daemon may be down, and the gate explains how to start it.
 if (MIXED_BLOCKED && launched) location.replace(LOCAL_APP);
-initGate();
 initPwa();
 
 // What the file pane needs from the rest of the page.

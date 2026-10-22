@@ -1,7 +1,7 @@
 // Talking to the daemon: authenticated requests, the sessions API, and the
 // gate shown while the daemon can't be reached.
 import van from 'vanjs-core';
-import { DAEMON, LOCAL_APP, MIXED_BLOCKED } from './config.ts';
+import { DAEMON, MIXED_BLOCKED } from './config.ts';
 import { adoptToken, getToken } from './token.ts';
 
 export function daemonFetch(path: string, init: RequestInit = {}): Promise<Response> {
@@ -76,17 +76,12 @@ export async function waitForDaemon(): Promise<void> {
   }
 }
 
-// The gate's "Open tabsh" link and the pairing form.
-export function initGate(): void {
-  (document.getElementById('open-local') as HTMLAnchorElement).href = LOCAL_APP;
-  document.getElementById('pair-form')?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const input = document.getElementById('pair-input') as HTMLInputElement;
-    if (adoptToken(input.value)) {
-      input.value = '';
-      wake();
-    } else input.setAttribute('aria-invalid', 'true');
-  });
+// The gate's pairing form: a pasted link or token, tried at once; false if
+// it holds no token.
+export function pairWith(text: string): boolean {
+  if (!adoptToken(text)) return false;
+  wake();
+  return true;
 }
 
 // The socket telling the page when a card's status changes.
