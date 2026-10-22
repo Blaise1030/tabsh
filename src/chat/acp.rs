@@ -3,7 +3,7 @@
 //! Methods (ACP current names): client→agent `initialize`, `session/new`,
 //! `session/prompt`, `session/cancel` (notification); agent→client
 //! `session/update` (notification) and `session/request_permission`
-//! (request, auto-allowed here — Task 7 answers from the UI instead).
+//! (request, answered from the UI via `answer_permission`).
 
 // Consumers (manager/routes) land in Tasks 4/6; tests exercise this now.
 #![allow(dead_code)]
@@ -67,6 +67,11 @@ pub(crate) enum AcpEvent {
         session_id: String,
         update: Value,
     },
+    /// The agent said this session is over (`sessionUpdate: session_end`).
+    /// Stable ACP does not require this; we honor it when an agent sends it.
+    SessionEnded {
+        session_id: String,
+    },
     PermissionRequest {
         session_id: String,
         request_id: String,
@@ -84,7 +89,16 @@ pub(crate) enum AcpEvent {
     },
 }
 
-type Pending = Arc<Mutex<HashMap<u64, oneshot::Sender<std::result::Result<Value, String>>>>>;
+struct RpcWait {
+    pending: HashMap<u64, oneshot::Sender<std::result::Result<Value, String>>>,
+    /// The `session/prompt` request still in flight, if any.
+    prompt: Option<u64>,
+}
+
+struct OpenPermission {
+    rpc_id: Value,
+    options: Value,
+}
 
 /// All request/notify methods take `&self` (ids and the event receiver use
 /// interior mutability, stdin/pending are already shared), so a caller can
@@ -92,7 +106,8 @@ type Pending = Arc<Mutex<HashMap<u64, oneshot::Sender<std::result::Result<Value,
 pub(crate) struct AcpClient {
     child: Child,
     stdin: Arc<AsyncMutex<ChildStdin>>,
-    pending: Pending,
+    rpc: Arc<Mutex<RpcWait>>,
+    permissions: Arc<Mutex<HashMap<String, OpenPermission>>>,
     events: mpsc::UnboundedSender<AcpEvent>,
     event_rx: Mutex<Option<mpsc::UnboundedReceiver<AcpEvent>>>,
     reader: tokio::task::JoinHandle<()>,
@@ -135,6 +150,7 @@ fn parse_update(session_id: &str, update: &Value) -> AcpEvent {
             update: update.clone(),
             session_id,
         },
+        Some("session_end") => AcpEvent::SessionEnded { session_id },
         _ => AcpEvent::Unknown {
             update: update.clone(),
             session_id,
@@ -153,6 +169,29 @@ async fn write_line(stdin: &Arc<AsyncMutex<ChildStdin>>, msg: &Value) -> Result<
     Ok(())
 }
 
+/// Allow selects `allow_once` / `allow_always`; deny selects a reject
+/// option. No matching option cancels the request.
+fn permission_outcome(allow: bool, options: &Value) -> Value {
+    let kinds: &[&str] = if allow {
+        &["allow_once", "allow_always"]
+    } else {
+        &["reject_once", "reject_always"]
+    };
+    let option_id = options.as_array().and_then(|opts| {
+        opts.iter()
+            .find(|o| {
+                o.get("kind")
+                    .and_then(Value::as_str)
+                    .is_some_and(|kind| kinds.contains(&kind))
+            })
+            .and_then(|o| o.get("optionId").cloned())
+    });
+    match option_id {
+        Some(option_id) => json!({"outcome": "selected", "optionId": option_id}),
+        None => json!({"outcome": "cancelled"}),
+    }
+}
+
 impl AcpClient {
     pub(crate) async fn spawn(cmd: &str, args: &[String], cwd: &Path) -> Result<AcpClient> {
         let mut child = Command::new(cmd)
@@ -168,11 +207,17 @@ impl AcpClient {
             child.stdin.take().ok_or("ACP agent has no stdin")?,
         ));
         let stdout = child.stdout.take().ok_or("ACP agent has no stdout")?;
-        let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
+        let rpc = Arc::new(Mutex::new(RpcWait {
+            pending: HashMap::new(),
+            prompt: None,
+        }));
+        let permissions: Arc<Mutex<HashMap<String, OpenPermission>>> =
+            Arc::new(Mutex::new(HashMap::new()));
         let (events, event_rx) = mpsc::unbounded_channel();
         let reader = {
             let stdin = stdin.clone();
-            let pending = pending.clone();
+            let rpc = rpc.clone();
+            let permissions = permissions.clone();
             let events = events.clone();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stdout).lines();
@@ -201,39 +246,28 @@ impl AcpClient {
                                 .to_string();
                             let options = params.get("options").cloned().unwrap_or(Value::Null);
                             let tool_call = params.get("toolCall").cloned().unwrap_or(Value::Null);
+                            let request_id = match &id {
+                                Value::String(s) => s.clone(),
+                                other => other.to_string(),
+                            };
+                            permissions
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .insert(
+                                    request_id.clone(),
+                                    OpenPermission {
+                                        rpc_id: id,
+                                        options: options.clone(),
+                                    },
+                                );
+                            // The UI answers; the reader must keep going so
+                            // a cancel can still be written and read.
                             let _ = events.send(AcpEvent::PermissionRequest {
                                 session_id: sid,
-                                request_id: match &id {
-                                    Value::String(s) => s.clone(),
-                                    other => other.to_string(),
-                                },
+                                request_id,
                                 tool_call,
-                                options: options.clone(),
+                                options,
                             });
-                            // Task 3 auto-allows; Task 7 answers from the UI.
-                            let allow = options
-                                .as_array()
-                                .and_then(|opts| {
-                                    opts.iter().find(|o| {
-                                        matches!(
-                                            o.get("kind").and_then(Value::as_str),
-                                            Some("allow_once" | "allow_always")
-                                        )
-                                    })
-                                })
-                                .and_then(|o| o.get("optionId").cloned());
-                            let outcome = match allow {
-                                Some(option_id) => {
-                                    json!({"outcome": "selected", "optionId": option_id})
-                                }
-                                None => json!({"outcome": "cancelled"}),
-                            };
-                            let _ = write_line(
-                                &stdin,
-                                &json!({"jsonrpc": "2.0", "id": id,
-                                        "result": {"outcome": outcome}}),
-                            )
-                            .await;
                         }
                         Some(_) if !id.is_null() => {
                             let _ = write_line(
@@ -245,9 +279,10 @@ impl AcpClient {
                         }
                         _ if !id.is_null() => {
                             if let Some(id_num) = id.as_u64() {
-                                let tx = pending
+                                let tx = rpc
                                     .lock()
                                     .unwrap_or_else(|e| e.into_inner())
+                                    .pending
                                     .remove(&id_num);
                                 if let Some(tx) = tx {
                                     let result = match msg.get("error") {
@@ -264,8 +299,8 @@ impl AcpClient {
                     }
                 }
                 // Agent exited: fail every call still waiting on it.
-                let mut guard = pending.lock().unwrap_or_else(|e| e.into_inner());
-                for (_, tx) in guard.drain() {
+                let mut guard = rpc.lock().unwrap_or_else(|e| e.into_inner());
+                for (_, tx) in guard.pending.drain() {
                     let _ = tx.send(Err("ACP agent exited".to_string()));
                 }
             })
@@ -273,7 +308,8 @@ impl AcpClient {
         Ok(AcpClient {
             child,
             stdin,
-            pending,
+            rpc,
+            permissions,
             events,
             event_rx: Mutex::new(Some(event_rx)),
             reader,
@@ -282,29 +318,46 @@ impl AcpClient {
     }
 
     async fn request(&self, method: &str, params: Value) -> Result<Value> {
+        self.call(method, params, false).await
+    }
+
+    /// `prompt` marks the id so `cancel` can finish the turn without waiting
+    /// for an agent that never answers `session/cancel`.
+    async fn call(&self, method: &str, params: Value, prompt: bool) -> Result<Value> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
-        self.pending
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(id, tx);
+        {
+            let mut rpc = self.rpc.lock().unwrap_or_else(|e| e.into_inner());
+            rpc.pending.insert(id, tx);
+            if prompt {
+                rpc.prompt = Some(id);
+            }
+        }
         if let Err(e) = write_line(
             &self.stdin,
             &json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}),
         )
         .await
         {
-            self.pending
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .remove(&id);
+            let mut rpc = self.rpc.lock().unwrap_or_else(|e| e.into_inner());
+            rpc.pending.remove(&id);
+            if rpc.prompt == Some(id) {
+                rpc.prompt = None;
+            }
             return Err(e);
         }
-        match rx.await {
+        let result = match rx.await {
             Ok(Ok(value)) => Ok(value),
             Ok(Err(e)) => Err(e.into()),
             Err(_) => Err("ACP agent exited".into()),
+        };
+        if prompt {
+            let mut rpc = self.rpc.lock().unwrap_or_else(|e| e.into_inner());
+            if rpc.prompt == Some(id) {
+                rpc.prompt = None;
+            }
         }
+        result
     }
 
     async fn notify(&self, method: &str, params: Value) -> Result<()> {
@@ -348,10 +401,11 @@ impl AcpClient {
     /// `PromptEnded` (from the response `stopReason`) closes the turn.
     pub(crate) async fn prompt(&self, session_id: &str, text: &str) -> Result<()> {
         let result = self
-            .request(
+            .call(
                 "session/prompt",
                 json!({"sessionId": session_id,
                        "prompt": [{"type": "text", "text": text}]}),
+                true,
             )
             .await?;
         let stop_reason = result
@@ -366,9 +420,57 @@ impl AcpClient {
         Ok(())
     }
 
+    /// `allow` picks an allow option; otherwise a reject option. With no
+    /// matching option the request is cancelled. An unknown id is a no-op
+    /// so a repeated approve still acknowledges.
+    pub(crate) async fn answer_permission(&self, request_id: &str, allow: bool) -> Result<()> {
+        let pending = self
+            .permissions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(request_id);
+        let Some(pending) = pending else {
+            return Ok(());
+        };
+        let outcome = permission_outcome(allow, &pending.options);
+        write_line(
+            &self.stdin,
+            &json!({"jsonrpc": "2.0", "id": pending.rpc_id,
+                    "result": {"outcome": outcome}}),
+        )
+        .await
+    }
+
     pub(crate) async fn cancel(&self, session_id: &str) -> Result<()> {
+        // Unblock an agent sitting in `session/request_permission` before
+        // the cancel notification, or it would read that line as the answer.
+        let pending: Vec<OpenPermission> = self
+            .permissions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .drain()
+            .map(|(_, permission)| permission)
+            .collect();
+        for permission in pending {
+            write_line(
+                &self.stdin,
+                &json!({"jsonrpc": "2.0", "id": permission.rpc_id,
+                        "result": {"outcome": {"outcome": "cancelled"}}}),
+            )
+            .await?;
+        }
         self.notify("session/cancel", json!({"sessionId": session_id}))
-            .await
+            .await?;
+        // Finish the turn locally so the composer unlocks even when the
+        // agent never answers the prompt.
+        let tx = {
+            let mut rpc = self.rpc.lock().unwrap_or_else(|e| e.into_inner());
+            rpc.prompt.take().and_then(|id| rpc.pending.remove(&id))
+        };
+        if let Some(tx) = tx {
+            let _ = tx.send(Ok(json!({"stopReason": "cancelled"})));
+        }
+        Ok(())
     }
 
     /// Takes the buffered event receiver (once). Events are queued from
@@ -394,7 +496,7 @@ impl AcpClient {
 /// target ships in the daemon. Shared by the chat manager/route tests.
 #[cfg(test)]
 pub(crate) const FAKE_AGENT_PY: &str = r#"
-import json, sys
+import json, sys, time
 
 def send(obj):
     sys.stdout.write(json.dumps(obj) + "\n")
@@ -426,6 +528,22 @@ while True:
         sid = params.get("sessionId", "")
         text = "".join(c.get("text", "") for c in params.get("prompt", [])
                        if c.get("type") == "text")
+        if "stuck" in text:
+            update(sid, {"sessionUpdate": "agent_message_chunk",
+                         "content": {"type": "text", "text": "stuck started"}})
+            while True:
+                nxt = sys.stdin.readline()
+                if not nxt:
+                    break
+            continue
+        if "hold" in text:
+            update(sid, {"sessionUpdate": "agent_message_chunk",
+                         "content": {"type": "text", "text": "holding"}})
+            time.sleep(0.4)
+            send({"jsonrpc": "2.0", "id": mid, "result": {"stopReason": "end_turn"}})
+            continue
+        if "end session" in text:
+            update(sid, {"sessionUpdate": "session_end"})
         if "slow" in text:
             update(sid, {"sessionUpdate": "agent_message_chunk",
                          "content": {"type": "text", "text": "slow started"}})
@@ -533,30 +651,62 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn acp_client_auto_allows_permission_request() {
-        let (cmd, args) = fake_agent();
-        let cwd = std::env::temp_dir();
-        let client = AcpClient::spawn(&cmd, &args, &cwd).await.unwrap();
-        client.initialize().await.unwrap();
-        let session_id = client.session_new(&cwd).await.unwrap();
-        client
-            .prompt(&session_id, "needs permission")
-            .await
-            .unwrap();
-
-        let mut saw_permission = false;
+    async fn prompt_and_answer(
+        client: &Arc<AcpClient>,
+        session_id: &str,
+        text: &str,
+        allow: bool,
+    ) -> String {
         let mut rx = client.event_stream();
+        let worker = client.clone();
+        let sid = session_id.to_string();
+        let text = text.to_string();
+        let prompt = tokio::spawn(async move { worker.prompt(&sid, &text).await });
+        let mut request_id = None;
+        let mut body = String::new();
         while let Some(ev) = rx.recv().await {
-            if matches!(ev, AcpEvent::PermissionRequest { .. }) {
-                saw_permission = true;
+            match ev {
+                AcpEvent::PermissionRequest { request_id: id, .. } => {
+                    request_id = Some(id);
+                    break;
+                }
+                AcpEvent::AgentMessageChunk { text, .. } => body.push_str(&text),
+                AcpEvent::PromptEnded { .. } => break,
+                _ => {}
             }
-            if matches!(ev, AcpEvent::PromptEnded { .. }) {
+        }
+        let request_id = request_id.expect("permission request");
+        client.answer_permission(&request_id, allow).await.unwrap();
+        while let Some(ev) = rx.recv().await {
+            let ended = matches!(ev, AcpEvent::PromptEnded { .. });
+            if let AcpEvent::AgentMessageChunk { text, .. } = &ev {
+                body.push_str(text);
+            }
+            if ended {
                 break;
             }
         }
-        client.shutdown().await.unwrap();
-        assert!(saw_permission);
+        prompt.await.unwrap().unwrap();
+        body
+    }
+
+    #[tokio::test]
+    async fn acp_client_allow_answers_permission_with_the_allow_option() {
+        let (cmd, args) = fake_agent();
+        let cwd = std::env::temp_dir();
+        let client = Arc::new(AcpClient::spawn(&cmd, &args, &cwd).await.unwrap());
+        client.initialize().await.unwrap();
+        let session_id = client.session_new(&cwd).await.unwrap();
+        let text = prompt_and_answer(&client, &session_id, "needs permission", true).await;
+        Arc::try_unwrap(client)
+            .unwrap_or_else(|_| panic!("prompt task still holds the client"))
+            .shutdown()
+            .await
+            .unwrap();
+        assert!(
+            text.contains("permission outcome: selected:allow"),
+            "events text: {text}"
+        );
     }
 
     #[tokio::test]
@@ -612,26 +762,16 @@ mod tests {
     async fn acp_client_permission_without_allow_option_is_cancelled() {
         let (cmd, args) = fake_agent();
         let cwd = std::env::temp_dir();
-        let client = AcpClient::spawn(&cmd, &args, &cwd).await.unwrap();
+        let client = Arc::new(AcpClient::spawn(&cmd, &args, &cwd).await.unwrap());
         client.initialize().await.unwrap();
         let session_id = client.session_new(&cwd).await.unwrap();
-        client
-            .prompt(&session_id, "no_allow permission please")
+        let text =
+            prompt_and_answer(&client, &session_id, "no_allow permission please", true).await;
+        Arc::try_unwrap(client)
+            .unwrap_or_else(|_| panic!("prompt task still holds the client"))
+            .shutdown()
             .await
             .unwrap();
-
-        let mut text = String::new();
-        let mut rx = client.event_stream();
-        while let Some(ev) = rx.recv().await {
-            let is_end = matches!(ev, AcpEvent::PromptEnded { .. });
-            if let AcpEvent::AgentMessageChunk { text: t, .. } = &ev {
-                text.push_str(t);
-            }
-            if is_end {
-                break;
-            }
-        }
-        client.shutdown().await.unwrap();
         assert!(
             text.contains("permission outcome: cancelled"),
             "events text: {text}"

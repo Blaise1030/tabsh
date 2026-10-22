@@ -364,6 +364,63 @@ fn apply_status(
     Ok(Json(info))
 }
 
+/// ACP filled in for a missing CLI hook. A card that is no longer
+/// `in_progress` was moved by a hook or a drag; that stands.
+pub(crate) fn note_acp_status(
+    db: &std::sync::Mutex<Connection>,
+    events: &tokio::sync::broadcast::Sender<BoardEvent>,
+    id: &str,
+    status: &str,
+) {
+    if status != "needs_input" && status != "completed" {
+        return;
+    }
+    let mut db = db.lock().unwrap_or_else(|e| e.into_inner());
+    let current: Option<String> = db
+        .query_row(
+            "SELECT status FROM sessions WHERE id = ?1 AND parent IS NULL",
+            params![id],
+            |r| r.get(0),
+        )
+        .optional()
+        .ok()
+        .flatten();
+    if current.as_deref() != Some("in_progress") {
+        return;
+    }
+    let note: Option<&str> = if status == "needs_input" {
+        Some("Agent finished its turn")
+    } else {
+        None
+    };
+    if db
+        .execute(
+            "UPDATE sessions SET note = ?2,
+                 status_at = CASE WHEN status = ?1 THEN status_at ELSE unixepoch() END,
+                 status = ?1
+             WHERE id = ?3",
+            params![status, note, id],
+        )
+        .is_err()
+    {
+        return;
+    }
+    if append_to_column(&mut db, id, status).is_err() {
+        return;
+    }
+    let info = store::info(&db, id).ok().flatten();
+    drop(db);
+    if let Some(info) = info {
+        let _ = events.send(BoardEvent::Status(StatusEvent {
+            id: info.id,
+            status: info.status,
+            status_at: info.status_at,
+            note: info.note,
+            source: "hook",
+        }));
+    }
+}
+
 /// Puts card `id` right after the last other card in `status`'s column (at
 /// the very end of the tab order when that column is empty), as the board's
 /// `dropOrder` does with no card to go before.

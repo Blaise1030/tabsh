@@ -25,7 +25,7 @@ use rusqlite::{OptionalExtension, params};
 use tokio::sync::{broadcast, watch};
 
 use super::{
-    acp::AcpClient,
+    acp::{AcpClient, AcpEvent},
     normalize::{UiChunk, to_chunks},
     transcript,
 };
@@ -58,6 +58,14 @@ type ChatResult<T> = std::result::Result<T, ChatError>;
 /// How long an agent gets to answer `initialize` / `session/new`.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Database and board events, so a turn can move the card without holding
+/// `AppState` (that would cycle: state owns the chats).
+#[derive(Clone)]
+struct BoardPipe {
+    db: Arc<Mutex<rusqlite::Connection>>,
+    events: broadcast::Sender<crate::board::BoardEvent>,
+}
+
 struct LiveChat {
     client: Arc<AcpClient>,
     acp_session_id: String,
@@ -65,6 +73,7 @@ struct LiveChat {
     history: Mutex<Vec<UiChunk>>,
     data_dir: PathBuf,
     card_id: String,
+    board: Option<BoardPipe>,
 }
 
 impl LiveChat {
@@ -110,6 +119,9 @@ struct Inner {
     /// The latest start failure for a card that never became live, so an
     /// SSE subscriber can show it. Cleared once a chat does start.
     failures: Mutex<HashMap<String, String>>,
+    /// Set once the daemon (or a test) has a database. Chats started
+    /// before that do not move board cards.
+    board: Mutex<Option<BoardPipe>>,
 }
 
 /// The outcome of a PTY surface claim (`ChatManager::try_claim_pty`).
@@ -148,6 +160,7 @@ impl ChatManager {
                 surfaces: Mutex::new(Surfaces::default()),
                 data_dir,
                 failures: Mutex::new(HashMap::new()),
+                board: Mutex::new(None),
             }),
         }
     }
@@ -173,6 +186,17 @@ impl ChatManager {
     #[allow(dead_code)]
     pub(crate) fn transcript_path(&self, session_id: &str) -> PathBuf {
         transcript::path(&self.inner.data_dir, session_id)
+    }
+
+    /// Wires board updates. Called once when `AppState` exists; not stored
+    /// as `AppState` itself, which owns this manager.
+    pub(crate) fn bind_board(
+        &self,
+        db: Arc<Mutex<rusqlite::Connection>>,
+        events: broadcast::Sender<crate::board::BoardEvent>,
+    ) {
+        *self.inner.board.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some(BoardPipe { db, events });
     }
 
     pub(crate) fn is_live(&self, session_id: &str) -> bool {
@@ -375,6 +399,12 @@ impl ChatManager {
 
         let client = Arc::new(client);
         let mut rx = client.event_stream();
+        let board = self
+            .inner
+            .board
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         let live = Arc::new(LiveChat {
             client,
             acp_session_id,
@@ -382,6 +412,7 @@ impl ChatManager {
             history: Mutex::new(transcript::load(&self.inner.data_dir, session_id)),
             data_dir: self.inner.data_dir.clone(),
             card_id: session_id.to_string(),
+            board,
         });
         {
             let mut surfaces = self
@@ -402,6 +433,11 @@ impl ChatManager {
                 let Some(live) = weak.upgrade() else { break };
                 for chunk in to_chunks(&ev) {
                     live.record(chunk);
+                }
+                if let Some(status) = acp_card_status(&ev)
+                    && let Some(board) = &live.board
+                {
+                    crate::board::note_acp_status(&board.db, &board.events, &live.card_id, status);
                 }
             }
         });
@@ -477,6 +513,21 @@ impl ChatManager {
             .map_err(|e| ChatError::Failed(e.to_string()))
     }
 
+    /// Answers a `session/request_permission` the agent is blocked on.
+    /// An id that is not pending still succeeds: the route acknowledges it.
+    pub(crate) async fn answer(
+        &self,
+        session_id: &str,
+        request_id: &str,
+        allow: bool,
+    ) -> ChatResult<()> {
+        let live = self.live(session_id).ok_or(ChatError::NotLive)?;
+        live.client
+            .answer_permission(request_id, allow)
+            .await
+            .map_err(|e| ChatError::Failed(e.to_string()))
+    }
+
     /// Drops the live chat, if any; the agent process dies with its last
     /// client reference (`kill_on_drop`).
     pub(crate) fn forget(&self, session_id: &str) {
@@ -521,6 +572,19 @@ impl ChatManager {
             }
             None => (transcript::load(&self.inner.data_dir, session_id), None),
         }
+    }
+}
+
+/// Idle `end_turn` means the agent is waiting on the user. `completed` only
+/// when the agent sends a session-end update. Cancel and other stop reasons
+/// stay `in_progress` so a hook can still report them.
+fn acp_card_status(ev: &AcpEvent) -> Option<&'static str> {
+    match ev {
+        AcpEvent::PromptEnded { stop_reason, .. } if stop_reason == "end_turn" => {
+            Some("needs_input")
+        }
+        AcpEvent::SessionEnded { .. } => Some("completed"),
+        _ => None,
     }
 }
 

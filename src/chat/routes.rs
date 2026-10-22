@@ -224,21 +224,25 @@ async fn stop(State(st): State<AppState>, Path(id): Path<String>) -> Result<Stat
 #[derive(Deserialize)]
 struct Approve {
     #[serde(rename = "requestId", alias = "request_id")]
-    #[allow(dead_code)]
     request_id: String,
-    #[allow(dead_code)]
     allow: bool,
 }
 
-/// Permission answers are wired in Task 7; for now the ACP client
-/// auto-allows, so this only acknowledges the request.
+/// Answers the pending `session/request_permission`. An unknown id still
+/// acknowledges, matching a click that arrived after the agent moved on.
 async fn approve(
     State(st): State<AppState>,
     Path(id): Path<String>,
-    Json(_body): Json<Approve>,
-) -> Result<StatusCode, StatusCode> {
+    Json(body): Json<Approve>,
+) -> Result<StatusCode, Response> {
     if card_row(&st, &id).is_none() {
-        return Err(StatusCode::NOT_FOUND);
+        return Err(StatusCode::NOT_FOUND.into_response());
+    }
+    if st.chats.is_live(&id) {
+        st.chats
+            .answer(&id, &body.request_id, body.allow)
+            .await
+            .map_err(chat_error)?;
     }
     Ok(StatusCode::NO_CONTENT)
 }
@@ -679,5 +683,211 @@ mod tests {
             received.contains("\"type\":\"error\"") || received.contains("\"type\": \"error\""),
             "stream must carry an error chunk: {received}"
         );
+    }
+
+    async fn messages(st: &AppState, id: &str) -> Vec<serde_json::Value> {
+        let (code, body) = req(
+            st,
+            Method::GET,
+            &format!("/api/sessions/{id}/chat"),
+            serde_json::Value::Null,
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "history: {body}");
+        body["messages"].as_array().cloned().unwrap_or_default()
+    }
+
+    fn chunk_text(msgs: &[serde_json::Value]) -> String {
+        msgs.iter().filter_map(|m| m["text"].as_str()).collect()
+    }
+
+    fn stop_reasons(msgs: &[serde_json::Value]) -> Vec<String> {
+        msgs.iter()
+            .filter(|m| m["type"] == "turn_end")
+            .filter_map(|m| m["stop_reason"].as_str().map(str::to_string))
+            .collect()
+    }
+
+    fn card_status(st: &AppState, id: &str) -> String {
+        st.db
+            .lock()
+            .unwrap()
+            .query_row("SELECT status FROM sessions WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })
+            .unwrap()
+    }
+
+    async fn wait_messages(
+        st: &AppState,
+        id: &str,
+        ready: impl Fn(&[serde_json::Value]) -> bool,
+    ) -> Vec<serde_json::Value> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+        loop {
+            let msgs = messages(st, id).await;
+            if ready(&msgs) {
+                return msgs;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "timed out; messages: {msgs:?}"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        }
+    }
+
+    /// Stop must end the turn even when the agent never answers `session/cancel`,
+    /// so the composer can unlock. A cancel is not the user waiting, so the
+    /// card stays In progress.
+    #[tokio::test]
+    async fn stop_ends_a_turn_the_agent_never_finishes() {
+        let st = test_state();
+        let id = create_ui_card(&st, "stuck").await;
+        move_in_progress(&st, &id).await;
+        wait_for_text(&st, &id, "stuck started").await;
+
+        let (code, _) = req(
+            &st,
+            Method::POST,
+            &format!("/api/sessions/{id}/chat/stop"),
+            serde_json::Value::Null,
+        )
+        .await;
+        assert_eq!(code, StatusCode::NO_CONTENT);
+
+        let msgs = wait_messages(&st, &id, |m| {
+            stop_reasons(m).iter().any(|r| r == "cancelled")
+        })
+        .await;
+        assert_eq!(stop_reasons(&msgs), vec!["cancelled".to_string()]);
+        assert_eq!(card_status(&st, &id), "in_progress");
+        st.chats.forget(&id);
+    }
+
+    /// The agent blocks on `session/request_permission` until approve.
+    /// Deny selects the reject option; the chunk the stream replays is
+    /// `type: permission` with the JSON-RPC id.
+    #[tokio::test]
+    async fn approve_deny_is_what_the_agent_receives() {
+        let st = test_state();
+        let id = create_ui_card(&st, "needs permission").await;
+        move_in_progress(&st, &id).await;
+        let msgs = wait_messages(&st, &id, |m| {
+            m.iter()
+                .any(|c| c["type"] == "permission" && c["request_id"] == "9000")
+        })
+        .await;
+        assert!(
+            !chunk_text(&msgs).contains("permission outcome"),
+            "agent answered before approve: {msgs:?}"
+        );
+
+        let (code, _) = req(
+            &st,
+            Method::POST,
+            &format!("/api/sessions/{id}/chat/approve"),
+            serde_json::json!({"requestId": "9000", "allow": false}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::NO_CONTENT);
+        wait_for_text(&st, &id, "permission outcome: selected:deny").await;
+        st.chats.forget(&id);
+    }
+
+    #[tokio::test]
+    async fn approve_allow_is_what_the_agent_receives() {
+        let st = test_state();
+        let id = create_ui_card(&st, "needs permission").await;
+        move_in_progress(&st, &id).await;
+        let msgs = wait_messages(&st, &id, |m| {
+            m.iter()
+                .any(|c| c["type"] == "permission" && c["request_id"] == "9000")
+        })
+        .await;
+        assert!(
+            !chunk_text(&msgs).contains("permission outcome"),
+            "agent answered before approve: {msgs:?}"
+        );
+
+        let (code, _) = req(
+            &st,
+            Method::POST,
+            &format!("/api/sessions/{id}/chat/approve"),
+            serde_json::json!({"requestId": "9000", "allow": true}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::NO_CONTENT);
+        wait_for_text(&st, &id, "permission outcome: selected:allow").await;
+        st.chats.forget(&id);
+    }
+
+    /// An idle `end_turn` is the user waiting; the card leaves In progress.
+    #[tokio::test]
+    async fn idle_end_turn_moves_the_card_to_needs_input() {
+        let st = test_state();
+        let id = create_ui_card(&st, "hi").await;
+        move_in_progress(&st, &id).await;
+        wait_messages(&st, &id, |m| {
+            stop_reasons(m).iter().any(|r| r == "end_turn")
+        })
+        .await;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while card_status(&st, &id) != "needs_input" {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "status stayed {}",
+                card_status(&st, &id)
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        }
+        st.chats.forget(&id);
+    }
+
+    /// Completed only when the agent sends a session-end update. The
+    /// following `end_turn` must not pull the card back to Needs input.
+    #[tokio::test]
+    async fn session_end_moves_the_card_to_completed() {
+        let st = test_state();
+        let id = create_ui_card(&st, "end session").await;
+        move_in_progress(&st, &id).await;
+        wait_messages(&st, &id, |m| {
+            stop_reasons(m).iter().any(|r| r == "end_turn")
+        })
+        .await;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while card_status(&st, &id) != "completed" {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "status stayed {}",
+                card_status(&st, &id)
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        }
+        st.chats.forget(&id);
+    }
+
+    /// A hook that already moved the card wins over the idle-turn mapping.
+    #[tokio::test]
+    async fn a_hook_status_survives_the_turn_end() {
+        let st = test_state();
+        let id = create_ui_card(&st, "hold").await;
+        move_in_progress(&st, &id).await;
+        wait_for_text(&st, &id, "holding").await;
+        let (code, body) = req(
+            &st,
+            Method::PATCH,
+            &format!("/api/sessions/{id}/status"),
+            serde_json::json!({"status": "completed", "source": "hook"}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "hook status: {body}");
+        wait_messages(&st, &id, |m| {
+            stop_reasons(m).iter().any(|r| r == "end_turn")
+        })
+        .await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(card_status(&st, &id), "completed");
+        st.chats.forget(&id);
     }
 }

@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 pub(crate) fn test_state() -> AppState {
     let db = open_db(":memory:").unwrap();
     let remote = crate::remote::load(&db).unwrap();
-    AppState {
+    let state = AppState {
         db: Arc::new(Mutex::new(db)),
         live: Default::default(),
         starting: Default::default(),
@@ -22,7 +22,11 @@ pub(crate) fn test_state() -> AppState {
         remote: Arc::new(remote),
         port: 7681,
         host: None,
-    }
+    };
+    state
+        .chats
+        .bind_board(state.db.clone(), state.events.clone());
+    state
 }
 
 /// Held by every test that reads or writes `TABSH_REMOTE_ADDRESS`, which is

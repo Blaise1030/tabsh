@@ -32,8 +32,8 @@ pub(crate) enum UiChunk {
     },
     /// The agent's plan; `entries` is the raw ACP plan entries array.
     Plan { session_id: String, entries: Value },
-    /// A permission request. `request_id` is the JSON-RPC id (stringified);
-    /// in Task 3 the client auto-allows, Task 7 answers from the UI.
+    /// A permission request. `request_id` is the JSON-RPC id (stringified).
+    /// The UI answers it with `POST …/chat/approve`.
     Permission {
         session_id: String,
         request_id: String,
@@ -105,6 +105,8 @@ pub(crate) fn to_chunks(ev: &AcpEvent) -> Vec<UiChunk> {
             session_id: session_id.clone(),
             stop_reason: stop_reason.clone(),
         },
+        // Status mapping consumes this; the transcript has no chunk for it.
+        AcpEvent::SessionEnded { .. } => return Vec::new(),
         AcpEvent::Unknown { session_id, update } => UiChunk::Unknown {
             session_id: session_id.clone(),
             update: update.clone(),

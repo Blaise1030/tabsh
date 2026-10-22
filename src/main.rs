@@ -96,6 +96,9 @@ async fn daemon() {
         port: port_number,
         host: fixed_host(&host),
     };
+    state
+        .chats
+        .bind_board(state.db.clone(), state.events.clone());
 
     let flusher = state.clone();
     std::thread::spawn(move || {
