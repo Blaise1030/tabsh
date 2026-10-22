@@ -444,6 +444,12 @@ impl ChatManager {
                 .chats
                 .insert(session_id.to_string(), Entry::Live(live.clone()));
         }
+        // Stop can land after `dispatch` spawned the prompt and before the
+        // insert. `cancel` on `Starting` only sets the flag; copy it onto
+        // the client before waiters wake. This does not clear the latch.
+        if live.cancel.load(Ordering::SeqCst) {
+            live.client.mark_cancelled();
+        }
 
         // Drain agent events concurrently so chunks reach the transcript
         // and subscribers before the turn ends.
