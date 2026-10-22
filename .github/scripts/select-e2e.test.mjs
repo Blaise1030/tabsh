@@ -85,6 +85,7 @@ test('every mapped spec exists', () => {
     'web/src/app/files/pane.ts', 'src/upload.rs',
     'web/src/app/palette/palette.ts', 'web/src/app/sound/typing.ts',
     'src/remote/listen.rs', 'web/src/app/remote/view.ts',
+    'web/src/app/chat/client.ts', 'src/chat/routes.rs',
   ];
   const root = fileURLToPath(new URL('../../', import.meta.url));
   for (const source of sources) {

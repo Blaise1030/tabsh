@@ -1,11 +1,33 @@
 // The e2e fixtures: a daemon per worker, plus the helpers every spec uses.
 // The conventions (selectors, typing, auth) live in web/e2e/README.md.
 import { execFileSync } from 'node:child_process';
-import { closeSync, mkdirSync, mkdtempSync, openSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  closeSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test as base, expect, type Page } from '@playwright/test';
 import { startDaemon, type Daemon } from './daemon.ts';
+
+// `fake-agent` on PATH: the worker daemon sets `TABSH_TEST_ACP=1`, which
+// stores this command on a UI card instead of the provider's real ACP line.
+function installFakeAgent(): string {
+  const dir = realpathSync(mkdtempSync(path.join(tmpdir(), 'tabsh-fake-acp-')));
+  const src = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fake-agent.py');
+  const dest = path.join(dir, 'fake-agent');
+  writeFileSync(dest, readFileSync(src));
+  chmodSync(dest, 0o755);
+  return dir;
+}
 
 // One daemon — its own port and its own empty state dir — per worker, so
 // specs never see each other's tabs. Tests within a worker run one at a time.
@@ -59,9 +81,19 @@ const test = base.extend<{ project: string; crowd: string; twins: { alpha: strin
   },
   daemon: [
     async ({}, use) => {
-      const daemon = await startDaemon();
-      await use(daemon);
-      await daemon.cleanup();
+      const binDir = installFakeAgent();
+      try {
+        const daemon = await startDaemon({
+          env: {
+            TABSH_TEST_ACP: '1',
+            PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+          },
+        });
+        await use(daemon);
+        await daemon.cleanup();
+      } finally {
+        rmSync(binDir, { recursive: true, force: true });
+      }
     },
     { scope: 'worker' },
   ],

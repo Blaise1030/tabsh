@@ -260,6 +260,23 @@ async fn list_sessions(State(st): State<AppState>) -> Result<Json<Vec<SessionInf
     Ok(Json(rows))
 }
 
+/// When `TABSH_TEST_ACP=1`, a UI card's stored ACP command is
+/// `TABSH_CHAT_ACP` if that is non-empty, otherwise `fake-agent` on `PATH`.
+/// The page can still send the provider's real command; end-to-end tests
+/// never launch it.
+fn ui_test_acp_override(mode: &str) -> Option<String> {
+    if mode != "ui" || std::env::var("TABSH_TEST_ACP").ok().as_deref() != Some("1") {
+        return None;
+    }
+    Some(
+        std::env::var("TABSH_CHAT_ACP")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "fake-agent".to_string()),
+    )
+}
+
 async fn create_session(
     State(st): State<AppState>,
     body: Option<Json<NewSession>>,
@@ -311,6 +328,15 @@ async fn create_session(
     let resume_input = agent_session
         .as_deref()
         .and_then(|s| crate::board::resume_line(resume.as_deref(), None, Some(s)));
+    // E2E sets `TABSH_TEST_ACP=1` so a UI card stores `fake-agent` (or
+    // `TABSH_CHAT_ACP`) instead of the provider command the page sent.
+    let test_acp = ui_test_acp_override(mode);
+    let given_acp = body
+        .acp_command
+        .as_deref()
+        .map(str::trim)
+        .filter(|c| !c.is_empty());
+    let acp_command = test_acp.as_deref().or(given_acp);
     let card = store::NewCard {
         cwd: body.cwd.as_deref(),
         name: name.as_deref(),
@@ -325,11 +351,7 @@ async fn create_session(
         resume_input: resume_input.as_deref(),
         parent: None,
         mode,
-        acp_command: body
-            .acp_command
-            .as_deref()
-            .map(str::trim)
-            .filter(|c| !c.is_empty()),
+        acp_command,
     };
     let db = st.db.lock().unwrap();
     store::insert_card(&db, &card)
