@@ -81,6 +81,7 @@ const test = base.extend<
 });
 
 export { test, expect };
+export { termCellPoint, termCols, termLines, termText } from './term.ts';
 
 // Pair the page with the daemon and wait for the app: the token rides in the
 // URL fragment, exactly as in the link the daemon prints, and the page clears
