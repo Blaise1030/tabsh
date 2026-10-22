@@ -10,7 +10,7 @@ pub(crate) mod normalize;
 pub(crate) mod routes;
 pub(crate) mod transcript;
 
-pub(crate) use manager::ChatManager;
+pub(crate) use manager::{ChatManager, PtyClaim};
 
 use crate::AppState;
 use axum::Router;

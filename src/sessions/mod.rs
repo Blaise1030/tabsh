@@ -505,9 +505,14 @@ fn close(st: &AppState, id: &str) -> StatusCode {
     let _turn = st.starting.turn(id);
     let live = st.live.lock().unwrap();
     if let Some(session) = live.get(id) {
+        // Its reader thread releases the PTY surface claim as it exits.
         let _ = session.killer.lock().unwrap().kill();
         return StatusCode::NO_CONTENT;
     }
+    drop(live);
+    // No live shell (never started, already exited, or mid-restart):
+    // no reader will release the PTY claim, so close releases it here.
+    st.chats.release_pty(id);
     match st
         .db
         .lock()

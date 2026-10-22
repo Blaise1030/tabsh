@@ -5,9 +5,17 @@
 //! `sessions::pty::get_or_spawn`. A UI card moved to In progress starts
 //! here with its `pending_prompt` as the first ACP prompt; no PTY launch
 //! line is ever typed for it.
+//!
+//! Mutual exclusion is one atomic claim, not two check-then-act
+//! sequences: the chat entries and the PTY claims live behind the same
+//! lock, so reserving either surface is a single locked step. A chat
+//! claim is its map entry (`Starting` or `Live`); a PTY claim is an id
+//! in `pty` from `try_claim_pty` until the shell's exit or close
+//! releases it (`release_pty`). Whoever claims first wins — the loser
+//! gets a conflict, never a second live surface.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
@@ -27,13 +35,17 @@ use crate::AppState;
 pub(crate) enum ChatError {
     Invalid(String),
     NotLive,
+    /// The card's other agent surface (its PTY) holds the claim.
+    Conflict(String),
     Failed(String),
 }
 
 impl std::fmt::Display for ChatError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ChatError::Invalid(m) | ChatError::Failed(m) => write!(f, "{m}"),
+            ChatError::Invalid(m) | ChatError::Conflict(m) | ChatError::Failed(m) => {
+                write!(f, "{m}")
+            }
             ChatError::NotLive => write!(f, "no live chat for this session"),
         }
     }
@@ -82,9 +94,31 @@ enum Entry {
     Starting(Arc<Starting>),
 }
 
+/// Both agent surfaces' claims, under one lock so claiming either is
+/// atomic against claiming the other.
+#[derive(Default)]
+struct Surfaces {
+    chats: HashMap<String, Entry>,
+    /// Cards whose PTY surface is claimed: starting, live, or between
+    /// a restart and its replacement shell.
+    pty: HashSet<String>,
+}
+
 struct Inner {
-    live: Mutex<HashMap<String, Entry>>,
+    surfaces: Mutex<Surfaces>,
     data_dir: PathBuf,
+}
+
+/// The outcome of a PTY surface claim (`ChatManager::try_claim_pty`).
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum PtyClaim {
+    /// This caller now holds the card's one agent-surface claim.
+    Acquired,
+    /// A PTY claim is already held for this card (a shell starting,
+    /// live, or restarting): this PTY start may proceed under it.
+    AlreadyPty,
+    /// A chat is starting or live for this card: no PTY may start.
+    BlockedByChat,
 }
 
 /// Every live chat, keyed by tabsh session (card) id. Clones share the
@@ -108,7 +142,7 @@ impl ChatManager {
     pub(crate) fn new(data_dir: PathBuf) -> ChatManager {
         ChatManager {
             inner: Arc::new(Inner {
-                live: Mutex::new(HashMap::new()),
+                surfaces: Mutex::new(Surfaces::default()),
                 data_dir,
             }),
         }
@@ -141,21 +175,64 @@ impl ChatManager {
         self.live(session_id).is_some()
     }
 
-    /// Live, or a start is handshaking: either way no other agent
-    /// surface (a PTY) may start for this card.
+    /// Live, or a start is handshaking (tests assert on the
+    /// reservation; the PTY path uses the atomic `try_claim_pty`).
+    #[cfg(test)]
     pub(crate) fn is_live_or_starting(&self, session_id: &str) -> bool {
         self.inner
-            .live
+            .surfaces
             .lock()
             .unwrap_or_else(|e| e.into_inner())
+            .chats
             .contains_key(session_id)
+    }
+
+    /// Atomically claims the card's PTY surface: succeeds only when no
+    /// chat is starting or live for it. The claim holds until
+    /// `release_pty`, so a chat starting at any point during the PTY's
+    /// life — spawn included — loses to it, with no check-then-act gap.
+    pub(crate) fn try_claim_pty(&self, session_id: &str) -> PtyClaim {
+        let mut surfaces = self
+            .inner
+            .surfaces
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if surfaces.chats.contains_key(session_id) {
+            PtyClaim::BlockedByChat
+        } else if !surfaces.pty.insert(session_id.to_string()) {
+            PtyClaim::AlreadyPty
+        } else {
+            PtyClaim::Acquired
+        }
+    }
+
+    /// Releases a PTY claim (`try_claim_pty`): a chat may start after.
+    pub(crate) fn release_pty(&self, session_id: &str) {
+        self.inner
+            .surfaces
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .pty
+            .remove(session_id);
+    }
+
+    /// Whether a PTY claim is held for the card (tests).
+    #[cfg(test)]
+    pub(crate) fn pty_claimed(&self, session_id: &str) -> bool {
+        self.inner
+            .surfaces
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .pty
+            .contains(session_id)
     }
 
     fn live(&self, session_id: &str) -> Option<Arc<LiveChat>> {
         self.inner
-            .live
+            .surfaces
             .lock()
             .unwrap_or_else(|e| e.into_inner())
+            .chats
             .get(session_id)
             .and_then(|e| match e {
                 Entry::Live(live) => Some(live.clone()),
@@ -211,18 +288,30 @@ impl ChatManager {
             Existing(Arc<LiveChat>),
             Wait(Arc<Starting>),
             Reserve(Arc<Starting>),
+            BlockedByPty,
         }
         let starting = loop {
             let action = {
-                let mut map = self.inner.live.lock().unwrap_or_else(|e| e.into_inner());
-                match map.get(session_id) {
+                let mut surfaces = self
+                    .inner
+                    .surfaces
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                match surfaces.chats.get(session_id) {
                     Some(Entry::Live(live)) => Action::Existing(live.clone()),
                     Some(Entry::Starting(s)) => Action::Wait(s.clone()),
+                    // The chat claim and the PTY claim are taken under
+                    // this one lock: a PTY claimed first (starting or
+                    // live) blocks the reservation outright, with no
+                    // window for a PTY to claim in between either.
+                    None if surfaces.pty.contains(session_id) => Action::BlockedByPty,
                     None => {
                         let s = Arc::new(Starting {
                             done: watch::channel(false).0,
                         });
-                        map.insert(session_id.to_string(), Entry::Starting(s.clone()));
+                        surfaces
+                            .chats
+                            .insert(session_id.to_string(), Entry::Starting(s.clone()));
                         Action::Reserve(s)
                     }
                 }
@@ -235,6 +324,11 @@ impl ChatManager {
                     let _ = rx.wait_for(|done| *done).await;
                 }
                 Action::Reserve(s) => break s,
+                Action::BlockedByPty => {
+                    return Err(ChatError::Conflict(format!(
+                        "a PTY is live for session {session_id}"
+                    )));
+                }
             }
         };
 
@@ -260,12 +354,16 @@ impl ChatManager {
         let (client, acp_session_id) = match handshake {
             Ok(pair) => pair,
             Err(e) => {
-                let mut map = self.inner.live.lock().unwrap_or_else(|e| e.into_inner());
-                if matches!(map.get(session_id), Some(Entry::Starting(s)) if Arc::ptr_eq(s, &starting))
+                let mut surfaces = self
+                    .inner
+                    .surfaces
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                if matches!(surfaces.chats.get(session_id), Some(Entry::Starting(s)) if Arc::ptr_eq(s, &starting))
                 {
-                    map.remove(session_id);
+                    surfaces.chats.remove(session_id);
                 }
-                drop(map);
+                drop(surfaces);
                 let _ = starting.done.send(true);
                 return Err(e);
             }
@@ -282,8 +380,14 @@ impl ChatManager {
             card_id: session_id.to_string(),
         });
         {
-            let mut map = self.inner.live.lock().unwrap_or_else(|e| e.into_inner());
-            map.insert(session_id.to_string(), Entry::Live(live.clone()));
+            let mut surfaces = self
+                .inner
+                .surfaces
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            surfaces
+                .chats
+                .insert(session_id.to_string(), Entry::Live(live.clone()));
         }
 
         // Drain agent events concurrently so chunks reach the transcript
@@ -337,11 +441,15 @@ impl ChatManager {
     /// Drops the live chat, if any; the agent process dies with its last
     /// client reference (`kill_on_drop`).
     pub(crate) fn forget(&self, session_id: &str) {
-        let mut map = self.inner.live.lock().unwrap_or_else(|e| e.into_inner());
+        let mut surfaces = self
+            .inner
+            .surfaces
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         // A start in flight is not forgotten: it publishes (or clears)
         // its own reservation when its handshake settles.
-        if matches!(map.get(session_id), Some(Entry::Live(_))) {
-            map.remove(session_id);
+        if matches!(surfaces.chats.get(session_id), Some(Entry::Live(_))) {
+            surfaces.chats.remove(session_id);
         }
     }
 
@@ -520,6 +628,81 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         chats.forget("card-1");
+    }
+
+    #[tokio::test]
+    async fn pty_claim_blocks_chat_start_until_released() {
+        let chats = test_manager();
+        assert_eq!(chats.try_claim_pty("card-p"), PtyClaim::Acquired);
+        assert_eq!(chats.try_claim_pty("card-p"), PtyClaim::AlreadyPty);
+        let cmd = fake_acp_command();
+        let err = chats
+            .start("card-p", &cmd, Path::new("/tmp"), Some("hi"))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, ChatError::Conflict(_)), "start: {err}");
+        assert!(!chats.is_live_or_starting("card-p"), "no chat reserved");
+        chats.release_pty("card-p");
+        assert!(!chats.pty_claimed("card-p"));
+        chats
+            .start("card-p", &cmd, Path::new("/tmp"), Some("hi"))
+            .await
+            .unwrap();
+        assert!(chats.is_live("card-p"));
+        // And while the chat is live, the PTY claim loses.
+        assert_eq!(chats.try_claim_pty("card-p"), PtyClaim::BlockedByChat);
+        chats.forget("card-p");
+        assert_eq!(chats.try_claim_pty("card-p"), PtyClaim::Acquired);
+        chats.release_pty("card-p");
+    }
+
+    // The race itself: a PTY claim and a chat start released at the
+    // same instant must produce exactly one winner, every time.
+    #[tokio::test]
+    async fn concurrent_pty_claim_and_chat_start_have_one_winner() {
+        let chats = test_manager();
+        let cmd = fake_acp_command();
+        for n in 0..16 {
+            let id = format!("race-{n}");
+            let barrier = Arc::new(tokio::sync::Barrier::new(2));
+            let claim = {
+                let chats = chats.clone();
+                let barrier = barrier.clone();
+                let id = id.clone();
+                tokio::spawn(async move {
+                    barrier.wait().await;
+                    chats.try_claim_pty(&id)
+                })
+            };
+            let start = {
+                let chats = chats.clone();
+                let barrier = barrier.clone();
+                let cmd = cmd.clone();
+                let id = id.clone();
+                tokio::spawn(async move {
+                    barrier.wait().await;
+                    chats.start(&id, &cmd, Path::new("/tmp"), None).await
+                })
+            };
+            let claim = claim.await.unwrap();
+            let started = start.await.unwrap();
+            match claim {
+                PtyClaim::Acquired | PtyClaim::AlreadyPty => {
+                    assert!(
+                        matches!(started, Err(ChatError::Conflict(_))),
+                        "PTY claimed {id} but chat also started: {started:?}"
+                    );
+                    assert!(!chats.is_live(&id));
+                    chats.release_pty(&id);
+                }
+                PtyClaim::BlockedByChat => {
+                    started.unwrap_or_else(|e| panic!("chat won {id} but failed: {e}"));
+                    assert!(chats.is_live(&id));
+                    chats.forget(&id);
+                }
+            }
+            assert!(!chats.is_live_or_starting(&id) && !chats.pty_claimed(&id));
+        }
     }
 
     #[tokio::test]

@@ -58,7 +58,7 @@ fn card_row(st: &AppState, id: &str) -> Option<CardRow> {
 fn chat_error(err: ChatError) -> StatusCode {
     match err {
         ChatError::Invalid(_) => StatusCode::BAD_REQUEST,
-        ChatError::NotLive => StatusCode::CONFLICT,
+        ChatError::NotLive | ChatError::Conflict(_) => StatusCode::CONFLICT,
         ChatError::Failed(e) => {
             eprintln!("chat error: {e}");
             StatusCode::BAD_GATEWAY
