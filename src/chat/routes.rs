@@ -204,8 +204,10 @@ async fn message(
         .start(&id, &acp, &cwd, None)
         .await
         .map_err(chat_error)?;
+    // This call was parked on Starting. Clearing the stop latch here would
+    // let the launch prompt proceed after a stop during the handshake.
     st.chats
-        .send_message(&id, &body.text)
+        .send_keeping_stop(&id, &body.text)
         .await
         .map_err(chat_error)?;
     Ok(StatusCode::ACCEPTED)
@@ -1012,6 +1014,103 @@ mod tests {
         .await;
         assert_eq!(code, StatusCode::ACCEPTED);
         wait_for_text(&st, &id, "fake reply: after stop").await;
+        st.chats.forget(&id);
+    }
+
+    /// A message parked on the handshake wakes when the agent is published
+    /// and must not lift a stop that landed during Starting. The launch
+    /// prompt stays cancelled; a later live message still runs.
+    #[tokio::test]
+    async fn stop_during_start_suppresses_the_launch_prompt_when_a_message_is_parked() {
+        let st = test_state();
+        let unique = crate::auth::random_hex(8).unwrap_or_else(|_| "hold".into());
+        let gate = std::env::temp_dir().join(format!("tabsh-gate-{unique}"));
+        let (cmd, args) = crate::chat::acp::fake_agent_hold(&gate);
+        let (code, body) = req(
+            &st,
+            Method::POST,
+            "/api/sessions",
+            serde_json::json!({
+                "cwd": "/tmp",
+                "mode": "ui",
+                "prompt": "please run",
+                "acp_command": format!("{cmd} {}", args.join(" ")),
+            }),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "create: {body}");
+        let id = body["id"].as_str().unwrap().to_string();
+        move_in_progress(&st, &id).await;
+
+        let ready = gate.with_extension("ready");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !ready.exists() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "fake agent never reached the handshake hold"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+
+        let parked = {
+            let st = st.clone();
+            let id = id.clone();
+            tokio::spawn(async move {
+                req(
+                    &st,
+                    Method::POST,
+                    &format!("/api/sessions/{id}/chat/message"),
+                    serde_json::json!({"text": "parked line"}),
+                )
+                .await
+            })
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+        assert!(
+            !parked.is_finished(),
+            "message was not parked on the handshake"
+        );
+
+        let (code, _) = req(
+            &st,
+            Method::POST,
+            &format!("/api/sessions/{id}/chat/stop"),
+            serde_json::Value::Null,
+        )
+        .await;
+        assert_eq!(code, StatusCode::NO_CONTENT);
+        std::fs::write(gate.with_extension("go"), b"1").unwrap();
+
+        let (code, _) = parked.await.unwrap();
+        assert_eq!(code, StatusCode::ACCEPTED);
+
+        let msgs = wait_messages(&st, &id, |m| {
+            stop_reasons(m).iter().any(|r| r == "cancelled")
+        })
+        .await;
+        assert!(
+            stop_reasons(&msgs).iter().all(|r| r == "cancelled"),
+            "launch prompt ran after stop: {msgs:?}"
+        );
+        assert!(
+            !chunk_text(&msgs).contains("fake reply"),
+            "session/prompt was written after stop: {msgs:?}"
+        );
+
+        let (code, _) = req(
+            &st,
+            Method::POST,
+            &format!("/api/sessions/{id}/chat/message"),
+            serde_json::json!({"text": "after stop"}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::ACCEPTED);
+        wait_for_text(&st, &id, "fake reply: after stop").await;
+        let msgs = messages(&st, &id).await;
+        assert!(
+            !chunk_text(&msgs).contains("fake reply: please run"),
+            "launch prompt was sent: {msgs:?}"
+        );
         st.chats.forget(&id);
     }
 }

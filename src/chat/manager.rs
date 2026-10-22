@@ -288,7 +288,7 @@ impl ChatManager {
         cwd: &Path,
         initial_prompt: Option<&str>,
     ) -> ChatResult<()> {
-        let (live, _won) = self.start_inner(session_id, acp_command, cwd).await?;
+        let (live, _won) = self.start_inner(session_id, acp_command, cwd, None).await?;
         if let Some(prompt) = initial_prompt.filter(|p| !p.trim().is_empty()) {
             self.dispatch(&live, prompt);
         }
@@ -305,10 +305,11 @@ impl ChatManager {
         cwd: &Path,
         initial_prompt: Option<&str>,
     ) -> ChatResult<()> {
-        let (live, won) = self.start_inner(session_id, acp_command, cwd).await?;
-        if won && let Some(prompt) = initial_prompt.filter(|p| !p.trim().is_empty()) {
-            self.dispatch(&live, prompt);
-        }
+        // Settled inside `start_inner` before the chat is published, so a
+        // message parked on the handshake cannot clear a stop and then
+        // let this prompt be written.
+        self.start_inner(session_id, acp_command, cwd, initial_prompt)
+            .await?;
         Ok(())
     }
 
@@ -318,6 +319,7 @@ impl ChatManager {
         session_id: &str,
         acp_command: &str,
         cwd: &Path,
+        launch_prompt: Option<&str>,
     ) -> ChatResult<(Arc<LiveChat>, bool)> {
         enum Action {
             Existing(Arc<LiveChat>),
@@ -423,6 +425,15 @@ impl ChatManager {
             board,
             cancel: starting.cancel.clone(),
         });
+        // Stop may have landed while this was `Starting`. Settle the
+        // launch prompt before the chat is live and before waiters wake:
+        // a parked message must not clear the latch first.
+        if live.cancel.load(Ordering::SeqCst) {
+            live.client.mark_cancelled();
+        }
+        if let Some(prompt) = launch_prompt.filter(|p| !p.trim().is_empty()) {
+            self.dispatch(&live, prompt);
+        }
         {
             let mut surfaces = self
                 .inner
@@ -432,12 +443,6 @@ impl ChatManager {
             surfaces
                 .chats
                 .insert(session_id.to_string(), Entry::Live(live.clone()));
-        }
-        // Stop may have landed while this was `Starting`, or in the gap
-        // before the insert. Either way the flag is set and the prompt
-        // must not be written.
-        if live.cancel.load(Ordering::SeqCst) {
-            live.client.mark_cancelled();
         }
 
         // Drain agent events concurrently so chunks reach the transcript
@@ -456,8 +461,8 @@ impl ChatManager {
                 }
             }
         });
-        // Publish only once the live chat is in the map: waiters that
-        // wake now find it and dispatch onto the one agent.
+        // Waiters were parked on the handshake. They wake only after the
+        // launch prompt has been settled and the live chat is in the map.
         let _ = starting.done.send(true);
         self.clear_failure(session_id);
         Ok((live, true))
@@ -465,11 +470,20 @@ impl ChatManager {
 
     /// Records `text` as the user's chunk and runs it as an ACP prompt on
     /// a spawned task; the turn's chunks arrive through the event pump.
+    /// A stop latched during handshake ends the turn here, before
+    /// `prompt` can observe a later clear and write `session/prompt`.
     fn dispatch(&self, live: &Arc<LiveChat>, text: &str) {
         live.record(UiChunk::UserText {
             session_id: live.acp_session_id.clone(),
             text: text.to_string(),
         });
+        if live.cancel.load(Ordering::SeqCst) {
+            live.record(UiChunk::TurnEnd {
+                session_id: live.acp_session_id.clone(),
+                stop_reason: "cancelled".into(),
+            });
+            return;
+        }
         let client = live.client.clone();
         let acp_session_id = live.acp_session_id.clone();
         let text = text.to_string();
@@ -516,9 +530,19 @@ impl ChatManager {
 
     pub(crate) async fn send_message(&self, session_id: &str, text: &str) -> ChatResult<()> {
         let live = self.live(session_id).ok_or(ChatError::NotLive)?;
-        // Stop latches the card until the user sends again.
+        // Stop latches the card until the user sends again. Only a message
+        // that finds the chat already live clears it — see `send_keeping_stop`.
         live.cancel.store(false, Ordering::SeqCst);
         live.client.clear_cancelled();
+        self.dispatch(&live, text);
+        Ok(())
+    }
+
+    /// Delivers `text` without lifting a stop latched while the agent was
+    /// still starting. The message route uses this after waiting out the
+    /// handshake, so a parked send cannot un-cancel the launch prompt.
+    pub(crate) async fn send_keeping_stop(&self, session_id: &str, text: &str) -> ChatResult<()> {
+        let live = self.live(session_id).ok_or(ChatError::NotLive)?;
         self.dispatch(&live, text);
         Ok(())
     }
