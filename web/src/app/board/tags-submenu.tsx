@@ -94,7 +94,14 @@ export function TagsPanel(
             const dot = `background:${tagColor(tag)}`;
             let box!: HTMLInputElement;
             return (
-              <label class="label menu-check">
+              <label
+                class="label menu-check"
+                // WebKit focuses the dialog when the label, not its box, is
+                // pressed: a focusout the chip's popover takes for leaving it.
+                // Keep that press from moving focus; its click still ticks the
+                // box (and focuses it).
+                on:mousedown={(e) => e.preventDefault()}
+              >
                 <input
                   ref={box}
                   type="checkbox"
