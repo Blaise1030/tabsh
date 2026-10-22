@@ -7,6 +7,7 @@ import { ApiError } from '../daemon/client.ts';
 import { type ChatChunk, readChatStream } from './client.ts';
 import { Composer } from './composer.tsx';
 import { chatLines, Part } from './parts.tsx';
+import { turnOpen } from './turn.ts';
 
 export function ChatPanel(props: { sessionId: string }): JSX.Element {
   const [chunks, setChunks] = createSignal<ChatChunk[]>([]);
@@ -75,12 +76,14 @@ export function ChatPanel(props: { sessionId: string }): JSX.Element {
   return (
     <section class="chat" aria-label="Chat">
       <div class="chat-transcript" ref={transcript}>
-        <For each={chatLines(chunks())}>{(line) => <Part line={line} />}</For>
+        <For each={chatLines(chunks())}>
+          {(line) => <Part line={line} sessionId={props.sessionId} onError={setNotice} />}
+        </For>
         <Show when={notice()}>
           {(message) => <Part line={{ chunk: { type: 'error', message: message() }, text: message() }} />}
         </Show>
       </div>
-      <Composer sessionId={props.sessionId} onError={setNotice} />
+      <Composer sessionId={props.sessionId} busy={turnOpen(chunks())} onError={setNotice} />
     </section>
   );
 }

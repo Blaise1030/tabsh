@@ -33,6 +33,7 @@ struct CardRow {
     mode: String,
     acp_command: Option<String>,
     cwd: Option<String>,
+    status: String,
 }
 
 fn card_row(st: &AppState, id: &str) -> Option<CardRow> {
@@ -40,19 +41,30 @@ fn card_row(st: &AppState, id: &str) -> Option<CardRow> {
         .lock()
         .unwrap()
         .query_row(
-            "SELECT mode, acp_command, cwd FROM sessions WHERE id = ?1",
+            "SELECT mode, acp_command, cwd, status FROM sessions WHERE id = ?1",
             params![id],
             |r| {
                 Ok(CardRow {
                     mode: r.get(0)?,
                     acp_command: r.get(1)?,
                     cwd: r.get(2)?,
+                    status: r.get(3)?,
                 })
             },
         )
         .optional()
         .ok()
         .flatten()
+}
+
+/// A message may continue a live chat in any column. The first start waits
+/// for In progress, or a column the card reached after that (a dead agent
+/// on Needs input must be able to start again).
+fn may_start_chat(status: &str) -> bool {
+    matches!(
+        status,
+        "in_progress" | "needs_input" | "completed" | "archived"
+    )
 }
 
 fn chat_error(err: ChatError) -> Response {
@@ -192,6 +204,15 @@ async fn message(
     }
     if card.mode != "ui" {
         return Err(StatusCode::CONFLICT.into_response());
+    }
+    if !may_start_chat(&card.status) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "message": "Move this card to In progress to start the agent."
+            })),
+        )
+            .into_response());
     }
     let Some(acp) = card.acp_command.filter(|c| !c.trim().is_empty()) else {
         return Err(StatusCode::BAD_REQUEST.into_response());
@@ -618,6 +639,9 @@ mod tests {
         .await;
         assert_eq!(code, StatusCode::OK, "create: {body}");
         let id = body["id"].as_str().unwrap();
+        // A backlog card does not start its agent; the spawn error is from
+        // a message once the card is In progress.
+        move_in_progress(&st, id).await;
         let (code, body) = req(
             &st,
             Method::POST,
@@ -1110,6 +1134,257 @@ mod tests {
         assert!(
             !chunk_text(&msgs).contains("fake reply: please run"),
             "launch prompt was sent: {msgs:?}"
+        );
+        st.chats.forget(&id);
+    }
+
+    fn pending_prompt(st: &AppState, id: &str) -> Option<String> {
+        st.db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT pending_prompt FROM sessions WHERE id = ?1",
+                [id],
+                |r| r.get(0),
+            )
+            .unwrap()
+    }
+
+    fn stored_acp(st: &AppState, id: &str) -> String {
+        st.db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT acp_command FROM sessions WHERE id = ?1",
+                [id],
+                |r| r.get(0),
+            )
+            .unwrap()
+    }
+
+    fn pids(text: &str) -> Vec<u32> {
+        text.split("pid:")
+            .skip(1)
+            .filter_map(|part| {
+                let digits: String = part.chars().take_while(|c| c.is_ascii_digit()).collect();
+                digits.parse().ok()
+            })
+            .collect()
+    }
+
+    /// Holds `TABSH_SESSION_ID` / `TABSH_URL` for one test and puts the
+    /// previous values back, including when the test panics.
+    struct ParentEnv {
+        id: Option<String>,
+        url: Option<String>,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl ParentEnv {
+        fn poison() -> Self {
+            let guard = Self {
+                _lock: crate::test_support::ENV
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()),
+                id: std::env::var("TABSH_SESSION_ID").ok(),
+                url: std::env::var("TABSH_URL").ok(),
+            };
+            // SAFETY: `ENV` serialises process-global environment edits in tests.
+            unsafe {
+                std::env::set_var("TABSH_SESSION_ID", "parent-leak");
+                std::env::set_var("TABSH_URL", "http://parent.invalid");
+            }
+            guard
+        }
+    }
+
+    impl Drop for ParentEnv {
+        fn drop(&mut self) {
+            // SAFETY: the same `ENV` lock is still held.
+            unsafe {
+                match &self.id {
+                    Some(value) => std::env::set_var("TABSH_SESSION_ID", value),
+                    None => std::env::remove_var("TABSH_SESSION_ID"),
+                }
+                match &self.url {
+                    Some(value) => std::env::set_var("TABSH_URL", value),
+                    None => std::env::remove_var("TABSH_URL"),
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_backlog_message_does_not_start_the_agent_or_drop_the_launch_prompt() {
+        let st = test_state();
+        let id = create_ui_card(&st, "keep-me").await;
+        let (code, body) = req(
+            &st,
+            Method::POST,
+            &format!("/api/sessions/{id}/chat/message"),
+            serde_json::json!({"text": "from the backlog"}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::BAD_REQUEST, "{body}");
+        assert!(
+            body["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("In progress")),
+            "{body}"
+        );
+        assert!(!st.chats.is_live(&id));
+        assert_eq!(pending_prompt(&st, &id).as_deref(), Some("keep-me"));
+
+        move_in_progress(&st, &id).await;
+        wait_for_text(&st, &id, "fake reply: keep-me").await;
+        let text = chat_text(&st, &id).await;
+        assert!(
+            !text.contains("from the backlog"),
+            "rejected backlog text was sent: {text}"
+        );
+        assert_eq!(text.matches("fake reply: keep-me").count(), 1, "{text}");
+        assert_eq!(pending_prompt(&st, &id), None);
+        st.chats.forget(&id);
+    }
+
+    #[tokio::test]
+    async fn a_live_chat_still_receives_an_unsent_launch_prompt() {
+        let st = test_state();
+        let id = create_ui_card(&st, "keep-me").await;
+        let cmd = stored_acp(&st, &id);
+        st.chats
+            .start(&id, &cmd, std::path::Path::new("/tmp"), None)
+            .await
+            .unwrap();
+        assert!(st.chats.is_live(&id));
+        assert_eq!(pending_prompt(&st, &id).as_deref(), Some("keep-me"));
+
+        // The message attached first and did not send the card's prompt.
+        let (code, _) = req(
+            &st,
+            Method::POST,
+            &format!("/api/sessions/{id}/chat/message"),
+            serde_json::json!({"text": "while backlog"}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::ACCEPTED);
+        wait_for_text(&st, &id, "fake reply: while backlog").await;
+
+        crate::chat::manager::launch_ui(&st, &id);
+        wait_for_text(&st, &id, "fake reply: keep-me").await;
+        let text = chat_text(&st, &id).await;
+        assert_eq!(text.matches("fake reply: keep-me").count(), 1, "{text}");
+        assert!(text.contains("fake reply: while backlog"), "{text}");
+        assert_eq!(pending_prompt(&st, &id), None);
+
+        // A second launch must not send the prompt again.
+        crate::chat::manager::launch_ui(&st, &id);
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let again = chat_text(&st, &id).await;
+        assert_eq!(again.matches("fake reply: keep-me").count(), 1, "{again}");
+        st.chats.forget(&id);
+    }
+
+    #[tokio::test]
+    async fn a_dead_agent_is_replaced_and_the_transcript_is_kept() {
+        let st = test_state();
+        let id = create_ui_card(&st, "show-pid").await;
+        move_in_progress(&st, &id).await;
+        wait_for_text(&st, &id, "pid:").await;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        while card_status(&st, &id) != "needs_input" {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "status stayed {}",
+                card_status(&st, &id)
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        let first = pids(&chat_text(&st, &id).await);
+        assert_eq!(first.len(), 1, "history: {}", chat_text(&st, &id).await);
+
+        let (code, _) = req(
+            &st,
+            Method::POST,
+            &format!("/api/sessions/{id}/chat/message"),
+            serde_json::json!({"text": "exit-after-turn"}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::ACCEPTED);
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        loop {
+            let msgs = messages(&st, &id).await;
+            let exits = msgs
+                .iter()
+                .filter(|m| m["type"] == "error" && m["message"] == "ACP agent exited")
+                .count();
+            if exits == 1 && !st.chats.is_live(&id) {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "agent stayed live after exit: live={} msgs={msgs:?}",
+                st.chats.is_live(&id)
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        assert_eq!(card_status(&st, &id), "needs_input");
+
+        let (code, _) = req(
+            &st,
+            Method::POST,
+            &format!("/api/sessions/{id}/chat/message"),
+            serde_json::json!({"text": "show-pid"}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::ACCEPTED);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        loop {
+            let got = pids(&chat_text(&st, &id).await);
+            if got.len() >= 2 {
+                assert_ne!(
+                    got[0], got[1],
+                    "the same process answered the retry: {got:?}"
+                );
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "no new process: {}",
+                chat_text(&st, &id).await
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        let text = chat_text(&st, &id).await;
+        assert!(text.contains(&format!("pid:{}", first[0])), "{text}");
+        assert!(text.contains("fake reply: show-pid"), "{text}");
+        st.chats.forget(&id);
+    }
+
+    #[tokio::test]
+    async fn acp_child_env_is_the_card_not_the_parent_shell() {
+        let _parent = ParentEnv::poison();
+        let st = test_state();
+        let id = create_ui_card(&st, "report-env").await;
+        move_in_progress(&st, &id).await;
+        wait_for_text(&st, &id, "env:").await;
+        let text = chat_text(&st, &id).await;
+        assert!(
+            text.contains(&format!("env:{id}")),
+            "child did not see the card id: {text}"
+        );
+        assert!(
+            text.contains("url:http://127.0.0.1:7681"),
+            "child did not see the daemon url: {text}"
+        );
+        assert!(
+            !text.contains("parent-leak"),
+            "inherited session id: {text}"
+        );
+        assert!(
+            !text.contains("parent.invalid"),
+            "inherited daemon url: {text}"
         );
         st.chats.forget(&id);
     }

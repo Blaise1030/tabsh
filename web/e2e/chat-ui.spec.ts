@@ -61,3 +61,45 @@ test('a UI card in progress shows the chat composer', async ({ page, daemon, pro
   await created.click();
   await expect(page.locator('.chat-composer')).toBeVisible();
 });
+
+async function openUiCard(page: Page, project: string, name: string): Promise<void> {
+  await boardAlone(page);
+  await col(page, 'in_progress').locator('header .btn').click();
+  const dialog = page.locator('#new-card');
+  await dialog.locator('button[aria-label="Folder"]').click();
+  await dialog.locator('input[name="cwd"]').fill(project);
+  await dialog.locator('textarea[name="prompt"]').fill(name);
+  await dialog.locator('button[aria-label="Agent"]').click();
+  await dialog.getByRole('menuitemradio', { name: 'Fake ACP', exact: true }).click();
+  await dialog.getByRole('radio', { name: 'UI', exact: true }).click();
+  await dialog.locator('button[type="submit"]').click();
+  // The launch turn can move the card to Needs input before this looks.
+  const created = card(page, name);
+  await expect(created).toBeVisible();
+  await created.click();
+  // Send stays disabled until there is text. The field is what a finished
+  // launch turn re-enables.
+  await expect(page.locator('.chat-composer textarea')).toBeEnabled();
+}
+
+test('Allow answers an in-thread permission request', async ({ page, daemon, project }) => {
+  await openApp(page, daemon);
+  await openUiCard(page, project, 'Say hello');
+  await page.locator('.chat-composer textarea').fill('needs permission');
+  await page.getByRole('button', { name: 'Send' }).click();
+  await expect(page.locator('.chat-permission')).toContainText('Fake tool');
+  await page.getByRole('button', { name: 'Allow' }).click();
+  await expect(page.locator('.chat-transcript')).toContainText('permission outcome: selected:allow');
+  await expect(page.locator('.chat-composer textarea')).toBeEnabled();
+});
+
+test('Stop ends the running turn and the composer works again', async ({ page, daemon, project }) => {
+  await openApp(page, daemon);
+  await openUiCard(page, project, 'Say hello');
+  await page.locator('.chat-composer textarea').fill('slow please');
+  await page.getByRole('button', { name: 'Send' }).click();
+  await expect(page.getByRole('button', { name: 'Stop' })).toBeVisible();
+  await page.getByRole('button', { name: 'Stop' }).click();
+  await expect(page.locator('.chat-composer textarea')).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Send' })).toBeVisible();
+});

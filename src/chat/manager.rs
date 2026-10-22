@@ -80,6 +80,10 @@ struct LiveChat {
     /// Shared with the `Starting` entry so a stop during handshake is
     /// still visible once the client exists.
     cancel: Arc<AtomicBool>,
+    /// The card's `pending_prompt` has been handed to this process once.
+    launch_sent: AtomicBool,
+    /// Process death is one error chunk, then the live entry is dropped.
+    exited: AtomicBool,
 }
 
 impl LiveChat {
@@ -129,6 +133,8 @@ struct Inner {
     /// Set once the daemon (or a test) has a database. Chats started
     /// before that do not move board cards.
     board: Mutex<Option<BoardPipe>>,
+    /// This daemon's address, given to every ACP child as `TABSH_URL`.
+    self_url: Mutex<String>,
 }
 
 /// The outcome of a PTY surface claim (`ChatManager::try_claim_pty`).
@@ -168,8 +174,19 @@ impl ChatManager {
                 data_dir,
                 failures: Mutex::new(HashMap::new()),
                 board: Mutex::new(None),
+                self_url: Mutex::new(String::new()),
             }),
         }
+    }
+
+    /// The address shells already get as `TABSH_URL`. ACP children get
+    /// the same one, overriding anything inherited from the daemon.
+    pub(crate) fn bind_url(&self, url: &str) {
+        *self
+            .inner
+            .self_url
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = url.to_string();
     }
 
     /// The manager for a daemon whose database is at `db_path`:
@@ -355,7 +372,12 @@ impl ChatManager {
                 }
             };
             match action {
-                Action::Existing(live) => return Ok((live, false)),
+                Action::Existing(live) => {
+                    // The starter already sent the launch prompt, unless a
+                    // message reserved the card first and passed none.
+                    self.deliver_launch(&live, launch_prompt);
+                    return Ok((live, false));
+                }
                 Action::Wait(s) => {
                     let mut rx = s.done.subscribe();
                     // Err only means the starter is gone; loop to retry.
@@ -372,9 +394,20 @@ impl ChatManager {
 
         let handshake = tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
             let (cmd, args) = split_command(acp_command)?;
-            let client = AcpClient::spawn(&cmd, &args, cwd)
-                .await
-                .map_err(|e| ChatError::Failed(e.to_string()))?;
+            let url = self
+                .inner
+                .self_url
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            let client = AcpClient::spawn_with_env(
+                &cmd,
+                &args,
+                cwd,
+                &[("TABSH_SESSION_ID", session_id), ("TABSH_URL", &url)],
+            )
+            .await
+            .map_err(|e| ChatError::Failed(e.to_string()))?;
             client
                 .initialize()
                 .await
@@ -424,6 +457,8 @@ impl ChatManager {
             card_id: session_id.to_string(),
             board,
             cancel: starting.cancel.clone(),
+            launch_sent: AtomicBool::new(false),
+            exited: AtomicBool::new(false),
         });
         // Stop may have landed while this was `Starting`. Settle the
         // launch prompt before the chat is live and before waiters wake:
@@ -431,9 +466,7 @@ impl ChatManager {
         if live.cancel.load(Ordering::SeqCst) {
             live.client.mark_cancelled();
         }
-        if let Some(prompt) = launch_prompt.filter(|p| !p.trim().is_empty()) {
-            self.dispatch(&live, prompt);
-        }
+        self.deliver_launch(&live, launch_prompt);
         {
             let mut surfaces = self
                 .inner
@@ -452,18 +485,42 @@ impl ChatManager {
         }
 
         // Drain agent events concurrently so chunks reach the transcript
-        // and subscribers before the turn ends.
+        // and subscribers before the turn ends. Process death closes the
+        // stream; trailing turn-end events that race the exit are applied
+        // before the live entry is dropped.
         let weak = Arc::downgrade(&live);
+        let mgr = self.clone();
+        let card_id = session_id.to_string();
         tokio::spawn(async move {
-            while let Some(ev) = rx.recv().await {
-                let Some(live) = weak.upgrade() else { break };
-                for chunk in to_chunks(&ev) {
-                    live.record(chunk);
-                }
-                if let Some(status) = acp_card_status(&ev)
-                    && let Some(board) = &live.board
-                {
-                    crate::board::note_acp_status(&board.db, &board.events, &live.card_id, status);
+            loop {
+                match rx.recv().await {
+                    Some(AcpEvent::AgentExited) => {
+                        let deadline = tokio::time::Instant::now() + Duration::from_millis(50);
+                        loop {
+                            let left =
+                                deadline.saturating_duration_since(tokio::time::Instant::now());
+                            if left.is_zero() {
+                                break;
+                            }
+                            match tokio::time::timeout(left, rx.recv()).await {
+                                Ok(Some(AcpEvent::AgentExited)) => continue,
+                                Ok(Some(ev)) => apply_event(&weak, &ev),
+                                _ => break,
+                            }
+                        }
+                        mgr.note_agent_exit(&card_id);
+                        break;
+                    }
+                    None => {
+                        mgr.note_agent_exit(&card_id);
+                        break;
+                    }
+                    Some(ev) => {
+                        if weak.upgrade().is_none() {
+                            break;
+                        }
+                        apply_event(&weak, &ev);
+                    }
                 }
             }
         });
@@ -494,18 +551,51 @@ impl ChatManager {
         let acp_session_id = live.acp_session_id.clone();
         let text = text.to_string();
         let weak = Arc::downgrade(live);
+        let mgr = self.clone();
         tokio::spawn(async move {
             if let Err(e) = client.prompt(&acp_session_id, &text).await {
                 eprintln!("chat: ACP prompt failed: {e}");
                 // The POST already returned 202. Auth and protocol
-                // failures reach the panel only as a chunk.
-                if let Some(live) = weak.upgrade() {
-                    live.record(UiChunk::Error {
-                        message: e.to_string(),
-                    });
+                // failures reach the panel only as a chunk. A dead
+                // process is one error, then the live entry is dropped
+                // so the next message can start again.
+                let message = e.to_string();
+                let Some(live) = weak.upgrade() else { return };
+                if agent_gone(&message) {
+                    mgr.note_agent_exit(&live.card_id);
+                } else {
+                    live.record(UiChunk::Error { message });
                 }
             }
         });
+    }
+
+    /// Sends the card's launch prompt the first time this process is asked.
+    /// A repeated board launch does not replay it; a message that reserved
+    /// the card first left it unsent, and this is what delivers it.
+    fn deliver_launch(&self, live: &Arc<LiveChat>, launch_prompt: Option<&str>) {
+        let Some(prompt) = launch_prompt.filter(|p| !p.trim().is_empty()) else {
+            return;
+        };
+        if live.launch_sent.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        self.dispatch(live, prompt);
+    }
+
+    /// The agent process is gone. One error chunk, then the card can start
+    /// a new process on the next message. The JSONL history stays.
+    fn note_agent_exit(&self, session_id: &str) {
+        let Some(live) = self.live(session_id) else {
+            return;
+        };
+        if live.exited.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        live.record(UiChunk::Error {
+            message: "ACP agent exited".into(),
+        });
+        self.forget(session_id);
     }
 
     /// Remembers a start that never became a live chat, for the SSE stream.
@@ -646,6 +736,27 @@ impl ChatManager {
     }
 }
 
+fn apply_event(live: &std::sync::Weak<LiveChat>, ev: &AcpEvent) {
+    let Some(live) = live.upgrade() else { return };
+    for chunk in to_chunks(ev) {
+        live.record(chunk);
+    }
+    if let Some(status) = acp_card_status(ev)
+        && let Some(board) = &live.board
+    {
+        crate::board::note_acp_status(&board.db, &board.events, &live.card_id, status);
+    }
+}
+
+/// A write or a waiter failed because the child is gone, not because the
+/// agent rejected the prompt.
+fn agent_gone(err: &str) -> bool {
+    let lower = err.to_ascii_lowercase();
+    lower.contains("acp agent exited")
+        || lower.contains("broken pipe")
+        || lower.contains("os error 32")
+}
+
 /// Idle `end_turn` means the agent is waiting on the user. `completed` only
 /// when the agent sends a session-end update. Cancel and other stop reasons
 /// stay `in_progress` so a hook can still report them.
@@ -714,10 +825,9 @@ async fn launch_ui_async(st: AppState, id: String) {
         st.chats.note_failure(&id, message);
         return;
     };
-    if st.chats.is_live(&id) {
-        return;
-    }
     // One active agent surface per card: never over a live agent PTY.
+    // A chat that is already live still falls through: `ensure_started`
+    // sends `pending_prompt` once if this process has not had it.
     if st.live.lock().unwrap().contains_key(&id) {
         eprintln!("chat: refusing to start over the live PTY of {id}");
         st.chats

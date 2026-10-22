@@ -106,7 +106,7 @@ pub(crate) fn to_chunks(ev: &AcpEvent) -> Vec<UiChunk> {
             stop_reason: stop_reason.clone(),
         },
         // Status mapping consumes this; the transcript has no chunk for it.
-        AcpEvent::SessionEnded { .. } => return Vec::new(),
+        AcpEvent::SessionEnded { .. } | AcpEvent::AgentExited => return Vec::new(),
         AcpEvent::Unknown { session_id, update } => UiChunk::Unknown {
             session_id: session_id.clone(),
             update: update.clone(),

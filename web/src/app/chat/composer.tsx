@@ -1,11 +1,15 @@
 // The footer of a UI card: posts the text, and puts it back if the daemon
 // refuses so a spawn failure does not eat the message.
-import { createEffect, createSignal, type JSX, onCleanup } from 'solid-js';
+import { createEffect, createSignal, type JSX, onCleanup, Show } from 'solid-js';
 import { ApiError } from '../daemon/client.ts';
-import { postMessage } from './client.ts';
+import { postMessage, postStop } from './client.ts';
 import { insertIntoComposer, registerComposer } from './deliver.ts';
 
-export function Composer(props: { sessionId: string; onError: (message: string | null) => void }): JSX.Element {
+export function Composer(props: {
+  sessionId: string;
+  busy: boolean;
+  onError: (message: string | null) => void;
+}): JSX.Element {
   const [text, setText] = createSignal('');
   let sending = false;
   let field: HTMLTextAreaElement | undefined;
@@ -21,7 +25,7 @@ export function Composer(props: { sessionId: string; onError: (message: string |
 
   const send = async () => {
     const value = text().trim();
-    if (!value || sending) return;
+    if (!value || sending || props.busy) return;
     sending = true;
     setText('');
     try {
@@ -32,6 +36,15 @@ export function Composer(props: { sessionId: string; onError: (message: string |
       props.onError(e instanceof ApiError ? e.message : 'Could not send that message.');
     } finally {
       sending = false;
+    }
+  };
+
+  const stop = async () => {
+    try {
+      await postStop(props.sessionId);
+      props.onError(null);
+    } catch (e) {
+      props.onError(e instanceof ApiError ? e.message : 'Could not stop the agent.');
     }
   };
 
@@ -48,6 +61,7 @@ export function Composer(props: { sessionId: string; onError: (message: string |
         rows={2}
         placeholder="Message"
         aria-label="Message"
+        disabled={props.busy}
         value={text()}
         onInput={(e) => setText(e.currentTarget.value)}
         onKeyDown={(e) => {
@@ -57,9 +71,18 @@ export function Composer(props: { sessionId: string; onError: (message: string |
           }
         }}
       />
-      <button type="submit" class="btn" disabled={!text().trim()}>
-        Send
-      </button>
+      <Show
+        when={props.busy}
+        fallback={
+          <button type="submit" class="btn" disabled={!text().trim()}>
+            Send
+          </button>
+        }
+      >
+        <button type="button" class="btn" onClick={() => void stop()}>
+          Stop
+        </button>
+      </Show>
     </form>
   );
 }

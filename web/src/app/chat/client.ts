@@ -93,11 +93,27 @@ export function failureText(status: number, body: string): string {
 }
 
 export async function postMessage(sessionId: string, text: string): Promise<void> {
+  await postChat(sessionId, 'message', { text });
+}
+
+// Stop the in-flight turn. 204 means the daemon accepted it, including when
+// nothing was running.
+export async function postStop(sessionId: string): Promise<void> {
+  await postChat(sessionId, 'stop');
+}
+
+// Answer a permission request. 204 is success even when that id is already
+// gone: the agent moved on, and the click must not surface an error.
+export async function postApprove(sessionId: string, requestId: string, allow: boolean): Promise<void> {
+  await postChat(sessionId, 'approve', { requestId, allow });
+}
+
+async function postChat(sessionId: string, action: string, body?: unknown): Promise<void> {
   const { ApiError, daemonFetch } = await import('../daemon/client.ts');
-  const res = await daemonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/chat/message`, {
+  const res = await daemonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/chat/${action}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
+    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!res.ok) throw new ApiError(failureText(res.status, await res.text()), res.status);
 }

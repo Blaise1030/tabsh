@@ -83,6 +83,9 @@ pub(crate) enum AcpEvent {
         session_id: String,
         stop_reason: String,
     },
+    /// Stdout closed: the agent process is gone. Not a transcript chunk;
+    /// the chat manager drops the live entry when it sees this.
+    AgentExited,
     Unknown {
         session_id: String,
         update: Value,
@@ -200,13 +203,31 @@ async fn write_locked(stdin: &mut ChildStdin, msg: &Value) -> Result<()> {
 
 impl AcpClient {
     pub(crate) async fn spawn(cmd: &str, args: &[String], cwd: &Path) -> Result<AcpClient> {
-        let mut child = Command::new(cmd)
+        Self::spawn_with_env(cmd, args, cwd, &[]).await
+    }
+
+    /// `env` overrides the inherited environment. The manager passes the
+    /// card's `TABSH_SESSION_ID` and this daemon's `TABSH_URL` so a daemon
+    /// started inside a tabsh shell cannot leak that shell's card into
+    /// every agent.
+    pub(crate) async fn spawn_with_env(
+        cmd: &str,
+        args: &[String],
+        cwd: &Path,
+        env: &[(&str, &str)],
+    ) -> Result<AcpClient> {
+        let mut command = Command::new(cmd);
+        command
             .args(args)
             .current_dir(cwd)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::inherit())
-            .kill_on_drop(true)
+            .kill_on_drop(true);
+        for (key, value) in env {
+            command.env(key, value);
+        }
+        let mut child = command
             .spawn()
             .map_err(|e| format!("failed to spawn ACP agent `{cmd}`: {e}"))?;
         let stdin = Arc::new(AsyncMutex::new(
@@ -305,11 +326,22 @@ impl AcpClient {
                         _ => {}
                     }
                 }
-                // Agent exited: fail every call still waiting on it.
-                let mut guard = rpc.lock().unwrap_or_else(|e| e.into_inner());
-                for (_, tx) in guard.pending.drain() {
-                    let _ = tx.send(Err("ACP agent exited".to_string()));
+                // Agent exited: a late approve is a no-op, and every call
+                // still waiting fails. Yield so a prompt that already
+                // received its result can emit `PromptEnded` before the
+                // manager hears that the process is gone.
+                permissions
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clear();
+                {
+                    let mut guard = rpc.lock().unwrap_or_else(|e| e.into_inner());
+                    for (_, tx) in guard.pending.drain() {
+                        let _ = tx.send(Err("ACP agent exited".to_string()));
+                    }
                 }
+                tokio::task::yield_now().await;
+                let _ = events.send(AcpEvent::AgentExited);
             })
         };
         Ok(AcpClient {
@@ -598,6 +630,20 @@ while True:
             time.sleep(0.4)
             send({"jsonrpc": "2.0", "id": mid, "result": {"stopReason": "end_turn"}})
             continue
+        if "report-env" in text:
+            update(sid, {"sessionUpdate": "agent_message_chunk",
+                         "content": {"type": "text",
+                                     "text": "env:" + os.environ.get("TABSH_SESSION_ID", "")
+                                              + " url:" + os.environ.get("TABSH_URL", "")}})
+        if "show-pid" in text:
+            update(sid, {"sessionUpdate": "agent_message_chunk",
+                         "content": {"type": "text", "text": "pid:" + str(os.getpid())}})
+        if "exit-after-turn" in text:
+            update(sid, {"sessionUpdate": "agent_message_chunk",
+                         "content": {"type": "text", "text": "exiting"}})
+            send({"jsonrpc": "2.0", "id": mid, "result": {"stopReason": "end_turn"}})
+            sys.stdout.flush()
+            os._exit(0)
         if "end session" in text:
             update(sid, {"sessionUpdate": "session_end"})
         if "slow" in text:

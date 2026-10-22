@@ -26,6 +26,7 @@ pub(crate) fn test_state() -> AppState {
     state
         .chats
         .bind_board(state.db.clone(), state.events.clone());
+    state.chats.bind_url(&state.self_url);
     state
 }
 
