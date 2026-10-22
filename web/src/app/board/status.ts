@@ -15,7 +15,7 @@ export const cardOf = (info: SessionInfo): Card => ({
   agent: info.agent_command ?? null,
 });
 
-// The tab's glyph, its title and `.archived` follow `s.card` (tab.ts), as
+// The tab's glyph, its title and `.archived` follow `s.card` (tab.tsx), as
 // does the board.
 export function applyCard(s: Session, card: Card): void {
   const before = s.card.val.status;

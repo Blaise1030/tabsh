@@ -9,7 +9,7 @@ import { go, here, onPlace } from '../nav/router.ts';
 import { tagColor } from '../sessions/labels.ts';
 import { newSession, onScreen, openTab, type Session, sendSize, sessionList, store } from '../sessions/store.ts';
 import { orderTabs } from '../sessions/tabs.ts';
-import { onTagsChange, tagBadge } from '../sessions/tags.ts';
+import { onTagsChange, tagBadge } from '../sessions/tags.tsx';
 import { syncTerminalVisibility } from '../sessions/terminal.tsx';
 import { matchesKey } from '../settings/keys.ts';
 import type { BoardLayout } from '../settings/schema.ts';

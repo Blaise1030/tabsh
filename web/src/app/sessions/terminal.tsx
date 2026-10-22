@@ -1,6 +1,6 @@
 // A tab's terminal: xterm with right-click copy/paste and links, its
 // session, and the socket to its shell. The strip draws its tab from the
-// session (tab.ts).
+// session (tab.tsx).
 //
 // Only the on-screen terminal holds a socket: the active tab while the
 // workspace shows (terms view, or the board's drawer). Others park, so a
@@ -39,7 +39,7 @@ import {
   sync,
 } from './store.ts';
 import { setName } from './tabs.ts';
-import { labelTab } from './tags.ts';
+import { labelTab } from './tags.tsx';
 import { watchTouch } from './touch.ts';
 
 const enc = new TextEncoder();

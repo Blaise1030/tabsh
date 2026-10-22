@@ -10,11 +10,11 @@ import { loadedPane } from '../files/open.ts';
 import { go, here, onPlace } from '../nav/router.ts';
 import { clearBell, updateBadge } from './bell.ts';
 import type { Coalescer } from './coalesce.ts';
-import { newTabGroup, scrollToTab, shownSessions, stepTab } from './groups.ts';
+import { newTabGroup, scrollToTab, shownSessions, stepTab } from './groups.tsx';
 import { coalesceAsync } from './reconnect.ts';
 import { splitSessions } from './split.ts';
 import { orderTabs, setName } from './tabs.ts';
-import { adoptTag } from './tags.ts';
+import { adoptTag } from './tags.tsx';
 import { openSession, syncTerminalVisibility } from './terminal.tsx';
 
 // A tab's session holds live resources (xterm, the socket) and is never

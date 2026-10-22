@@ -18,7 +18,7 @@ import { startRouter } from './nav/router.ts';
 import { initPalette } from './palette/palette.ts';
 import { initPwa } from './pwa/register.ts';
 import { initBell } from './sessions/bell.ts';
-import { initTabGroups } from './sessions/groups.ts';
+import { initTabGroups } from './sessions/groups.tsx';
 import {
   allTerms,
   initTabRouting,
@@ -32,7 +32,7 @@ import {
   sync,
 } from './sessions/store.ts';
 import { initTabStrip } from './sessions/tabs.ts';
-import { initTabLabels } from './sessions/tags.ts';
+import { initTabLabels } from './sessions/tags.tsx';
 import { syncTerminalVisibility } from './sessions/terminal.tsx';
 import { FONTS, fontStack, prefersLight, THEMES } from './settings/catalog.ts';
 import { applySettings, current, loadSettings, onApply, terminalOptions } from './settings/settings.ts';

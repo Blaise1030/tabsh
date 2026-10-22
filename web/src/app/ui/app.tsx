@@ -9,7 +9,7 @@ import { open as explorerOpen, toggleExplorer } from '../explorer/explorer.ts';
 import { Sidebar } from '../explorer/sidebar.ts';
 import { paneShown } from '../files/open.ts';
 import { go } from '../nav/router.ts';
-import { grouping, TabStrip } from '../sessions/groups.ts';
+import { grouping, TabStrip } from '../sessions/groups.tsx';
 import { KeyBar } from '../sessions/keybar.tsx';
 import { SessionBar } from '../sessions/session-bar.tsx';
 import { active, noTab } from '../sessions/store.ts';
@@ -104,7 +104,7 @@ function TabBar(): JSX.Element {
       >
         <BoardIcon />
       </button>
-      {untrack(TabStrip)}
+      <TabStrip />
       <BarButton icon={icons.plus} label="New terminal" title="New terminal" newSession />
       <BarButton
         icon={icons.group}

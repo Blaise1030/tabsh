@@ -16,11 +16,11 @@
 // in the folder and column it has.
 import van, { type State } from 'vanjs-core';
 import { ApiError, api, uploadFile } from '../daemon/client.ts';
-import { newTabGroup } from '../sessions/groups.ts';
+import { newTabGroup } from '../sessions/groups.tsx';
 import { addTag } from '../sessions/labels.ts';
 import { openTab, type Session, type SessionInfo, store } from '../sessions/store.ts';
 import { setName } from '../sessions/tabs.ts';
-import { setTags, tagBadge } from '../sessions/tags.ts';
+import { setTags, tagBadge } from '../sessions/tags.tsx';
 import { current, saveSetting } from '../settings/settings.ts';
 import { isMac } from '../ui/dom.ts';
 import { glyph, icons, providerIcon } from '../ui/icons.tsx';
