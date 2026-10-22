@@ -7,7 +7,7 @@
 // drag that starts an agent (or a wake after sleep) does not replay every
 // tab's scrollback on the main thread. Reconnects still drain one at a time
 // with backoff if the visible socket drops.
-import { createEffect, createMemo, type JSX } from 'solid-js';
+import { createEffect, createMemo, createRenderEffect, type JSX, untrack } from 'solid-js';
 import van from 'vanjs-core';
 import { cardOf } from '../board/status.ts';
 import { socketUrl } from '../daemon/client.ts';
@@ -20,6 +20,7 @@ import { ring } from './bell.ts';
 import { scanBell } from './bell-scan.ts';
 import { coalescer } from './coalesce.ts';
 import { type ExtraKey, keyInput, withCtrl } from './extra-keys.ts';
+import { scrollToTab } from './groups.tsx';
 import { type Heartbeat, heartbeat, type Timers } from './heartbeat.ts';
 import { enqueueReconnect, nextReconnect, retryDelay, shouldDrainReconnects, terminalInView } from './reconnect.ts';
 import {
@@ -35,6 +36,7 @@ import {
   sendSize,
   sessionList,
   setSessions,
+  shownTurn,
   store,
   sync,
 } from './store.ts';
@@ -321,9 +323,14 @@ export function openSession(info: SessionInfo): Session {
   return s;
 }
 
-// The cards and their side terminals, each card before its own.
-export function termSessions(): Session[] {
-  return fromVan(sessionList)().flatMap((s) => [s, ...fromVan(s.sides)()]);
+// The cards and their side terminals in the order they opened, given the
+// last list (`prev`): a reorder of the strip moves no terminal, as moving one
+// drops its focus.
+export function termSessions(prev: Session[]): Session[] {
+  const live = fromVan(sessionList)().flatMap((s) => [s, ...fromVan(s.sides)()]);
+  const kept = new Set(live);
+  const known = new Set(prev);
+  return [...prev.filter((s) => kept.has(s)), ...live.filter((s) => !known.has(s))];
 }
 
 // A terminal's place in #terms: the element openSession made, never a new
@@ -332,14 +339,19 @@ export function TermHost(props: { session: Session }): JSX.Element {
   const s = props.session;
   const shown = fromVan(screen);
   const tab = fromVan(active);
-  createEffect(() => s.el.classList.toggle('active', shown()?.id === s.id));
-  // Come on screen: fit it to the view it now has and give it the keyboard.
-  // This runs after the effect above shows it, and after the render effects
-  // that size its view (the session bar, the key bar). A memo, so a mirror
-  // that fires again without a change doesn't take the keyboard back.
-  const arrived = createMemo(() => shown()?.id === s.id && !!tab());
+  // A render effect: Solid runs these before any effect, so the terminal
+  // shows before the one below fits or focuses it.
+  createRenderEffect(() => s.el.classList.toggle('active', shown()?.id === s.id));
+  // Each time the tab or term step puts a terminal on screen (a new
+  // `shownTurn`): if it's this one, fit it to the view it now has and give it
+  // the keyboard. A memo, so a mirror that fires again without a new turn
+  // doesn't take the keyboard back.
+  const turn = createMemo(fromVan(shownTurn));
   createEffect(() => {
-    if (!arrived()) return;
+    const t = turn();
+    const card = untrack(tab);
+    if (untrack(shown) !== s || !card) return;
+    if (t.tab) scrollToTab(card);
     sendSize(s);
     s.term.focus();
   });

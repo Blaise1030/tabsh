@@ -10,7 +10,7 @@ import { loadedPane } from '../files/open.ts';
 import { go, here, onPlace } from '../nav/router.ts';
 import { clearBell, updateBadge } from './bell.ts';
 import type { Coalescer } from './coalesce.ts';
-import { newTabGroup, scrollToTab, shownSessions, stepTab } from './groups.tsx';
+import { newTabGroup, shownSessions, stepTab } from './groups.tsx';
 import { coalesceAsync } from './reconnect.ts';
 import { splitSessions } from './split.ts';
 import { orderTabs, setName } from './tabs.ts';
@@ -81,6 +81,11 @@ export const sessionList: State<Session[]> = van.state([]);
 export const active: State<Session | null> = van.state(null);
 // The terminal on screen: a side terminal named by the place, else the active card.
 export const screen: State<Session | null> = van.state(null);
+// A new value each time the tab or term step puts a terminal on screen, even
+// the one already there: TermHost then fits and focuses it, and after the
+// tab step brings its tab into view. Written after `screen`, so the
+// terminal shows before this is heard.
+export const shownTurn: State<{ tab: boolean }> = van.state({ tab: false });
 export function onScreen(): Session | null {
   return screen.val;
 }
@@ -216,8 +221,7 @@ export function activate(s: Session | null): void {
     const shown = screen.val ?? s;
     shown.unread.val = false;
     if (!document.hidden) clearBell(shown);
-    // TermHost fits and focuses the terminal once it shows.
-    scrollToTab(s);
+    shownTurn.val = { tab: true };
   }
   rememberActive();
   for (const fn of activateListeners) fn();
@@ -309,6 +313,7 @@ function reveal(s: Session): void {
   if (!document.hidden) clearBell(s);
   // The socket follows the terminal on screen, including a side terminal.
   syncTerminalVisibility();
+  shownTurn.val = { tab: false };
 }
 
 // After the tab step: `term` names a side terminal of that card, or the agent.

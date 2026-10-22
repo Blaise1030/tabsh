@@ -1,7 +1,7 @@
 // The page: the dialogs, the tab bar, the board or the workspace under it
 // (or both: the workspace in a drawer beside the board), and the drop glow.
 // Features find their parts by id once this is mounted.
-import { For, type JSX, untrack } from 'solid-js';
+import { createMemo, For, type JSX, untrack } from 'solid-js';
 import { DrawerMoveButton } from '../board/move-menu.ts';
 import { NewCard } from '../board/new-card.ts';
 import { Board, drawer as boardDrawer, shown as boardShown, FilterButton, layout } from '../board/view.ts';
@@ -12,7 +12,7 @@ import { go } from '../nav/router.ts';
 import { grouping, TabStrip } from '../sessions/groups.tsx';
 import { KeyBar } from '../sessions/keybar.tsx';
 import { SessionBar } from '../sessions/session-bar.tsx';
-import { active, noTab } from '../sessions/store.ts';
+import { active, noTab, type Session } from '../sessions/store.ts';
 import { TermHost, termSessions } from '../sessions/terminal.tsx';
 import { Welcome } from '../welcome/view.ts';
 import { Gate } from './gate.ts';
@@ -171,6 +171,7 @@ function DrawerBar(): JSX.Element {
 function Workspace(): JSX.Element {
   const empty = fromVan(noTab);
   const pane = fromVan(paneShown);
+  const terms = createMemo<Session[]>(termSessions, []);
   return (
     <div id="workspace">
       <div id="main">
@@ -183,7 +184,7 @@ function Workspace(): JSX.Element {
             </button>
           </div>
           {untrack(Gate)}
-          <For each={termSessions()}>{(s) => <TermHost session={s} />}</For>
+          <For each={terms()}>{(s) => <TermHost session={s} />}</For>
         </div>
         <KeyBar />
       </div>
