@@ -6,7 +6,6 @@ import { createMemo, createRenderEffect, type JSX } from 'solid-js';
 import { STATUS_NAMES } from '../board/glyph.ts';
 import type { Card } from '../board/model.ts';
 import { glyph, icons } from '../ui/icons.tsx';
-import { fromVan } from '../ui/interop.ts';
 import { tagBar } from './labels.ts';
 import { active, closeSession, pick, type Session } from './store.ts';
 import { openTagMenu } from './tags.tsx';
@@ -24,12 +23,12 @@ export function Tab(props: { session: Session; group?: string; copy?: boolean; g
   const group = props.group;
   const grow = !props.copy && props.grow !== false;
   const base = props.copy ? 'tab mirror' : grow ? 'tab entering' : 'tab';
-  const card = fromVan(s.card);
-  const name = fromVan(s.name);
-  const tags = fromVan(s.tags);
+  const card = s.card;
+  const name = s.name;
+  const tags = s.tags;
   // Only a change of status redraws the glyph (a new note doesn't).
   const status = createMemo(() => card().status);
-  const selected = () => fromVan(active)() === s;
+  const selected = () => active() === s;
   const node = (
     // biome-ignore lint/a11y/useFocusableInteractive: a div, as it holds its Close button, which a button can't
     // biome-ignore lint/a11y/useKeyWithClickEvents: a div, as it holds its Close button, which a button can't
@@ -38,11 +37,11 @@ export function Tab(props: { session: Session; group?: string; copy?: boolean; g
       // Toggled one by one, so the strip's own classes (dragging, …) stay.
       classList={{
         active: selected(),
-        bell: fromVan(s.bell)(),
-        unread: fromVan(s.unread)(),
+        bell: s.bell(),
+        unread: s.unread(),
         archived: status() === 'archived',
         tagged: tags().length > 0,
-        leaving: fromVan(s.leaving)(),
+        leaving: s.leaving(),
       }}
       data-group={group}
       role="tab"
@@ -92,7 +91,7 @@ export function Tab(props: { session: Session; group?: string; copy?: boolean; g
   t.addEventListener('transitionend', function grown(e) {
     if (e.propertyName !== 'max-width') return;
     t.removeEventListener('transitionend', grown);
-    if (active.val === s) t.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    if (active() === s) t.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   });
   return t;
 }

@@ -18,10 +18,6 @@ import { TermHost, termSessions } from '../sessions/terminal.tsx';
 import { Welcome } from '../welcome/view.tsx';
 import { Gate } from './gate.tsx';
 import { type Icon, icons } from './icons.tsx';
-import { fromVan } from './interop.ts';
-
-// VanJS feature nodes are made untracked: a tracked insert would rebuild one
-// if its body read a Solid signal.
 
 function Palette(): JSX.Element {
   return (
@@ -81,8 +77,8 @@ function BarButton(props: {
 // The Board button's icon: the list's while the board shows as a list, else
 // the columns'.
 function BoardIcon(): JSX.Element {
-  const shown = fromVan(boardShown);
-  const board = fromVan(layout);
+  const shown = boardShown;
+  const board = layout;
   return <>{shown() && board() === 'list' ? icons.rows() : icons.board()}</>;
 }
 
@@ -90,9 +86,9 @@ function BoardIcon(): JSX.Element {
 // under it. On the board it keeps the Board button, Filter (once onboarded)
 // and Settings.
 function TabBar(): JSX.Element {
-  const shown = fromVan(boardShown);
-  const groups = fromVan(grouping);
-  const explorer = fromVan(explorerOpen);
+  const shown = boardShown;
+  const groups = grouping;
+  const explorer = explorerOpen;
   return (
     <div class={shown() ? 'tabbar on-board' : 'tabbar'}>
       <button
@@ -134,12 +130,12 @@ function TabBar(): JSX.Element {
 // and status, the file explorer (over the sidebar, on the right) and the full
 // terminal view.
 function DrawerBar(): JSX.Element {
-  const drawer = fromVan(boardDrawer);
-  const tab = fromVan(active);
-  const explorer = fromVan(explorerOpen);
+  const drawer = boardDrawer;
+  const tab = active;
+  const explorer = explorerOpen;
   const title = () => {
     const s = tab();
-    return s ? fromVan(s.name)() : '';
+    return s ? s.name() : '';
   };
   return (
     <header class="drawer-bar" hidden={!drawer()}>
@@ -173,8 +169,8 @@ function DrawerBar(): JSX.Element {
 
 // The terminal layout: terminals, file pane and file sidebar.
 function Workspace(): JSX.Element {
-  const empty = fromVan(noTab);
-  const pane = fromVan(paneShown);
+  const empty = noTab;
+  const pane = paneShown;
   const terms = createMemo<Session[]>(termSessions, []);
   return (
     <div id="workspace">
@@ -202,8 +198,8 @@ function Workspace(): JSX.Element {
 // The board and the workspace side by side: the board alone, the workspace
 // alone, or the workspace in a resizable drawer beside the board.
 function Stage(): JSX.Element {
-  const shown = fromVan(boardShown);
-  const drawer = fromVan(boardDrawer);
+  const shown = boardShown;
+  const drawer = boardDrawer;
   return (
     <div id="stage">
       <Board />

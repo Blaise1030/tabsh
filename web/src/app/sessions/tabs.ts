@@ -9,8 +9,8 @@ import { type Session, setSessions, store } from './store.ts';
 const strip = () => document.getElementById('tabs') as HTMLElement;
 
 export function setName(s: Session, name: string, save = true): void {
-  if (s.name.val === name) return;
-  s.name.val = name;
+  if (s.name() === name) return;
+  s.setName(name);
   if (s === store.active) updateBadge();
   if (save) api('PATCH', `/${s.id}`, { name, auto: true }).catch(() => {});
 }

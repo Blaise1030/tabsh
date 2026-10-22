@@ -2,9 +2,8 @@
 // to its terminal; dragging one sets its status and its place in the tab
 // order. Its columns, cards and setup screen follow the sessions' states.
 // Names and notes are user text: child strings only.
-import { createEffect, createMemo, createSignal, For, type JSX, on, onCleanup, Show } from 'solid-js';
+import { batch, createEffect, createMemo, createSignal, For, type JSX, on, onCleanup, Show } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import van, { type State } from 'vanjs-core';
 import { DOCS_URL } from '../../site.ts';
 import { api } from '../daemon/client.ts';
 import { go, here, onPlace } from '../nav/router.ts';
@@ -18,7 +17,6 @@ import type { BoardLayout } from '../settings/schema.ts';
 import { current, keyHint, onSaved, saveSetting } from '../settings/settings.ts';
 import { phone } from '../ui/dom.ts';
 import { glyph, icons, providerIcon } from '../ui/icons.tsx';
-import { fromVan } from '../ui/interop.ts';
 import {
   asStatus,
   type BoardFilter,
@@ -43,19 +41,19 @@ import { setStatus } from './status.ts';
 
 // Whether the board is shown (else the terminals are): set only by the
 // router's view step.
-export const shown: State<boolean> = van.state(false);
+export const [shown, setShown] = createSignal(false);
 // Whether the active tab's terminal shows in a drawer beside the board: set
 // only by the router's drawer step.
-export const drawer: State<boolean> = van.state(false);
+export const [drawer, setDrawer] = createSignal(false);
 // A new value each time the view or drawer step brings the terminal into
 // view: the board then fits and focuses it. Written by the last of those
-// steps to run, after `shown` and `drawer`, so VanJS flushes those (and the
+// steps to run, after `shown` and `drawer`, so observers see those (and the
 // page shows them) before this is heard.
-const viewTurn = van.state({});
+const [viewTurn, setViewTurn] = createSignal({});
 // Unix seconds, ticking every 30 s: keeps "time in status" fresh.
-const now = van.state(Math.floor(Date.now() / 1000));
+const [now, setNow] = createSignal(Math.floor(Date.now() / 1000));
 // Until the board is onboarded it shows its setup screen.
-const onboarded = van.state(current.saved.boardOnboarded);
+const [onboarded, setOnboarded] = createSignal(current.saved.boardOnboarded);
 // Checked tags (a card needs any of them) and checked folders, kept in this
 // browser. Nothing checked shows every card.
 const FILTER_KEY = 'tabsh.boardFilter';
@@ -68,13 +66,13 @@ function loadFilter(): BoardFilter {
 }
 function saveFilter(): void {
   try {
-    localStorage.setItem(FILTER_KEY, JSON.stringify({ tags: filterTags.val, folders: filterFolders.val }));
+    localStorage.setItem(FILTER_KEY, JSON.stringify({ tags: filterTags(), folders: filterFolders() }));
   } catch {}
 }
 const saved = loadFilter();
-const filterTags: State<string[]> = van.state(saved.tags);
-const filterFolders: State<string[]> = van.state(saved.folders);
-const filterOpen: State<boolean> = van.state(false);
+const [filterTags, setFilterTags] = createSignal<string[]>(saved.tags);
+const [filterFolders, setFilterFolders] = createSignal<string[]>(saved.folders);
+const [filterOpen, setFilterOpen] = createSignal(false);
 // What the open filter menu lists: the tags and folders in use when it opened.
 const [filterChoices, setFilterChoices] = createSignal<{ tags: string[]; folders: string[] }>({
   tags: [],
@@ -82,7 +80,7 @@ const [filterChoices, setFilterChoices] = createSignal<{ tags: string[]; folders
 });
 let filterMenu: HTMLElement | null = null;
 // Columns side by side, or one list of rows under each status's heading.
-export const layout: State<BoardLayout> = van.state(current.saved.boardLayout);
+export const [layout, setLayout] = createSignal<BoardLayout>(current.saved.boardLayout);
 // The list layout's folded statuses, kept in this browser.
 const COLLAPSED_KEY = 'tabsh.boardCollapsed';
 function loadCollapsed(): Status[] {
@@ -93,12 +91,12 @@ function loadCollapsed(): Status[] {
     return [];
   }
 }
-const collapsed: State<Status[]> = van.state(loadCollapsed());
+const [collapsed, setCollapsed] = createSignal<Status[]>(loadCollapsed());
 function toggleCollapsed(status: Status): void {
-  const rest = collapsed.val.filter((x) => x !== status);
-  collapsed.val = rest.length < collapsed.val.length ? rest : [...rest, status];
+  const rest = collapsed().filter((x) => x !== status);
+  setCollapsed(rest.length < collapsed().length ? rest : [...rest, status]);
   try {
-    localStorage.setItem(COLLAPSED_KEY, JSON.stringify(collapsed.val));
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify(collapsed()));
   } catch {}
 }
 
@@ -112,11 +110,11 @@ export function setNewCard(fn: (status: Status) => void): void {
   newCard = fn;
 }
 
-export const boardOpen = (): boolean => shown.val;
+export const boardOpen = (): boolean => shown();
 
 function closeFilterMenu(): void {
   filterMenu = null;
-  filterOpen.val = false;
+  setFilterOpen(false);
 }
 
 function CheckRow(props: {
@@ -143,31 +141,35 @@ function CheckRow(props: {
 }
 
 function toggleFilter(kind: 'tags' | 'folders', value: string, checked: boolean): void {
-  const cur = kind === 'tags' ? filterTags : filterFolders;
-  const list = cur.val.filter((x) => x !== value);
-  cur.val = checked ? [...list, value] : list;
+  if (kind === 'tags') {
+    const list = filterTags().filter((x) => x !== value);
+    setFilterTags(checked ? [...list, value] : list);
+  } else {
+    const list = filterFolders().filter((x) => x !== value);
+    setFilterFolders(checked ? [...list, value] : list);
+  }
   saveFilter();
 }
 
 // Beside Settings: tags and folders in use, each a checkbox. Checking one
 // narrows the columns; the menu stays open so several can be checked.
 function openFilterMenu(): void {
-  const items = sessionList.val.map((s) => ({ card: s.card.val, tags: s.tags.val }));
+  const items = sessionList().map((s) => ({ card: s.card(), tags: s.tags() }));
   const tags = tagsInUse(items);
   const folders = foldersOf(items);
-  filterTags.val = filterTags.val.filter((t) => tags.includes(t));
-  filterFolders.val = filterFolders.val.filter((f) => folders.includes(f));
+  setFilterTags(filterTags().filter((t) => tags.includes(t)));
+  setFilterFolders(filterFolders().filter((f) => folders.includes(f)));
   saveFilter();
   setFilterChoices({ tags, folders });
-  filterOpen.val = true;
+  setFilterOpen(true);
 }
 
 // The open filter menu, on the page's body: its rows are checked as the
 // filter was when it opened, and stay as they're toggled.
 function FilterMenu(): JSX.Element {
   const { tags, folders } = filterChoices();
-  const checkedTags = fromVan(filterTags)();
-  const checkedFolders = fromVan(filterFolders)();
+  const checkedTags = filterTags();
+  const checkedFolders = filterFolders();
   return (
     <Portal
       ref={(host) => {
@@ -218,11 +220,11 @@ function FilterMenu(): JSX.Element {
 
 // Shown only while the board is open and past its setup screen.
 export function FilterButton(): JSX.Element {
-  const open = fromVan(filterOpen);
-  const tags = fromVan(filterTags);
-  const folders = fromVan(filterFolders);
-  const board = fromVan(shown);
-  const ready = fromVan(onboarded);
+  const open = filterOpen;
+  const tags = filterTags;
+  const folders = filterFolders;
+  const board = shown;
+  const ready = onboarded;
   return (
     <>
       <button
@@ -236,7 +238,7 @@ export function FilterButton(): JSX.Element {
         aria-expanded={open()}
         aria-pressed={tags().length > 0 || folders().length > 0}
         hidden={!(board() && ready())}
-        onClick={() => (filterOpen.val ? closeFilterMenu() : openFilterMenu())}
+        onClick={() => (filterOpen() ? closeFilterMenu() : openFilterMenu())}
       >
         {icons.listFilter()}
       </button>
@@ -249,7 +251,7 @@ export function FilterButton(): JSX.Element {
 
 // The board's other layout: columns or list.
 export function toggleBoardLayout(): void {
-  saveSetting('boardLayout', layout.val === 'list' ? 'columns' : 'list');
+  saveSetting('boardLayout', layout() === 'list' ? 'columns' : 'list');
 }
 
 // The Board button's and its shortcut's three steps: the terminals, the board
@@ -257,9 +259,9 @@ export function toggleBoardLayout(): void {
 // terminals view: only columns and list.
 export function cycleBoard(): void {
   if (!boardOpen()) {
-    if (layout.val !== 'columns') saveSetting('boardLayout', 'columns');
+    if (layout() !== 'columns') saveSetting('boardLayout', 'columns');
     toggleBoard(true);
-  } else if (layout.val === 'columns') saveSetting('boardLayout', 'list');
+  } else if (layout() === 'columns') saveSetting('boardLayout', 'list');
   else if (phone.matches) saveSetting('boardLayout', 'columns');
   else toggleBoard(false);
 }
@@ -270,11 +272,16 @@ export function toggleBoard(open = !boardOpen()): void {
 }
 
 function showBoard(open: boolean): void {
-  shown.val = open;
-  if (open) return;
+  if (open) {
+    setShown(true);
+    return;
+  }
   closeFilterMenu();
   // With the drawer open, the drawer step follows to close it, and turns then.
-  if (!drawer.val) viewTurn.val = {};
+  batch(() => {
+    setShown(false);
+    if (!drawer()) setViewTurn({});
+  });
 }
 
 const StatusGlyph = (props: { status: Status }): JSX.Element => (
@@ -421,7 +428,7 @@ function CardFrame(props: {
 }
 
 function AgentIcon(props: { session: Session }): JSX.Element {
-  const card = fromVan(props.session.card);
+  const card = props.session.card;
   const agent = createMemo(() => card().agent);
   return (
     <Show when={agent()} keyed>
@@ -457,10 +464,10 @@ function tagBox(tags: string[], pill: boolean): JSX.Element {
 // themselves clip.
 function Row(props: { session: Session }): JSX.Element {
   const s = props.session;
-  const card = fromVan(s.card);
-  const name = fromVan(s.name);
-  const tags = fromVan(s.tags);
-  const time = fromVan(now);
+  const card = s.card;
+  const name = s.name;
+  const tags = s.tags;
+  const time = now;
   const status = createMemo(() => card().status);
   const cwd = createMemo(() => card().cwd);
   let row!: HTMLElement;
@@ -638,10 +645,10 @@ function layoutTags(box: HTMLElement, names: string[]): void {
 // off.
 function Card(props: { session: Session }): JSX.Element {
   const s = props.session;
-  const card = fromVan(s.card);
-  const name = fromVan(s.name);
-  const tags = fromVan(s.tags);
-  const time = fromVan(now);
+  const card = s.card;
+  const name = s.name;
+  const tags = s.tags;
+  const time = now;
   // Only a change of status redraws the glyph (a new note doesn't).
   const status = createMemo(() => card().status);
   const note = createMemo(() => card().note);
@@ -731,7 +738,7 @@ function endDrag(): void {
 }
 
 // The tabs as the board's model takes them: each with its card.
-const cards = () => store.sessions.map((s) => ({ s, id: s.id, card: s.card.val }));
+const cards = () => store.sessions.map((s) => ({ s, id: s.id, card: s.card() }));
 
 async function move(id: string, status: Status, beforeId: string | null): Promise<void> {
   const s = store.sessions.find((x) => x.id === id);
@@ -739,7 +746,7 @@ async function move(id: string, status: Status, beforeId: string | null): Promis
   const ids = dropOrder(cards(), id, status, beforeId);
   orderTabs(ids);
   api('PUT', '/order', { ids }).catch(() => {});
-  if (s.card.val.status !== status) await setStatus(s, status).catch(console.error);
+  if (s.card().status !== status) await setStatus(s, status).catch(console.error);
 }
 
 // Puts a card first in `status`'s column (a new card, so it's seen without
@@ -779,7 +786,7 @@ function NewCardButton(props: { status: Status; name: string }): JSX.Element {
 // its rows, which the heading folds away.
 function Column(props: { status: Status; name: string; columns: () => Columns; asList: boolean }): JSX.Element {
   const { status, name, columns, asList } = props;
-  const folds = fromVan(collapsed);
+  const folds = collapsed;
   const folded = () => asList && folds().includes(status);
   const count = () => String(columns()[status].length);
   let list!: HTMLDivElement;
@@ -939,17 +946,17 @@ function Onboarding(): JSX.Element {
 const BOARD_COLUMNS: typeof COLUMNS = [...COLUMNS, { status: 'archived', name: 'Archived' }];
 
 export function Board(): JSX.Element {
-  const isShown = fromVan(shown);
-  const inDrawer = fromVan(drawer);
-  const ready = fromVan(onboarded);
-  const shape = fromVan(layout);
-  const tagFilter = fromVan(filterTags);
-  const folderFilter = fromVan(filterFolders);
-  const list = fromVan(sessionList);
+  const isShown = shown;
+  const inDrawer = drawer;
+  const ready = onboarded;
+  const shape = layout;
+  const tagFilter = filterTags;
+  const folderFilter = filterFolders;
+  const list = sessionList;
   const sessions = createMemo((): Columns => {
     const filter = { tags: tagFilter(), folders: folderFilter() };
-    const kept = list().filter((s) => matchesFilter({ card: fromVan(s.card)(), tags: fromVan(s.tags)() }, filter));
-    const g = group(kept.map((s) => ({ s, card: fromVan(s.card)() })));
+    const kept = list().filter((s) => matchesFilter({ card: s.card(), tags: s.tags() }, filter));
+    const g = group(kept.map((s) => ({ s, card: s.card() })));
     return Object.fromEntries(Object.entries(g).map(([k, v]) => [k, v.map((x) => x.s)])) as Columns;
   });
   // Its parts: the setup screen, or its columns (keyed by layout too, so
@@ -966,7 +973,7 @@ export function Board(): JSX.Element {
   // page: the terminal now in view gets its size and the keyboard. A memo,
   // so a mirror that fires again without a new turn doesn't take the
   // keyboard back.
-  const turn = createMemo(fromVan(viewTurn));
+  const turn = createMemo(viewTurn);
   createEffect(
     on(
       turn,
@@ -1033,8 +1040,10 @@ export function initBoard(): void {
   });
   phone.addEventListener('change', leaveTermsOnPhone);
   onPlace('drawer', (to) => {
-    drawer.val = to.drawer;
-    if (to.drawer || !shown.val) viewTurn.val = {};
+    batch(() => {
+      setDrawer(to.drawer);
+      if (to.drawer || !shown()) setViewTurn({});
+    });
     syncTerminalVisibility();
     return undefined;
   });
@@ -1050,8 +1059,8 @@ export function initBoard(): void {
     if (e.key === 'Escape') closeFilterMenu();
   });
   onTagsChange(() => {
-    const tags = tagsInUse(sessionList.val.map((s) => ({ tags: s.tags.val })));
-    filterTags.val = filterTags.val.filter((t) => tags.includes(t));
+    const tags = tagsInUse(sessionList().map((s) => ({ tags: s.tags() })));
+    setFilterTags(filterTags().filter((t) => tags.includes(t)));
   });
   window.addEventListener(
     'keydown',
@@ -1074,9 +1083,9 @@ export function initBoard(): void {
     true,
   );
   onSaved((s) => {
-    onboarded.val = s.boardOnboarded; // e.g. the setup screen, once it's dealt with
-    layout.val = s.boardLayout;
+    setOnboarded(s.boardOnboarded); // e.g. the setup screen, once it's dealt with
+    setLayout(s.boardLayout);
     if (!s.boardOnboarded) closeFilterMenu();
   });
-  setInterval(() => (now.val = Math.floor(Date.now() / 1000)), 30_000);
+  setInterval(() => setNow(Math.floor(Date.now() / 1000)), 30_000);
 }

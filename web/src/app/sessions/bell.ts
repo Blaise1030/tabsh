@@ -40,35 +40,35 @@ export function ring(s: Session): void {
 function markBell(s: Session): void {
   const n = (rings.get(s) ?? 0) + 1;
   rings.set(s, n);
-  if (s.bell.val && !document.hidden) {
+  if (s.bell() && !document.hidden) {
     // A repeated bell restarts the pulse: off for a drawn frame, then on
     // (unless it was cleared, or rang again, meanwhile).
-    s.bell.val = false;
+    s.setBell(false);
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
         if (rings.get(s) !== n) return;
-        s.bell.val = true;
+        s.setBell(true);
         updateBadge();
       }),
     );
     return;
   }
-  s.bell.val = true;
+  s.setBell(true);
   updateBadge();
 }
 
 export function clearBell(s: Session | null): void {
   if (!s) return;
   rings.set(s, (rings.get(s) ?? 0) + 1);
-  if (!s.bell.val) return;
-  s.bell.val = false;
+  if (!s.bell()) return;
+  s.setBell(false);
   updateBadge();
 }
 
 export function updateBadge(): void {
-  const ringing = store.sessions.filter((x) => x.bell.val).length;
+  const ringing = store.sessions.filter((x) => x.bell()).length;
   favicon().href = ringing ? FAVICON_BELL : FAVICON;
-  const name = store.active?.name.val ?? 'tabsh';
+  const name = store.active?.name() ?? 'tabsh';
   document.title = ringing ? `🔔 ${name}` : name;
 }
 

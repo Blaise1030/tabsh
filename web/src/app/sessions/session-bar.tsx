@@ -3,19 +3,18 @@ import { For, type JSX, Show } from 'solid-js';
 import { api } from '../daemon/client.ts';
 import { go } from '../nav/router.ts';
 import { icons } from '../ui/icons.tsx';
-import { fromVan } from '../ui/interop.ts';
 import { active, closeSession, onScreen, type Session, type SessionInfo, screen } from './store.ts';
 import { openSession } from './terminal.tsx';
 
 export function SessionBar(): JSX.Element {
-  const card = fromVan(active);
+  const card = active;
   return (
     <div id="session-bar" role="tablist" aria-label="Card terminals" hidden={!card()}>
       <Show when={card()} keyed fallback={<span />}>
         {(c) => (
           <div class="session-bar-row">
             <AgentTab card={c} />
-            <For each={fromVan(c.sides)()}>{(side) => <SideTab side={side} />}</For>
+            <For each={c.sides()}>{(side) => <SideTab side={side} />}</For>
             <button
               type="button"
               class="btn session-add"
@@ -36,12 +35,12 @@ export function SessionBar(): JSX.Element {
 
 function AgentTab(props: { card: Session }): JSX.Element {
   const card = props.card;
-  const shown = () => fromVan(screen)() === card;
+  const shown = () => screen() === card;
   return (
     <button
       type="button"
       class="side-tab"
-      classList={{ active: shown(), bell: fromVan(card.bell)(), unread: fromVan(card.unread)() }}
+      classList={{ active: shown(), bell: card.bell(), unread: card.unread() }}
       role="tab"
       aria-selected={shown()}
       onClick={() => {
@@ -56,13 +55,13 @@ function AgentTab(props: { card: Session }): JSX.Element {
 
 function SideTab(props: { side: Session }): JSX.Element {
   const side = props.side;
-  const shown = () => fromVan(screen)() === side;
+  const shown = () => screen() === side;
   return (
     // biome-ignore lint/a11y/useFocusableInteractive: a div, as it holds its Close button, which a button can't
     // biome-ignore lint/a11y/useKeyWithClickEvents: a div, as it holds its Close button, which a button can't
     <div
       class="side-tab"
-      classList={{ active: shown(), bell: fromVan(side.bell)(), unread: fromVan(side.unread)() }}
+      classList={{ active: shown(), bell: side.bell(), unread: side.unread() }}
       role="tab"
       aria-selected={shown()}
       onClick={() => {
@@ -71,7 +70,7 @@ function SideTab(props: { side: Session }): JSX.Element {
       }}
       on:auxclick={(e) => e.button === 1 && closeSession(side)}
     >
-      <span class="tab-name">{fromVan(side.name)()}</span>
+      <span class="tab-name">{side.name()}</span>
       <button
         type="button"
         class="btn"

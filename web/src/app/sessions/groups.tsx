@@ -13,14 +13,13 @@ import {
   createEffect,
   createMemo,
   createRenderEffect,
+  createSignal,
   type JSX,
   onCleanup,
   untrack,
 } from 'solid-js';
-import van, { type State } from 'vanjs-core';
 import type { TabGrouping } from '../settings/schema.ts';
 import { current, onApply } from '../settings/settings.ts';
-import { fromVan } from '../ui/interop.ts';
 import { Presence } from '../ui/presence.tsx';
 import { type Group, groupTabs, joinGroup, moveTag, parseCollapsed, tagColor } from './labels.ts';
 import { active, type Session, sessionList, store } from './store.ts';
@@ -39,26 +38,26 @@ function loadCollapsed(): ReadonlySet<string> {
 }
 
 // The collapsed groups' keys, kept in this browser.
-export const collapsed: State<ReadonlySet<string>> = van.state(loadCollapsed());
+export const [collapsed, setCollapsed] = createSignal<ReadonlySet<string>>(loadCollapsed());
 // Applied, not saved, so the palette's preview regroups the strip too.
-export const grouping: State<TabGrouping> = van.state(current.applied.tabGrouping);
+export const [grouping, setGrouping] = createSignal<TabGrouping>(current.applied.tabGrouping);
 let activeGroup: string | null = null; // the group the active tab was picked in
 
 const strip = () => document.getElementById('tabs') as HTMLElement;
 
 function toggleCollapsed(key: string): void {
-  const next = new Set(collapsed.val);
+  const next = new Set(collapsed());
   if (!next.delete(key)) next.add(key);
-  collapsed.val = next;
+  setCollapsed(next);
   try {
     localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next]));
   } catch {}
 }
 
-// How the layout reads a state: as it is now, or followed by the strip.
-type Read = <T>(state: State<T>) => T;
-const now: Read = (state) => state.val;
-const followed: Read = (state) => fromVan(state)();
+// How the layout reads a signal: as it is now, or followed by the strip.
+type Read = <T>(acc: Accessor<T>) => T;
+const now: Read = (acc) => acc();
+const followed: Read = (acc) => acc();
 
 // Archived cards stay off the strip, in no group, unless one is the active
 // tab (picked on the board).
@@ -223,9 +222,9 @@ function GroupBox(props: { group: Group; layout: Accessor<Layout> }): HTMLElemen
   const g = props.group;
   const key = g.key;
   const name = g.value ?? (g.kind === 'repo' ? 'No repo' : 'Untagged');
-  const shut = () => fromVan(collapsed)().has(key);
+  const shut = () => collapsed().has(key);
   const mine = () => props.layout().boxes.find((b) => b.group.key === key);
-  const shown = fromVan(active);
+  const shown = active;
   const nodes = new WeakMap<Place, Element>();
   const rows = children(() => (
     <Presence
@@ -380,7 +379,7 @@ function shownPlaces(): { s: Session; group: string | null }[] {
   if (!boxes.length) return rest.filter((s) => onStrip(s)).map((s) => ({ s, group: null }));
   return boxes.flatMap(({ group, places }) =>
     places
-      .filter((p) => !collapsed.val.has(group.key) || p.s === store.active)
+      .filter((p) => !collapsed().has(group.key) || p.s === store.active)
       .map((p) => ({ s: p.s, group: group.key })),
   );
 }
@@ -430,6 +429,6 @@ export function initTabGroups(): void {
     true,
   );
   onApply((s) => {
-    grouping.val = s.tabGrouping;
+    setGrouping(s.tabGrouping);
   });
 }

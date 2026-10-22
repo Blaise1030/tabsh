@@ -17,7 +17,7 @@ const SAYS: Partial<Record<Status, string>> = { needs_input: 'Needs your input',
 const supported = () => typeof Notification !== 'undefined';
 
 // Whether `s`'s terminal is what the user is looking at.
-const onScreen = (s: Session) => document.hasFocus() && shownTerm() === s && (!shown.val || drawer.val);
+const onScreen = (s: Session) => document.hasFocus() && shownTerm() === s && (!shown() || drawer());
 
 export function notifyStatus(s: Session, status: Status, note: string | null): void {
   const says = SAYS[status];
@@ -25,14 +25,14 @@ export function notifyStatus(s: Session, status: Status, note: string | null): v
   playChime(status);
   if (!supported() || Notification.permission !== 'granted') return;
   // One per card: a newer one replaces it.
-  const n = new Notification(s.name.val, {
+  const n = new Notification(s.name(), {
     body: note ? `${says}: ${note}` : says,
     tag: `tabsh-card-${s.id}`,
     silent: true,
   });
   n.onclick = () => {
     window.focus();
-    go(shown.val ? { tab: s.id, drawer: true } : { tab: s.id });
+    go(shown() ? { tab: s.id, drawer: true } : { tab: s.id });
     n.close();
   };
 }

@@ -3,7 +3,6 @@
 // welcome, walked with Continue, left with Skip.
 // The view, theme, font, sound and agents screens carry their choices.
 import { createEffect, createSignal, For, type JSX, Match, onCleanup, onMount, Show, Switch } from 'solid-js';
-import van, { type State } from 'vanjs-core';
 import { SETUP_PROMPT, type Status } from '../board/model.ts';
 import { gateMode } from '../daemon/client.ts';
 import { go } from '../nav/router.ts';
@@ -11,7 +10,6 @@ import { FONTS, fontStack, THEMES, TYPING_SOUNDS } from '../settings/catalog.ts'
 import { current, saveSetting, saveSettings } from '../settings/settings.ts';
 import { keySound, loadPack, playSample, SOUND_PACKS } from '../sound/packs.ts';
 import { glyph, type Icon, icons, providerIcon } from '../ui/icons.tsx';
-import { fromVan } from '../ui/interop.ts';
 import {
   clampStep,
   dismissWelcome,
@@ -24,18 +22,18 @@ import {
 } from './steps.ts';
 
 // Which screen is on show; showWelcome resets it.
-const step = van.state(0);
+const [step, setStep] = createSignal(0);
 // The view picked on this opening, null until one is: its being set is also
 // what makes closing move the app there.
-const pickedView = van.state<'tabs' | 'kanban' | 'list' | null>(null);
+const [pickedView, setPickedView] = createSignal<'tabs' | 'kanban' | 'list' | null>(null);
 // The agents screen's providers and the chosen one.
-const providers: State<string[]> = van.state([]);
-const provider: State<string> = van.state('');
-const chosenTheme: State<string> = van.state(current.saved.theme);
-const chosenFont: State<string> = van.state(current.saved.font);
-const chosenSound: State<string | null> = van.state(null);
+const [providers, setProviders] = createSignal<string[]>([]);
+const [provider, setProvider] = createSignal('');
+const [chosenTheme, setChosenTheme] = createSignal(current.saved.theme);
+const [chosenFont, setChosenFont] = createSignal(current.saved.font);
+const [chosenSound, setChosenSound] = createSignal<string | null>(null);
 
-const on = () => WELCOME_SCREENS[step.val];
+const on = () => WELCOME_SCREENS[step()];
 // Every screen is a split. The title and description sit above the preview.
 // The preview and the answer share a row and stay centered with each other.
 const el = () => document.getElementById('welcome') as HTMLDialogElement;
@@ -45,7 +43,7 @@ const chosenView = (): 'tabs' | 'kanban' | 'list' => viewChoice(current.saved.st
 
 function pickView(choice: 'tabs' | 'kanban' | 'list'): void {
   saveSettings(viewSettings(choice, current.saved.boardLayout));
-  pickedView.val = choice;
+  setPickedView(choice);
 }
 
 // Every way out of the tour lands here: the dialog closes and, if this
@@ -53,7 +51,7 @@ function pickView(choice: 'tabs' | 'kanban' | 'list'): void {
 // a caller saves first.
 function closeWelcome(): void {
   el().close();
-  if (pickedView.val !== null) go({ view: current.saved.startView });
+  if (pickedView() !== null) go({ view: current.saved.startView });
 }
 
 const VIEW_NAMES: Record<'tabs' | 'kanban' | 'list', string> = { tabs: 'Tabs', kanban: 'Kanban', list: 'List' };
@@ -388,7 +386,7 @@ function ThemeChoices(props: { chosen: () => string }): JSX.Element {
                 </span>
               }
               onclick={() => {
-                chosenTheme.val = id;
+                setChosenTheme(id);
                 saveSetting('theme', id);
               }}
             />
@@ -415,7 +413,7 @@ function FontChoices(props: { chosen: () => string }): JSX.Element {
                 </span>
               }
               onclick={() => {
-                chosenFont.val = id;
+                setChosenFont(id);
                 saveSetting('font', id);
               }}
             />
@@ -445,7 +443,7 @@ function SoundChoices(props: { chosen: () => string | null }): JSX.Element {
               detail={SOUND_DETAILS[id] ?? ''}
               selected={() => props.chosen() === id}
               onclick={() => {
-                chosenSound.val = id;
+                setChosenSound(id);
                 saveSetting('typingSound', id);
                 playTyping(id);
               }}
@@ -487,7 +485,7 @@ function AgentChoices(props: { names: () => string[]; chosen: () => string }): J
                   </span>
                 }
                 onclick={() => {
-                  provider.val = name;
+                  setProvider(name);
                   saveSetting('agentProvider', name);
                 }}
               />
@@ -700,13 +698,13 @@ function AppPreview(props: {
 }
 
 export function Welcome(): JSX.Element {
-  const step$ = fromVan(step);
-  const picked$ = fromVan(pickedView);
-  const providers$ = fromVan(providers);
-  const provider$ = fromVan(provider);
-  const theme$ = fromVan(chosenTheme);
-  const font$ = fromVan(chosenFont);
-  const sound$ = fromVan(chosenSound);
+  const step$ = step;
+  const picked$ = pickedView;
+  const providers$ = providers;
+  const provider$ = provider;
+  const theme$ = chosenTheme;
+  const font$ = chosenFont;
+  const sound$ = chosenSound;
   const screen = () => WELCOME_SCREENS[step$()];
   const selected = (): 'tabs' | 'kanban' | 'list' => picked$() ?? chosenView();
 
@@ -773,7 +771,7 @@ export function Welcome(): JSX.Element {
                 data-variant="ghost"
                 hidden={step$() === 0}
                 on:click={() => {
-                  step.val = clampStep(step.val - 1);
+                  setStep(clampStep(step() - 1));
                 }}
               >
                 Back
@@ -806,7 +804,7 @@ export function Welcome(): JSX.Element {
                     closeWelcome();
                     return;
                   }
-                  step.val = clampStep(step.val + 1);
+                  setStep(clampStep(step() + 1));
                 }}
               >
                 {screen().setup ? 'Finish onboarding' : 'Continue'}
@@ -822,20 +820,20 @@ export function Welcome(): JSX.Element {
 // Opens the tour on its first screen; held off while the gate is up — the
 // connection comes first.
 export function showWelcome(): void {
-  if (gateMode.val !== null) return;
+  if (gateMode() !== null) return;
   // The palette is a modal too, so it goes first — opening the tour over it
   // would throw. Its close listener walks the place back, exactly as Esc does.
   const palette = document.getElementById('palette') as HTMLDialogElement | null;
   if (palette?.open) palette.close();
-  step.val = 0;
-  pickedView.val = null;
+  setStep(0);
+  setPickedView(null);
   const names = current.saved.providers.map((p) => p.name);
-  providers.val = names;
+  setProviders(names);
   // The dropdown starts on the provider New card offers first.
-  provider.val = names.includes(current.saved.agentProvider) ? current.saved.agentProvider : (names[0] ?? '');
-  chosenTheme.val = current.saved.theme;
-  chosenFont.val = current.saved.font;
-  chosenSound.val = null;
+  setProvider(names.includes(current.saved.agentProvider) ? current.saved.agentProvider : (names[0] ?? ''));
+  setChosenTheme(current.saved.theme);
+  setChosenFont(current.saved.font);
+  setChosenSound(null);
   el().showModal();
 }
 

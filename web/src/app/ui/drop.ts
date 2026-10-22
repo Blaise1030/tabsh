@@ -11,7 +11,7 @@ import { localPaths, shellQuote } from './drop-paths.ts';
 // terminals (with its drawer open, they show).
 const isDroppable = (dt: DataTransfer | null): dt is DataTransfer =>
   !!dt &&
-  (!shown.val || drawer.val) &&
+  (!shown() || drawer()) &&
   !dt.types.includes(CARD_DRAG) &&
   ['Files', 'text/uri-list', 'text/plain'].some((t) => dt.types.includes(t));
 

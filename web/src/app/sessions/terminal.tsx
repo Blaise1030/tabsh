@@ -7,15 +7,13 @@
 // drag that starts an agent (or a wake after sleep) does not replay every
 // tab's scrollback on the main thread. Reconnects still drain one at a time
 // with backoff if the visible socket drops.
-import { createEffect, createMemo, createRenderEffect, type JSX, untrack } from 'solid-js';
-import van from 'vanjs-core';
+import { createEffect, createMemo, createRenderEffect, createSignal, type JSX, untrack } from 'solid-js';
 import { cardOf } from '../board/status.ts';
 import { socketUrl } from '../daemon/client.ts';
 import { linkProvider } from '../links/provider.ts';
 import { here } from '../nav/router.ts';
 import { current, terminalOptions } from '../settings/settings.ts';
 import { icons } from '../ui/icons.tsx';
-import { fromVan } from '../ui/interop.ts';
 import { ring } from './bell.ts';
 import { scanBell } from './bell-scan.ts';
 import { coalescer } from './coalesce.ts';
@@ -63,7 +61,7 @@ function inView(s: Session): boolean {
 }
 
 // The touch key bar's Ctrl: held for the next key typed.
-export const ctrlHeld = van.state(false);
+export const [ctrlHeld, setCtrlHeld] = createSignal(false);
 
 // Types an extra key into the on-screen terminal, as if from its keyboard.
 export function typeKey(key: ExtraKey): void {
@@ -218,34 +216,29 @@ export function openSession(info: SessionInfo): Session {
 
   // A program that redraws without taking the alternate screen can leave the
   // view stuck above its output; this brings it back.
-  const scrolledUp = van.state(false);
+  const bottomBtn = document.createElement('button');
+  bottomBtn.type = 'button';
+  bottomBtn.className = 'btn term-bottom';
+  bottomBtn.dataset.variant = 'secondary';
+  bottomBtn.dataset.size = 'icon-sm';
+  bottomBtn.setAttribute('aria-label', 'Scroll to bottom');
+  bottomBtn.title = 'Scroll to bottom';
+  bottomBtn.hidden = true;
+  bottomBtn.append(icons.chevronDown());
+  bottomBtn.addEventListener('click', () => {
+    term.scrollToBottom();
+    syncScrolled();
+    term.focus();
+  });
   const syncScrolled = () => {
     const buf = term.buffer.active;
-    scrolledUp.val = buf.viewportY < buf.baseY;
+    bottomBtn.hidden = !(buf.viewportY < buf.baseY);
   };
   term.onScroll(syncScrolled);
   term.onWriteParsed(syncScrolled);
   term.buffer.onBufferChange(syncScrolled);
   el.addEventListener('wheel', () => requestAnimationFrame(syncScrolled), { passive: true });
-  el.append(
-    van.tags.button(
-      {
-        type: 'button',
-        class: 'btn term-bottom',
-        'data-variant': 'secondary',
-        'data-size': 'icon-sm',
-        'aria-label': 'Scroll to bottom',
-        title: 'Scroll to bottom',
-        hidden: () => !scrolledUp.val,
-        onclick: () => {
-          term.scrollToBottom();
-          syncScrolled();
-          term.focus();
-        },
-      },
-      icons.chevronDown(),
-    ),
-  );
+  el.append(bottomBtn);
   // Right-click belongs to the terminal, not the browser's menu. Programs
   // that track the mouse (vim, tmux, htop) receive it from xterm.js; at a
   // plain prompt it copies the selection, or pastes when there is none.
@@ -264,9 +257,18 @@ export function openSession(info: SessionInfo): Session {
     term.focus();
   });
 
+  const [readName, writeName] = createSignal(name);
+  const [readBell, writeBell] = createSignal(false);
+  const [readUnread, writeUnread] = createSignal(false);
+  const [readCard, writeCard] = createSignal(cardOf(info));
+  const [readTags, writeTags] = createSignal<string[]>([]);
+  const [readRepo, writeRepo] = createSignal<string | null>(null);
+  const [readLeaving, writeLeaving] = createSignal(false);
+  const [readSides, writeSides] = createSignal<Session[]>([]);
   const s: Session = {
     id,
-    name: van.state(name),
+    name: readName,
+    setName: writeName,
     term,
     fit,
     el,
@@ -281,15 +283,22 @@ export function openSession(info: SessionInfo): Session {
     replaying: false,
     parsingReplay: false,
     esc: 0,
-    bell: van.state(false),
-    unread: van.state(false),
-    card: van.state(cardOf(info)),
-    tags: van.state<string[]>([]),
-    repo: van.state<string | null>(null),
-    leaving: van.state(false),
+    bell: readBell,
+    setBell: writeBell,
+    unread: readUnread,
+    setUnread: writeUnread,
+    card: readCard,
+    setCard: writeCard,
+    tags: readTags,
+    setTags: writeTags,
+    repo: readRepo,
+    setRepo: writeRepo,
+    leaving: readLeaving,
+    setLeaving: writeLeaving,
     pinned: info.pinned,
     parent,
-    sides: van.state<Session[]>([]),
+    sides: readSides,
+    setSides: writeSides,
   };
   if (parent) {
     const card = store.sessions.find((c) => c.id === parent);
@@ -298,7 +307,7 @@ export function openSession(info: SessionInfo): Session {
       s.term.dispose();
       return s;
     }
-    card.sides.val = [...card.sides.val, s];
+    card.setSides([...card.sides(), s]);
   } else {
     setSessions([...store.sessions, s]);
     labelTab(s);
@@ -309,8 +318,8 @@ export function openSession(info: SessionInfo): Session {
   // sent on, the answers land in the shell as typed text on every reload.
   term.onData((d) => {
     if (s.parsingReplay || s.ws?.readyState !== WebSocket.OPEN) return;
-    if (ctrlHeld.val) {
-      ctrlHeld.val = false;
+    if (ctrlHeld()) {
+      setCtrlHeld(false);
       d = withCtrl(d);
     }
     s.ws.send(enc.encode(d));
@@ -327,7 +336,7 @@ export function openSession(info: SessionInfo): Session {
 // last list (`prev`): a reorder of the strip moves no terminal, as moving one
 // drops its focus.
 export function termSessions(prev: Session[]): Session[] {
-  const live = fromVan(sessionList)().flatMap((s) => [s, ...fromVan(s.sides)()]);
+  const live = sessionList().flatMap((s) => [s, ...s.sides()]);
   const kept = new Set(live);
   const known = new Set(prev);
   return [...prev.filter((s) => kept.has(s)), ...live.filter((s) => !known.has(s))];
@@ -337,8 +346,8 @@ export function termSessions(prev: Session[]): Session[] {
 // one, so its xterm and scrollback live on.
 export function TermHost(props: { session: Session }): JSX.Element {
   const s = props.session;
-  const shown = fromVan(screen);
-  const tab = fromVan(active);
+  const shown = screen;
+  const tab = active;
   // A render effect: Solid runs these before any effect, so the terminal
   // shows before the one below fits or focuses it.
   createRenderEffect(() => s.el.classList.toggle('active', shown()?.id === s.id));
@@ -346,7 +355,7 @@ export function TermHost(props: { session: Session }): JSX.Element {
   // `shownTurn`): if it's this one, fit it to the view it now has and give it
   // the keyboard. A memo, so a mirror that fires again without a new turn
   // doesn't take the keyboard back.
-  const turn = createMemo(fromVan(shownTurn));
+  const turn = createMemo(shownTurn);
   createEffect(() => {
     const t = turn();
     const card = untrack(tab);
@@ -435,7 +444,7 @@ function connect(s: Session): Promise<boolean> {
       if (s.stream) s.stream.at += bytes.length;
       s.out.push(bytes);
       if (scanned.bell) ring(s);
-      if (s !== onScreen()) s.unread.val = true;
+      if (s !== onScreen()) s.setUnread(true);
     };
     // Dropped without an exit message (network blip, client lagged, daemon
     // restarting, or found dead by its heartbeat): reattach only while this

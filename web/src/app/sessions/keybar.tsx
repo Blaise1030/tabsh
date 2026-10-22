@@ -6,10 +6,9 @@ import type { JSX } from 'solid-js';
 import { uploadFile } from '../daemon/client.ts';
 import { shellQuote } from '../ui/drop-paths.ts';
 import { icons } from '../ui/icons.tsx';
-import { fromVan } from '../ui/interop.ts';
 import type { ExtraKey } from './extra-keys.ts';
 import { onScreen, type Session, screen } from './store.ts';
-import { ctrlHeld, typeKey } from './terminal.tsx';
+import { ctrlHeld, setCtrlHeld, typeKey } from './terminal.tsx';
 
 const KEYS: [ExtraKey, string, string][] = [
   ['esc', 'Esc', 'Escape'],
@@ -35,8 +34,8 @@ const keep = (e: Event) => e.preventDefault();
 // touch screens, and a hidden ancestor would hide the open sheet too).
 export function KeyBar(): JSX.Element {
   const [esc, ...rest] = KEYS;
-  const shown = fromVan(screen);
-  const ctrl = fromVan(ctrlHeld);
+  const shown = screen;
+  const ctrl = ctrlHeld;
   const [pasteButton, sheet] = Paste();
   let bar!: HTMLDivElement;
   const view = (
@@ -51,7 +50,7 @@ export function KeyBar(): JSX.Element {
           aria-pressed={ctrl()}
           on:pointerdown={keep}
           onClick={() => {
-            ctrlHeld.val = !ctrlHeld.val;
+            setCtrlHeld(!ctrlHeld());
           }}
         >
           Ctrl

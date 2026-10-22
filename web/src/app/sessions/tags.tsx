@@ -51,12 +51,12 @@ export function tagBadge(tag: string, ...kids: (Node | string)[]): HTMLElement {
   ) as HTMLElement;
 }
 
-export const labelsOf = (s: Session): Labels => ({ repo: s.repo.val, tags: s.tags.val });
+export const labelsOf = (s: Session): Labels => ({ repo: s.repo(), tags: s.tags() });
 
 // Its tags, as stored, reach its tab (and its groups), when they changed.
 function applyTags(s: Session, all = storedTags()): void {
   const tags = all[s.id] ?? [];
-  if (!sameTags(tags, s.tags.val)) s.tags.val = tags;
+  if (!sameTags(tags, s.tags())) s.setTags(tags);
 }
 
 // The project root of a tab's shell, once read.
@@ -69,8 +69,8 @@ async function refreshRepo(s: Session): Promise<void> {
     const { root } = (await res.json()) as { root: string };
     const name = repoName(root);
     roots.set(s.id, root);
-    if (s.repo.val === name) return;
-    s.repo.val = name;
+    if (s.repo() === name) return;
+    s.setRepo(name);
   } catch {}
 }
 

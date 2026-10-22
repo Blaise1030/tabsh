@@ -3,7 +3,6 @@
 import { createSignal, type JSX } from 'solid-js';
 import { gateMode, pairWith } from '../daemon/client.ts';
 import { LOCAL_APP } from '../daemon/config.ts';
-import { fromVan } from './interop.ts';
 
 function Heading(props: { text: string }): JSX.Element {
   return (
@@ -24,7 +23,7 @@ function Command(): JSX.Element {
 }
 
 export function Gate(): JSX.Element {
-  const mode = fromVan(gateMode);
+  const mode = gateMode;
   const [invalid, setInvalid] = createSignal(false);
   let input!: HTMLInputElement;
   return (

@@ -5,15 +5,14 @@
 // and filled by view.tsx. The root's name and path come from the disk: text
 // and an attribute value only.
 import { createRenderEffect, type JSX, untrack } from 'solid-js';
-import { fromVan } from '../ui/interop.ts';
 import { drawTree, message, note, open, root, treeToDraw, width } from './explorer.ts';
 
 export function Sidebar(): JSX.Element {
-  const shown = fromVan(open);
-  const dir = fromVan(root);
-  const folders = fromVan(note);
-  const msg = fromVan(message);
-  const px = fromVan(width);
+  const shown = open;
+  const dir = root;
+  const folders = note;
+  const msg = message;
+  const px = width;
   const host = (<div id="explorer-tree" />) as HTMLDivElement;
   // One effect shows the host and then draws the listing's tree into it, so
   // the tree is never drawn into a hidden host, whatever order Solid runs its

@@ -1,11 +1,9 @@
 // The file step: the place's file is the active tab's, shown in the file
 // pane. The pane (with CodeMirror) is fetched on first use.
-import { createEffect, createRoot } from 'solid-js';
+import { createEffect, createRoot, createSignal } from 'solid-js';
 import { render } from 'solid-js/web';
-import van from 'vanjs-core';
 import { fileAction, type Place } from '../nav/place.ts';
 import { go, here, onLeave, onPlace } from '../nav/router.ts';
-import { fromVan } from '../ui/interop.ts';
 import type { Host } from './pane.tsx';
 import { rememberedFiles, rememberFile } from './remember.ts';
 
@@ -23,7 +21,7 @@ let errorDispose: (() => void) | undefined;
 
 // Whether #pane and its divider show: the active tab has a file (pane.ts
 // derives it), or the editor couldn't load (the message says so).
-export const paneShown = van.state(false);
+export const [paneShown, setPaneShown] = createSignal(false);
 
 export function initFilePane(h: Host, active: () => string | null): void {
   host = h;
@@ -46,7 +44,7 @@ export function initFilePane(h: Host, active: () => string | null): void {
   createRoot(() => {
     let shown = false;
     createEffect(() => {
-      const v = fromVan(paneShown)();
+      const v = paneShown();
       if (v === shown) return;
       shown = v;
       host.layout();
@@ -148,7 +146,7 @@ function paneLoadFailed(retry: () => void, retried: boolean): void {
           onClick={() => {
             if (retried) return location.reload();
             pane = paneLoad = null;
-            paneShown.val = false;
+            setPaneShown(false);
             errorDispose?.();
             errorDispose = undefined;
             box.replaceChildren();
@@ -161,5 +159,5 @@ function paneLoadFailed(retry: () => void, retried: boolean): void {
     ),
     box,
   );
-  paneShown.val = true;
+  setPaneShown(true);
 }

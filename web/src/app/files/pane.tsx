@@ -45,7 +45,7 @@ import {
 } from './comments.ts';
 import { createEditor, type Editor, type Rect } from './editor.ts';
 import { createNotes, type Notes, type PasteResult } from './notes.tsx';
-import { paneShown } from './open.tsx';
+import { setPaneShown } from './open.tsx';
 import { rememberFile } from './remember.ts';
 
 export interface PaneTheme {
@@ -186,7 +186,7 @@ function PaneChrome(): JSX.Element {
   // paneShown stays VanJS until Task 11; drive it from the Solid view list.
   createEffect(() => {
     const id = current();
-    paneShown.val = id !== null && panes().some((st) => st.id === id);
+    setPaneShown(id !== null && panes().some((st) => st.id === id));
   });
   return <For each={panes()}>{(st) => <PaneView st={st} />}</For>;
 }

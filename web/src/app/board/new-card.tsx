@@ -68,7 +68,7 @@ let editedProvider = '';
 // The home folder as seen in other cards' paths, until the folder search
 // hears the daemon's.
 const cardsHome = () =>
-  store.sessions.map((s) => s.card.val.cwd?.match(/^\/(Users|home)\/[^/]+/)?.[0]).find(Boolean) ?? null;
+  store.sessions.map((s) => s.card().cwd?.match(/^\/(Users|home)\/[^/]+/)?.[0]).find(Boolean) ?? null;
 
 const isImage = (f: File) => f.type.startsWith('image/');
 const hasFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes('Files');
@@ -95,7 +95,7 @@ export function openNewCard(status: Status): void {
   setError(null);
   setBusy(false);
   clearImages();
-  const recent = recentFolders(store.sessions.map((s) => ({ card: s.card.val })));
+  const recent = recentFolders(store.sessions.map((s) => ({ card: s.card() })));
   folder.reset(recent, cardsHome());
   (formEl.elements.namedItem('cwd') as HTMLInputElement).value = recent[0] ?? '';
   setFolderText(recent[0] ?? '');
@@ -117,14 +117,14 @@ export function openEditCard(s: Session): void {
   setError(null);
   setBusy(false);
   clearImages();
-  setFolderText(s.card.val.cwd ?? '~');
+  setFolderText(s.card().cwd ?? '~');
   setProviders(current.saved.providers.map((p) => p.name));
   // Its agent, when it's still one of the providers.
-  editedProvider = current.saved.providers.find((p) => p.command === s.card.val.command)?.name ?? '';
+  editedProvider = current.saved.providers.find((p) => p.command === s.card().command)?.name ?? '';
   setProvider(editedProvider);
-  setPickedTags([...s.tags.val]);
+  setPickedTags([...s.tags()]);
   tagsPanel.field.value = '';
-  promptEl.value = s.card.val.prompt ?? '';
+  promptEl.value = s.card().prompt ?? '';
   host.showModal();
   promptEl.focus();
 }

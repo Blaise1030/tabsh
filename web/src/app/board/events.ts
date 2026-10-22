@@ -44,13 +44,13 @@ export function initBoardEvents(): void {
     if (ev.resync) return void sync().catch(() => {});
     const s = store.sessions.find((x) => x.id === ev.id);
     if (!s) return;
-    const before = s.card.val.status;
+    const before = s.card().status;
     const status = asStatus(ev.status);
     if (ev.source === 'hook' && status !== before) {
-      const items = store.sessions.map((x) => ({ id: x.id, card: x.card.val }));
+      const items = store.sessions.map((x) => ({ id: x.id, card: x.card() }));
       orderTabs(dropOrder(items, s.id, status, null));
     }
-    applyCard(s, { ...s.card.val, status, statusAt: ev.status_at, note: ev.note });
+    applyCard(s, { ...s.card(), status, statusAt: ev.status_at, note: ev.note });
     if (ev.source === 'hook' && status !== before) notifyStatus(s, status, ev.note);
   };
   ws.onclose = () => setTimeout(initBoardEvents, 1000);
@@ -61,7 +61,7 @@ function onActivity(ev: ActivityEvent): void {
   if (!s) return;
   const target = { closed: s.closed, parkedMs: parkedMs(s), active: s === onScreen() };
   const effect = activityEffect(target, ev.activity, ev.age_ms ?? 0);
-  if (effect.unread) s.unread.val = true;
+  if (effect.unread) s.setUnread(true);
   if (effect.ring) ring(s);
   // As terminal.ts does with xterm's title, which a parked tab doesn't have.
   if (ev.title && !s.closed && !s.pinned && parkedMs(s) !== null) setName(s, ev.title);

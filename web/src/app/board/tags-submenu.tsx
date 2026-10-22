@@ -14,7 +14,6 @@ import { addTag, tagColor, toggleTag } from '../sessions/labels.ts';
 import type { Session } from '../sessions/store.ts';
 import { setTags, usedTags } from '../sessions/tags.tsx';
 import { icons } from '../ui/icons.tsx';
-import { fromVan } from '../ui/interop.ts';
 
 export interface TagsSubmenu {
   row: HTMLElement; // in the menu
@@ -130,7 +129,7 @@ export function TagsSubmenu(s: () => Session | null): TagsSubmenu {
   const tags = TagsPanel(
     () => {
       const session = s();
-      return session ? fromVan(session.tags)() : [];
+      return session ? session.tags() : [];
     },
     (next) => {
       const session = s();

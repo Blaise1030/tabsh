@@ -5,7 +5,6 @@
 // setting. The tree's library loads on first use. The sidebar's chrome
 // (sidebar.tsx) follows the states below.
 import { createSignal } from 'solid-js';
-import van, { type State } from 'vanjs-core';
 import { daemonFetch } from '../daemon/client.ts';
 import { openInPane } from '../files/open.tsx';
 import { go, here, onPlace } from '../nav/router.ts';
@@ -33,16 +32,16 @@ type View = typeof import('./view.tsx');
 type Draw = { mine: number; view: View; paths: string[] };
 
 // Whether the sidebar is open: assigned only by the router's explorer step.
-export const open: State<boolean> = van.state(false);
+export const [open, setOpen] = createSignal(false);
 // The listed root, for the heading (its name, the path as its title).
-export const root: State<{ name: string; path: string } | null> = van.state(null);
+export const [root, setRoot] = createSignal<{ name: string; path: string } | null>(null);
 // Only folders are shown (too many files to list).
-export const note: State<boolean> = van.state(false);
+export const [note, setNote] = createSignal(false);
 // A message in place of the tree; null while the tree shows. Before the
 // first listing it is '', so neither shows.
-export const message: State<string | null> = van.state<string | null>('');
+export const [message, setMessage] = createSignal<string | null>('');
 // The sidebar's width in px, from the settings or a drag; null until they apply.
-export const width: State<number | null> = van.state<number | null>(null);
+export const [width, setWidth] = createSignal<number | null>(null);
 
 // The last listing's tree; sidebar.tsx draws it once its host shows.
 const [toDraw, setToDraw] = createSignal<Draw | null>(null);
@@ -57,8 +56,8 @@ let watched: string | null = null; // the session the socket is open for
 let wantSearch = false; // "Search files" was picked and the tree isn't there yet
 let seq = 0; // bumped by every fetch, so a slow answer to a superseded one is dropped
 
-const isOpen = () => open.val;
-const treeShown = () => !!ready && message.val === null;
+const isOpen = () => open();
+const treeShown = () => !!ready && message() === null;
 
 export function toggleExplorer(): void {
   go({ explorer: !here().explorer });
@@ -118,11 +117,11 @@ export function initExplorer(): void {
 
   // Open or closed comes from the place; settings only give the width.
   onPlace('explorer', (to) => {
-    const wasOpen = open.val;
+    const wasOpen = open();
     // Hiding the sidebar under the keyboard would leave it on <body>.
     const heldFocus =
       wasOpen && !to.explorer && !!document.getElementById('explorer')?.contains(document.activeElement);
-    open.val = to.explorer;
+    setOpen(to.explorer);
     if (to.explorer && !wasOpen) void refresh();
     watch();
     if (heldFocus) onScreen()?.term.focus();
@@ -130,7 +129,7 @@ export function initExplorer(): void {
     return undefined;
   });
   onApply((s) => {
-    width.val = s.explorerWidth;
+    setWidth(s.explorerWidth);
   });
   // A tab's project is fetched on opening and on switching tabs; after that
   // the socket keeps the tree current.
@@ -159,7 +158,7 @@ function initResize(divider: HTMLElement): void {
   divider.addEventListener('pointermove', (e) => {
     if (dragged === null) return;
     dragged = widthAt(e.clientX);
-    width.val = dragged;
+    setWidth(dragged);
   });
   const end = (e: PointerEvent) => {
     if (dragged === null) return;
@@ -212,8 +211,8 @@ async function load(mine: number): Promise<void> {
   if (mine !== seq) return;
   const s = shown(l);
   live.known = null;
-  root.val = { name: rootName(l.root), path: l.root };
-  note.val = s.kind === 'folders';
+  setRoot({ name: rootName(l.root), path: l.root });
+  setNote(s.kind === 'folders');
   if (s.kind === 'too-many') return say('Too many files to show here. cd into a project.');
   if (s.kind === 'empty') return say('This folder is empty');
   if (listing && listing.root !== l.root) ready?.closeSearch(); // a new root starts unfiltered
@@ -233,7 +232,7 @@ async function load(mine: number): Promise<void> {
   if (mine !== seq) return;
   ready = v;
   live.known = new Set(s.paths);
-  message.val = null;
+  setMessage(null);
   setToDraw({ mine, view: v, paths: s.paths });
 }
 
@@ -270,6 +269,6 @@ function act(action: RowAction, path: string): void {
 // A message in place of the tree (the tree keeps its place, hidden).
 function say(text: string): void {
   wantSearch = false;
-  note.val = false;
-  message.val = text;
+  setNote(false);
+  setMessage(text);
 }

@@ -18,8 +18,8 @@ export const cardOf = (info: SessionInfo): Card => ({
 // The tab's glyph, its title and `.archived` follow `s.card` (tab.tsx), as
 // does the board.
 export function applyCard(s: Session, card: Card): void {
-  const before = s.card.val.status;
-  s.card.val = card; // an archived one leaves the strip and its groups
+  const before = s.card().status;
+  s.setCard(card); // an archived one leaves the strip and its groups
   if (before !== 'needs_input' && card.status === 'needs_input') ring(s);
 }
 

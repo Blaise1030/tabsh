@@ -19,7 +19,6 @@
 import { createMemo, type JSX, onCleanup, Show } from 'solid-js';
 import { closeSession, type Session } from '../sessions/store.ts';
 import { glyph, icons } from '../ui/icons.tsx';
-import { fromVan } from '../ui/interop.ts';
 import { STATUS_NAMES } from './glyph.ts';
 import { COLUMNS, type Status } from './model.ts';
 import { setStatus } from './status.ts';
@@ -58,7 +57,7 @@ const StatusGlyph = (props: { status: Status }): JSX.Element => (
 function MoveMenu(s: () => Session | null, trigger: Record<string, string>, face?: () => JSX.Element): CardMenuHandle {
   const now = createMemo((): Status | null => {
     const session = s();
-    return session ? fromVan(session.card)().status : null;
+    return session ? session.card().status : null;
   });
   const moveTo = (status: Status) => {
     const session = s();
@@ -67,7 +66,7 @@ function MoveMenu(s: () => Session | null, trigger: Record<string, string>, face
   // Its prompt can change until it starts.
   const editable = () => {
     const session = s();
-    const card = session && fromVan(session.card)();
+    const card = session?.card();
     return session && card?.status === 'backlog' && card.prompt ? session : null;
   };
   const archived = () => now() === 'archived';
@@ -234,7 +233,7 @@ export const DrawerMoveButton = (s: () => Session | null): HTMLElement =>
   MoveMenu(s, { class: 'btn drawer-move', 'data-variant': 'ghost', 'data-size': 'sm', title: 'Move to…' }, () => {
     const status = () => {
       const session = s();
-      return session ? fromVan(session.card)().status : 'backlog';
+      return session ? session.card().status : 'backlog';
     };
     return (
       <span class="drawer-move-label">

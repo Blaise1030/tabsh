@@ -5,7 +5,6 @@
 // biome-ignore-all lint/a11y/useSemanticElements: Basecoat's command markup, which its script and styles read
 // biome-ignore-all lint/a11y/useAriaPropsForRole: Basecoat's group heading, named by the group's aria-labelledby
 import { children, createEffect, createSignal, For, type JSX } from 'solid-js';
-import van from 'vanjs-core';
 import { toggleBoard, toggleBoardLayout } from '../board/view.tsx';
 import { daemonFetch } from '../daemon/client.ts';
 import { searchFiles, toggleExplorer } from '../explorer/explorer.ts';
@@ -38,7 +37,7 @@ const paletteCmd = () => document.getElementById('palette-command') as HTMLEleme
 const paletteInput = () => document.getElementById('palette-input') as HTMLInputElement;
 const paletteMenu = () => document.getElementById('palette-menu') as HTMLElement;
 // The page shown, or null while closed. Only the palette step assigns it.
-export const page = van.state<string | null>(null);
+export const [page, setPage] = createSignal<string | null>(null);
 let recording: KeyId | null = null; // the keybinding the next key press sets
 let editing: TextEdit | null = null; // the text the input holds instead of a search
 const rowItems = new WeakMap<Element, PaletteItem>();
@@ -82,7 +81,7 @@ interface MenuGroup {
 const [menu, setMenu] = createSignal<MenuGroup[]>([]);
 
 function showPage(name: string): void {
-  page.val = name;
+  setPage(name);
   recording = null;
   editing = null;
   paletteMenu().hidden = false;
@@ -220,7 +219,7 @@ function editKey(e: KeyboardEvent): void {
   if (e.key !== 'Enter' && e.key !== 'Escape') return;
   e.preventDefault(); // also stops Escape from closing the dialog
   e.stopImmediatePropagation(); // capture phase: keep Enter from picking a menu item
-  const at = page.val ?? 'root';
+  const at = page() ?? 'root';
   if (e.key === 'Escape') {
     showPage(at);
     return;
@@ -267,25 +266,25 @@ function updatePaletteFades(): void {
 
 // The palette step's half: open on `at`, or closed. It never navigates.
 function showPalette(at: string | null): void {
-  const wasRemote = isRemotePage(page.val);
+  const wasRemote = isRemotePage(page());
   if (!isRemotePage(at)) forgetRemote();
   if (!at) {
-    page.val = null;
+    setPage(null);
     if (paletteEl().open) paletteEl().close();
     return;
   }
   if (!paletteEl().open) {
     paletteEl().showModal();
     setPreviewing(true);
-  } else if (page.val === at) return;
+  } else if (page() === at) return;
   // About and Performance are fetched afresh each time they open, and drawn once they land.
   if (at === 'about')
     loadAbout().then(() => {
-      if (page.val === 'about') showPage('about');
+      if (page() === 'about') showPage('about');
     });
   if (at === 'performance')
     loadPerformance().then(() => {
-      if (page.val === 'performance') showPage('performance');
+      if (page() === 'performance') showPage('performance');
     });
   // Read afresh on the way in; redrawn by `onRemoteChange` once it lands.
   if (isRemotePage(at) && !wasRemote) void loadRemote();
@@ -304,7 +303,7 @@ export function openPalette(at: string = 'root'): void {
 // page, closed again when it is already there.
 export function openGroupPalette(): void {
   if (paletteEl().open) {
-    if (page.val === 'tabGrouping') paletteEl().close();
+    if (page() === 'tabGrouping') paletteEl().close();
     else go({ palette: 'tabGrouping' }, 'replace');
     return;
   }
@@ -337,7 +336,7 @@ export function initPalette(): void {
     // this one (a provider's page to the providers list). On the root page
     // Esc still closes the dialog.
     const back = e.key === 'Escape' || (e.key === 'Backspace' && !paletteInput().value);
-    const at = page.val;
+    const at = page();
     if (back && at && at !== 'root') {
       e.preventDefault(); // also stops Escape from closing the dialog
       const up = at.startsWith('provider:') ? 'providers' : at.startsWith('remote:') ? 'remote' : 'root';
@@ -351,7 +350,7 @@ export function initPalette(): void {
   // A sharing change that lands redraws the page showing it, unless a name is
   // being typed there.
   onRemoteChange(() => {
-    if (paletteEl().open && isRemotePage(page.val) && !editing) showPage(page.val as string);
+    if (paletteEl().open && isRemotePage(page()) && !editing) showPage(page() as string);
   });
 
   paletteEl().addEventListener('close', () => {
