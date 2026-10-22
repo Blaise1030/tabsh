@@ -3,7 +3,8 @@
 // keybinding, and clicking a file opens it in the file pane. Whether it is
 // open is part of the place (the setting only follows it); how wide is a
 // setting. The tree's library loads on first use. The sidebar's chrome
-// (sidebar.ts) follows the states below.
+// (sidebar.tsx) follows the states below.
+import { createSignal } from 'solid-js';
 import van, { type State } from 'vanjs-core';
 import { daemonFetch } from '../daemon/client.ts';
 import { openInPane } from '../files/open.ts';
@@ -27,7 +28,9 @@ import {
 } from './listing.ts';
 import { watchFiles } from './socket.ts';
 
-type View = typeof import('./view.ts');
+type View = typeof import('./view.tsx');
+// A listing's tree, ready for its host: fetch `mine` and its paths.
+type Draw = { mine: number; view: View; paths: string[] };
 
 // Whether the sidebar is open: assigned only by the router's explorer step.
 export const open: State<boolean> = van.state(false);
@@ -41,7 +44,10 @@ export const message: State<string | null> = van.state<string | null>('');
 // The sidebar's width in px, from the settings or a drag; null until they apply.
 export const width: State<number | null> = van.state<number | null>(null);
 
-let mount: HTMLElement; // the tree's host, made once by sidebar.ts
+// The last listing's tree; sidebar.tsx draws it once its host shows.
+const [toDraw, setToDraw] = createSignal<Draw | null>(null);
+export const treeToDraw = toDraw;
+let drawn: Draw | null = null;
 let view: Promise<View> | null = null;
 let ready: View | null = null; // the loaded tree library, once there is a tree
 let listing: Listing | null = null; // what the tree shows
@@ -73,7 +79,7 @@ function openSearchSoon(): void {
 }
 
 export function initExplorer(): void {
-  mount = document.getElementById('explorer-tree') as HTMLElement;
+  const mount = document.getElementById('explorer-tree') as HTMLElement;
   const divider = document.getElementById('explorer-divider') as HTMLElement;
   const button = document.getElementById('explorer-btn') as HTMLButtonElement;
   button.onclick = toggleExplorer;
@@ -212,7 +218,7 @@ async function load(mine: number): Promise<void> {
   if (s.kind === 'empty') return say('This folder is empty');
   if (listing && listing.root !== l.root) ready?.closeSearch(); // a new root starts unfiltered
   listing = l;
-  view ??= import('./view.ts').catch((err) => {
+  view ??= import('./view.tsx').catch((err) => {
     view = null;
     throw err;
   });
@@ -228,13 +234,17 @@ async function load(mine: number): Promise<void> {
   ready = v;
   live.known = new Set(s.paths);
   message.val = null;
-  // The host shows once VanJS applies that, in a microtask queued before
-  // this await's: the tree is drawn into a shown host, as it always was.
-  await Promise.resolve();
-  if (mine !== seq) return;
-  v.showTree(
-    mount,
-    s.paths,
+  setToDraw({ mine, view: v, paths: s.paths });
+}
+
+// Draws `tree` into the sidebar's host, once, unless a later fetch has
+// superseded it. sidebar.tsx calls this once the host shows.
+export function drawTree(host: HTMLElement, tree: Draw): void {
+  if (tree === drawn || tree.mine !== seq) return;
+  drawn = tree;
+  tree.view.showTree(
+    host,
+    tree.paths,
     (path) => {
       const t = store.active;
       if (t && listing) void openInPane(t, { text: absolutePath(listing.root, path) });

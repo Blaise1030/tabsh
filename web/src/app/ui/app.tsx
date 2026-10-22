@@ -6,7 +6,7 @@ import { DrawerMoveButton } from '../board/move-menu.tsx';
 import { NewCard } from '../board/new-card.tsx';
 import { Board, drawer as boardDrawer, shown as boardShown, FilterButton, layout } from '../board/view.tsx';
 import { open as explorerOpen, toggleExplorer } from '../explorer/explorer.ts';
-import { Sidebar } from '../explorer/sidebar.ts';
+import { Sidebar } from '../explorer/sidebar.tsx';
 import { paneShown } from '../files/open.ts';
 import { go } from '../nav/router.ts';
 import { PaletteRows } from '../palette/palette.tsx';
@@ -194,7 +194,7 @@ function Workspace(): JSX.Element {
       </div>
       <div id="pane-divider" hidden={!pane()} />
       <aside id="pane" hidden={!pane()} tabindex="-1" aria-label="File" />
-      {untrack(Sidebar)}
+      <Sidebar />
     </div>
   );
 }

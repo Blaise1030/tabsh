@@ -4,11 +4,8 @@
 // and are untrusted: the library renders them as text, and nothing here puts
 // one in markup.
 import { type ContextMenuItem, type ContextMenuOpenContext, FileTree } from '@pierre/trees';
-import van from 'vanjs-core';
 import type { Op } from './changes.ts';
 import { enterAction, menuStep, type RowAction, rowActions } from './listing.ts';
-
-const { button, div } = van.tags;
 
 const LABELS: Record<RowAction, string> = { insert: 'Insert path', cd: 'cd here', tab: 'Open in new tab' };
 
@@ -114,40 +111,52 @@ export function showTree(
 
 // A row's menu. The names it shows are fixed labels; the row's name never
 // reaches the markup. A pick closes the menu without taking focus back to the
-// row: the caller sends it to the terminal.
+// row: the caller sends it to the terminal. The library draws it outside any
+// Solid owner, so it holds no reactive parts, and its listeners sit on the
+// elements themselves.
 function rowMenu(
   item: ContextMenuItem,
   ctx: ContextMenuOpenContext,
   onAction: (action: RowAction, path: string) => void,
 ): HTMLElement {
   const path = item.kind === 'directory' && !item.path.endsWith('/') ? `${item.path}/` : item.path;
-  const items: HTMLElement[] = rowActions(path).map((action) =>
-    button(
-      {
-        type: 'button',
-        role: 'menuitem',
-        onclick: () => {
+  const items = rowActions(path).map((action) => {
+    const label = LABELS[action];
+    return (
+      <button
+        type="button"
+        role="menuitem"
+        on:click={() => {
           ctx.close({ restoreFocus: false });
           onAction(action, path);
-        },
-      },
-      LABELS[action],
-    ),
-  );
-  const menu = div({ class: 'row-menu', role: 'menu', 'aria-label': 'File actions' }, items);
+        }}
+      >
+        {label}
+      </button>
+    ) as HTMLButtonElement;
+  });
   // Keys: arrows, Home and End move between items (buttons already take Enter
   // and Space); Escape closes and the row gets focus back. The menu is in the
   // DOM only after this returns, so focus waits a frame (and leaves it alone
   // if a key already moved it by then).
-  menu.addEventListener('keydown', (e) => {
-    const at = items.indexOf(document.activeElement as HTMLElement);
-    const to = menuStep(at, items.length, e.key);
-    if (e.key !== 'Escape' && to === null) return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (to === null) ctx.close({ restoreFocus: true });
-    else items[to]?.focus();
-  });
+  const menu = (
+    <div
+      class="row-menu"
+      role="menu"
+      aria-label="File actions"
+      on:keydown={(e) => {
+        const at = items.indexOf(document.activeElement as HTMLButtonElement);
+        const to = menuStep(at, items.length, e.key);
+        if (e.key !== 'Escape' && to === null) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (to === null) ctx.close({ restoreFocus: true });
+        else items[to]?.focus();
+      }}
+    >
+      {items}
+    </div>
+  ) as HTMLDivElement;
   queueMicrotask(() => requestAnimationFrame(() => menu.contains(document.activeElement) || items[0]?.focus()));
   return menu;
 }
