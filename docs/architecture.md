@@ -76,10 +76,13 @@ opening `/api/about` would then be a real request, which `/demo/`'s
 app itself knows nothing of the demo: a change to the app shows up there as is,
 and a new daemon endpoint may need an answer in `demo/daemon.ts`.
 
-The page's CSS is in `web/src/styles/app.css`. The page's `<head>` is in
-`web/src/pages/app/index.astro`; its body is one mount point, `#app`, and
-`main.ts` mounts `ui/app.tsx`'s `App()` into it first, so the markup comes from
-components.
+The page's CSS is in `web/src/styles/app.css`. Shared design tokens (shadcn-shaped
+CSS variables plus a Tailwind `@theme` bridge) live in `web/src/styles/tokens.css`:
+`settings` sets `--term-bg` / `--term-fg` on `<html>`, `html.themed` derives
+`--background`, `--foreground`, `--muted`, and the rest, and Basecoat consumes
+those same variables. The page's `<head>` is in `web/src/pages/app/index.astro`;
+its body is one mount point, `#app`, and `main.ts` mounts `ui/app.tsx`'s `App()`
+into it first, so the markup comes from components.
 
 **Rules**
 - **One-way dependencies between features:**
