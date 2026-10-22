@@ -149,6 +149,7 @@ export async function openTab(
     command?: string;
     resume?: string;
     mode?: 'tui' | 'ui';
+    acp_command?: string;
   },
   focus = true,
 ): Promise<Session> {

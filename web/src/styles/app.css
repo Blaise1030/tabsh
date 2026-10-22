@@ -934,6 +934,18 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
    fills it, the current one checked. */
 .nc-menu [role="menuitemradio"] > span { flex: 1; }
 .nc-menu [data-popover] { min-width: 10rem; }
+.nc-mode {
+  display: inline-flex; align-items: stretch; flex: none; height: 1.875rem;
+  border: 1px solid var(--border); border-radius: var(--radius, .5rem); overflow: hidden;
+}
+.nc-mode-btn {
+  all: unset; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
+  min-width: 2.25rem; padding: 0 .5rem; font: inherit; font-size: .8125rem; color: var(--muted-foreground);
+  cursor: pointer;
+}
+.nc-mode-btn:hover:not(:disabled) { background: var(--accent); color: var(--foreground); }
+.nc-mode-btn[aria-checked="true"] { background: var(--accent); color: var(--foreground); font-weight: 500; }
+.nc-mode-btn:disabled { opacity: .45; cursor: not-allowed; }
 .nc-trigger-body > svg:last-child:not(:first-child) { width: 12px; height: 12px; }
 .nc-body { display: flex; flex-direction: column; gap: .75rem; }
 .nc-prompt {

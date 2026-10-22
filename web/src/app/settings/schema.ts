@@ -80,6 +80,9 @@ const PRE_ACP_PROVIDERS: Provider[] = [
 
 export const MAX_PROVIDERS = 12;
 
+export const AGENT_MODES = ['tui', 'ui'] as const;
+export type AgentMode = (typeof AGENT_MODES)[number];
+
 // Stored providers, cleaned: named, with a command, names unique. Settings
 // from before providers keep their recent agent commands as providers.
 function cleanProviders(stored: Record<string, unknown>): Provider[] {
@@ -145,6 +148,7 @@ export interface Settings {
   keyForward: string;
   providers: Provider[];
   agentProvider: string; // the provider New card offers first: the last one used
+  agentMode: AgentMode; // TUI or UI for the next New card
   boardOnboarded: boolean; // the board's setup screen was dealt with (set up or skipped)
   boardLayout: BoardLayout;
   welcomeSeen: boolean; // the welcome tour was seen (finished, skipped or closed)
@@ -177,6 +181,7 @@ export function defaults(isMac: boolean): Settings {
     keyForward: keys.keyForward.presets[0],
     providers: DEFAULT_PROVIDERS,
     agentProvider: DEFAULT_PROVIDERS[0].name,
+    agentMode: 'tui',
     boardOnboarded: false,
     boardLayout: 'columns',
     welcomeSeen: false,
@@ -247,7 +252,8 @@ export function cleanSettings(stored: Record<string, unknown>, isMac: boolean): 
     ...(() => {
       const providers = cleanProviders(stored);
       const chosen = providers.find((p) => p.name === stored.agentProvider) ?? providers[0];
-      return { providers, agentProvider: chosen.name };
+      const agentMode = AGENT_MODES.find((m) => m === stored.agentMode) ?? d.agentMode;
+      return { providers, agentProvider: chosen.name, agentMode };
     })(),
     boardOnboarded: stored.boardOnboarded === true,
     boardLayout: BOARD_LAYOUTS.find((l) => l === stored.boardLayout) ?? d.boardLayout,

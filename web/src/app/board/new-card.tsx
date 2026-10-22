@@ -25,6 +25,7 @@ import { addTag } from '../sessions/labels.ts';
 import { openTab, type Session, type SessionInfo, store } from '../sessions/store.ts';
 import { setName } from '../sessions/tabs.ts';
 import { setTags, tagBadge } from '../sessions/tags.tsx';
+import type { AgentMode } from '../settings/schema.ts';
 import { current, saveSetting } from '../settings/settings.ts';
 import { isMac } from '../ui/dom.ts';
 import { glyph, icons, providerIcon } from '../ui/icons.tsx';
@@ -32,6 +33,7 @@ import { type FolderPicker, initFolderPicker } from './folder-picker.ts';
 import { STATUS_NAMES } from './glyph.ts';
 import { recentFolders, type Status, withImages } from './model.ts';
 import { setEditCard } from './move-menu.tsx';
+import { canUseUi, openTabCreateBody } from './new-card-mode.ts';
 import { applyCard, cardOf } from './status.ts';
 import { TagsPanel } from './tags-submenu.tsx';
 import { moveToTop, setNewCard } from './view.tsx';
@@ -52,6 +54,7 @@ let tagsPanel: TagsPanel;
 // said (null: nothing).
 const [providers, setProviders] = createSignal<string[]>([]);
 const [provider, setProvider] = createSignal('');
+const [agentMode, setAgentMode] = createSignal<AgentMode>('tui');
 const [error, setError] = createSignal<string | null>(null);
 const [start, setStart] = createSignal<Start>('backlog');
 const [images, setImages] = createSignal<Image[]>([]);
@@ -102,7 +105,11 @@ export function openNewCard(status: Status): void {
   const names = current.saved.providers.map((p) => p.name);
   setProviders(names);
   const last = current.saved.agentProvider;
-  setProvider(names.includes(last) ? last : (names[0] ?? ''));
+  const picked = names.includes(last) ? last : (names[0] ?? '');
+  setProvider(picked);
+  const prov = current.saved.providers.find((p) => p.name === picked);
+  const mode = current.saved.agentMode;
+  setAgentMode(mode === 'ui' && canUseUi(prov) ? 'ui' : 'tui');
   const { tag } = newTabGroup();
   setPickedTags(tag ? [tag] : []);
   tagsPanel.field.value = '';
@@ -193,7 +200,12 @@ async function submit(e: Event): Promise<void> {
     }
     const prompt = withImages(String(data.get('prompt') ?? '').trim(), paths);
     try {
-      s = await openTab({ ...(cwd && { cwd }), prompt, command, resume }, false);
+      const body = openTabCreateBody(
+        { ...(cwd && { cwd }), prompt, command, resume: resume ?? '' },
+        chosen,
+        agentMode(),
+      );
+      s = await openTab(body, false);
     } catch (err) {
       // The daemon answers 400 for a folder that isn't there.
       const badFolder = err instanceof ApiError && err.status === 400 && cwd;
@@ -207,6 +219,7 @@ async function submit(e: Event): Promise<void> {
   setTags(s, picked);
   // The next card offers it first.
   saveSetting('agentProvider', chosen.name);
+  saveSetting('agentMode', agentMode());
   if (more) {
     // Same folder, agent, column and tags; a fresh prompt.
     promptEl.value = '';
@@ -480,9 +493,36 @@ export function NewCard(): JSX.Element {
               name="Agent"
               items={providers()}
               value={provider}
-              set={(v) => setProvider(v)}
+              set={(v) => {
+                setProvider(v);
+                const prov = current.saved.providers.find((p) => p.name === v);
+                if (agentMode() === 'ui' && !canUseUi(prov)) setAgentMode('tui');
+              }}
               face={providerFace}
             />
+            <span class="nc-sep" aria-hidden="true">
+              {icons.chevronRight()}
+            </span>
+            <div class="nc-mode" role="radiogroup" aria-label="Agent mode">
+              {(['tui', 'ui'] as const).map((mode) => {
+                const prov = () => current.saved.providers.find((p) => p.name === provider());
+                const disabled = mode === 'ui' && !canUseUi(prov());
+                return (
+                  // biome-ignore lint/a11y/useSemanticElements: segmented control beside the agent chip, like ChipMenu's menuitemradio rows
+                  <button
+                    type="button"
+                    class="nc-mode-btn"
+                    role="radio"
+                    aria-checked={agentMode() === mode}
+                    aria-disabled={disabled}
+                    disabled={disabled}
+                    on:click={() => !disabled && setAgentMode(mode)}
+                  >
+                    {mode === 'tui' ? 'TUI' : 'UI'}
+                  </button>
+                );
+              })}
+            </div>
           </div>
           <div class="nc-tools">
             <button
