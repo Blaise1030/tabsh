@@ -7,7 +7,7 @@
 import { createSignal } from 'solid-js';
 import van, { type State } from 'vanjs-core';
 import { daemonFetch } from '../daemon/client.ts';
-import { openInPane } from '../files/open.ts';
+import { openInPane } from '../files/open.tsx';
 import { go, here, onPlace } from '../nav/router.ts';
 import { newTabAt, onActivate, onScreen, store } from '../sessions/store.ts';
 import { matchesKey } from '../settings/keys.ts';

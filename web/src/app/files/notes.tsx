@@ -3,13 +3,12 @@
 // live in the page. The editor draws the highlights. Comment text goes into
 // the DOM only as child strings and a textarea's value.
 import type { ChangeSet, Text } from '@codemirror/state';
-import van, { type State } from 'vanjs-core';
+import { type Accessor, createRoot, createSignal, type JSX } from 'solid-js';
+import { render } from 'solid-js/web';
 import { isMac } from '../ui/dom.ts';
 import { type Icon, icons } from '../ui/icons.tsx';
 import { type Comment, commentMessage, mapComments, projectMessage, quoteParts, shortLines } from './comments.ts';
 import type { CommentHover, Editor, Rect, RestedSelection } from './editor.ts';
-
-const { button, code, div, footer, p, span, textarea } = van.tags;
 
 export type PasteResult = 'pasted' | 'closed' | 'unsafe';
 
@@ -28,8 +27,8 @@ export interface FileBucket {
 }
 
 export interface Notes {
-  comments: State<readonly Comment[]>; // the open file, what the editor and preview draw
-  files: State<readonly FileBucket[]>; // every file in this tab's project
+  comments: Accessor<readonly Comment[]>; // the open file, what the editor and preview draw
+  files: Accessor<readonly FileBucket[]>; // every file in this tab's project
   pieces: HTMLElement[]; // the floating parts, for the pane view
   attach(editor: Editor): void;
   detach(): void; // the editor is gone (preview, another file)
@@ -54,11 +53,28 @@ interface Spot {
 const GAP = 6;
 const HIDE_MS = 250;
 
+function SmallButton(props: { icon: Icon; label: string; onClick: () => void }): JSX.Element {
+  return (
+    <button
+      type="button"
+      class="btn"
+      data-variant="ghost"
+      data-size="icon-xs"
+      title={props.label}
+      aria-label={props.label}
+      onClick={props.onClick}
+    >
+      {props.icon()}
+    </button>
+  );
+}
+
 export function createNotes(host: NotesHost): Notes {
-  const comments = van.state<readonly Comment[]>([]);
-  const hovered = van.state<Comment | null>(null);
-  const quoteLead = van.state('');
-  const quoteRest = van.state('');
+  const [comments, setComments] = createSignal<readonly Comment[]>([]);
+  const [files, setFiles] = createSignal<readonly FileBucket[]>([]);
+  const [hovered, setHovered] = createSignal<Comment | null>(null);
+  const [quoteLead, setQuoteLead] = createSignal('');
+  const [quoteRest, setQuoteRest] = createSignal('');
   let editor: Editor | null = null;
   let lostText = '';
   let picked: RestedSelection | null = null;
@@ -72,72 +88,28 @@ export function createNotes(host: NotesHost): Notes {
   let jumpId: number | null = null;
   let didJump = false;
   let nextId = 1;
-  const files = van.state<readonly FileBucket[]>([]);
   let hideTimer = 0;
 
-  const menu = div(
-    { class: 'row-menu comment-menu', role: 'menu', 'aria-label': 'Selection', hidden: true },
-    button(
-      { type: 'button', role: 'menuitem', onclick: () => openBox(null) },
-      icons.messageSquarePlus(),
-      span('Comment'),
-    ),
-  );
-  const note = textarea({ class: 'textarea', rows: 3, placeholder: 'What should change?', 'aria-label': 'Comment' });
-  const box = div(
-    { class: 'row-menu comment-box', role: 'dialog', 'aria-label': 'Comment', hidden: true },
-    div(
-      { class: 'comment-quote' },
-      p({ class: 'comment-quote-lead' }, () => quoteLead.val),
-      p({ class: 'comment-quote-rest', hidden: () => quoteRest.val === '' }, () => quoteRest.val),
-    ),
-    note,
-    footer(
-      button(
-        { type: 'button', class: 'btn', 'data-variant': 'secondary', 'data-size': 'sm', onclick: () => hideAll() },
-        'Cancel',
-      ),
-      div(
-        { class: 'comment-box-actions' },
-        button(
-          { type: 'button', class: 'btn', 'data-variant': 'outline', 'data-size': 'sm', onclick: () => save() },
-          'Queue',
-          span({ class: 'comment-kbd' }, isMac ? '⇧↩' : 'Shift+Enter'),
-        ),
-        button(
-          { type: 'button', class: 'btn', 'data-size': 'sm', onclick: () => sendDirect() },
-          'Send directly',
-          span({ class: 'comment-kbd' }, isMac ? '↩' : 'Enter'),
-        ),
-      ),
-    ),
-  );
-  const small = (icon: Icon, label: string, onclick: () => void) =>
-    button(
-      {
-        type: 'button',
-        class: 'btn',
-        'data-variant': 'ghost',
-        'data-size': 'icon-xs',
-        title: label,
-        'aria-label': label,
-        onclick,
-      },
-      icon(),
-    );
-  const card = div(
-    { class: 'row-menu comment-hover', hidden: true },
-    p({ class: 'comment-note' }, () => hovered.val?.note ?? ''),
-    footer(
-      code({ class: 'comment-lines' }, () => (hovered.val ? shortLines(hovered.val) : '')),
-      small(icons.edit, 'Edit comment', () => {
-        if (hovered.val) openBox(hovered.val);
-      }),
-      small(icons.close, 'Delete comment', () => {
-        if (hovered.val) remove(hovered.val.id);
-      }),
-    ),
-  );
+  // Hosts the Solid roots fill; they are the floating pieces in the pane view.
+  const menu = document.createElement('div');
+  menu.className = 'row-menu comment-menu';
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', 'Selection');
+  menu.hidden = true;
+
+  const box = document.createElement('div');
+  box.className = 'row-menu comment-box';
+  box.setAttribute('role', 'dialog');
+  box.setAttribute('aria-label', 'Comment');
+  box.hidden = true;
+
+  const card = document.createElement('div');
+  card.className = 'row-menu comment-hover';
+  card.hidden = true;
+
+  const note = (
+    <textarea class="textarea" rows={3} placeholder="What should change?" aria-label="Comment" />
+  ) as HTMLTextAreaElement;
 
   function place(el: HTMLElement, rect: Rect, above: boolean, at?: Spot): Spot {
     el.hidden = false;
@@ -164,7 +136,7 @@ export function createNotes(host: NotesHost): Notes {
   function hideCard(): void {
     clearTimeout(hideTimer);
     card.hidden = true;
-    hovered.val = null;
+    setHovered(null);
   }
   function hideCardSoon(): void {
     clearTimeout(hideTimer);
@@ -178,20 +150,20 @@ export function createNotes(host: NotesHost): Notes {
   }
 
   function push(): void {
-    editor?.setComments(comments.val);
+    editor?.setComments(comments());
   }
 
   // The open file's comments are `comments`; `files` keeps the rest of the project.
   function commit(): void {
     if (!filePath) return;
-    const next = comments.val;
-    const i = files.val.findIndex((f) => f.path === filePath);
+    const next = comments();
+    const i = files().findIndex((f) => f.path === filePath);
     if (!next.length) {
-      if (i >= 0) files.val = files.val.filter((f) => f.path !== filePath);
+      if (i >= 0) setFiles(files().filter((f) => f.path !== filePath));
       return;
     }
     const bucket = { path: filePath, label: fileLabel, comments: next };
-    files.val = i < 0 ? [...files.val, bucket] : files.val.map((f, n) => (n === i ? bucket : f));
+    setFiles(i < 0 ? [...files(), bucket] : files().map((f, n) => (n === i ? bucket : f)));
   }
 
   function openBox(c: Comment | null): void {
@@ -201,11 +173,12 @@ export function createNotes(host: NotesHost): Notes {
     if (!at) return;
     editing = c;
     const parts = quoteParts(target.quote);
-    quoteLead.val = parts.lead;
-    quoteRest.val = parts.rest;
+    setQuoteLead(parts.lead);
+    setQuoteRest(parts.rest);
     note.value = c?.note ?? '';
     menu.hidden = true;
     hideCard();
+    // After the box is shown and its quote lines lay out, so place() measures them.
     queueMicrotask(() => {
       if (c || !menuAt) place(box, at, false);
       else place(box, at, false, menuAt);
@@ -218,10 +191,10 @@ export function createNotes(host: NotesHost): Notes {
     if (!text) return;
     if (editing) {
       const id = editing.id;
-      comments.val = comments.val.map((c) => (c.id === id ? { ...c, note: text } : c));
+      setComments(comments().map((c) => (c.id === id ? { ...c, note: text } : c)));
     } else if (picked) {
       const id = nextId++;
-      comments.val = [...comments.val, { id, ...picked, note: text, lost: pickedLost }];
+      setComments([...comments(), { id, ...picked, note: text, lost: pickedLost }]);
       picked = null;
       pickedLost = false;
     } else {
@@ -258,7 +231,7 @@ export function createNotes(host: NotesHost): Notes {
       return;
     }
     if (editing) {
-      comments.val = comments.val.filter((c) => c.id !== editing?.id);
+      setComments(comments().filter((c) => c.id !== editing?.id));
       commit();
       push();
       reportLost();
@@ -277,7 +250,7 @@ export function createNotes(host: NotesHost): Notes {
   }
 
   function reportLost(): void {
-    const n = comments.val.filter((c) => c.lost).length;
+    const n = comments().filter((c) => c.lost).length;
     if (n === 0) {
       if (lostText && host.shownStatus() === lostText) host.status('');
       lostText = '';
@@ -288,7 +261,7 @@ export function createNotes(host: NotesHost): Notes {
   }
 
   function remove(id: number): void {
-    comments.val = comments.val.filter((c) => c.id !== id);
+    setComments(comments().filter((c) => c.id !== id));
     commit();
     push();
     hideCard();
@@ -324,16 +297,85 @@ export function createNotes(host: NotesHost): Notes {
   };
   document.addEventListener('mousedown', outside);
 
+  const stop = createRoot((dispose) => {
+    render(
+      () => (
+        <button type="button" role="menuitem" onClick={() => openBox(null)}>
+          {icons.messageSquarePlus()}
+          <span>Comment</span>
+        </button>
+      ),
+      menu,
+    );
+    render(
+      () => (
+        <>
+          <div class="comment-quote">
+            <p class="comment-quote-lead">{quoteLead()}</p>
+            <p class="comment-quote-rest" hidden={quoteRest() === ''}>
+              {quoteRest()}
+            </p>
+          </div>
+          {note}
+          <footer>
+            <button type="button" class="btn" data-variant="secondary" data-size="sm" onClick={() => hideAll()}>
+              Cancel
+            </button>
+            <div class="comment-box-actions">
+              <button type="button" class="btn" data-variant="outline" data-size="sm" onClick={() => save()}>
+                Queue
+                <span class="comment-kbd">{isMac ? '⇧↩' : 'Shift+Enter'}</span>
+              </button>
+              <button type="button" class="btn" data-size="sm" onClick={() => sendDirect()}>
+                Send directly
+                <span class="comment-kbd">{isMac ? '↩' : 'Enter'}</span>
+              </button>
+            </div>
+          </footer>
+        </>
+      ),
+      box,
+    );
+    render(
+      () => (
+        <>
+          <p class="comment-note">{hovered()?.note ?? ''}</p>
+          <footer>
+            <code class="comment-lines">{hovered() ? shortLines(hovered()!) : ''}</code>
+            <SmallButton
+              icon={icons.edit}
+              label="Edit comment"
+              onClick={() => {
+                const c = hovered();
+                if (c) openBox(c);
+              }}
+            />
+            <SmallButton
+              icon={icons.close}
+              label="Delete comment"
+              onClick={() => {
+                const c = hovered();
+                if (c) remove(c.id);
+              }}
+            />
+          </footer>
+        </>
+      ),
+      card,
+    );
+    return dispose;
+  });
+
   return {
     comments,
     files,
     pieces: [menu, box, card],
     attach(ed) {
       editor = ed;
-      ed.setComments(comments.val);
+      ed.setComments(comments());
       didJump = false;
       if (jumpId == null) return;
-      const c = comments.val.find((x) => x.id === jumpId);
+      const c = comments().find((x) => x.id === jumpId);
       jumpId = null;
       if (!c) return;
       if (c.lost) ed.goTo(c.fromLine);
@@ -345,11 +387,11 @@ export function createNotes(host: NotesHost): Notes {
       const file = host.file();
       filePath = file.path;
       fileLabel = file.label;
-      comments.val = files.val.find((f) => f.path === filePath)?.comments ?? [];
-      if (jumpId != null && !comments.val.some((c) => c.id === jumpId)) jumpId = null;
-      const i = files.val.findIndex((f) => f.path === filePath);
-      if (i >= 0 && files.val[i].label !== fileLabel) {
-        files.val = files.val.map((f, n) => (n === i ? { ...f, label: fileLabel } : f));
+      setComments(files().find((f) => f.path === filePath)?.comments ?? []);
+      if (jumpId != null && !comments().some((c) => c.id === jumpId)) jumpId = null;
+      const i = files().findIndex((f) => f.path === filePath);
+      if (i >= 0 && files()[i].label !== fileLabel) {
+        setFiles(files().map((f, n) => (n === i ? { ...f, label: fileLabel } : f)));
       }
       push();
       reportLost();
@@ -378,7 +420,7 @@ export function createNotes(host: NotesHost): Notes {
       menuAt = place(menu, at, true);
     },
     mapped(doc, changes, list) {
-      comments.val = list;
+      setComments(list);
       commit();
       menu.hidden = true;
       if (picked && !pickedLost) {
@@ -402,11 +444,12 @@ export function createNotes(host: NotesHost): Notes {
         hideCardSoon();
         return;
       }
-      const c = comments.val.find((x) => x.id === hit.id);
+      const c = comments().find((x) => x.id === hit.id);
       if (!c) return;
       clearTimeout(hideTimer);
-      hovered.val = c;
+      setHovered(c);
       hoverRect = hit.rect;
+      // After the card's note text lays out, so place() measures it.
       queueMicrotask(() => place(card, hit.rect, false));
     },
     scrolled() {
@@ -414,12 +457,12 @@ export function createNotes(host: NotesHost): Notes {
       hideCard();
     },
     send() {
-      const noted = files.val.filter((f) => f.comments.length);
+      const noted = files().filter((f) => f.comments.length);
       if (!noted.length) return;
       const result = host.paste(projectMessage(noted.map((f) => ({ path: f.label, comments: f.comments }))));
       if (result === 'pasted') {
-        files.val = [];
-        comments.val = [];
+        setFiles([]);
+        setComments([]);
         push();
         hideAll();
         picked = null;
@@ -434,8 +477,8 @@ export function createNotes(host: NotesHost): Notes {
       }
     },
     clear() {
-      files.val = [];
-      comments.val = [];
+      setFiles([]);
+      setComments([]);
       jumpId = null;
       picked = null;
       pickedLost = false;
@@ -444,6 +487,7 @@ export function createNotes(host: NotesHost): Notes {
       reportLost();
     },
     dispose() {
+      stop();
       document.removeEventListener('mousedown', outside);
       clearTimeout(hideTimer);
     },

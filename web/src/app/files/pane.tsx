@@ -1,14 +1,25 @@
 // The file pane: one view per tab with a file, the current tab's shown. The
 // header and the conflict bar are components following each view's states;
-// the body is a host made once per load, filled with a sandboxed preview, an
+// the body is a host made once per view, filled with a sandboxed preview, an
 // image, a message or CodeMirror. Nothing from a file goes in as markup: paths
 // and messages are child strings or attribute values, previews are srcdoc in
 // sandboxed frames, images and PDFs blob: URLs.
-import van, { type State } from 'vanjs-core';
+import {
+  type Accessor,
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  type JSX,
+  on,
+  onMount,
+  type Setter,
+  untrack,
+} from 'solid-js';
+import { render } from 'solid-js/web';
 import { go, here } from '../nav/router.ts';
 import { isMac } from '../ui/dom.ts';
 import { icons } from '../ui/icons.tsx';
-import { keyed } from '../ui/keyed.ts';
 import {
   displayPath,
   type Fetcher,
@@ -33,11 +44,9 @@ import {
   withSourceSpans,
 } from './comments.ts';
 import { createEditor, type Editor, type Rect } from './editor.ts';
-import { createNotes, type Notes, type PasteResult } from './notes.ts';
-import { paneShown } from './open.ts';
+import { createNotes, type Notes, type PasteResult } from './notes.tsx';
+import { paneShown } from './open.tsx';
 import { rememberFile } from './remember.ts';
-
-const { button, code, div, header, iframe, img, p, section, span } = van.tags;
 
 export interface PaneTheme {
   background: string;
@@ -48,6 +57,7 @@ export interface PaneTheme {
   fontFamily: string; // the terminal's font, already loaded
   fontSize: number;
 }
+
 export interface Host {
   fetch: Fetcher;
   theme(): PaneTheme;
@@ -58,18 +68,36 @@ export interface Host {
   paste(sessionId: string, text: string): PasteResult;
 }
 
+// What a load asks the view's effect to put in the body.
+interface MountReq {
+  seq: number;
+  info: FileInfo | null;
+  error: string | null;
+  focus: boolean;
+}
+
 interface PaneState {
   id: string;
   key: string; // the view's: the tab's id and which state this is, so a tab closed and reopened at once gets a new view
-  // What the header shows: the absolute path (its title) and the path as shown.
-  path: State<{ abs: string; text: string }>;
-  dirty: State<boolean>;
-  status: State<string>;
-  conflict: State<string | null>; // the version found on disk when a save was refused; the bar shows while set
-  editing: State<boolean>;
-  editable: State<boolean>;
-  scrolled: State<boolean>; // the body is scrolled: the header shows its shadow
-  body: State<HTMLElement>; // this load's host: a preview, an image, a message or CodeMirror
+  path: Accessor<{ abs: string; text: string }>;
+  setPath: Setter<{ abs: string; text: string }>;
+  dirty: Accessor<boolean>;
+  setDirty: Setter<boolean>;
+  status: Accessor<string>;
+  setStatus: Setter<string>;
+  conflict: Accessor<string | null>; // the version found on disk when a save was refused; the bar shows while set
+  setConflict: Setter<string | null>;
+  editing: Accessor<boolean>;
+  setEditing: Setter<boolean>;
+  editable: Accessor<boolean>;
+  setEditable: Setter<boolean>;
+  scrolled: Accessor<boolean>; // the body is scrolled: the header shows its shadow
+  setScrolled: Setter<boolean>;
+  body: HTMLElement; // made once for this view: a preview, an image, a message or CodeMirror
+  mount: Accessor<MountReq | null>;
+  setMount: Setter<MountReq | null>;
+  commentsOpen: Accessor<boolean>;
+  setCommentsOpen: Setter<boolean>;
   doc: string; // current text (\n endings) while no editor is mounted
   version: string;
   eol: 'crlf' | 'lf';
@@ -84,46 +112,39 @@ interface PaneState {
   blobUrl: string | null;
   markdown: string | null; // rendered HTML, re-wrapped when the theme changes
   frame: HTMLIFrameElement | null;
-  notes: Notes; // comments on the source selection (notes.ts)
-  commentsOpen: State<boolean>; // the header's comment list
+  notes: Notes; // comments on the source selection (notes.tsx)
   commentsWrap: HTMLElement | null;
 }
 
 let host: Host;
 let paneEl: HTMLElement;
+let disposeRoot: (() => void) | undefined;
 const states = new Map<string, PaneState>();
-// The views, in the order they were opened: `states`' values, assigned whole.
-const panes = van.state<PaneState[]>([]);
+// The views, in the order they were opened.
+const [panes, setPanes] = createSignal<PaneState[]>([]);
 // The tab whose view shows.
-const current = van.state<string | null>(null);
+const [current, setCurrent] = createSignal<string | null>(null);
 // Bumped by every open and forget, so a slow response to a superseded one is dropped.
 const seqs = new Map<string, number>();
 const EDITABLE = new Set(['text', 'html', 'markdown', 'svg']);
 // How often the shown file is checked for changes on disk (a stat, no content).
 const POLL_MS = 2000;
 let polling = false;
+let wired = false;
 
-const currentState = (): PaneState | undefined => (current.val === null ? undefined : states.get(current.val));
-
-// VanJS applies state changes in a microtask, queued by the first change; this
-// resolves after it has run, so the views and the pane are on the page.
-const applied = () => new Promise<void>((resolve) => queueMicrotask(resolve));
+const currentState = (): PaneState | undefined => {
+  const id = current();
+  return id === null ? undefined : states.get(id);
+};
 
 export function init(h: Host): void {
   host = h;
   paneEl = document.getElementById('pane')!;
+  disposeRoot?.();
   paneEl.replaceChildren(); // drop a "couldn't load" message from an earlier attempt
-  keyed(
-    paneEl,
-    () => panes.val,
-    (st) => st.key,
-    PaneView,
-  );
-  // The pane shows while the current tab has a file (open.ts refits the terminal when it flips).
-  van.derive(() => {
-    const id = current.val;
-    paneShown.val = id !== null && panes.val.some((st) => st.id === id);
-  });
+  disposeRoot = render(() => <PaneChrome />, paneEl);
+  if (wired) return;
+  wired = true;
   // Esc goes back to the terminal, after CodeMirror's own Esc (closing search).
   paneEl.addEventListener('keydown', (e) => {
     const st = currentState();
@@ -138,8 +159,8 @@ export function init(h: Host): void {
         else toggleMode(st);
       }
     } else if (e.key === 'Escape' && !e.defaultPrevented) {
-      if (st?.commentsOpen.val) {
-        st.commentsOpen.val = false;
+      if (st?.commentsOpen()) {
+        st.setCommentsOpen(false);
         return;
       }
       host.focusTerminal();
@@ -150,9 +171,9 @@ export function init(h: Host): void {
     const t = e.target;
     const node = t instanceof Node ? t : null;
     for (const st of states.values()) {
-      if (!st.commentsOpen.val) continue;
+      if (!st.commentsOpen()) continue;
       if (node && st.commentsWrap?.contains(node)) continue;
-      st.commentsOpen.val = false;
+      st.setCommentsOpen(false);
     }
   });
   // Only while the page is visible; coming back checks at once.
@@ -161,41 +182,59 @@ export function init(h: Host): void {
   window.addEventListener('focus', () => void poll());
 }
 
-const TextButton = (label: string, onclick: () => void) =>
-  button({ type: 'button', class: 'btn', 'data-variant': 'ghost', 'data-size': 'sm', title: label, onclick }, label);
+function PaneChrome(): JSX.Element {
+  // paneShown stays VanJS until Task 11; drive it from the Solid view list.
+  createEffect(() => {
+    const id = current();
+    paneShown.val = id !== null && panes().some((st) => st.id === id);
+  });
+  return <For each={panes()}>{(st) => <PaneView st={st} />}</For>;
+}
 
-// `icon` is a binding: it may follow states.
-const IconButton = (icon: () => Node, label: string | (() => string), onclick: () => void, disabled = () => false) =>
-  button(
-    {
-      type: 'button',
-      class: 'btn',
-      'data-variant': 'ghost',
-      'data-size': 'icon-sm',
-      title: label,
-      'aria-label': label,
-      disabled,
-      onclick,
-    },
-    icon,
+function TextButton(props: { label: string; onClick: () => void }): JSX.Element {
+  return (
+    <button type="button" class="btn" data-variant="ghost" data-size="sm" title={props.label} onClick={props.onClick}>
+      {props.label}
+    </button>
   );
+}
+
+function IconButton(props: { icon: () => Node; label: string; onClick: () => void; disabled?: boolean }): JSX.Element {
+  return (
+    <button
+      type="button"
+      class="btn"
+      data-variant="ghost"
+      data-size="icon-sm"
+      title={props.label}
+      aria-label={props.label}
+      disabled={props.disabled}
+      onClick={props.onClick}
+    >
+      {props.icon()}
+    </button>
+  );
+}
 
 // The Edit/Preview toggle shows what pressing it does.
-function EditToggle(st: PaneState): HTMLElement {
+function EditToggle(props: { st: PaneState }): JSX.Element {
+  const st = props.st;
   const mod = isMac ? '⌘' : 'Ctrl-';
-  return IconButton(
-    () => (st.editing.val ? icons.preview : icons.edit)(),
-    () => `${st.editing.val ? 'Preview' : 'Edit'} (${mod}E)`,
-    () => toggleMode(st),
-    () => !st.editable.val,
+  return (
+    <IconButton
+      icon={() => (st.editing() ? icons.preview() : icons.edit())}
+      label={`${st.editing() ? 'Preview' : 'Edit'} (${mod}E)`}
+      onClick={() => toggleMode(st)}
+      disabled={!st.editable()}
+    />
   );
 }
 
 // The source, so a comment in the list can be shown. Text files already have
 // the editor; a preview is switched over to it.
 function ensureEditor(st: PaneState): void {
-  if (st.editor || !st.editable.val || !st.info || st.info.kind === 'text') return;
-  st.editing.val = true;
+  if (st.editor || !st.editable() || !st.info || st.info.kind === 'text') return;
+  st.setEditing(true);
   mountRich(st);
 }
 
@@ -205,7 +244,7 @@ function baseName(path: string): string {
 }
 
 function revealComment(st: PaneState, path: string, c: Comment): void {
-  if (path !== st.path.val.abs) {
+  if (path !== st.path().abs) {
     st.notes.armJump(c.id);
     go({ file: path, line: c.fromLine });
     return;
@@ -218,45 +257,30 @@ function revealComment(st: PaneState, path: string, c: Comment): void {
   ed.view.focus();
 }
 
+type Listed = Comment & { path: string; label: string };
+
 // The paper plane, with how many comments are waiting. It opens the list;
 // Send to terminal is the first row of that list.
-function SendButton(st: PaneState): HTMLElement {
-  const listed = () =>
-    st.notes.files.val.flatMap((f) => f.comments.map((c) => ({ ...c, path: f.path, label: f.label })));
-  type Listed = ReturnType<typeof listed>[number];
+function SendButton(props: { st: PaneState }): JSX.Element {
+  const st = props.st;
+  const listed = createMemo(() =>
+    st.notes.files().flatMap((f) => f.comments.map((c) => ({ ...c, path: f.path, label: f.label }))),
+  );
   const n = () => listed().length;
   const label = () => `${n()} comment${n() === 1 ? '' : 's'}`;
-  const rows = div({ class: 'pane-comment-rows' });
-  const current = (c: Listed): Listed => listed().find((x) => x.id === c.id && x.path === c.path) ?? c;
-  keyed(
-    rows,
-    listed,
-    (c) => `${c.path}\0${c.id}`,
-    (c) =>
-      button(
-        {
-          type: 'button',
-          class: () => (current(c).lost ? 'comment-row lost' : 'comment-row'),
-          onclick: () => revealComment(st, c.path, current(c)),
-        },
-        span(
-          { class: 'comment-top' },
-          span({ class: 'comment-file', title: () => current(c).path }, () => baseName(current(c).path)),
-          code({ class: 'comment-lines' }, () => shortLines(current(c))),
-        ),
-        span({ class: 'comment-note' }, () => oneLine(current(c).note, 160)),
-        span({ class: 'comment-quote' }, () => `“${oneLine(current(c).quote, 160)}”`),
-      ),
-  );
+  const currentOf = (c: Listed): Listed => listed().find((x) => x.id === c.id && x.path === c.path) ?? c;
+
   // While the preview is showing, sending or clearing comments redraws it.
   // The first run matches the list as it is and does nothing.
-  let shown = st.notes.comments.val;
-  van.derive(() => {
-    const list = st.notes.comments.val;
-    if (n() === 0) st.commentsOpen.val = false;
+  let shown: readonly Comment[] | undefined;
+  createEffect(() => {
+    const list = st.notes.comments();
+    if (n() === 0) st.setCommentsOpen(false);
     if (list === shown) return;
+    const prev = shown;
     shown = list;
-    if (!st.frame || st.editing.val || st.info?.kind !== 'markdown') return;
+    if (prev === undefined) return;
+    if (!st.frame || st.editing() || st.info?.kind !== 'markdown') return;
     const seq = ++st.previewSeq;
     const frame = st.frame;
     const doc = st.doc;
@@ -267,87 +291,139 @@ function SendButton(st: PaneState): HTMLElement {
       setPreview(frame, html);
     });
   });
-  const wrap = div(
-    { class: 'pane-send-wrap' },
-    button(
-      {
-        type: 'button',
-        class: 'btn pane-send',
-        'data-variant': 'ghost',
-        'data-size': 'icon-sm',
-        title: label,
-        'aria-label': label,
-        'aria-expanded': () => st.commentsOpen.val,
-        hidden: () => n() === 0,
-        onclick: () => {
-          st.commentsOpen.val = !st.commentsOpen.val;
-        },
+
+  return (
+    <div
+      class="pane-send-wrap"
+      ref={(el) => {
+        st.commentsWrap = el;
+      }}
+    >
+      <button
+        type="button"
+        class="btn pane-send"
+        data-variant="ghost"
+        data-size="icon-sm"
+        title={label()}
+        aria-label={label()}
+        aria-expanded={st.commentsOpen()}
+        hidden={n() === 0}
+        onClick={() => st.setCommentsOpen(!st.commentsOpen())}
+      >
+        {icons.send()}
+        <span class="pane-send-badge">{String(n())}</span>
+      </button>
+      <div class="row-menu pane-comments" role="menu" aria-label="Comments" hidden={!st.commentsOpen()}>
+        <div class="pane-comments-send">
+          <button type="button" class="btn" data-size="sm" onClick={() => st.notes.send()}>
+            Send to terminal
+          </button>
+        </div>
+        <div class="pane-comment-rows">
+          <For each={listed()}>
+            {(c) => {
+              const row = () => currentOf(c);
+              return (
+                <button
+                  type="button"
+                  class={row().lost ? 'comment-row lost' : 'comment-row'}
+                  onClick={() => revealComment(st, c.path, row())}
+                >
+                  <span class="comment-top">
+                    <span class="comment-file" title={row().path}>
+                      {baseName(row().path)}
+                    </span>
+                    <code class="comment-lines">{shortLines(row())}</code>
+                  </span>
+                  <span class="comment-note">{oneLine(row().note, 160)}</span>
+                  <span class="comment-quote">{`“${oneLine(row().quote, 160)}”`}</span>
+                </button>
+              );
+            }}
+          </For>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PaneHead(props: { st: PaneState }): JSX.Element {
+  const st = props.st;
+  return (
+    <header class={st.scrolled() ? 'pane-head scrolled' : 'pane-head'}>
+      <IconButton icon={() => icons.collapse()} label="Close file" onClick={() => go({ file: null })} />
+      <span class="pane-path" title={st.path().abs}>
+        {st.path().text}
+      </span>
+      <span class="pane-status" role="status">
+        {st.status()}
+      </span>
+      <span class="pane-dot" title="Unsaved changes" hidden={!st.dirty()}>
+        ●
+      </span>
+      <SendButton st={st} />
+      <EditToggle st={st} />
+    </header>
+  );
+}
+
+function ConflictBar(props: { st: PaneState }): JSX.Element {
+  const st = props.st;
+  return (
+    <div class="pane-bar" role="alert" hidden={st.conflict() === null}>
+      <span>Changed on disk. Your edits are unsaved.</span>
+      <TextButton label="Reload" onClick={() => void reload(st)} />
+      <TextButton label="Overwrite" onClick={() => void save(st, true)} />
+    </div>
+  );
+}
+
+function PaneView(props: { st: PaneState }): JSX.Element {
+  const st = props.st;
+  // Mount CodeMirror / preview after the view is on the page (replaces applied()).
+  // `on` keeps this from re-running when mountRich reads editing() or comments().
+  createEffect(
+    on(
+      () => st.mount(),
+      (req) => {
+        if (!req) return;
+        void fulfillMount(st, req);
       },
-      icons.send(),
-      span({ class: 'pane-send-badge' }, () => String(n())),
     ),
-    div(
-      {
-        class: 'row-menu pane-comments',
-        role: 'menu',
-        'aria-label': 'Comments',
-        hidden: () => !st.commentsOpen.val,
+  );
+  let view!: HTMLElement;
+  onMount(() => {
+    // Scroll doesn't bubble, so catch the editor's or body's on the way down.
+    view.addEventListener(
+      'scroll',
+      (e) => {
+        st.setScrolled((e.target as HTMLElement).scrollTop > 0);
       },
-      div(
-        { class: 'pane-comments-send' },
-        button({ type: 'button', class: 'btn', 'data-size': 'sm', onclick: () => st.notes.send() }, 'Send to terminal'),
-      ),
-      rows,
-    ),
+      true,
+    );
+  });
+  return (
+    <section
+      ref={(el) => {
+        view = el;
+      }}
+      class="pane-view"
+      hidden={current() !== st.id}
+    >
+      <PaneHead st={st} />
+      {st.body}
+      <ConflictBar st={st} />
+      {st.notes.pieces}
+    </section>
   );
-  st.commentsWrap = wrap;
-  return wrap;
-}
-
-function PaneHead(st: PaneState): HTMLElement {
-  return header(
-    { class: () => (st.scrolled.val ? 'pane-head scrolled' : 'pane-head') },
-    IconButton(icons.collapse, 'Close file', () => go({ file: null })),
-    span({ class: 'pane-path', title: () => st.path.val.abs }, () => st.path.val.text),
-    span({ class: 'pane-status', role: 'status' }, () => st.status.val),
-    span({ class: 'pane-dot', title: 'Unsaved changes', hidden: () => !st.dirty.val }, '●'),
-    SendButton(st),
-    EditToggle(st),
-  );
-}
-
-function ConflictBar(st: PaneState): HTMLElement {
-  return div(
-    { class: 'pane-bar', role: 'alert', hidden: () => st.conflict.val === null },
-    span('Changed on disk. Your edits are unsaved.'),
-    TextButton('Reload', () => void reload(st)),
-    TextButton('Overwrite', () => void save(st, true)),
-  );
-}
-
-function PaneView(st: PaneState): HTMLElement {
-  const view = section(
-    { class: 'pane-view', hidden: () => current.val !== st.id },
-    PaneHead(st),
-    () => st.body.val,
-    ConflictBar(st),
-    ...st.notes.pieces,
-  );
-  // Scroll doesn't bubble, so catch the editor's or body's on the way down.
-  view.addEventListener(
-    'scroll',
-    (e) => {
-      st.scrolled.val = (e.target as HTMLElement).scrollTop > 0;
-    },
-    true,
-  );
-  return view;
 }
 
 // A preview: `srcdoc` in a frame sandboxed by `sandbox`. The sandbox is set
 // before the document, so the frame never loads without it.
 function Frame(srcdoc: string, sandbox: string, title: string): HTMLIFrameElement {
-  const frame = iframe({ class: 'pane-frame', title });
+  const frame = document.createElement('iframe');
+  frame.className = 'pane-frame';
+  frame.title = title;
   frame.setAttribute('sandbox', sandbox);
   frame.srcdoc = srcdoc;
   return frame;
@@ -356,13 +432,26 @@ function Frame(srcdoc: string, sandbox: string, title: string): HTMLIFrameElemen
 // An image or a PDF from a blob: URL. A raster image can't run scripts; a PDF
 // gets the browser's own viewer.
 function Blob(kind: 'image' | 'pdf', url: string, title: string): HTMLElement {
-  return kind === 'pdf'
-    ? iframe({ class: 'pane-frame', src: url, title })
-    : img({ class: 'pane-img', src: url, alt: title });
+  if (kind === 'pdf') {
+    const frame = document.createElement('iframe');
+    frame.className = 'pane-frame';
+    frame.src = url;
+    frame.title = title;
+    return frame;
+  }
+  const image = document.createElement('img');
+  image.className = 'pane-img';
+  image.src = url;
+  image.alt = title;
+  return image;
 }
 
 function Msg(text: string): HTMLElement {
-  return div({ class: 'pane-msg' }, p(text));
+  return (
+    <div class="pane-msg">
+      <p>{text}</p>
+    </div>
+  ) as HTMLDivElement;
 }
 
 // Drops the editor. Comments stay, to be drawn again when it comes back.
@@ -382,7 +471,7 @@ function clear(st: PaneState): void {
 }
 
 export function show(sessionId: string | null): void {
-  current.val = sessionId;
+  setCurrent(sessionId);
   void poll();
 }
 
@@ -395,13 +484,13 @@ export function forget(sessionId: string): void {
   st.notes.dispose();
   clearTimeout(st.timer);
   states.delete(sessionId);
-  panes.val = [...states.values()];
+  setPanes([...states.values()]);
 }
 
-const unsent = (st: PaneState) => st.notes.files.val.reduce((n, f) => n + f.comments.length, 0);
+const unsent = (st: PaneState) => st.notes.files().reduce((n, f) => n + f.comments.length, 0);
 
 export function hasUnsaved(): boolean {
-  for (const st of states.values()) if (st.dirty.val || unsent(st) > 0) return true;
+  for (const st of states.values()) if (st.dirty() || unsent(st) > 0) return true;
   return false;
 }
 
@@ -409,9 +498,9 @@ export function hasUnsaved(): boolean {
 function discardQuestion(st: PaneState, scope: 'all' | 'edits'): string | null {
   const n = unsent(st);
   const name = (st.info?.path ?? st.requested).split('/').pop();
-  if (scope === 'edits') return st.dirty.val ? `Discard unsaved changes to ${name}?` : null;
-  if (st.dirty.val && n > 0) return `Discard unsaved changes to ${name} and ${n} unsent comment${n === 1 ? '' : 's'}?`;
-  if (st.dirty.val) return `Discard unsaved changes to ${name}?`;
+  if (scope === 'edits') return st.dirty() ? `Discard unsaved changes to ${name}?` : null;
+  if (st.dirty() && n > 0) return `Discard unsaved changes to ${name} and ${n} unsent comment${n === 1 ? '' : 's'}?`;
+  if (st.dirty()) return `Discard unsaved changes to ${name}?`;
   if (n === 1) return 'Discard 1 unsent comment?';
   if (n > 1) return `Discard ${n} unsent comments?`;
   return null;
@@ -427,7 +516,7 @@ export function confirmDiscard(sessionId: string, scope: 'all' | 'edits' = 'all'
 // Unsaved edits in the open file. Comments are kept across files, so a file
 // switch asks about edits only.
 export function hasEdits(sessionId: string): boolean {
-  return !!states.get(sessionId)?.dirty.val;
+  return !!states.get(sessionId)?.dirty();
 }
 
 export function hasFile(sessionId: string): boolean {
@@ -441,7 +530,7 @@ export function fileOf(sessionId: string): string | null {
 
 export function isDirty(sessionId: string): boolean {
   const st = states.get(sessionId);
-  return !!st && (st.dirty.val || unsent(st) > 0);
+  return !!st && (st.dirty() || unsent(st) > 0);
 }
 
 // A relative path is shown relative to the directory it was resolved from.
@@ -453,10 +542,10 @@ function shownPath(st: PaneState, abs: string): string {
 
 function setStatus(st: PaneState, text: string, ms?: number): void {
   clearTimeout(st.timer);
-  st.status.val = text;
+  st.setStatus(text);
   if (ms)
     st.timer = window.setTimeout(() => {
-      st.status.val = '';
+      st.setStatus('');
     }, ms);
 }
 
@@ -465,24 +554,24 @@ function currentText(st: PaneState): string {
 }
 
 function toggleMode(st: PaneState): void {
-  if (!st.editable.val || !st.info) return;
-  const edit = !st.editing.val;
+  if (!st.editable() || !st.info) return;
+  const edit = !st.editing();
   if (st.info.kind === 'text') {
     st.editor?.setReadOnly(!edit);
     if (edit) st.editor?.view.focus();
-    st.editing.val = edit;
+    st.setEditing(edit);
     return;
   }
   if (st.editor) st.doc = st.editor.text();
-  st.editing.val = edit;
+  st.setEditing(edit);
   mountRich(st);
 }
 
 async function save(st: PaneState, overwrite = false): Promise<void> {
   const info = st.info;
-  if (!info || !st.editable.val || st.saving) return;
-  if (!overwrite && !st.dirty.val) return;
-  const conflict = st.conflict.val;
+  if (!info || !st.editable() || st.saving) return;
+  if (!overwrite && !st.dirty()) return;
+  const conflict = st.conflict();
   const version = overwrite && conflict !== null ? conflict : st.version;
   const text = currentText(st);
   const epoch = st.epoch;
@@ -497,17 +586,17 @@ async function save(st: PaneState, overwrite = false): Promise<void> {
   if (st.epoch !== epoch || states.get(st.id) !== st) return; // reloaded or closed meanwhile
   st.saving = false;
   if (res && 'conflict' in res) {
-    st.conflict.val = res.conflict;
+    st.setConflict(res.conflict);
     setStatus(st, '');
   } else if (res && !res.version) {
     // Written, but we can't tell the next save's base version.
-    st.conflict.val = null;
+    st.setConflict(null);
     setStatus(st, "Saved, but the server didn't return a version; reload before saving again");
   } else if (res) {
     st.version = res.version;
-    st.conflict.val = null;
+    st.setConflict(null);
     // Edits made while the save was in flight stay unsaved.
-    if (currentText(st) === text) st.dirty.val = false;
+    if (currentText(st) === text) st.setDirty(false);
     setStatus(st, 'Saved', 1500);
   } else {
     setStatus(st, error);
@@ -536,8 +625,8 @@ async function poll(): Promise<void> {
   }
   // A save, reload or close since then has its own idea of the version.
   if (st.epoch !== epoch || st.version !== version || st.saving || states.get(st.id) !== st) return;
-  if (disk === null || disk === version || disk === st.conflict.val) return;
-  if (st.dirty.val) st.conflict.val = disk;
+  if (disk === null || disk === version || disk === st.conflict()) return;
+  if (st.dirty()) st.setConflict(disk);
   else await pull(st);
 }
 
@@ -551,16 +640,16 @@ async function pull(st: PaneState): Promise<void> {
   } catch {
     return;
   }
-  if (st.epoch !== epoch || states.get(st.id) !== st || st.dirty.val || st.saving) return;
+  if (st.epoch !== epoch || states.get(st.id) !== st || st.dirty() || st.saving) return;
   const editable = info.content !== undefined && EDITABLE.has(info.kind);
-  if (!editable || !st.editable.val || info.kind !== st.info!.kind) return reload(st, false);
+  if (!editable || !st.editable() || info.kind !== st.info!.kind) return reload(st, false);
   Object.assign(st, {
     info,
     version: info.version,
     eol: info.eol ?? 'lf',
     doc: fromDisk(info.content!),
   });
-  st.conflict.val = null;
+  st.setConflict(null);
   if (st.editor) st.editor.setText(st.doc);
   else mountRich(st);
 }
@@ -602,8 +691,8 @@ function newEditor(st: PaneState, body: HTMLElement, readOnly: boolean): Editor 
     readOnly,
     theme: host.theme(),
     onChange: () => {
-      st.dirty.val = true;
-      st.status.val = '';
+      st.setDirty(true);
+      st.setStatus('');
     },
     onSave: () => void save(st),
     onCursor: (line) => reportLine(st, line),
@@ -620,7 +709,7 @@ function newEditor(st: PaneState, body: HTMLElement, readOnly: boolean): Editor 
 // place's; never in the middle of another move.
 function reportLine(st: PaneState, line: number): void {
   const p = here();
-  if (navigation.transition || current.val !== st.id || p.tab !== st.id) return;
+  if (navigation.transition || current() !== st.id || p.tab !== st.id) return;
   if (!st.info || p.file !== st.info.path || p.line === line) return;
   go({ line }, 'replace');
 }
@@ -773,14 +862,14 @@ function textBefore(root: HTMLElement, target: Text): number {
 
 // Markdown, HTML and SVG: sandboxed preview of the current text, or its source in CodeMirror.
 function mountRich(st: PaneState): void {
-  const body = st.body.val,
-    kind = st.info!.kind;
+  const body = st.body;
+  const kind = st.info!.kind;
   const seq = ++st.previewSeq;
   dropEditor(st);
   st.frame = null;
   st.markdown = null;
   body.replaceChildren();
-  if (st.editing.val) {
+  if (st.editing()) {
     st.editor = newEditor(st, body, false);
     st.editor.view.focus();
     return;
@@ -800,14 +889,16 @@ function mountRich(st: PaneState): void {
     show(svgDoc(st.doc), '');
   } else {
     void import('marked')
-      .then((marked) => previewHtml(withSourceSpans(marked as unknown as SpanMarked), st.doc, st.notes.comments.val))
+      .then((marked) => previewHtml(withSourceSpans(marked as unknown as SpanMarked), st.doc, st.notes.comments()))
       .then(
         (html) => {
-          if (st.previewSeq !== seq || st.body.val !== body || st.editing.val) return;
+          if (st.previewSeq !== seq || st.editing()) return;
           // Scripts stay off, so the frame cannot read the token. Same origin
           // is only so this pane can read a text selection and offer Comment.
           st.markdown = html;
-          const frame = iframe({ class: 'pane-frame', title });
+          const frame = document.createElement('iframe');
+          frame.className = 'pane-frame';
+          frame.title = title;
           frame.setAttribute('sandbox', 'allow-same-origin');
           watchPreviewSelection(st, frame);
           frame.srcdoc = markdownDoc(html, host.theme());
@@ -859,6 +950,35 @@ async function renderBody(st: PaneState, info: FileInfo, body: HTMLElement, isCu
   }
 }
 
+// The view's effect runs this once the pane chrome has the body on the page.
+async function fulfillMount(st: PaneState, req: MountReq): Promise<void> {
+  const { seq, info, error, focus } = req;
+  const isCurrent = () => states.get(st.id) === st && seqs.get(st.id) === seq && st.mount() === req;
+  if (!isCurrent()) return;
+  const body = st.body;
+  body.replaceChildren();
+  if (error || !info) {
+    body.append(Msg(error ?? 'Not found'));
+    return;
+  }
+  try {
+    await renderBody(st, info, body, isCurrent);
+    // So the keyboard (Cmd/Ctrl-E, -S) works at once; Esc goes back to the terminal.
+    if (focus && isCurrent() && untrack(current) === st.id) {
+      if (st.editor) st.editor.view.focus();
+      else paneEl.focus();
+    }
+  } catch (err) {
+    if (!isCurrent()) return;
+    const big = err instanceof FileError && err.status === 413;
+    body.replaceChildren(
+      big
+        ? Msg(`Too large to open here (${formatSize(info.size)})`)
+        : Msg(err instanceof FileError ? err.message : `Couldn't open ${info.path}`),
+    );
+  }
+}
+
 // Shows `path` in the tab, or with null forgets its file, without asking
 // about unsaved edits (the router's guard has). A file the tab already shows
 // only moves to `line`. Resolves to the absolute path shown: null when the
@@ -887,23 +1007,45 @@ export async function showFile(
 let made = 0;
 function newState(id: string, requested: string): PaneState {
   let st!: PaneState;
+  const [path, setPath] = createSignal({ abs: requested, text: requested });
+  const [dirty, setDirty] = createSignal(false);
+  const [status, setStatusSig] = createSignal('');
+  const [conflict, setConflict] = createSignal<string | null>(null);
+  const [editing, setEditing] = createSignal(false);
+  const [editable, setEditable] = createSignal(false);
+  const [scrolled, setScrolled] = createSignal(false);
+  const [mount, setMount] = createSignal<MountReq | null>(null);
+  const [commentsOpen, setCommentsOpen] = createSignal(false);
+  const body = document.createElement('div');
+  body.className = 'pane-body';
   const notes = createNotes({
-    file: () => ({ path: st.path.val.abs, label: st.path.val.text }),
+    file: () => ({ path: st.path().abs, label: st.path().text }),
     paste: (text) => host.paste(id, text),
     status: (text) => setStatus(st, text),
-    shownStatus: () => st.status.val,
+    shownStatus: () => st.status(),
   });
   st = {
     id,
     key: `${id}#${++made}`,
-    path: van.state({ abs: requested, text: requested }),
-    dirty: van.state(false),
-    status: van.state(''),
-    conflict: van.state<string | null>(null),
-    editing: van.state(false),
-    editable: van.state(false),
-    scrolled: van.state(false),
-    body: van.state(div({ class: 'pane-body' })),
+    path,
+    setPath,
+    dirty,
+    setDirty,
+    status,
+    setStatus: setStatusSig,
+    conflict,
+    setConflict,
+    editing,
+    setEditing,
+    editable,
+    setEditable,
+    scrolled,
+    setScrolled,
+    body,
+    mount,
+    setMount,
+    commentsOpen,
+    setCommentsOpen,
     doc: '',
     version: '',
     eol: 'lf',
@@ -918,7 +1060,6 @@ function newState(id: string, requested: string): PaneState {
     markdown: null,
     frame: null,
     notes,
-    commentsOpen: van.state(false),
     commentsWrap: null,
   };
   return st;
@@ -954,7 +1095,7 @@ async function load(
   if (!st) {
     st = newState(sessionId, path);
     states.set(sessionId, st);
-    panes.val = [...states.values()];
+    setPanes([...states.values()]);
   }
   clear(st);
   clearTimeout(st.timer);
@@ -971,44 +1112,16 @@ async function load(
     eol: info?.eol ?? 'lf',
   });
   const abs = info?.path ?? path;
-  st.path.val = { abs, text: info ? shownPath(st, abs) : abs };
+  st.setPath({ abs, text: info ? shownPath(st, abs) : abs });
   st.notes.openedFile();
-  st.editable.val = editable;
-  st.editing.val = !!editable && st.notes.willJump();
-  st.dirty.val = false;
-  st.conflict.val = null;
-  st.status.val = '';
-  st.scrolled.val = false;
-  // The CodeMirror host, made once for this load.
-  const body = div({ class: 'pane-body' });
-  st.body.val = body;
-
-  const state = st;
-  const isCurrent = () => states.get(sessionId) === state && seqs.get(sessionId) === seq;
-  // The view and the body are on the page once VanJS has applied the states:
-  // CodeMirror mounts into (and focuses in) a pane that shows.
-  await applied();
-  if (!isCurrent()) return 'dropped';
-  if (error || !info) {
-    body.append(Msg(error ?? 'Not found'));
-    return 'shown';
-  }
-  try {
-    await renderBody(state, info, body, isCurrent);
-    // So the keyboard (Cmd/Ctrl-E, -S) works at once; Esc goes back to the terminal.
-    if (focus && isCurrent() && current.val === sessionId) {
-      if (state.editor) state.editor.view.focus();
-      else paneEl.focus();
-    }
-  } catch (err) {
-    if (!isCurrent()) return 'dropped';
-    const big = err instanceof FileError && err.status === 413;
-    body.replaceChildren(
-      big
-        ? Msg(`Too large to open here (${formatSize(info.size)})`)
-        : Msg(err instanceof FileError ? err.message : `Couldn't open ${info.path}`),
-    );
-  }
+  st.setEditable(editable);
+  st.setEditing(!!editable && st.notes.willJump());
+  st.setDirty(false);
+  st.setConflict(null);
+  st.setStatus('');
+  st.setScrolled(false);
+  // The body host stays; the view effect mounts into it once the chrome shows.
+  st.setMount({ seq, info, error, focus });
   return 'shown';
 }
 

@@ -9,7 +9,7 @@ import van from 'vanjs-core';
 import { toggleBoard, toggleBoardLayout } from '../board/view.tsx';
 import { daemonFetch } from '../daemon/client.ts';
 import { searchFiles, toggleExplorer } from '../explorer/explorer.ts';
-import { loadedPane } from '../files/open.ts';
+import { loadedPane } from '../files/open.tsx';
 import { back, backPastPalette, forward, go, here, isLeavingPalette, isPaletteEntry, onPlace } from '../nav/router.ts';
 import {
   addRemoteDevice,

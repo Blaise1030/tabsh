@@ -21,7 +21,7 @@ import { Decoration, type DecorationSet, EditorView, keymap } from '@codemirror/
 import { tags as t } from '@lezer/highlight';
 import { basicSetup } from 'codemirror';
 import { type Comment, mapComments } from './comments.ts';
-import type { PaneTheme } from './pane.ts';
+import type { PaneTheme } from './pane.tsx';
 
 export interface Rect {
   top: number;

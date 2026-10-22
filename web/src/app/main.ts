@@ -12,7 +12,7 @@ import { LOCAL_APP, MIXED_BLOCKED } from './daemon/config.ts';
 import { keepsTokenInAddress } from './daemon/parse.ts';
 import { adoptToken } from './daemon/token.ts';
 import { initExplorer } from './explorer/explorer.ts';
-import { initFilePane, loadedPane, restoreFiles } from './files/open.ts';
+import { initFilePane, loadedPane, restoreFiles } from './files/open.tsx';
 import { rememberedFiles } from './files/remember.ts';
 import { startRouter } from './nav/router.ts';
 import { initPalette } from './palette/palette.tsx';

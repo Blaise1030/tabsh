@@ -1,14 +1,15 @@
 // The file step: the place's file is the active tab's, shown in the file
 // pane. The pane (with CodeMirror) is fetched on first use.
+import { createEffect, createRoot } from 'solid-js';
+import { render } from 'solid-js/web';
 import van from 'vanjs-core';
 import { fileAction, type Place } from '../nav/place.ts';
 import { go, here, onLeave, onPlace } from '../nav/router.ts';
-import type { Host } from './pane.ts';
+import { fromVan } from '../ui/interop.ts';
+import type { Host } from './pane.tsx';
 import { rememberedFiles, rememberFile } from './remember.ts';
 
-type Pane = typeof import('./pane.ts');
-
-const { button, div, p } = van.tags;
+type Pane = typeof import('./pane.tsx');
 
 let host: Host;
 let activeId: () => string | null = () => null;
@@ -18,6 +19,7 @@ let loadFailed = false; // a second failure reloads the page instead
 // The path last clicked: only a click may open a directory (in a new tab).
 let clicked: { tab: string; file: string } | null = null;
 const never = new AbortController().signal;
+let errorDispose: (() => void) | undefined;
 
 // Whether #pane and its divider show: the active tab has a file (pane.ts
 // derives it), or the editor couldn't load (the message says so).
@@ -39,13 +41,16 @@ export function initFilePane(h: Host, active: () => string | null): void {
     return pane.confirmDiscard(to.tab);
   });
   onPlace('file', applyFile);
-  // The terminal refits once the pane has shown or hidden: VanJS applies the
-  // state in a microtask queued before this one.
-  let shown = false;
-  van.derive(() => {
-    if (paneShown.val === shown) return;
-    shown = paneShown.val;
-    queueMicrotask(() => host.layout());
+  // Refit the terminal once the pane has shown or hidden. Own root: initFilePane
+  // runs outside main's createRoot, and before the pane module's render root.
+  createRoot(() => {
+    let shown = false;
+    createEffect(() => {
+      const v = fromVan(paneShown)();
+      if (v === shown) return;
+      shown = v;
+      host.layout();
+    });
   });
 }
 
@@ -103,8 +108,10 @@ export function restoreFiles(sessionIds: string[]): void {
 }
 
 function filePane(): Promise<Pane> {
-  paneLoad ??= import('./pane.ts').then(
+  paneLoad ??= import('./pane.tsx').then(
     (m) => {
+      errorDispose?.();
+      errorDispose = undefined;
       m.init(host);
       pane = m;
       m.show(activeId());
@@ -130,20 +137,29 @@ export function openInPane(s: { id: string; closed: boolean }, f: { text: string
 // instead; the shells survive that.
 function paneLoadFailed(retry: () => void, retried: boolean): void {
   const box = document.getElementById('pane') as HTMLElement;
-  const again = button(
-    {
-      type: 'button',
-      class: 'btn',
-      onclick: () => {
-        if (retried) return location.reload();
-        pane = paneLoad = null;
-        paneShown.val = false;
-        box.replaceChildren();
-        retry();
-      },
-    },
-    'Retry',
+  errorDispose?.();
+  errorDispose = render(
+    () => (
+      <div class="pane-msg">
+        <p>Couldn't load the editor</p>
+        <button
+          type="button"
+          class="btn"
+          onClick={() => {
+            if (retried) return location.reload();
+            pane = paneLoad = null;
+            paneShown.val = false;
+            errorDispose?.();
+            errorDispose = undefined;
+            box.replaceChildren();
+            retry();
+          }}
+        >
+          Retry
+        </button>
+      </div>
+    ),
+    box,
   );
-  box.replaceChildren(div({ class: 'pane-msg' }, p("Couldn't load the editor"), again));
   paneShown.val = true;
 }

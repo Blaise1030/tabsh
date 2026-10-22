@@ -6,7 +6,7 @@ import van, { type State } from 'vanjs-core';
 import type { Card } from '../board/model.ts';
 import { applyCard, cardOf } from '../board/status.ts';
 import { api } from '../daemon/client.ts';
-import { loadedPane } from '../files/open.ts';
+import { loadedPane } from '../files/open.tsx';
 import { go, here, onPlace } from '../nav/router.ts';
 import { clearBell, updateBadge } from './bell.ts';
 import type { Coalescer } from './coalesce.ts';
