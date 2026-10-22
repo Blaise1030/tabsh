@@ -1,5 +1,6 @@
 mod auth;
 mod board;
+mod chat;
 mod cli;
 mod error;
 mod files;
