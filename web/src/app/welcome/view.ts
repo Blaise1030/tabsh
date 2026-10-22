@@ -9,7 +9,7 @@ import { go } from '../nav/router.ts';
 import { FONTS, fontStack, THEMES, TYPING_SOUNDS } from '../settings/catalog.ts';
 import { current, saveSetting, saveSettings } from '../settings/settings.ts';
 import { keySound, loadPack, playSample, SOUND_PACKS } from '../sound/packs.ts';
-import { glyph, type Icon, icons, providerIcon } from '../ui/icons.ts';
+import { glyph, type Icon, icons, providerIcon } from '../ui/icons.tsx';
 import {
   clampStep,
   dismissWelcome,

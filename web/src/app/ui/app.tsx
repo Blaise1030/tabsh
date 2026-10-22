@@ -1,0 +1,223 @@
+// The page: the dialogs, the tab bar, the board or the workspace under it
+// (or both: the workspace in a drawer beside the board), and the drop glow.
+// Features find their parts by id once this is mounted.
+import { type JSX, untrack } from 'solid-js';
+import { DrawerMoveButton } from '../board/move-menu.ts';
+import { NewCard } from '../board/new-card.ts';
+import { Board, drawer as boardDrawer, shown as boardShown, FilterButton, layout } from '../board/view.ts';
+import { open as explorerOpen, toggleExplorer } from '../explorer/explorer.ts';
+import { Sidebar } from '../explorer/sidebar.ts';
+import { paneShown } from '../files/open.ts';
+import { go } from '../nav/router.ts';
+import { grouping, TabStrip } from '../sessions/groups.ts';
+import { KeyBar } from '../sessions/keybar.ts';
+import { SessionBar } from '../sessions/session-bar.ts';
+import { active, noTab } from '../sessions/store.ts';
+import { Welcome } from '../welcome/view.ts';
+import { Gate } from './gate.ts';
+import { type Icon, icons } from './icons.tsx';
+import { fromVan } from './interop.ts';
+
+// VanJS feature nodes are made untracked: a tracked insert would rebuild one
+// if its body read a Solid signal.
+
+function Palette(): JSX.Element {
+  return (
+    <dialog id="palette" class="command-dialog" aria-label="Command menu">
+      <div class="command" id="palette-command">
+        <header>
+          {icons.search()}
+          <input
+            type="text"
+            id="palette-input"
+            autocomplete="off"
+            autocorrect="off"
+            spellcheck="false"
+            aria-autocomplete="list"
+            role="combobox"
+            aria-expanded="true"
+            aria-controls="palette-menu"
+          />
+        </header>
+        <div role="menu" id="palette-menu" aria-orientation="vertical" data-empty="No results found." />
+      </div>
+    </dialog>
+  );
+}
+
+// A ghost icon button in the tab bar.
+function BarButton(props: {
+  icon: Icon;
+  label: string;
+  title?: string;
+  id?: string;
+  class?: string;
+  pressed?: boolean;
+  newSession?: boolean;
+  onClick?: () => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      class={props.class ?? 'btn'}
+      data-variant="ghost"
+      data-size="icon-sm"
+      aria-label={props.label}
+      title={props.title}
+      id={props.id}
+      aria-pressed={props.pressed}
+      data-new-session={props.newSession ? '' : undefined}
+      onClick={props.onClick}
+    >
+      {untrack(props.icon)}
+    </button>
+  );
+}
+
+// The Board button's icon: the list's while the board shows as a list, else
+// the columns'.
+function BoardIcon(): JSX.Element {
+  const shown = fromVan(boardShown);
+  const board = fromVan(layout);
+  return <>{shown() && board() === 'list' ? icons.rows() : icons.board()}</>;
+}
+
+// The tab bar spans the page: a tab owns the sidebar, terminal and file pane
+// under it. On the board it keeps the Board button, Filter (once onboarded)
+// and Settings.
+function TabBar(): JSX.Element {
+  const shown = fromVan(boardShown);
+  const groups = fromVan(grouping);
+  const explorer = fromVan(explorerOpen);
+  return (
+    <div class={shown() ? 'tabbar on-board' : 'tabbar'}>
+      <button
+        type="button"
+        class="btn"
+        data-variant="ghost"
+        data-size="icon-sm"
+        aria-label="Board"
+        title="Board"
+        id="board-btn"
+        aria-pressed={shown()}
+      >
+        <BoardIcon />
+      </button>
+      {untrack(TabStrip)}
+      <BarButton icon={icons.plus} label="New terminal" title="New terminal" newSession />
+      <BarButton
+        icon={icons.group}
+        label="Group tabs by repo or tag"
+        title="Group tabs"
+        id="tab-group-btn"
+        // Grouping is on: the button stays lit.
+        pressed={groups() !== 'none'}
+      />
+      {untrack(FilterButton)}
+      <BarButton
+        icon={icons.explorer}
+        label="Toggle file explorer"
+        title="Toggle file explorer"
+        id="explorer-btn"
+        pressed={explorer()}
+      />
+      <BarButton icon={icons.settings} class="btn settings-btn" label="Settings" id="settings-btn" />
+    </div>
+  );
+}
+
+// The drawer's own bar, standing in for the tab bar's: close, the card's name
+// and status, the file explorer (over the sidebar, on the right) and the full
+// terminal view.
+function DrawerBar(): JSX.Element {
+  const drawer = fromVan(boardDrawer);
+  const tab = fromVan(active);
+  const explorer = fromVan(explorerOpen);
+  const title = () => {
+    const s = tab();
+    return s ? fromVan(s.name)() : '';
+  };
+  return (
+    <header class="drawer-bar" hidden={!drawer()}>
+      <BarButton
+        icon={icons.arrowRightToLine}
+        label="Close drawer"
+        title="Close drawer"
+        id="drawer-close"
+        onClick={() => go({ drawer: false })}
+      />
+      <span class="drawer-title">{title()}</span>
+      {untrack(() => DrawerMoveButton(() => active.val))}
+      <BarButton
+        icon={icons.explorer}
+        label="Toggle file explorer"
+        title="Toggle file explorer"
+        pressed={explorer()}
+        onClick={toggleExplorer}
+      />
+      <BarButton
+        icon={icons.expand}
+        label="Open in terminals"
+        title="Open in terminals"
+        id="drawer-expand"
+        onClick={() => go({ view: 'terms' })}
+      />
+    </header>
+  );
+}
+
+// The terminal layout: terminals, file pane and file sidebar.
+function Workspace(): JSX.Element {
+  const empty = fromVan(noTab);
+  const pane = fromVan(paneShown);
+  return (
+    <div id="workspace">
+      <div id="main">
+        {untrack(SessionBar)}
+        <div id="terms">
+          <div class="empty" id="empty" hidden={!empty()}>
+            <p>No terminals open.</p>
+            <button type="button" class="btn" data-new-session="">
+              New terminal
+            </button>
+          </div>
+          {untrack(Gate)}
+        </div>
+        {untrack(KeyBar)}
+      </div>
+      <div id="pane-divider" hidden={!pane()} />
+      <aside id="pane" hidden={!pane()} tabindex="-1" aria-label="File" />
+      {untrack(Sidebar)}
+    </div>
+  );
+}
+
+// The board and the workspace side by side: the board alone, the workspace
+// alone, or the workspace in a resizable drawer beside the board.
+function Stage(): JSX.Element {
+  const shown = fromVan(boardShown);
+  const drawer = fromVan(boardDrawer);
+  return (
+    <div id="stage">
+      {untrack(Board)}
+      <div id="drawer-divider" hidden={!drawer()} />
+      <div id="frame" class={drawer() ? 'in-drawer' : ''} hidden={shown() && !drawer()}>
+        <DrawerBar />
+        <Workspace />
+      </div>
+    </div>
+  );
+}
+
+export function App(): JSX.Element {
+  return (
+    <>
+      <Palette />
+      {untrack(NewCard)}
+      <TabBar />
+      <Stage />
+      {untrack(Welcome)}
+      <div id="drop-glow" aria-hidden="true" />
+    </>
+  );
+}

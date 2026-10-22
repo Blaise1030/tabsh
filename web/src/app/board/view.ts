@@ -15,7 +15,7 @@ import { matchesKey } from '../settings/keys.ts';
 import type { BoardLayout } from '../settings/schema.ts';
 import { current, keyHint, onSaved, saveSetting } from '../settings/settings.ts';
 import { phone } from '../ui/dom.ts';
-import { glyph, icons, providerIcon } from '../ui/icons.ts';
+import { glyph, icons, providerIcon } from '../ui/icons.tsx';
 import { keyed } from '../ui/keyed.ts';
 import {
   asStatus,
@@ -72,7 +72,7 @@ const filterFolders: State<string[]> = van.state(saved.folders);
 const filterOpen: State<boolean> = van.state(false);
 let filterMenu: HTMLElement | null = null;
 // Columns side by side, or one list of rows under each status's heading.
-const layout: State<BoardLayout> = van.state(current.saved.boardLayout);
+export const layout: State<BoardLayout> = van.state(current.saved.boardLayout);
 // The list layout's folded statuses, kept in this browser.
 const COLLAPSED_KEY = 'tabsh.boardCollapsed';
 function loadCollapsed(): Status[] {

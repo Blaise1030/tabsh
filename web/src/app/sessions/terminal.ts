@@ -13,7 +13,7 @@ import { socketUrl } from '../daemon/client.ts';
 import { linkProvider } from '../links/provider.ts';
 import { here } from '../nav/router.ts';
 import { current, terminalOptions } from '../settings/settings.ts';
-import { icons } from '../ui/icons.ts';
+import { icons } from '../ui/icons.tsx';
 import { scoped } from '../ui/keyed.ts';
 import { ring } from './bell.ts';
 import { scanBell } from './bell-scan.ts';

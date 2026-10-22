@@ -38,13 +38,13 @@ import { FONTS, fontStack, prefersLight, THEMES } from './settings/catalog.ts';
 import { applySettings, current, loadSettings, onApply, terminalOptions } from './settings/settings.ts';
 import { initChime } from './sound/chime.ts';
 import { initTypingSound } from './sound/typing.ts';
+import { App } from './ui/app.tsx';
 import { initDivider, initDrawerDivider } from './ui/divider.ts';
 import { initDrop } from './ui/drop.ts';
 import { initKeyboardInset } from './ui/keyboard.ts';
-import { Shell } from './ui/shell.tsx';
 import { initWelcome } from './welcome/view.ts';
 
-render(Shell, document.getElementById('app')!);
+render(App, document.getElementById('app')!);
 
 // The pairing link puts the token in the fragment; take it before anything
 // talks to the daemon, and clear it except on another device.

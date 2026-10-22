@@ -5,7 +5,7 @@
 import type { ChangeSet, Text } from '@codemirror/state';
 import van, { type State } from 'vanjs-core';
 import { isMac } from '../ui/dom.ts';
-import { type Icon, icons } from '../ui/icons.ts';
+import { type Icon, icons } from '../ui/icons.tsx';
 import { type Comment, commentMessage, mapComments, projectMessage, quoteParts, shortLines } from './comments.ts';
 import type { CommentHover, Editor, Rect, RestedSelection } from './editor.ts';
 

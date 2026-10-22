@@ -5,7 +5,7 @@
 import van from 'vanjs-core';
 import { uploadFile } from '../daemon/client.ts';
 import { shellQuote } from '../ui/drop-paths.ts';
-import { icons } from '../ui/icons.ts';
+import { icons } from '../ui/icons.tsx';
 import type { ExtraKey } from './extra-keys.ts';
 import { onScreen, type Session } from './store.ts';
 import { ctrlHeld, typeKey } from './terminal.ts';

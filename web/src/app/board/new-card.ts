@@ -23,7 +23,7 @@ import { setName } from '../sessions/tabs.ts';
 import { setTags, tagBadge } from '../sessions/tags.ts';
 import { current, saveSetting } from '../settings/settings.ts';
 import { isMac } from '../ui/dom.ts';
-import { glyph, icons, providerIcon } from '../ui/icons.ts';
+import { glyph, icons, providerIcon } from '../ui/icons.tsx';
 import { keyed } from '../ui/keyed.ts';
 import { type FolderPicker, initFolderPicker } from './folder-picker.ts';
 import { STATUS_NAMES } from './glyph.ts';

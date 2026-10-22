@@ -2,7 +2,7 @@
 import van from 'vanjs-core';
 import { api } from '../daemon/client.ts';
 import { go } from '../nav/router.ts';
-import { icons } from '../ui/icons.ts';
+import { icons } from '../ui/icons.tsx';
 import { active, closeSession, onScreen, type Session, type SessionInfo } from './store.ts';
 import { openSession } from './terminal.ts';
 

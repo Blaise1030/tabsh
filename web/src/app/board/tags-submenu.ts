@@ -10,7 +10,7 @@ import { menuStep } from '../explorer/listing.ts';
 import { addTag, tagColor, toggleTag } from '../sessions/labels.ts';
 import type { Session } from '../sessions/store.ts';
 import { setTags, usedTags } from '../sessions/tags.ts';
-import { icons } from '../ui/icons.ts';
+import { icons } from '../ui/icons.tsx';
 
 const { div, i, input, label, span } = van.tags;
 

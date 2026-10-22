@@ -7,7 +7,7 @@
 import van, { type State } from 'vanjs-core';
 import { go, here } from '../nav/router.ts';
 import { isMac } from '../ui/dom.ts';
-import { icons } from '../ui/icons.ts';
+import { icons } from '../ui/icons.tsx';
 import { keyed } from '../ui/keyed.ts';
 import {
   displayPath,

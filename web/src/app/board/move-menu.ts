@@ -11,7 +11,7 @@
 // view.
 import van from 'vanjs-core';
 import { closeSession, type Session } from '../sessions/store.ts';
-import { glyph, icons } from '../ui/icons.ts';
+import { glyph, icons } from '../ui/icons.tsx';
 import { STATUS_NAMES } from './glyph.ts';
 import { COLUMNS, type Status } from './model.ts';
 import { setStatus } from './status.ts';

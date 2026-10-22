@@ -24,7 +24,7 @@ import { previewChime } from '../sound/chime.ts';
 import { previewSound } from '../sound/packs.ts';
 import { aboutRows, loadAbout } from '../ui/about.ts';
 import { isMac } from '../ui/dom.ts';
-import { icons } from '../ui/icons.ts';
+import { icons } from '../ui/icons.tsx';
 import { keyed } from '../ui/keyed.ts';
 import { type Performance, performanceRows } from '../ui/performance.ts';
 import { showWelcome } from '../welcome/view.ts';

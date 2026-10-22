@@ -5,7 +5,7 @@
 import van from 'vanjs-core';
 import { STATUS_NAMES } from '../board/glyph.ts';
 import type { Card } from '../board/model.ts';
-import { glyph, icons } from '../ui/icons.ts';
+import { glyph, icons } from '../ui/icons.tsx';
 import { tagBar } from './labels.ts';
 import { active, closeSession, pick, type Session } from './store.ts';
 import { openTagMenu } from './tags.ts';
