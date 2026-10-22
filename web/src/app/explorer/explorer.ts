@@ -5,10 +5,11 @@
 // setting. The tree's library loads on first use. The sidebar's chrome
 // (sidebar.tsx) follows the states below.
 import { createSignal } from 'solid-js';
+import { deliverAgentText, focusAgentSurface } from '../chat/deliver.ts';
 import { daemonFetch } from '../daemon/client.ts';
 import { openInPane } from '../files/open.tsx';
 import { go, here, onPlace } from '../nav/router.ts';
-import { newTabAt, onActivate, onScreen, store } from '../sessions/store.ts';
+import { isChatCard, newTabAt, onActivate, onScreen, store } from '../sessions/store.ts';
 import { matchesKey } from '../settings/keys.ts';
 import { EXPLORER_WIDTH } from '../settings/schema.ts';
 import { applySettings, current, keyHint, onApply, saveSetting } from '../settings/settings.ts';
@@ -124,7 +125,8 @@ export function initExplorer(): void {
     setOpen(to.explorer);
     if (to.explorer && !wasOpen) void refresh();
     watch();
-    if (heldFocus) onScreen()?.term.focus();
+    const shownTerm = onScreen();
+    if (heldFocus && shownTerm) focusAgentSurface(isChatCard(shownTerm), shownTerm.id, shownTerm.term);
     if (to.explorer !== current.saved.explorerOpen) saveSetting('explorerOpen', to.explorer);
     return undefined;
   });
@@ -254,7 +256,7 @@ export function drawTree(host: HTMLElement, tree: Draw): void {
 }
 
 // A pick from a row's menu. Paste never presses Enter (the front program may
-// not be a shell); it leaves focus in the terminal so typing carries on.
+// not be a shell). A UI card takes the text in its composer.
 function act(action: RowAction, path: string): void {
   const t = store.active;
   if (!t || t.closed || !listing) return;
@@ -262,8 +264,9 @@ function act(action: RowAction, path: string): void {
     void newTabAt(folderOf(listing.root, path));
     return;
   }
-  t.term.paste(action === 'cd' ? cdCommand(listing.root, path) : pastedPath(listing.root, path));
-  t.term.focus();
+  const text = action === 'cd' ? cdCommand(listing.root, path) : pastedPath(listing.root, path);
+  deliverAgentText(isChatCard(t), t.id, text, t.term);
+  if (isChatCard(t) && onScreen() !== t) go({ term: null });
 }
 
 // A message in place of the tree (the tree keeps its place, hidden).

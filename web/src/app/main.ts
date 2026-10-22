@@ -7,6 +7,7 @@ import { initBoardEvents } from './board/events.ts';
 import { initMoveMenu } from './board/move-menu.tsx';
 import { initNotify } from './board/notify.ts';
 import { initBoard, leaveTermsOnPhone } from './board/view.tsx';
+import { deliverAgentText, focusAgentSurface } from './chat/deliver.ts';
 import { daemonFetch, waitForDaemon } from './daemon/client.ts';
 import { LOCAL_APP, MIXED_BLOCKED } from './daemon/config.ts';
 import { keepsTokenInAddress } from './daemon/parse.ts';
@@ -14,7 +15,7 @@ import { adoptToken } from './daemon/token.ts';
 import { initExplorer } from './explorer/explorer.ts';
 import { initFilePane, loadedPane, restoreFiles } from './files/open.tsx';
 import { rememberedFiles } from './files/remember.ts';
-import { startRouter } from './nav/router.ts';
+import { go, startRouter } from './nav/router.ts';
 import { initPalette } from './palette/palette.tsx';
 import { initPwa } from './pwa/register.ts';
 import { initBell } from './sessions/bell.ts';
@@ -23,6 +24,7 @@ import {
   allTerms,
   initTabRouting,
   initTermRouting,
+  isChatCard,
   newSession,
   newTabAt,
   onScreen,
@@ -76,10 +78,19 @@ initFilePane(
     },
     layout: () => onScreen() && sendSize(onScreen()!),
     newTabAt,
-    focusTerminal: () => onScreen()?.term.focus(),
+    focusTerminal: () => {
+      const s = onScreen();
+      if (s) focusAgentSurface(isChatCard(s), s.id, s.term);
+    },
     paste(sessionId, text) {
       const s = store.sessions.find((x) => x.id === sessionId);
       if (!s || s.closed) return 'closed';
+      // A UI card has no shell. The comment goes in the composer.
+      if (isChatCard(s)) {
+        deliverAgentText(true, s.id, text, s.term);
+        if (onScreen() !== s) go({ term: null });
+        return 'pasted';
+      }
       // Without bracketed paste a shell runs each pasted line as a command,
       // and the text holds lines quoted from a file.
       if (!s.term.modes.bracketedPasteMode) return 'unsafe';

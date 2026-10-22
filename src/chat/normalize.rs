@@ -48,6 +48,9 @@ pub(crate) enum UiChunk {
     },
     /// Anything else, kept raw so no agent output is silently dropped.
     Unknown { session_id: String, update: Value },
+    /// A spawn, auth, or protocol failure. `message` is the daemon's
+    /// string; the panel runs it through its hint for install or login.
+    Error { message: String },
 }
 
 fn without_discriminator(update: &Value) -> Value {

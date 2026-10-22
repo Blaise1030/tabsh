@@ -5,6 +5,7 @@ import type { Terminal as XTerm } from '@xterm/xterm';
 import { type Accessor, batch, createSignal, type Setter } from 'solid-js';
 import type { Card } from '../board/model.ts';
 import { applyCard, cardOf } from '../board/status.ts';
+import { focusAgentSurface } from '../chat/deliver.ts';
 import { api } from '../daemon/client.ts';
 import { loadedPane } from '../files/open.tsx';
 import { go, here, onPlace } from '../nav/router.ts';
@@ -261,7 +262,7 @@ export function activate(s: Session | null): void {
 export function pick(s: Session): void {
   if (s === store.active) {
     if (onScreen() !== s) go({ term: null });
-    else s.term.focus();
+    else focusAgentSurface(isChatCard(s), s.id, s.term);
   } else go({ tab: s.id });
 }
 

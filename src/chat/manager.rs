@@ -107,6 +107,9 @@ struct Surfaces {
 struct Inner {
     surfaces: Mutex<Surfaces>,
     data_dir: PathBuf,
+    /// The latest start failure for a card that never became live, so an
+    /// SSE subscriber can show it. Cleared once a chat does start.
+    failures: Mutex<HashMap<String, String>>,
 }
 
 /// The outcome of a PTY surface claim (`ChatManager::try_claim_pty`).
@@ -144,6 +147,7 @@ impl ChatManager {
             inner: Arc::new(Inner {
                 surfaces: Mutex::new(Surfaces::default()),
                 data_dir,
+                failures: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -404,6 +408,7 @@ impl ChatManager {
         // Publish only once the live chat is in the map: waiters that
         // wake now find it and dispatch onto the one agent.
         let _ = starting.done.send(true);
+        self.clear_failure(session_id);
         Ok((live, true))
     }
 
@@ -417,11 +422,45 @@ impl ChatManager {
         let client = live.client.clone();
         let acp_session_id = live.acp_session_id.clone();
         let text = text.to_string();
+        let weak = Arc::downgrade(live);
         tokio::spawn(async move {
             if let Err(e) = client.prompt(&acp_session_id, &text).await {
                 eprintln!("chat: ACP prompt failed: {e}");
+                // The POST already returned 202. Auth and protocol
+                // failures reach the panel only as a chunk.
+                if let Some(live) = weak.upgrade() {
+                    live.record(UiChunk::Error {
+                        message: e.to_string(),
+                    });
+                }
             }
         });
+    }
+
+    /// Remembers a start that never became a live chat, for the SSE stream.
+    pub(crate) fn note_failure(&self, session_id: &str, message: &str) {
+        self.inner
+            .failures
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(session_id.to_string(), message.to_string());
+    }
+
+    pub(crate) fn failure(&self, session_id: &str) -> Option<String> {
+        self.inner
+            .failures
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(session_id)
+            .cloned()
+    }
+
+    fn clear_failure(&self, session_id: &str) {
+        self.inner
+            .failures
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(session_id);
     }
 
     pub(crate) async fn send_message(&self, session_id: &str, text: &str) -> ChatResult<()> {
@@ -535,7 +574,9 @@ async fn launch_ui_async(st: AppState, id: String) {
         return;
     }
     let Some(acp) = acp_command.filter(|c| !c.trim().is_empty()) else {
-        eprintln!("chat: UI card {id} has no ACP command stored");
+        let message = "no ACP command stored for this card";
+        eprintln!("chat: UI card {id} has {message}");
+        st.chats.note_failure(&id, message);
         return;
     };
     if st.chats.is_live(&id) {
@@ -544,6 +585,8 @@ async fn launch_ui_async(st: AppState, id: String) {
     // One active agent surface per card: never over a live agent PTY.
     if st.live.lock().unwrap().contains_key(&id) {
         eprintln!("chat: refusing to start over the live PTY of {id}");
+        st.chats
+            .note_failure(&id, "This card already has a terminal running.");
         return;
     }
     let cwd = cwd.map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
@@ -564,7 +607,10 @@ async fn launch_ui_async(st: AppState, id: String) {
                 eprintln!("chat: failed to clear pending prompt of {id}: {e}");
             }
         }
-        Err(e) => eprintln!("chat: failed to start UI card {id}: {e}"),
+        Err(e) => {
+            eprintln!("chat: failed to start UI card {id}: {e}");
+            st.chats.note_failure(&id, &e.to_string());
+        }
     }
 }
 

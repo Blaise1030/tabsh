@@ -4,7 +4,7 @@
 // reconnect appends the replay onto the transcript it already showed.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyStream, errorNotice, feedSse, postFailure } from './client.ts';
+import { applyStream, errorNotice, failureText, feedSse, postFailure } from './client.ts';
 
 test('feedSse reads a text_delta, skips a keep-alive, and holds a split frame', () => {
   const head = ': keep-alive\n\ndata: {"type":"text_delta","session_id":"s1","text":"h';
@@ -53,4 +53,12 @@ test('applyStream uses one connection replay as the transcript', () => {
 test('postFailure tells the user when the agent failed to start', () => {
   assert.match(postFailure(502), /TUI/);
   assert.match(postFailure(409), /terminal/i);
+});
+
+test('failureText keeps the daemon spawn string and the 409 copy', () => {
+  const raw = 'failed to spawn ACP agent `cursor-agent`: No such file or directory';
+  assert.equal(failureText(502, JSON.stringify({ message: raw })), raw);
+  assert.match(errorNotice(failureText(502, JSON.stringify({ message: raw }))).hint ?? '', /TUI/);
+  assert.match(failureText(409, JSON.stringify({ message: 'a PTY is live for session x' })), /terminal/i);
+  assert.match(failureText(502, ''), /TUI/);
 });

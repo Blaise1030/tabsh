@@ -65,13 +65,31 @@ export function errorNotice(message: string): { text: string; hint: string | nul
   return { text: message, hint: null };
 }
 
-// POST /chat/message has no body on failure. 502 is a spawn that never
-// reached the stream; 409 is the card's terminal already running.
+// A status with no body. 409 always uses this copy. 502 is the fallback
+// when the daemon sent no failure string.
 export function postFailure(status: number): string {
   if (status === 502) return 'The agent failed to start. Install it, or switch this card to TUI.';
   if (status === 409) return 'This card already has a terminal running.';
   if (status === 400) return 'That message could not be sent.';
   return `The chat request failed (${status}).`;
+}
+
+// The string the panel should show. A 502 body is the daemon's spawn or
+// auth error (`{"message":...}`), passed on for `errorNotice`. 409 keeps
+// its own copy no matter what the body says.
+export function failureText(status: number, body: string): string {
+  if (status === 409) return postFailure(409);
+  const trimmed = body.trim();
+  if (trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed) as { message?: unknown };
+      if (typeof parsed.message === 'string' && parsed.message.trim()) return parsed.message;
+    } catch {
+      // A non-JSON body is the message itself.
+    }
+  }
+  if (trimmed) return trimmed;
+  return postFailure(status);
 }
 
 export async function postMessage(sessionId: string, text: string): Promise<void> {
@@ -81,7 +99,7 @@ export async function postMessage(sessionId: string, text: string): Promise<void
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text }),
   });
-  if (!res.ok) throw new ApiError(postFailure(res.status), res.status);
+  if (!res.ok) throw new ApiError(failureText(res.status, await res.text()), res.status);
 }
 
 // Reads the stream until it ends or `signal` aborts. Each connection

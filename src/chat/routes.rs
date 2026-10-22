@@ -10,7 +10,7 @@ use axum::{
     Json, Router,
     extract::{Path, State},
     http::StatusCode,
-    response::{Sse, sse::Event},
+    response::{IntoResponse, Response, Sse, sse::Event},
     routing::{get, post},
 };
 use rusqlite::{OptionalExtension, params};
@@ -55,13 +55,19 @@ fn card_row(st: &AppState, id: &str) -> Option<CardRow> {
         .flatten()
 }
 
-fn chat_error(err: ChatError) -> StatusCode {
+fn chat_error(err: ChatError) -> Response {
     match err {
-        ChatError::Invalid(_) => StatusCode::BAD_REQUEST,
-        ChatError::NotLive | ChatError::Conflict(_) => StatusCode::CONFLICT,
+        ChatError::Invalid(_) => StatusCode::BAD_REQUEST.into_response(),
+        // 409 keeps its status and an empty body. The page's own copy
+        // ("This card already has a terminal running.") is the message.
+        ChatError::NotLive | ChatError::Conflict(_) => StatusCode::CONFLICT.into_response(),
         ChatError::Failed(e) => {
             eprintln!("chat error: {e}");
-            StatusCode::BAD_GATEWAY
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({"message": e})),
+            )
+                .into_response()
         }
     }
 }
@@ -92,6 +98,9 @@ struct StreamState {
     /// a chat started after this stream opened arrives gap-free and
     /// without duplicates (`subscribe` snapshots under the history lock).
     seen: usize,
+    /// A start failure already written on this connection. It is not a
+    /// history chunk, so it does not count toward `seen`.
+    told: Option<String>,
 }
 
 async fn stream(
@@ -108,12 +117,24 @@ async fn stream(
         replay: replay.into(),
         rx,
         seen: 0,
+        told: None,
     };
     let stream = futures_util::stream::unfold(state, |mut state| async {
         loop {
             if let Some(chunk) = state.replay.pop_front() {
                 state.seen += 1;
                 let data = serde_json::to_string(&chunk).unwrap_or_default();
+                return Some((Ok(Event::default().data(data)), state));
+            }
+            // A launch that never became a live chat has no broadcast.
+            // Hand the failure string over once; it is not part of `seen`,
+            // so the later replay of a successful start is not shifted.
+            if state.rx.is_none()
+                && let Some(message) = state.st.chats.failure(&state.id)
+                && state.told.as_deref() != Some(message.as_str())
+            {
+                state.told = Some(message.clone());
+                let data = serde_json::json!({"type": "error", "message": message}).to_string();
                 return Some((Ok(Event::default().data(data)), state));
             }
             match &mut state.rx {
@@ -151,12 +172,12 @@ async fn message(
     State(st): State<AppState>,
     Path(id): Path<String>,
     Json(body): Json<Message>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, Response> {
     let Some(card) = card_row(&st, &id) else {
-        return Err(StatusCode::NOT_FOUND);
+        return Err(StatusCode::NOT_FOUND.into_response());
     };
     if body.text.trim().is_empty() {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(StatusCode::BAD_REQUEST.into_response());
     }
     if st.chats.is_live(&id) {
         st.chats
@@ -167,13 +188,13 @@ async fn message(
     }
     // One active agent surface per card: a live agent PTY refuses chat.
     if st.live.lock().unwrap().contains_key(&id) {
-        return Err(StatusCode::CONFLICT);
+        return Err(StatusCode::CONFLICT.into_response());
     }
     if card.mode != "ui" {
-        return Err(StatusCode::CONFLICT);
+        return Err(StatusCode::CONFLICT.into_response());
     }
     let Some(acp) = card.acp_command.filter(|c| !c.trim().is_empty()) else {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(StatusCode::BAD_REQUEST.into_response());
     };
     let cwd = card
         .cwd
@@ -190,12 +211,9 @@ async fn message(
     Ok(StatusCode::ACCEPTED)
 }
 
-async fn stop(
-    State(st): State<AppState>,
-    Path(id): Path<String>,
-) -> Result<StatusCode, StatusCode> {
+async fn stop(State(st): State<AppState>, Path(id): Path<String>) -> Result<StatusCode, Response> {
     if card_row(&st, &id).is_none() {
-        return Err(StatusCode::NOT_FOUND);
+        return Err(StatusCode::NOT_FOUND.into_response());
     }
     if st.chats.is_live(&id) {
         st.chats.cancel(&id).await.map_err(chat_error)?;
@@ -576,5 +594,90 @@ mod tests {
             "PTY launch must not open a shell under a live chat"
         );
         st.chats.forget(&id);
+    }
+
+    #[tokio::test]
+    async fn chat_message_spawn_failure_body_is_the_error() {
+        let st = test_state();
+        let (code, body) = req(
+            &st,
+            Method::POST,
+            "/api/sessions",
+            serde_json::json!({
+                "cwd": "/tmp",
+                "mode": "ui",
+                "acp_command": "/no/such/tabsh-acp-agent",
+            }),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "create: {body}");
+        let id = body["id"].as_str().unwrap();
+        let (code, body) = req(
+            &st,
+            Method::POST,
+            &format!("/api/sessions/{id}/chat/message"),
+            serde_json::json!({"text": "hi"}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::BAD_GATEWAY, "{body}");
+        let message = body["message"].as_str().unwrap_or("");
+        assert!(
+            message.contains("spawn") && message.contains("tabsh-acp-agent"),
+            "502 body must be the spawn error, got {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn launch_ui_failure_reaches_the_chat_stream() {
+        use futures_util::StreamExt;
+        let st = test_state();
+        let (code, body) = req(
+            &st,
+            Method::POST,
+            "/api/sessions",
+            serde_json::json!({
+                "cwd": "/tmp",
+                "mode": "ui",
+                "prompt": "hi",
+                "acp_command": "/no/such/tabsh-acp-agent",
+            }),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "create: {body}");
+        let id = body["id"].as_str().unwrap().to_string();
+        move_in_progress(&st, &id).await;
+
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri(format!("/api/sessions/{id}/chat/stream"))
+            .header("Host", "127.0.0.1:7681")
+            .header("Authorization", "Bearer [REDACTED]")
+            .extension(crate::test_support::loopback_peer())
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let res = crate::state::router(st.clone())
+            .oneshot(request)
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let mut stream = Box::pin(res.into_body().into_data_stream());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        let mut received = String::new();
+        while !received.contains("tabsh-acp-agent") {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "launch failure never reached the stream; got: {received}"
+            );
+            let next = tokio::time::timeout(std::time::Duration::from_secs(1), stream.next())
+                .await
+                .expect("SSE stalled")
+                .expect("SSE ended")
+                .unwrap();
+            received.push_str(&String::from_utf8_lossy(&next));
+        }
+        assert!(
+            received.contains("\"type\":\"error\"") || received.contains("\"type\": \"error\""),
+            "stream must carry an error chunk: {received}"
+        );
     }
 }

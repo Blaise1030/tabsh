@@ -1,12 +1,23 @@
 // The footer of a UI card: posts the text, and puts it back if the daemon
 // refuses so a spawn failure does not eat the message.
-import { createSignal, type JSX } from 'solid-js';
+import { createEffect, createSignal, type JSX, onCleanup } from 'solid-js';
 import { ApiError } from '../daemon/client.ts';
 import { postMessage } from './client.ts';
+import { insertIntoComposer, registerComposer } from './deliver.ts';
 
 export function Composer(props: { sessionId: string; onError: (message: string | null) => void }): JSX.Element {
   const [text, setText] = createSignal('');
   let sending = false;
+  let field: HTMLTextAreaElement | undefined;
+  createEffect(() => {
+    const id = props.sessionId;
+    onCleanup(
+      registerComposer(id, {
+        insert: (incoming) => setText((cur) => insertIntoComposer(cur, incoming)),
+        focus: () => field?.focus(),
+      }),
+    );
+  });
 
   const send = async () => {
     const value = text().trim();
@@ -33,6 +44,7 @@ export function Composer(props: { sessionId: string; onError: (message: string |
       }}
     >
       <textarea
+        ref={field}
         rows={2}
         placeholder="Message"
         aria-label="Message"
