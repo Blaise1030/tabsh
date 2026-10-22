@@ -17,7 +17,10 @@
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -74,6 +77,9 @@ struct LiveChat {
     data_dir: PathBuf,
     card_id: String,
     board: Option<BoardPipe>,
+    /// Shared with the `Starting` entry so a stop during handshake is
+    /// still visible once the client exists.
+    cancel: Arc<AtomicBool>,
 }
 
 impl LiveChat {
@@ -96,6 +102,7 @@ impl LiveChat {
 /// park on `done` until the live chat (or the failure) is published.
 struct Starting {
     done: watch::Sender<bool>,
+    cancel: Arc<AtomicBool>,
 }
 
 enum Entry {
@@ -336,6 +343,7 @@ impl ChatManager {
                     None => {
                         let s = Arc::new(Starting {
                             done: watch::channel(false).0,
+                            cancel: Arc::new(AtomicBool::new(false)),
                         });
                         surfaces
                             .chats
@@ -413,6 +421,7 @@ impl ChatManager {
             data_dir: self.inner.data_dir.clone(),
             card_id: session_id.to_string(),
             board,
+            cancel: starting.cancel.clone(),
         });
         {
             let mut surfaces = self
@@ -423,6 +432,12 @@ impl ChatManager {
             surfaces
                 .chats
                 .insert(session_id.to_string(), Entry::Live(live.clone()));
+        }
+        // Stop may have landed while this was `Starting`, or in the gap
+        // before the insert. Either way the flag is set and the prompt
+        // must not be written.
+        if live.cancel.load(Ordering::SeqCst) {
+            live.client.mark_cancelled();
         }
 
         // Drain agent events concurrently so chunks reach the transcript
@@ -501,16 +516,42 @@ impl ChatManager {
 
     pub(crate) async fn send_message(&self, session_id: &str, text: &str) -> ChatResult<()> {
         let live = self.live(session_id).ok_or(ChatError::NotLive)?;
+        // Stop latches the card until the user sends again.
+        live.cancel.store(false, Ordering::SeqCst);
+        live.client.clear_cancelled();
         self.dispatch(&live, text);
         Ok(())
     }
 
+    /// Latches cancel for a live chat or one still handshaking (`Starting`).
+    /// A live agent's in-flight prompts all end `cancelled`. With no chat
+    /// yet this is a no-op.
     pub(crate) async fn cancel(&self, session_id: &str) -> ChatResult<()> {
-        let live = self.live(session_id).ok_or(ChatError::NotLive)?;
-        live.client
-            .cancel(&live.acp_session_id)
-            .await
-            .map_err(|e| ChatError::Failed(e.to_string()))
+        let client = {
+            let surfaces = self
+                .inner
+                .surfaces
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            match surfaces.chats.get(session_id) {
+                Some(Entry::Live(live)) => {
+                    live.cancel.store(true, Ordering::SeqCst);
+                    Some((live.client.clone(), live.acp_session_id.clone()))
+                }
+                Some(Entry::Starting(starting)) => {
+                    starting.cancel.store(true, Ordering::SeqCst);
+                    None
+                }
+                None => None,
+            }
+        };
+        if let Some((client, acp_session_id)) = client {
+            client
+                .cancel(&acp_session_id)
+                .await
+                .map_err(|e| ChatError::Failed(e.to_string()))?;
+        }
+        Ok(())
     }
 
     /// Answers a `session/request_permission` the agent is blocked on.

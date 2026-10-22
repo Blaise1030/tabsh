@@ -215,9 +215,9 @@ async fn stop(State(st): State<AppState>, Path(id): Path<String>) -> Result<Stat
     if card_row(&st, &id).is_none() {
         return Err(StatusCode::NOT_FOUND.into_response());
     }
-    if st.chats.is_live(&id) {
-        st.chats.cancel(&id).await.map_err(chat_error)?;
-    }
+    // Including a chat that is still handshaking: the latch is what keeps
+    // its first prompt from being sent once the agent is up.
+    st.chats.cancel(&id).await.map_err(chat_error)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -888,6 +888,130 @@ mod tests {
         .await;
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert_eq!(card_status(&st, &id), "completed");
+        st.chats.forget(&id);
+    }
+
+    /// allow_always listed before allow_once must not become a persistent allow.
+    #[tokio::test]
+    async fn approve_prefers_allow_once_over_allow_always() {
+        let st = test_state();
+        let id = create_ui_card(&st, "ordered permission").await;
+        move_in_progress(&st, &id).await;
+        wait_messages(&st, &id, |m| {
+            m.iter()
+                .any(|c| c["type"] == "permission" && c["request_id"] == "9000")
+        })
+        .await;
+        let (code, _) = req(
+            &st,
+            Method::POST,
+            &format!("/api/sessions/{id}/chat/approve"),
+            serde_json::json!({"requestId": "9000", "allow": true}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::NO_CONTENT);
+        let msgs = wait_messages(&st, &id, |m| chunk_text(m).contains("permission outcome")).await;
+        assert!(
+            chunk_text(&msgs).contains("permission outcome: selected:once"),
+            "messages: {msgs:?}"
+        );
+        st.chats.forget(&id);
+    }
+
+    #[tokio::test]
+    async fn approve_prefers_reject_once_over_reject_always() {
+        let st = test_state();
+        let id = create_ui_card(&st, "ordered permission").await;
+        move_in_progress(&st, &id).await;
+        wait_messages(&st, &id, |m| {
+            m.iter()
+                .any(|c| c["type"] == "permission" && c["request_id"] == "9000")
+        })
+        .await;
+        let (code, _) = req(
+            &st,
+            Method::POST,
+            &format!("/api/sessions/{id}/chat/approve"),
+            serde_json::json!({"requestId": "9000", "allow": false}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::NO_CONTENT);
+        let msgs = wait_messages(&st, &id, |m| chunk_text(m).contains("permission outcome")).await;
+        assert!(
+            chunk_text(&msgs).contains("permission outcome: selected:no-once"),
+            "messages: {msgs:?}"
+        );
+        st.chats.forget(&id);
+    }
+
+    /// Stop during handshake latches the card. The pending prompt is not sent,
+    /// and a later message still is.
+    #[tokio::test]
+    async fn stop_during_start_cancels_the_prompt_before_it_is_sent() {
+        let st = test_state();
+        let unique = crate::auth::random_hex(8).unwrap_or_else(|_| "hold".into());
+        let gate = std::env::temp_dir().join(format!("tabsh-gate-{unique}"));
+        let (cmd, args) = crate::chat::acp::fake_agent_hold(&gate);
+        let (code, body) = req(
+            &st,
+            Method::POST,
+            "/api/sessions",
+            serde_json::json!({
+                "cwd": "/tmp",
+                "mode": "ui",
+                "prompt": "please run",
+                "acp_command": format!("{cmd} {}", args.join(" ")),
+            }),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "create: {body}");
+        let id = body["id"].as_str().unwrap().to_string();
+        move_in_progress(&st, &id).await;
+
+        let ready = gate.with_extension("ready");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !ready.exists() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "fake agent never reached the handshake hold"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let (code, _) = req(
+            &st,
+            Method::POST,
+            &format!("/api/sessions/{id}/chat/stop"),
+            serde_json::Value::Null,
+        )
+        .await;
+        assert_eq!(code, StatusCode::NO_CONTENT);
+        std::fs::write(gate.with_extension("go"), b"1").unwrap();
+
+        let msgs = wait_messages(&st, &id, |m| {
+            stop_reasons(m)
+                .iter()
+                .any(|r| r == "cancelled" || r == "end_turn")
+        })
+        .await;
+        assert_eq!(
+            stop_reasons(&msgs),
+            vec!["cancelled".to_string()],
+            "messages: {msgs:?}"
+        );
+        assert!(
+            !chunk_text(&msgs).contains("fake reply"),
+            "prompt was sent after stop: {msgs:?}"
+        );
+
+        let (code, _) = req(
+            &st,
+            Method::POST,
+            &format!("/api/sessions/{id}/chat/message"),
+            serde_json::json!({"text": "after stop"}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::ACCEPTED);
+        wait_for_text(&st, &id, "fake reply: after stop").await;
         st.chats.forget(&id);
     }
 }

@@ -8,7 +8,7 @@
 // Consumers (manager/routes) land in Tasks 4/6; tests exercise this now.
 #![allow(dead_code)]
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::Path,
     sync::{
         Arc, Mutex,
@@ -91,8 +91,11 @@ pub(crate) enum AcpEvent {
 
 struct RpcWait {
     pending: HashMap<u64, oneshot::Sender<std::result::Result<Value, String>>>,
-    /// The `session/prompt` request still in flight, if any.
-    prompt: Option<u64>,
+    /// Every `session/prompt` still waiting. Cancel completes all of them.
+    prompts: HashSet<u64>,
+    /// Set by stop. A later `prompt` ends cancelled and does not write
+    /// `session/prompt` until a new user message clears it.
+    cancelled: bool,
 }
 
 struct OpenPermission {
@@ -159,18 +162,15 @@ fn parse_update(session_id: &str, update: &Value) -> AcpEvent {
 }
 
 async fn write_line(stdin: &Arc<AsyncMutex<ChildStdin>>, msg: &Value) -> Result<()> {
-    let mut line = serde_json::to_string(msg)?;
-    line.push('\n');
     // One writer at a time (client or the reader task answering a
     // permission request), so lines never interleave.
     let mut guard = stdin.lock().await;
-    guard.write_all(line.as_bytes()).await?;
-    guard.flush().await?;
-    Ok(())
+    write_locked(&mut guard, msg).await
 }
 
-/// Allow selects `allow_once` / `allow_always`; deny selects a reject
-/// option. No matching option cancels the request.
+/// Prefer `allow_once` over `allow_always`, and `reject_once` over
+/// `reject_always`, whatever order the agent listed them. No matching
+/// option cancels the request.
 fn permission_outcome(allow: bool, options: &Value) -> Value {
     let kinds: &[&str] = if allow {
         &["allow_once", "allow_always"]
@@ -178,18 +178,24 @@ fn permission_outcome(allow: bool, options: &Value) -> Value {
         &["reject_once", "reject_always"]
     };
     let option_id = options.as_array().and_then(|opts| {
-        opts.iter()
-            .find(|o| {
-                o.get("kind")
-                    .and_then(Value::as_str)
-                    .is_some_and(|kind| kinds.contains(&kind))
-            })
-            .and_then(|o| o.get("optionId").cloned())
+        kinds.iter().find_map(|kind| {
+            opts.iter()
+                .find(|o| o.get("kind").and_then(Value::as_str) == Some(*kind))
+                .and_then(|o| o.get("optionId").cloned())
+        })
     });
     match option_id {
         Some(option_id) => json!({"outcome": "selected", "optionId": option_id}),
         None => json!({"outcome": "cancelled"}),
     }
+}
+
+async fn write_locked(stdin: &mut ChildStdin, msg: &Value) -> Result<()> {
+    let mut line = serde_json::to_string(msg)?;
+    line.push('\n');
+    stdin.write_all(line.as_bytes()).await?;
+    stdin.flush().await?;
+    Ok(())
 }
 
 impl AcpClient {
@@ -209,7 +215,8 @@ impl AcpClient {
         let stdout = child.stdout.take().ok_or("ACP agent has no stdout")?;
         let rpc = Arc::new(Mutex::new(RpcWait {
             pending: HashMap::new(),
-            prompt: None,
+            prompts: HashSet::new(),
+            cancelled: false,
         }));
         let permissions: Arc<Mutex<HashMap<String, OpenPermission>>> =
             Arc::new(Mutex::new(HashMap::new()));
@@ -318,54 +325,31 @@ impl AcpClient {
     }
 
     async fn request(&self, method: &str, params: Value) -> Result<Value> {
-        self.call(method, params, false).await
-    }
-
-    /// `prompt` marks the id so `cancel` can finish the turn without waiting
-    /// for an agent that never answers `session/cancel`.
-    async fn call(&self, method: &str, params: Value, prompt: bool) -> Result<Value> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
-        {
-            let mut rpc = self.rpc.lock().unwrap_or_else(|e| e.into_inner());
-            rpc.pending.insert(id, tx);
-            if prompt {
-                rpc.prompt = Some(id);
-            }
-        }
+        self.rpc
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .pending
+            .insert(id, tx);
         if let Err(e) = write_line(
             &self.stdin,
             &json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}),
         )
         .await
         {
-            let mut rpc = self.rpc.lock().unwrap_or_else(|e| e.into_inner());
-            rpc.pending.remove(&id);
-            if rpc.prompt == Some(id) {
-                rpc.prompt = None;
-            }
+            self.rpc
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .pending
+                .remove(&id);
             return Err(e);
         }
-        let result = match rx.await {
+        match rx.await {
             Ok(Ok(value)) => Ok(value),
             Ok(Err(e)) => Err(e.into()),
             Err(_) => Err("ACP agent exited".into()),
-        };
-        if prompt {
-            let mut rpc = self.rpc.lock().unwrap_or_else(|e| e.into_inner());
-            if rpc.prompt == Some(id) {
-                rpc.prompt = None;
-            }
         }
-        result
-    }
-
-    async fn notify(&self, method: &str, params: Value) -> Result<()> {
-        write_line(
-            &self.stdin,
-            &json!({"jsonrpc": "2.0", "method": method, "params": params}),
-        )
-        .await
     }
 
     pub(crate) async fn initialize(&self) -> Result<InitializeResult> {
@@ -396,27 +380,73 @@ impl AcpClient {
             .ok_or_else(|| "ACP session/new gave no sessionId".into())
     }
 
+    fn emit_prompt_end(&self, session_id: &str, stop_reason: &str) {
+        let _ = self.events.send(AcpEvent::PromptEnded {
+            session_id: session_id.to_string(),
+            stop_reason: stop_reason.to_string(),
+        });
+    }
+
+    /// Stop already won: later prompts end cancelled and are not written.
+    pub(crate) fn mark_cancelled(&self) {
+        self.rpc.lock().unwrap_or_else(|e| e.into_inner()).cancelled = true;
+    }
+
+    /// A new user message may run. Does not touch prompts already in flight.
+    pub(crate) fn clear_cancelled(&self) {
+        self.rpc.lock().unwrap_or_else(|e| e.into_inner()).cancelled = false;
+    }
+
     /// Sends the prompt and waits for the turn to finish; `session/update`
     /// events meanwhile are buffered for `event_stream`, and a synthesised
     /// `PromptEnded` (from the response `stopReason`) closes the turn.
+    /// If stop already latched this client, the turn ends `cancelled` and
+    /// `session/prompt` is not written.
     pub(crate) async fn prompt(&self, session_id: &str, text: &str) -> Result<()> {
-        let result = self
-            .call(
-                "session/prompt",
-                json!({"sessionId": session_id,
-                       "prompt": [{"type": "text", "text": text}]}),
-                true,
-            )
-            .await?;
+        // stdin then rpc, the same order as `cancel`, so the two cannot deadlock.
+        let mut stdin = self.stdin.lock().await;
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let (tx, rx) = oneshot::channel();
+        {
+            let mut rpc = self.rpc.lock().unwrap_or_else(|e| e.into_inner());
+            if rpc.cancelled {
+                drop(rpc);
+                drop(stdin);
+                self.emit_prompt_end(session_id, "cancelled");
+                return Ok(());
+            }
+            rpc.pending.insert(id, tx);
+            rpc.prompts.insert(id);
+        }
+        let wrote = write_locked(
+            &mut stdin,
+            &json!({"jsonrpc": "2.0", "id": id, "method": "session/prompt",
+                    "params": {"sessionId": session_id,
+                               "prompt": [{"type": "text", "text": text}]}}),
+        )
+        .await;
+        drop(stdin);
+        if let Err(e) = wrote {
+            let mut rpc = self.rpc.lock().unwrap_or_else(|e| e.into_inner());
+            rpc.pending.remove(&id);
+            rpc.prompts.remove(&id);
+            return Err(e);
+        }
+        let result = match rx.await {
+            Ok(Ok(value)) => value,
+            Ok(Err(e)) => return Err(e.into()),
+            Err(_) => return Err("ACP agent exited".into()),
+        };
+        {
+            let mut rpc = self.rpc.lock().unwrap_or_else(|e| e.into_inner());
+            rpc.prompts.remove(&id);
+        }
         let stop_reason = result
             .get("stopReason")
             .and_then(Value::as_str)
             .unwrap_or("end_turn")
             .to_string();
-        let _ = self.events.send(AcpEvent::PromptEnded {
-            session_id: session_id.to_string(),
-            stop_reason,
-        });
+        self.emit_prompt_end(session_id, &stop_reason);
         Ok(())
     }
 
@@ -451,25 +481,32 @@ impl AcpClient {
             .drain()
             .map(|(_, permission)| permission)
             .collect();
+        // stdin then rpc, the same order as `prompt`.
+        let mut stdin = self.stdin.lock().await;
         for permission in pending {
-            write_line(
-                &self.stdin,
+            write_locked(
+                &mut stdin,
                 &json!({"jsonrpc": "2.0", "id": permission.rpc_id,
                         "result": {"outcome": {"outcome": "cancelled"}}}),
             )
             .await?;
         }
-        self.notify("session/cancel", json!({"sessionId": session_id}))
-            .await?;
-        // Finish the turn locally so the composer unlocks even when the
-        // agent never answers the prompt.
-        let tx = {
+        {
             let mut rpc = self.rpc.lock().unwrap_or_else(|e| e.into_inner());
-            rpc.prompt.take().and_then(|id| rpc.pending.remove(&id))
-        };
-        if let Some(tx) = tx {
-            let _ = tx.send(Ok(json!({"stopReason": "cancelled"})));
+            rpc.cancelled = true;
+            let ids: Vec<u64> = rpc.prompts.drain().collect();
+            for id in ids {
+                if let Some(tx) = rpc.pending.remove(&id) {
+                    let _ = tx.send(Ok(json!({"stopReason": "cancelled"})));
+                }
+            }
         }
+        write_locked(
+            &mut stdin,
+            &json!({"jsonrpc": "2.0", "method": "session/cancel",
+                    "params": {"sessionId": session_id}}),
+        )
+        .await?;
         Ok(())
     }
 
@@ -481,6 +518,17 @@ impl AcpClient {
             .unwrap_or_else(|e| e.into_inner())
             .take()
             .expect("event_stream is taken only once")
+    }
+
+    /// How many `session/prompt` calls are still waiting. Tests use this to
+    /// see that cancel covers every one, not only the latest.
+    #[cfg(test)]
+    pub(crate) fn in_flight_prompt_count(&self) -> usize {
+        self.rpc
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .prompts
+            .len()
     }
 
     pub(crate) async fn shutdown(mut self) -> Result<()> {
@@ -496,7 +544,15 @@ impl AcpClient {
 /// target ships in the daemon. Shared by the chat manager/route tests.
 #[cfg(test)]
 pub(crate) const FAKE_AGENT_PY: &str = r#"
-import json, sys, time
+import json, os, sys, time
+
+# Tests pass hold:<path> to pause before initialize so a stop can land
+# while the card is still starting.
+if len(sys.argv) > 1 and sys.argv[1].startswith("hold:"):
+    hold = sys.argv[1][5:]
+    open(hold + ".ready", "a").close()
+    while not os.path.exists(hold + ".go"):
+        time.sleep(0.02)
 
 def send(obj):
     sys.stdout.write(json.dumps(obj) + "\n")
@@ -559,7 +615,12 @@ while True:
                 "stopReason": "cancelled" if cancelled else "end_turn"}})
             continue
         if "permission" in text:
-            if "no_allow" in text:
+            if "ordered" in text:
+                opts = [{"optionId": "always", "name": "Always", "kind": "allow_always"},
+                        {"optionId": "once", "name": "Once", "kind": "allow_once"},
+                        {"optionId": "no-always", "name": "Never", "kind": "reject_always"},
+                        {"optionId": "no-once", "name": "No", "kind": "reject_once"}]
+            elif "no_allow" in text:
                 opts = [{"optionId": "deny", "name": "Deny", "kind": "reject_once"}]
             else:
                 opts = [{"optionId": "allow", "name": "Allow", "kind": "allow_once"},
@@ -589,6 +650,13 @@ while True:
         send({"jsonrpc": "2.0", "id": mid,
               "error": {"code": -32601, "message": "unknown method"}})
 "#;
+
+#[cfg(test)]
+pub(crate) fn fake_agent_hold(gate: &std::path::Path) -> (String, Vec<String>) {
+    let (cmd, mut args) = fake_agent();
+    args.push(format!("hold:{}", gate.display()));
+    (cmd, args)
+}
 
 #[cfg(test)]
 pub(crate) fn fake_agent() -> (String, Vec<String>) {
@@ -787,5 +855,109 @@ mod tests {
         let session_id = client.session_new(&cwd).await.unwrap();
         client.cancel(&session_id).await.unwrap();
         client.shutdown().await.unwrap();
+    }
+
+    /// Cancel finishes every prompt still waiting, not only the id stored last.
+    #[tokio::test]
+    async fn cancel_completes_every_in_flight_prompt() {
+        let (cmd, args) = fake_agent();
+        let cwd = std::env::temp_dir();
+        let client = Arc::new(AcpClient::spawn(&cmd, &args, &cwd).await.unwrap());
+        client.initialize().await.unwrap();
+        let session_id = client.session_new(&cwd).await.unwrap();
+        let mut rx = client.event_stream();
+
+        let first = client.clone();
+        let first_sid = session_id.clone();
+        let first_task = tokio::spawn(async move { first.prompt(&first_sid, "stuck one").await });
+        let second = client.clone();
+        let second_sid = session_id.clone();
+        let second_task =
+            tokio::spawn(async move { second.prompt(&second_sid, "stuck two").await });
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while client.in_flight_prompt_count() < 2 {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "second prompt never registered (in flight: {})",
+                client.in_flight_prompt_count()
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        client.cancel(&session_id).await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), first_task)
+            .await
+            .expect("first prompt still waiting after cancel")
+            .unwrap()
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), second_task)
+            .await
+            .expect("second prompt still waiting after cancel")
+            .unwrap()
+            .unwrap();
+
+        let mut cancelled = 0;
+        while let Ok(ev) =
+            tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv()).await
+        {
+            if let Some(AcpEvent::PromptEnded { stop_reason, .. }) = ev
+                && stop_reason == "cancelled"
+            {
+                cancelled += 1;
+            }
+        }
+        assert_eq!(cancelled, 2, "both prompts must end cancelled");
+
+        Arc::try_unwrap(client)
+            .unwrap_or_else(|_| panic!("prompt tasks still hold the client"))
+            .shutdown()
+            .await
+            .unwrap();
+    }
+
+    /// A stop that landed before session/prompt must not send that prompt.
+    #[tokio::test]
+    async fn prompt_after_cancel_emits_cancelled_without_session_prompt() {
+        let (cmd, args) = fake_agent();
+        let cwd = std::env::temp_dir();
+        let client = Arc::new(AcpClient::spawn(&cmd, &args, &cwd).await.unwrap());
+        client.initialize().await.unwrap();
+        let session_id = client.session_new(&cwd).await.unwrap();
+        let mut rx = client.event_stream();
+        client.cancel(&session_id).await.unwrap();
+
+        let worker = client.clone();
+        let sid = session_id.clone();
+        let prompt = tokio::spawn(async move { worker.prompt(&sid, "stuck after stop").await });
+        tokio::time::timeout(std::time::Duration::from_secs(2), prompt)
+            .await
+            .expect("prompt waited on the agent after cancel")
+            .unwrap()
+            .unwrap();
+
+        let mut saw_stuck = false;
+        let mut saw_cancelled = false;
+        while let Ok(ev) =
+            tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv()).await
+        {
+            match ev {
+                Some(AcpEvent::AgentMessageChunk { text, .. }) if text.contains("stuck") => {
+                    saw_stuck = true;
+                }
+                Some(AcpEvent::PromptEnded { stop_reason, .. }) if stop_reason == "cancelled" => {
+                    saw_cancelled = true;
+                }
+                _ => {}
+            }
+        }
+        assert!(saw_cancelled, "missing cancelled turn end");
+        assert!(!saw_stuck, "session/prompt was sent after cancel");
+
+        Arc::try_unwrap(client)
+            .unwrap_or_else(|_| panic!("prompt task still holds the client"))
+            .shutdown()
+            .await
+            .unwrap();
     }
 }
