@@ -210,6 +210,8 @@ pub(crate) struct SessionInfo {
     pub(crate) agent_command: Option<String>,
     /// Set on a side terminal: the card it belongs to. Null on a card.
     pub(crate) parent: Option<String>,
+    /// How the card runs: `"tui"` (a PTY shell) or `"ui"` (an ACP chat).
+    pub(crate) mode: String,
 }
 
 #[derive(Deserialize)]
@@ -235,6 +237,8 @@ struct NewSession {
     resume: Option<String>,
     /// The card this side terminal belongs to. One level only.
     parent: Option<String>,
+    /// `"tui"` or `"ui"`; omitted means `"tui"`.
+    mode: Option<String>,
 }
 
 async fn list_sessions(State(st): State<AppState>) -> Result<Json<Vec<SessionInfo>>, StatusCode> {
@@ -257,6 +261,11 @@ async fn create_session(
     body: Option<Json<NewSession>>,
 ) -> Result<Json<SessionInfo>, StatusCode> {
     let body = body.map(|Json(b)| b).unwrap_or_default();
+    let mode = match body.mode.as_deref() {
+        None => "tui",
+        Some(mode @ ("tui" | "ui")) => mode,
+        Some(_) => return Err(StatusCode::BAD_REQUEST),
+    };
     if let Some(parent) = body.parent.clone() {
         return create_side(&st, &parent, body);
     }
@@ -311,6 +320,7 @@ async fn create_session(
         agent_session: agent_session.as_deref(),
         resume_input: resume_input.as_deref(),
         parent: None,
+        mode,
     };
     let db = st.db.lock().unwrap();
     store::insert_card(&db, &card)
@@ -781,6 +791,29 @@ mod tests {
         assert_eq!(pending(&st, &body["id"]), None);
         let (_, body) = create(&st, serde_json::json!({})).await;
         assert_eq!(body["name"], "Terminal 1");
+    }
+
+    #[tokio::test]
+    async fn create_session_accepts_mode_ui() {
+        let st = test_state();
+        let (code, body) = create(&st, serde_json::json!({"cwd": "/tmp", "mode": "ui"})).await;
+        assert_eq!(code, StatusCode::OK);
+        assert_eq!(body["mode"], "ui");
+        assert_eq!(
+            column(&st, &body["id"], "mode").as_deref(),
+            Some("ui"),
+            "the mode is stored on the session"
+        );
+        let (_, plain) = create(&st, serde_json::json!({"cwd": "/tmp"})).await;
+        assert_eq!(plain["mode"], "tui", "an omitted mode defaults to tui");
+        assert_eq!(column(&st, &plain["id"], "mode").as_deref(), Some("tui"));
+    }
+
+    #[tokio::test]
+    async fn create_session_rejects_unknown_mode() {
+        let st = test_state();
+        let (code, _) = create(&st, serde_json::json!({"cwd": "/tmp", "mode": "bogus"})).await;
+        assert_eq!(code, StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

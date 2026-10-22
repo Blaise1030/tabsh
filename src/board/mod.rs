@@ -569,6 +569,10 @@ pub(crate) fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             "ALTER TABLE sessions ADD COLUMN agent_session TEXT",
         ),
         ("parent", "ALTER TABLE sessions ADD COLUMN parent TEXT"),
+        (
+            "mode",
+            "ALTER TABLE sessions ADD COLUMN mode TEXT NOT NULL DEFAULT 'tui'",
+        ),
     ] {
         if !cols.iter().any(|c| c == name) {
             conn.execute(ddl, [])?;

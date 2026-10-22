@@ -75,6 +75,7 @@ export interface SessionInfo {
   // The agent it runs (its launch or resume command), if any.
   agent_command?: string | null;
   parent?: string | null;
+  mode: 'tui' | 'ui';
 }
 
 const activateListeners: (() => void)[] = [];
@@ -141,7 +142,14 @@ export const savedActive = (): string | null => {
 // tag, it gets that group's tag. It becomes the active tab unless `focus` is
 // false. A sync may have opened it first: then that session is the tab.
 export async function openTab(
-  body?: { cwd?: string; name?: string; prompt?: string; command?: string; resume?: string },
+  body?: {
+    cwd?: string;
+    name?: string;
+    prompt?: string;
+    command?: string;
+    resume?: string;
+    mode?: 'tui' | 'ui';
+  },
   focus = true,
 ): Promise<Session> {
   const { tag } = newTabGroup();
