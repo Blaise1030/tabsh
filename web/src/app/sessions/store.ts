@@ -37,7 +37,6 @@ export interface Session {
   replaying: boolean;
   // xterm is still parsing the replay: its answers to queries in it go nowhere.
   parsingReplay: boolean;
-  esc: number;
   bell: Accessor<boolean>;
   setBell: Setter<boolean>;
   // Output arrived while another tab was active.

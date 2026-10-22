@@ -439,6 +439,10 @@ file-tree-container {
 /* Padding goes on xterm's own element: FitAddon subtracts that, but sizes
    rows from the parent's full height, so parent padding overflows the page. */
 .term .xterm { padding: 6px 0 0 8px; }
+/* xterm's viewport is black by default. Its screen is a whole number of
+   cells and doesn't fill that padded box, so the uncovered edge shows as a
+   black frame. Leave the viewport clear and let the theme show through. */
+.term .xterm .xterm-viewport { background-color: transparent; }
 .term.active { display: block; }
 .term-bottom { position: absolute; right: 1rem; bottom: .75rem; z-index: 5; border-radius: 9999px; box-shadow: 0 2px 8px rgb(0 0 0 / .25); }
 .term-bottom[hidden] { display: none; }
