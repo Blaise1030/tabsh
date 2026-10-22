@@ -2,7 +2,7 @@
 // paste, so TUIs like Claude Code pick up image paths). Browsers never
 // reveal a dropped file's real path, so files are uploaded to the daemon
 // first and the saved copy's path is used.
-import { CARD_DRAG, drawer, shown } from '../board/view.ts';
+import { CARD_DRAG, drawer, shown } from '../board/view.tsx';
 import { uploadFile } from '../daemon/client.ts';
 import { onScreen } from '../sessions/store.ts';
 import { localPaths, shellQuote } from './drop-paths.ts';
@@ -11,7 +11,7 @@ import { localPaths, shellQuote } from './drop-paths.ts';
 // terminals (with its drawer open, they show).
 const isDroppable = (dt: DataTransfer | null): dt is DataTransfer =>
   !!dt &&
-  (!shown.val || drawer.val) &&
+  (!shown() || drawer()) &&
   !dt.types.includes(CARD_DRAG) &&
   ['Files', 'text/uri-list', 'text/plain'].some((t) => dt.types.includes(t));
 

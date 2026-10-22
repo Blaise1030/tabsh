@@ -14,7 +14,7 @@ import {
 import { current, KEYBINDINGS, saveSetting } from '../settings/settings.ts';
 import type { AboutRow } from '../ui/about.ts';
 import { isMac } from '../ui/dom.ts';
-import { type Icon, icons, providerIcon } from '../ui/icons.ts';
+import { type Icon, icons, providerIcon } from '../ui/icons.tsx';
 
 // An item either opens another page (`go`, after running `run` if it has
 // one), picks a setting (`key` + `value`, previewed while highlighted),

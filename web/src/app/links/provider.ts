@@ -3,7 +3,7 @@
 import type { ILink, ILinkProvider, Terminal as XTerm } from '@xterm/xterm';
 import { daemonFetch } from '../daemon/client.ts';
 import { exists } from '../files/api.ts';
-import { openInPane } from '../files/open.ts';
+import { openInPane } from '../files/open.tsx';
 import { isMac } from '../ui/dom.ts';
 import { findLinks } from './links.ts';
 

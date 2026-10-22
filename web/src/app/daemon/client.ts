@@ -1,7 +1,7 @@
 // Talking to the daemon: authenticated requests, the sessions API, and the
 // gate shown while the daemon can't be reached.
-import van from 'vanjs-core';
-import { DAEMON, LOCAL_APP, MIXED_BLOCKED } from './config.ts';
+import { createSignal } from 'solid-js';
+import { DAEMON, MIXED_BLOCKED } from './config.ts';
 import { adoptToken, getToken } from './token.ts';
 
 export function daemonFetch(path: string, init: RequestInit = {}): Promise<Response> {
@@ -54,7 +54,7 @@ export function watchUrl(session: string): string {
 
 // Why the daemon can't be reached; null once it answers, hiding the gate.
 export type GateMode = 'offline' | 'safari' | 'pair';
-export const gateMode = van.state<GateMode | null>(null);
+export const [gateMode, setGateMode] = createSignal<GateMode | null>(null);
 let wake = () => {};
 
 // Holds startup until the daemon answers, showing why it can't be reached.
@@ -65,10 +65,10 @@ export async function waitForDaemon(): Promise<void> {
       status = (await daemonFetch('/api/about')).status;
     } catch {}
     if (status === 200) {
-      gateMode.val = null;
+      setGateMode(null);
       return;
     }
-    gateMode.val = status === 401 ? 'pair' : MIXED_BLOCKED ? 'safari' : 'offline';
+    setGateMode(status === 401 ? 'pair' : MIXED_BLOCKED ? 'safari' : 'offline');
     await new Promise<void>((resolve) => {
       wake = resolve;
       setTimeout(resolve, 2000);
@@ -76,17 +76,12 @@ export async function waitForDaemon(): Promise<void> {
   }
 }
 
-// The gate's "Open tabsh" link and the pairing form.
-export function initGate(): void {
-  (document.getElementById('open-local') as HTMLAnchorElement).href = LOCAL_APP;
-  document.getElementById('pair-form')?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const input = document.getElementById('pair-input') as HTMLInputElement;
-    if (adoptToken(input.value)) {
-      input.value = '';
-      wake();
-    } else input.setAttribute('aria-invalid', 'true');
-  });
+// The gate's pairing form: a pasted link or token, tried at once; false if
+// it holds no token.
+export function pairWith(text: string): boolean {
+  if (!adoptToken(text)) return false;
+  wake();
+  return true;
 }
 
 // The socket telling the page when a card's status changes.

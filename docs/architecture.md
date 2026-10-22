@@ -62,7 +62,7 @@ it in `state::router()`, and add its routes to `every_route_is_guarded`.
 | `welcome/` | `steps.ts` (the tour's screens as data — title, body, whether the screen offers Skip, whether it is the agents setup — with the step clamp, the settings a view choice saves and the choice the saved settings name, and what a dismissal and a finished setup write — pure), `view.ts` (the dialog: one full-page screen per step with its choices, opened on first load and again from the palette's Show welcome, which closes the palette first — both are modals; a view picked during an opening moves the app there on close, Skip marks only the tour seen, and the agents screen's Set up opens the provider's setup card and ends the tour only once the card opened) |
 | `pwa/` | `register.ts` (installability: `serviceWorkerUrl` says only `/app/` gets the worker at `/app/sw.js` — never the demo — and `initPwa` registers it; the manifest, worker and icons live in `web/public/app/`, served by the hosted site and embedded by the daemon; the worker caches the page shell and hashed `/_astro/` bundles cache-first, navigations network-first, and never intercepts `/api/`, `/ws` or `/sounds/`) |
 | `palette/` | `pages.ts` (what the palette offers), `palette.ts` (dialog, preview, shortcuts, a text edit in its input (the agent providers' pages), the grouping page the group button and its keybinding open; Esc on a page returns to the page that opened it, the providers list from a provider; About tabsh and Performance are pages too, their rows copied on click; Performance is fetched from `/api/performance` each time it opens; Open on another device (`remote`, from Help) is a page, each device's own page (`remote:<id>`) holding Revoke, Esc there returning to the devices) |
-| `ui/` | `dom.ts` (`isMac`, `phone`: a touch screen under 800px), `icons.ts` (every icon, as SVG tags), `keyed.ts` (lists by key), `app.ts` (the page shell: the board replaces the workspace — terminals, file pane, then the file sidebar on the right — and the tab bar keeps only its Board button, the Filter button once the board is onboarded, and Settings; a clicked card (or the open tab, when the board is opened) shows the workspace in a drawer beside the board, and a click on the board's empty space closes it, `drawer=1` in the URL, with its own bar and a divider whose width is the `drawerWidth` setting; on a wide window that terminal column is the full height of the page, and the tab bar (Board, Filter, Settings) covers only the board, in columns and in the list; the drawer's close is arrow-right-to-line; the file explorer's button sits on the right of the tab bar and the drawer's bar, over the sidebar), `gate.ts` (the connection gate's screens, from `daemon/client.ts`'s `gateMode`), `divider.ts`, `about.ts` (About tabsh's rows, fetched from `/api/about` each time the palette's About page opens), `drop.ts` and `drop-paths.ts`, `keyboard.ts` (`--keyboard`: how much an iOS on-screen keyboard covers, so the phone sheets sit above it), `no-markup.test.ts` (the guard: no `innerHTML` in the app) |
+| `ui/` | `dom.ts` (`isMac`, `phone`: a touch screen under 800px), `icons.tsx` (every icon, as SVG in JSX), `presence.tsx` (lists by key that keep leaving items while they exit), `app.tsx` (the page shell: the board replaces the workspace — terminals, file pane, then the file sidebar on the right — and the tab bar keeps only its Board button, the Filter button once the board is onboarded, and Settings; a clicked card (or the open tab, when the board is opened) shows the workspace in a drawer beside the board, and a click on the board's empty space closes it, `drawer=1` in the URL, with its own bar and a divider whose width is the `drawerWidth` setting; on a wide window that terminal column is the full height of the page, and the tab bar (Board, Filter, Settings) covers only the board, in columns and in the list; the drawer's close is arrow-right-to-line; the file explorer's button sits on the right of the tab bar and the drawer's bar, over the sidebar), `gate.tsx` (the connection gate's screens, from `daemon/client.ts`'s `gateMode`), `divider.ts`, `about.ts` (About tabsh's rows, fetched from `/api/about` each time the palette's About page opens), `drop.ts` and `drop-paths.ts`, `keyboard.ts` (`--keyboard`: how much an iOS on-screen keyboard covers, so the phone sheets sit above it), `no-markup.test.ts` (the guard: no `innerHTML` in the app) |
 
 **The demo (`web/src/demo/`, `web/src/pages/demo/`).** The landing page
 frames `/demo/`: the same app, built into a second page, on a pretend daemon.
@@ -76,10 +76,13 @@ opening `/api/about` would then be a real request, which `/demo/`'s
 app itself knows nothing of the demo: a change to the app shows up there as is,
 and a new daemon endpoint may need an answer in `demo/daemon.ts`.
 
-The page's CSS is in `web/src/styles/app.css`. The page's `<head>` is in
-`web/src/pages/app/index.astro`; its body is one mount point, `#app`, and
-`main.ts` mounts `ui/app.ts`'s `App()` into it first, so the markup comes from
-components.
+The page's CSS is in `web/src/styles/app.css`. Shared design tokens (shadcn-shaped
+CSS variables plus a Tailwind `@theme` bridge) live in `web/src/styles/tokens.css`:
+`settings` sets `--term-bg` / `--term-fg` on `<html>`, `html.themed` derives
+`--background`, `--foreground`, `--muted`, and the rest, and Basecoat consumes
+those same variables. The page's `<head>` is in `web/src/pages/app/index.astro`;
+its body is one mount point, `#app`, and `main.ts` mounts `ui/app.tsx`'s `App()`
+into it first, so the markup comes from components.
 
 **Rules**
 - **One-way dependencies between features:**
@@ -101,18 +104,20 @@ components.
   the DOM when imported: `links.ts`, `files/api.ts`, `files/comments.ts`, `daemon/parse.ts`,
   `settings/catalog.ts`, `keys.ts`, `schema.ts`, `sessions/bell-scan.ts`, `sessions/activity.ts`,
   `sessions/coalesce.ts`, `sessions/extra-keys.ts`, `sessions/gestures.ts`, `sessions/heartbeat.ts`, `sessions/labels.ts`, `sessions/order.ts`, `sessions/reconnect.ts`,
-  `explorer/listing.ts`, `explorer/changes.ts`, `board/folders.ts`, `welcome/steps.ts`, `remote/model.ts`, `pwa/register.ts`, `ui/drop-paths.ts`, `ui/keyed.ts`, `ui/performance.ts`, `nav/place.ts`, and `ui/no-markup.test.ts`'s rule (it only reads files). Their tests sit beside them as `*.test.ts`.
-- **Components:** a component is a function returning a node, built with
-  VanJS tags (`import van from 'vanjs-core'`). A feature owns its
-  `van.state`s and the router's steps assign them. States are assigned
-  whole (`s.val = next`), never mutated in place. User text goes in as a
-  child string or an attribute value, never as markup. Lists go through
-  `keyed()`. Code that waits for VanJS to apply a state's DOM update relies
-  on VanJS 1.6 doing it in a microtask queued before its own (`store.activate`,
-  `board.showBoard`, `files/open.ts`'s layout derive, `pane.applied()`, the
-  explorer's `load()`), so `vanjs-core` is pinned to `~1.6.1`. Read states inside binding functions (`() => s.val`), never
-  directly in a component body: a direct read renders a value that never
-  updates. xterm, CodeMirror and the tree stay in hosts created once.
+  `explorer/listing.ts`, `explorer/changes.ts`, `board/folders.ts`, `welcome/steps.ts`, `remote/model.ts`, `pwa/register.ts`, `ui/drop-paths.ts`, `ui/presence.ts`, `ui/performance.ts`, `nav/place.ts`, and `ui/no-markup.test.ts`'s rule (it only reads files). Their tests sit beside them as `*.test.ts`.
+- **Components:** a component is a function returning JSX in a `.tsx` file.
+  Props are typed and not destructured. Lists and conditionals use `<For>`
+  and `<Show>`. Prefer `on:` handlers where stopPropagation or capture
+  matters. User text goes in as a child string or an attribute value, never
+  as markup.
+- **State:** each feature owns its `createSignal` pairs; the router's steps
+  assign them. Signals are assigned whole (`setX(next)`), never mutated in
+  place. There is no global store. Read signals in JSX or in effects
+  (`createEffect`, `createComputed`), not once in a component body for a
+  value that should update.
+- **Timing:** do not wait for a framework to apply state. Use `ref`,
+  `onMount` and `createEffect` for work that needs the DOM after render.
+  xterm, CodeMirror and the tree stay in hosts created once.
 - **The editor stays lazy:** `files/pane.ts` and `editor.ts` (CodeMirror,
   `marked`) are only reached through `import()`. The daemon test
   `entry_script_does_not_bundle_the_editor` fails if the page's first load

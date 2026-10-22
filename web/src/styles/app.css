@@ -1,4 +1,6 @@
-/* The app page (pages/app/index.astro). */
+/* The app page (pages/app/index.astro). Tokens live in tokens.css. */
+@import "./tokens.css";
+
 html, body { height: 100%; margin: 0; overflow: hidden; background: var(--background); color: var(--foreground); }
 body { display: flex; flex-direction: column; }
 /* The page reaches the screen's edges (viewport-fit=cover), its background
@@ -9,27 +11,7 @@ body {
 }
 /* The mount point (#app) adds no box: its children lay out as the body's. */
 #app { display: contents; }
-:root { --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif; }
 body { font-family: var(--font-sans); }
-
-/* The UI chrome follows the terminal theme: Basecoat's tokens are derived
-   from the theme's background/foreground, which JS sets on <html>. */
-html.themed {
-  --background: var(--term-bg);
-  --foreground: var(--term-fg);
-  --muted-foreground: color-mix(in srgb, var(--term-fg) 60%, var(--term-bg));
-  --muted: color-mix(in srgb, var(--term-fg) 8%, var(--term-bg));
-  --accent: color-mix(in srgb, var(--term-fg) 8%, var(--term-bg));
-  --accent-foreground: var(--term-fg);
-  --secondary: color-mix(in srgb, var(--term-fg) 13%, var(--term-bg));
-  --secondary-foreground: var(--term-fg);
-  --border: color-mix(in srgb, var(--term-fg) 14%, var(--term-bg));
-  --input: color-mix(in srgb, var(--term-fg) 16%, var(--term-bg));
-  --popover: color-mix(in srgb, var(--term-fg) 4%, var(--term-bg));
-  --popover-foreground: var(--term-fg);
-  --card: var(--popover);
-  --card-foreground: var(--term-fg);
-}
 
 /* The group and settings buttons sit together at the bar's right end. */
 #tab-group-btn { margin-left: auto; }

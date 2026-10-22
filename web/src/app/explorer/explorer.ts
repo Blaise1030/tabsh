@@ -3,10 +3,10 @@
 // keybinding, and clicking a file opens it in the file pane. Whether it is
 // open is part of the place (the setting only follows it); how wide is a
 // setting. The tree's library loads on first use. The sidebar's chrome
-// (sidebar.ts) follows the states below.
-import van, { type State } from 'vanjs-core';
+// (sidebar.tsx) follows the states below.
+import { createSignal } from 'solid-js';
 import { daemonFetch } from '../daemon/client.ts';
-import { openInPane } from '../files/open.ts';
+import { openInPane } from '../files/open.tsx';
 import { go, here, onPlace } from '../nav/router.ts';
 import { newTabAt, onActivate, onScreen, store } from '../sessions/store.ts';
 import { matchesKey } from '../settings/keys.ts';
@@ -27,21 +27,26 @@ import {
 } from './listing.ts';
 import { watchFiles } from './socket.ts';
 
-type View = typeof import('./view.ts');
+type View = typeof import('./view.tsx');
+// A listing's tree, ready for its host: fetch `mine` and its paths.
+type Draw = { mine: number; view: View; paths: string[] };
 
 // Whether the sidebar is open: assigned only by the router's explorer step.
-export const open: State<boolean> = van.state(false);
+export const [open, setOpen] = createSignal(false);
 // The listed root, for the heading (its name, the path as its title).
-export const root: State<{ name: string; path: string } | null> = van.state(null);
+export const [root, setRoot] = createSignal<{ name: string; path: string } | null>(null);
 // Only folders are shown (too many files to list).
-export const note: State<boolean> = van.state(false);
+export const [note, setNote] = createSignal(false);
 // A message in place of the tree; null while the tree shows. Before the
 // first listing it is '', so neither shows.
-export const message: State<string | null> = van.state<string | null>('');
+export const [message, setMessage] = createSignal<string | null>('');
 // The sidebar's width in px, from the settings or a drag; null until they apply.
-export const width: State<number | null> = van.state<number | null>(null);
+export const [width, setWidth] = createSignal<number | null>(null);
 
-let mount: HTMLElement; // the tree's host, made once by sidebar.ts
+// The last listing's tree; sidebar.tsx draws it once its host shows.
+const [toDraw, setToDraw] = createSignal<Draw | null>(null);
+export const treeToDraw = toDraw;
+let drawn: Draw | null = null;
 let view: Promise<View> | null = null;
 let ready: View | null = null; // the loaded tree library, once there is a tree
 let listing: Listing | null = null; // what the tree shows
@@ -51,8 +56,8 @@ let watched: string | null = null; // the session the socket is open for
 let wantSearch = false; // "Search files" was picked and the tree isn't there yet
 let seq = 0; // bumped by every fetch, so a slow answer to a superseded one is dropped
 
-const isOpen = () => open.val;
-const treeShown = () => !!ready && message.val === null;
+const isOpen = () => open();
+const treeShown = () => !!ready && message() === null;
 
 export function toggleExplorer(): void {
   go({ explorer: !here().explorer });
@@ -73,7 +78,7 @@ function openSearchSoon(): void {
 }
 
 export function initExplorer(): void {
-  mount = document.getElementById('explorer-tree') as HTMLElement;
+  const mount = document.getElementById('explorer-tree') as HTMLElement;
   const divider = document.getElementById('explorer-divider') as HTMLElement;
   const button = document.getElementById('explorer-btn') as HTMLButtonElement;
   button.onclick = toggleExplorer;
@@ -112,11 +117,11 @@ export function initExplorer(): void {
 
   // Open or closed comes from the place; settings only give the width.
   onPlace('explorer', (to) => {
-    const wasOpen = open.val;
+    const wasOpen = open();
     // Hiding the sidebar under the keyboard would leave it on <body>.
     const heldFocus =
       wasOpen && !to.explorer && !!document.getElementById('explorer')?.contains(document.activeElement);
-    open.val = to.explorer;
+    setOpen(to.explorer);
     if (to.explorer && !wasOpen) void refresh();
     watch();
     if (heldFocus) onScreen()?.term.focus();
@@ -124,7 +129,7 @@ export function initExplorer(): void {
     return undefined;
   });
   onApply((s) => {
-    width.val = s.explorerWidth;
+    setWidth(s.explorerWidth);
   });
   // A tab's project is fetched on opening and on switching tabs; after that
   // the socket keeps the tree current.
@@ -153,7 +158,7 @@ function initResize(divider: HTMLElement): void {
   divider.addEventListener('pointermove', (e) => {
     if (dragged === null) return;
     dragged = widthAt(e.clientX);
-    width.val = dragged;
+    setWidth(dragged);
   });
   const end = (e: PointerEvent) => {
     if (dragged === null) return;
@@ -206,13 +211,13 @@ async function load(mine: number): Promise<void> {
   if (mine !== seq) return;
   const s = shown(l);
   live.known = null;
-  root.val = { name: rootName(l.root), path: l.root };
-  note.val = s.kind === 'folders';
+  setRoot({ name: rootName(l.root), path: l.root });
+  setNote(s.kind === 'folders');
   if (s.kind === 'too-many') return say('Too many files to show here. cd into a project.');
   if (s.kind === 'empty') return say('This folder is empty');
   if (listing && listing.root !== l.root) ready?.closeSearch(); // a new root starts unfiltered
   listing = l;
-  view ??= import('./view.ts').catch((err) => {
+  view ??= import('./view.tsx').catch((err) => {
     view = null;
     throw err;
   });
@@ -227,14 +232,18 @@ async function load(mine: number): Promise<void> {
   if (mine !== seq) return;
   ready = v;
   live.known = new Set(s.paths);
-  message.val = null;
-  // The host shows once VanJS applies that, in a microtask queued before
-  // this await's: the tree is drawn into a shown host, as it always was.
-  await Promise.resolve();
-  if (mine !== seq) return;
-  v.showTree(
-    mount,
-    s.paths,
+  setMessage(null);
+  setToDraw({ mine, view: v, paths: s.paths });
+}
+
+// Draws `tree` into the sidebar's host, once, unless a later fetch has
+// superseded it. sidebar.tsx calls this once the host shows.
+export function drawTree(host: HTMLElement, tree: Draw): void {
+  if (tree === drawn || tree.mine !== seq) return;
+  drawn = tree;
+  tree.view.showTree(
+    host,
+    tree.paths,
     (path) => {
       const t = store.active;
       if (t && listing) void openInPane(t, { text: absolutePath(listing.root, path) });
@@ -260,6 +269,6 @@ function act(action: RowAction, path: string): void {
 // A message in place of the tree (the tree keeps its place, hidden).
 function say(text: string): void {
   wantSearch = false;
-  note.val = false;
-  message.val = text;
+  setNote(false);
+  setMessage(text);
 }

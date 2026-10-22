@@ -2,15 +2,15 @@
 // dragging tabs into a new order.
 import { api } from '../daemon/client.ts';
 import { updateBadge } from './bell.ts';
-import { canMove, moveToGroup, sessionOf, settleTabs } from './groups.ts';
+import { canMove, moveToGroup, sessionOf, settleTabs } from './groups.tsx';
 import { dropIndex, inOrder } from './order.ts';
 import { type Session, setSessions, store } from './store.ts';
 
 const strip = () => document.getElementById('tabs') as HTMLElement;
 
 export function setName(s: Session, name: string, save = true): void {
-  if (s.name.val === name) return;
-  s.name.val = name;
+  if (s.name() === name) return;
+  s.setName(name);
   if (s === store.active) updateBadge();
   if (save) api('PATCH', `/${s.id}`, { name, auto: true }).catch(() => {});
 }
@@ -137,7 +137,7 @@ export const collapse = (node: Element): Promise<void> =>
   }).then(() => void setTimeout(updateFades));
 
 export function initTabStrip(): void {
-  // The strip itself (groups.ts's TabStrip) draws the tabs from state.
+  // The strip itself (groups.tsx's TabStrip) draws the tabs from state.
   const el = strip();
   // Let a vertical mouse wheel scroll the tab strip sideways when it overflows.
   el.addEventListener(

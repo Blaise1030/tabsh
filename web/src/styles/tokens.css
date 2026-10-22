@@ -1,0 +1,58 @@
+/* Shared design tokens: shadcn-shaped CSS variables for Basecoat and app.css,
+   bridged into Tailwind via @theme. JS only sets --term-bg / --term-fg.
+   Theme + utilities only — no Preflight (app.css owns the base). */
+@import "tailwindcss/theme" layer(theme);
+@import "tailwindcss/utilities" layer(utilities);
+
+:root {
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --radius: .5rem;
+  --spacing: .25rem;
+}
+
+/* Basecoat and the chrome follow the terminal theme. */
+html.themed {
+  --background: var(--term-bg);
+  --foreground: var(--term-fg);
+  --muted-foreground: color-mix(in srgb, var(--term-fg) 60%, var(--term-bg));
+  --muted: color-mix(in srgb, var(--term-fg) 8%, var(--term-bg));
+  --accent: color-mix(in srgb, var(--term-fg) 8%, var(--term-bg));
+  --accent-foreground: var(--term-fg);
+  --secondary: color-mix(in srgb, var(--term-fg) 13%, var(--term-bg));
+  --secondary-foreground: var(--term-fg);
+  --border: color-mix(in srgb, var(--term-fg) 14%, var(--term-bg));
+  --input: color-mix(in srgb, var(--term-fg) 16%, var(--term-bg));
+  --popover: color-mix(in srgb, var(--term-fg) 4%, var(--term-bg));
+  --popover-foreground: var(--term-fg);
+  --card: var(--popover);
+  --card-foreground: var(--term-fg);
+  --primary: var(--term-fg);
+  --primary-foreground: var(--term-bg);
+  --destructive: #e5484d;
+  --ring: color-mix(in srgb, var(--term-fg) 35%, var(--term-bg));
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-destructive: var(--destructive);
+  --color-ring: var(--ring);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+  --font-family-sans: var(--font-sans);
+}

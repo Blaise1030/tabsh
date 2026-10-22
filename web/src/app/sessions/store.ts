@@ -2,26 +2,27 @@
 // tab this browser has selected is kept locally.
 import type { FitAddon as Fit } from '@xterm/addon-fit';
 import type { Terminal as XTerm } from '@xterm/xterm';
-import van, { type State } from 'vanjs-core';
+import { type Accessor, batch, createSignal, type Setter } from 'solid-js';
 import type { Card } from '../board/model.ts';
 import { applyCard, cardOf } from '../board/status.ts';
 import { api } from '../daemon/client.ts';
-import { loadedPane } from '../files/open.ts';
+import { loadedPane } from '../files/open.tsx';
 import { go, here, onPlace } from '../nav/router.ts';
 import { clearBell, updateBadge } from './bell.ts';
 import type { Coalescer } from './coalesce.ts';
-import { newTabGroup, scrollToTab, shownSessions, stepTab } from './groups.ts';
+import { newTabGroup, shownSessions, stepTab } from './groups.tsx';
 import { coalesceAsync } from './reconnect.ts';
 import { splitSessions } from './split.ts';
 import { orderTabs, setName } from './tabs.ts';
-import { adoptTag } from './tags.ts';
-import { openSession, syncTerminalVisibility } from './terminal.ts';
+import { adoptTag } from './tags.tsx';
+import { openSession, syncTerminalVisibility } from './terminal.tsx';
 
 // A tab's session holds live resources (xterm, the socket) and is never
-// replaced; what its tab shows is in states, each assigned whole.
+// replaced; what its tab shows is in signals, each assigned whole.
 export interface Session {
   id: string;
-  name: State<string>;
+  name: Accessor<string>;
+  setName: Setter<string>;
   term: XTerm;
   fit: Fit;
   el: HTMLDivElement;
@@ -37,20 +38,27 @@ export interface Session {
   // xterm is still parsing the replay: its answers to queries in it go nowhere.
   parsingReplay: boolean;
   esc: number;
-  bell: State<boolean>;
+  bell: Accessor<boolean>;
+  setBell: Setter<boolean>;
   // Output arrived while another tab was active.
-  unread: State<boolean>;
-  card: State<Card>;
-  tags: State<string[]>;
-  repo: State<string | null>;
+  unread: Accessor<boolean>;
+  setUnread: Setter<boolean>;
+  card: Accessor<Card>;
+  setCard: Setter<Card>;
+  tags: Accessor<string[]>;
+  setTags: Setter<string[]>;
+  repo: Accessor<string | null>;
+  setRepo: Setter<string | null>;
   // Closed: its tab collapses, then goes.
-  leaving: State<boolean>;
+  leaving: Accessor<boolean>;
+  setLeaving: Setter<boolean>;
   // A name the user chose: the shell's title doesn't replace it.
   pinned: boolean;
   // Set on a side terminal: the card it belongs to.
   parent: string | null;
   // The card's side terminals, in position order. Empty on a side terminal.
-  sides: State<Session[]>;
+  sides: Accessor<Session[]>;
+  setSides: Setter<Session[]>;
 }
 export interface SessionInfo {
   id: string;
@@ -77,37 +85,42 @@ export function onActivate(fn: () => void): void {
 
 // The open tabs in strip order, replaced on open, close and reorder; and the
 // active one, which only the router's tab step sets (through activate).
-export const sessionList: State<Session[]> = van.state([]);
-export const active: State<Session | null> = van.state(null);
+export const [sessionList, setSessionList] = createSignal<Session[]>([]);
+export const [active, setActive] = createSignal<Session | null>(null);
 // The terminal on screen: a side terminal named by the place, else the active card.
-export const screen: State<Session | null> = van.state(null);
+export const [screen, setScreen] = createSignal<Session | null>(null);
+// A new value each time the tab or term step puts a terminal on screen, even
+// the one already there: TermHost then fits and focuses it, and after the
+// tab step brings its tab into view. Written after `screen`, so the
+// terminal shows before this is heard.
+export const [shownTurn, setShownTurn] = createSignal<{ tab: boolean }>({ tab: false });
 export function onScreen(): Session | null {
-  return screen.val;
+  return screen();
 }
 export function findTerm(id: string): Session | undefined {
-  for (const card of sessionList.val) {
+  for (const card of sessionList()) {
     if (card.id === id) return card;
-    const side = card.sides.val.find((s) => s.id === id);
+    const side = card.sides().find((s) => s.id === id);
     if (side) return side;
   }
   return undefined;
 }
 export function allTerms(): Session[] {
-  return sessionList.val.flatMap((card) => [card, ...card.sides.val]);
+  return sessionList().flatMap((card) => [card, ...card.sides()]);
 }
 export const store: { readonly sessions: Session[]; readonly active: Session | null } = {
   get sessions() {
-    return sessionList.val;
+    return sessionList();
   },
   get active() {
-    return active.val;
+    return active();
   },
 };
 // The tab step found no tab to show: the empty state's cue. False until
 // that step first runs, so the empty state stays hidden while tabs restore.
-export const noTab: State<boolean> = van.state(false);
+export const [noTab, setNoTab] = createSignal(false);
 export function setSessions(next: Session[]): void {
-  sessionList.val = next;
+  setSessionList(next);
 }
 
 const ACTIVE_KEY = 'tabsh.active';
@@ -159,7 +172,7 @@ export const sync = coalesceAsync(async () => {
   // Only sessions open before the list was asked for can be missing from it:
   // one opened while it was on its way is new, not gone.
   const askedCards = new Set(store.sessions);
-  const askedSides = new Set(store.sessions.flatMap((s) => s.sides.val));
+  const askedSides = new Set(store.sessions.flatMap((s) => s.sides()));
   const list = (await api<SessionInfo[]>('GET', '')) ?? [];
   const { cards, sides } = splitSessions(list);
   const cardIds = new Set(cards.map((s) => s.id));
@@ -175,9 +188,9 @@ export const sync = coalesceAsync(async () => {
   for (const card of store.sessions) {
     const want = sides.get(card.id) ?? [];
     const wantIds = new Set(want.map((s) => s.id));
-    for (const side of card.sides.val.filter((s) => askedSides.has(s) && !wantIds.has(s.id))) removeSession(side);
+    for (const side of card.sides().filter((s) => askedSides.has(s) && !wantIds.has(s.id))) removeSession(side);
     for (const info of want) {
-      const s = card.sides.val.find((x) => x.id === info.id);
+      const s = card.sides().find((x) => x.id === info.id);
       if (s) {
         s.pinned = info.pinned;
         setName(s, info.name, false);
@@ -205,27 +218,23 @@ export function sendSize(s: Session): void {
 
 // Only the router's tab step calls this; everything else calls go().
 export function activate(s: Session | null): void {
-  active.val = s;
-  noTab.val = !s;
+  batch(() => {
+    setActive(s);
+    setNoTab(!s);
+    const termId = here().term;
+    const side = s && termId ? s.sides().find((x) => x.id === termId) : undefined;
+    setScreen(side ?? s);
+    if (s) {
+      const shown = screen() ?? s;
+      shown.setUnread(false);
+      setShownTurn({ tab: true });
+    }
+  });
   loadedPane()?.show(s?.id ?? null);
   updateBadge();
-  const termId = here().term;
-  const side = s && termId ? s.sides.val.find((x) => x.id === termId) : undefined;
-  screen.val = side ?? s;
   if (s) {
-    const shown = screen.val ?? s;
-    shown.unread.val = false;
+    const shown = screen() ?? s;
     if (!document.hidden) clearBell(shown);
-    // Its terminal shows once VanJS applies the states, in a microtask queued
-    // before this one: scroll to its tab, fit and focus what's on screen.
-    queueMicrotask(() => {
-      if (active.val !== s) return;
-      scrollToTab(s);
-      const now = onScreen();
-      if (!now) return;
-      sendSize(now);
-      now.term.focus();
-    });
   }
   rememberActive();
   for (const fn of activateListeners) fn();
@@ -262,7 +271,7 @@ function dropTerm(s: Session): void {
   s.ws?.close();
   s.out.drop(); // no frame writes to the disposed terminal
   s.term.dispose();
-  s.el.remove();
+  // Its element leaves #terms with the list it leaves (TermHost).
 }
 
 export function removeSession(s: Session): void {
@@ -270,26 +279,26 @@ export function removeSession(s: Session): void {
   if (s.parent) {
     dropTerm(s);
     const card = store.sessions.find((c) => c.id === s.parent);
-    if (card) card.sides.val = card.sides.val.filter((t) => t !== s);
-    if (screen.val === s) {
-      screen.val = card ?? null;
+    if (card) card.setSides(card.sides().filter((t) => t !== s));
+    if (screen() === s) {
+      setScreen(card ?? null);
       go({ term: null }, 'replace');
     }
     return;
   }
-  for (const side of [...s.sides.val]) {
+  for (const side of [...s.sides()]) {
     if (!side.closed) dropTerm(side);
   }
-  s.sides.val = [];
+  s.setSides([]);
   dropTerm(s);
   // Its tab collapses, then goes (the strip's exit).
-  s.leaving.val = true;
+  s.setLeaving(true);
   const i = store.sessions.indexOf(s);
   const sessions = store.sessions.filter((t) => t !== s);
   setSessions(sessions); // its copies, and a group it was alone in, go too
   if (store.active === s) {
-    active.val = null;
-    screen.val = null;
+    setActive(null);
+    setScreen(null);
     // The next shown tab after it, else the last shown one before it.
     const rest = shownSessions();
     const next = rest.find((t) => sessions.indexOf(t) >= i) ?? rest.at(-1);
@@ -313,15 +322,11 @@ export function initTabRouting(): void {
 }
 
 function reveal(s: Session): void {
-  s.unread.val = false;
+  s.setUnread(false);
   if (!document.hidden) clearBell(s);
   // The socket follows the terminal on screen, including a side terminal.
   syncTerminalVisibility();
-  queueMicrotask(() => {
-    if (onScreen() !== s) return;
-    sendSize(s);
-    s.term.focus();
-  });
+  setShownTurn({ tab: false });
 }
 
 // After the tab step: `term` names a side terminal of that card, or the agent.
@@ -329,17 +334,17 @@ export function initTermRouting(): void {
   onPlace('term', (to) => {
     const card = store.sessions.find((s) => s.id === to.tab) ?? null;
     if (!card) {
-      screen.val = null;
+      setScreen(null);
       return;
     }
-    const side = to.term ? card.sides.val.find((s) => s.id === to.term) : undefined;
+    const side = to.term ? card.sides().find((s) => s.id === to.term) : undefined;
     if (to.term && !side) {
-      screen.val = card;
+      setScreen(card);
       reveal(card);
       return { term: null };
     }
     const shown = side ?? card;
-    screen.val = shown;
+    setScreen(shown);
     reveal(shown);
   });
 }
