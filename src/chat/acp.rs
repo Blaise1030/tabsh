@@ -10,7 +10,10 @@
 use std::{
     collections::HashMap,
     path::Path,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use serde::Deserialize;
@@ -83,14 +86,17 @@ pub(crate) enum AcpEvent {
 
 type Pending = Arc<Mutex<HashMap<u64, oneshot::Sender<std::result::Result<Value, String>>>>>;
 
+/// All request/notify methods take `&self` (ids and the event receiver use
+/// interior mutability, stdin/pending are already shared), so a caller can
+/// hold the client in an `Arc` and `cancel` while a `prompt` is in flight.
 pub(crate) struct AcpClient {
     child: Child,
     stdin: Arc<AsyncMutex<ChildStdin>>,
     pending: Pending,
     events: mpsc::UnboundedSender<AcpEvent>,
-    event_rx: Option<mpsc::UnboundedReceiver<AcpEvent>>,
+    event_rx: Mutex<Option<mpsc::UnboundedReceiver<AcpEvent>>>,
     reader: tokio::task::JoinHandle<()>,
-    next_id: u64,
+    next_id: AtomicU64,
 }
 
 fn chunk_text(update: &Value) -> String {
@@ -208,14 +214,12 @@ impl AcpClient {
                             let allow = options
                                 .as_array()
                                 .and_then(|opts| {
-                                    opts.iter()
-                                        .find(|o| {
-                                            matches!(
-                                                o.get("kind").and_then(Value::as_str),
-                                                Some("allow_once" | "allow_always")
-                                            )
-                                        })
-                                        .or_else(|| opts.first())
+                                    opts.iter().find(|o| {
+                                        matches!(
+                                            o.get("kind").and_then(Value::as_str),
+                                            Some("allow_once" | "allow_always")
+                                        )
+                                    })
                                 })
                                 .and_then(|o| o.get("optionId").cloned());
                             let outcome = match allow {
@@ -271,15 +275,14 @@ impl AcpClient {
             stdin,
             pending,
             events,
-            event_rx: Some(event_rx),
+            event_rx: Mutex::new(Some(event_rx)),
             reader,
-            next_id: 1,
+            next_id: AtomicU64::new(1),
         })
     }
 
-    async fn request(&mut self, method: &str, params: Value) -> Result<Value> {
-        let id = self.next_id;
-        self.next_id += 1;
+    async fn request(&self, method: &str, params: Value) -> Result<Value> {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         self.pending
             .lock()
@@ -304,7 +307,7 @@ impl AcpClient {
         }
     }
 
-    async fn notify(&mut self, method: &str, params: Value) -> Result<()> {
+    async fn notify(&self, method: &str, params: Value) -> Result<()> {
         write_line(
             &self.stdin,
             &json!({"jsonrpc": "2.0", "method": method, "params": params}),
@@ -312,7 +315,7 @@ impl AcpClient {
         .await
     }
 
-    pub(crate) async fn initialize(&mut self) -> Result<InitializeResult> {
+    pub(crate) async fn initialize(&self) -> Result<InitializeResult> {
         let result = self
             .request(
                 "initialize",
@@ -326,7 +329,7 @@ impl AcpClient {
         Ok(serde_json::from_value(result)?)
     }
 
-    pub(crate) async fn session_new(&mut self, cwd: &Path) -> Result<String> {
+    pub(crate) async fn session_new(&self, cwd: &Path) -> Result<String> {
         let result = self
             .request(
                 "session/new",
@@ -343,7 +346,7 @@ impl AcpClient {
     /// Sends the prompt and waits for the turn to finish; `session/update`
     /// events meanwhile are buffered for `event_stream`, and a synthesised
     /// `PromptEnded` (from the response `stopReason`) closes the turn.
-    pub(crate) async fn prompt(&mut self, session_id: &str, text: &str) -> Result<()> {
+    pub(crate) async fn prompt(&self, session_id: &str, text: &str) -> Result<()> {
         let result = self
             .request(
                 "session/prompt",
@@ -363,15 +366,17 @@ impl AcpClient {
         Ok(())
     }
 
-    pub(crate) async fn cancel(&mut self, session_id: &str) -> Result<()> {
+    pub(crate) async fn cancel(&self, session_id: &str) -> Result<()> {
         self.notify("session/cancel", json!({"sessionId": session_id}))
             .await
     }
 
     /// Takes the buffered event receiver (once). Events are queued from
     /// spawn, so events from a finished `prompt` are still delivered.
-    pub(crate) fn event_stream(&mut self) -> mpsc::UnboundedReceiver<AcpEvent> {
+    pub(crate) fn event_stream(&self) -> mpsc::UnboundedReceiver<AcpEvent> {
         self.event_rx
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
             .take()
             .expect("event_stream is taken only once")
     }
@@ -403,7 +408,10 @@ def update(session_id, upd):
     send({"jsonrpc": "2.0", "method": "session/update",
           "params": {"sessionId": session_id, "update": upd}})
 
-for line in sys.stdin:
+while True:
+    line = sys.stdin.readline()
+    if not line:
+        break
     line = line.strip()
     if not line:
         continue
@@ -422,15 +430,40 @@ for line in sys.stdin:
         sid = params.get("sessionId", "")
         text = "".join(c.get("text", "") for c in params.get("prompt", [])
                        if c.get("type") == "text")
+        if "slow" in text:
+            update(sid, {"sessionUpdate": "agent_message_chunk",
+                         "content": {"type": "text", "text": "slow started"}})
+            cancelled = False
+            while True:
+                nxt = sys.stdin.readline()
+                if not nxt:
+                    break
+                if json.loads(nxt).get("method") == "session/cancel":
+                    cancelled = True
+                    break
+            send({"jsonrpc": "2.0", "id": mid, "result": {
+                "stopReason": "cancelled" if cancelled else "end_turn"}})
+            continue
         if "permission" in text:
+            if "no_allow" in text:
+                opts = [{"optionId": "deny", "name": "Deny", "kind": "reject_once"}]
+            else:
+                opts = [{"optionId": "allow", "name": "Allow", "kind": "allow_once"},
+                        {"optionId": "deny", "name": "Deny", "kind": "reject_once"}]
             send({"jsonrpc": "2.0", "id": 9000,
                   "method": "session/request_permission",
                   "params": {"sessionId": sid,
                              "toolCall": {"toolCallId": "tc-1", "title": "Fake tool"},
-                             "options": [
-                                 {"optionId": "allow", "name": "Allow", "kind": "allow_once"},
-                                 {"optionId": "deny", "name": "Deny", "kind": "reject_once"}]}})
-            sys.stdin.readline()  # the client's permission response
+                             "options": opts}})
+            resp = json.loads(sys.stdin.readline())  # permission response
+            outcome = (resp.get("result") or {}).get("outcome") or {}
+            if outcome.get("outcome") == "selected":
+                outcome_text = "selected:" + str(outcome.get("optionId"))
+            else:
+                outcome_text = str(outcome.get("outcome", "unknown"))
+            update(sid, {"sessionUpdate": "agent_message_chunk",
+                         "content": {"type": "text",
+                                     "text": "permission outcome: " + outcome_text}})
         update(sid, {"sessionUpdate": "agent_message_chunk",
                      "content": {"type": "text", "text": "fake reply: " + text}})
         update(sid, {"sessionUpdate": "agent_message_chunk",
@@ -463,7 +496,7 @@ for line in sys.stdin:
     async fn acp_client_prompt_receives_session_update() {
         let (cmd, args) = fake_agent();
         let cwd = std::env::temp_dir();
-        let mut client = AcpClient::spawn(&cmd, &args, &cwd).await.unwrap();
+        let client = AcpClient::spawn(&cmd, &args, &cwd).await.unwrap();
 
         let init = client.initialize().await.unwrap();
         assert_eq!(init.protocol_version, serde_json::json!(1));
@@ -502,7 +535,7 @@ for line in sys.stdin:
     async fn acp_client_auto_allows_permission_request() {
         let (cmd, args) = fake_agent();
         let cwd = std::env::temp_dir();
-        let mut client = AcpClient::spawn(&cmd, &args, &cwd).await.unwrap();
+        let client = AcpClient::spawn(&cmd, &args, &cwd).await.unwrap();
         client.initialize().await.unwrap();
         let session_id = client.session_new(&cwd).await.unwrap();
         client
@@ -525,10 +558,89 @@ for line in sys.stdin:
     }
 
     #[tokio::test]
+    async fn acp_client_cancel_during_in_flight_prompt() {
+        let (cmd, args) = fake_agent();
+        let cwd = std::env::temp_dir();
+        let client = Arc::new(AcpClient::spawn(&cmd, &args, &cwd).await.unwrap());
+        client.initialize().await.unwrap();
+        let session_id = client.session_new(&cwd).await.unwrap();
+        let mut rx = client.event_stream();
+
+        // Prompt runs on another task; cancel must work through `&self`
+        // while that prompt future is still in flight.
+        let prompt_client = client.clone();
+        let prompt_sid = session_id.clone();
+        let prompt_task =
+            tokio::spawn(async move { prompt_client.prompt(&prompt_sid, "slow please").await });
+
+        // Wait until the fake agent confirms the slow turn has started.
+        let mut started = false;
+        while let Some(ev) = rx.recv().await {
+            if matches!(&ev, AcpEvent::AgentMessageChunk { text, .. } if text == "slow started") {
+                started = true;
+                break;
+            }
+        }
+        assert!(started);
+
+        client.cancel(&session_id).await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(10), prompt_task)
+            .await
+            .expect("prompt did not finish after cancel")
+            .unwrap()
+            .unwrap();
+
+        let mut stop_reason = None;
+        while let Some(ev) = rx.recv().await {
+            if let AcpEvent::PromptEnded { stop_reason: r, .. } = ev {
+                stop_reason = Some(r);
+                break;
+            }
+        }
+        assert_eq!(stop_reason.as_deref(), Some("cancelled"));
+
+        Arc::try_unwrap(client)
+            .unwrap_or_else(|_| panic!("prompt task still holds the client"))
+            .shutdown()
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn acp_client_permission_without_allow_option_is_cancelled() {
+        let (cmd, args) = fake_agent();
+        let cwd = std::env::temp_dir();
+        let client = AcpClient::spawn(&cmd, &args, &cwd).await.unwrap();
+        client.initialize().await.unwrap();
+        let session_id = client.session_new(&cwd).await.unwrap();
+        client
+            .prompt(&session_id, "no_allow permission please")
+            .await
+            .unwrap();
+
+        let mut text = String::new();
+        let mut rx = client.event_stream();
+        while let Some(ev) = rx.recv().await {
+            let is_end = matches!(ev, AcpEvent::PromptEnded { .. });
+            if let AcpEvent::AgentMessageChunk { text: t, .. } = &ev {
+                text.push_str(t);
+            }
+            if is_end {
+                break;
+            }
+        }
+        client.shutdown().await.unwrap();
+        assert!(
+            text.contains("permission outcome: cancelled"),
+            "events text: {text}"
+        );
+    }
+
+    #[tokio::test]
     async fn acp_client_cancel_is_accepted() {
         let (cmd, args) = fake_agent();
         let cwd = std::env::temp_dir();
-        let mut client = AcpClient::spawn(&cmd, &args, &cwd).await.unwrap();
+        let client = AcpClient::spawn(&cmd, &args, &cwd).await.unwrap();
         client.initialize().await.unwrap();
         let session_id = client.session_new(&cwd).await.unwrap();
         client.cancel(&session_id).await.unwrap();
