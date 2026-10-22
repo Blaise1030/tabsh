@@ -42,7 +42,7 @@ import { App } from './ui/app.tsx';
 import { initDivider, initDrawerDivider } from './ui/divider.ts';
 import { initDrop } from './ui/drop.ts';
 import { initKeyboardInset } from './ui/keyboard.ts';
-import { initWelcome } from './welcome/view.ts';
+import { initWelcome } from './welcome/view.tsx';
 
 render(App, document.getElementById('app')!);
 

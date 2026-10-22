@@ -30,7 +30,7 @@ import { aboutRows, loadAbout } from '../ui/about.ts';
 import { isMac } from '../ui/dom.ts';
 import { icons } from '../ui/icons.tsx';
 import { type Performance, performanceRows } from '../ui/performance.ts';
-import { showWelcome } from '../welcome/view.ts';
+import { showWelcome } from '../welcome/view.tsx';
 import { type PaletteItem, pages, type TextEdit } from './pages.ts';
 
 const paletteEl = () => document.getElementById('palette') as HTMLDialogElement;

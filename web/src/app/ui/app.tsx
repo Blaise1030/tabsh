@@ -15,7 +15,7 @@ import { KeyBar } from '../sessions/keybar.tsx';
 import { SessionBar } from '../sessions/session-bar.tsx';
 import { active, noTab, type Session } from '../sessions/store.ts';
 import { TermHost, termSessions } from '../sessions/terminal.tsx';
-import { Welcome } from '../welcome/view.ts';
+import { Welcome } from '../welcome/view.tsx';
 import { Gate } from './gate.tsx';
 import { type Icon, icons } from './icons.tsx';
 import { fromVan } from './interop.ts';
@@ -223,7 +223,7 @@ export function App(): JSX.Element {
       <NewCard />
       <TabBar />
       <Stage />
-      {untrack(Welcome)}
+      <Welcome />
       <div id="drop-glow" aria-hidden="true" />
     </>
   );
