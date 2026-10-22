@@ -1,7 +1,7 @@
 // The page: the dialogs, the tab bar, the board or the workspace under it
 // (or both: the workspace in a drawer beside the board), and the drop glow.
 // Features find their parts by id once this is mounted.
-import { type JSX, untrack } from 'solid-js';
+import { For, type JSX, untrack } from 'solid-js';
 import { DrawerMoveButton } from '../board/move-menu.ts';
 import { NewCard } from '../board/new-card.ts';
 import { Board, drawer as boardDrawer, shown as boardShown, FilterButton, layout } from '../board/view.ts';
@@ -10,9 +10,10 @@ import { Sidebar } from '../explorer/sidebar.ts';
 import { paneShown } from '../files/open.ts';
 import { go } from '../nav/router.ts';
 import { grouping, TabStrip } from '../sessions/groups.ts';
-import { KeyBar } from '../sessions/keybar.ts';
-import { SessionBar } from '../sessions/session-bar.ts';
+import { KeyBar } from '../sessions/keybar.tsx';
+import { SessionBar } from '../sessions/session-bar.tsx';
 import { active, noTab } from '../sessions/store.ts';
+import { TermHost, termSessions } from '../sessions/terminal.tsx';
 import { Welcome } from '../welcome/view.ts';
 import { Gate } from './gate.ts';
 import { type Icon, icons } from './icons.tsx';
@@ -173,7 +174,7 @@ function Workspace(): JSX.Element {
   return (
     <div id="workspace">
       <div id="main">
-        {untrack(SessionBar)}
+        <SessionBar />
         <div id="terms">
           <div class="empty" id="empty" hidden={!empty()}>
             <p>No terminals open.</p>
@@ -182,8 +183,9 @@ function Workspace(): JSX.Element {
             </button>
           </div>
           {untrack(Gate)}
+          <For each={termSessions()}>{(s) => <TermHost session={s} />}</For>
         </div>
-        {untrack(KeyBar)}
+        <KeyBar />
       </div>
       <div id="pane-divider" hidden={!pane()} />
       <aside id="pane" hidden={!pane()} tabindex="-1" aria-label="File" />

@@ -15,7 +15,7 @@ import { coalesceAsync } from './reconnect.ts';
 import { splitSessions } from './split.ts';
 import { orderTabs, setName } from './tabs.ts';
 import { adoptTag } from './tags.ts';
-import { openSession, syncTerminalVisibility } from './terminal.ts';
+import { openSession, syncTerminalVisibility } from './terminal.tsx';
 
 // A tab's session holds live resources (xterm, the socket) and is never
 // replaced; what its tab shows is in states, each assigned whole.
@@ -216,16 +216,8 @@ export function activate(s: Session | null): void {
     const shown = screen.val ?? s;
     shown.unread.val = false;
     if (!document.hidden) clearBell(shown);
-    // Its terminal shows once VanJS applies the states, in a microtask queued
-    // before this one: scroll to its tab, fit and focus what's on screen.
-    queueMicrotask(() => {
-      if (active.val !== s) return;
-      scrollToTab(s);
-      const now = onScreen();
-      if (!now) return;
-      sendSize(now);
-      now.term.focus();
-    });
+    // TermHost fits and focuses the terminal once it shows.
+    scrollToTab(s);
   }
   rememberActive();
   for (const fn of activateListeners) fn();
@@ -262,7 +254,7 @@ function dropTerm(s: Session): void {
   s.ws?.close();
   s.out.drop(); // no frame writes to the disposed terminal
   s.term.dispose();
-  s.el.remove();
+  // Its element leaves #terms with the list it leaves (TermHost).
 }
 
 export function removeSession(s: Session): void {
@@ -317,11 +309,6 @@ function reveal(s: Session): void {
   if (!document.hidden) clearBell(s);
   // The socket follows the terminal on screen, including a side terminal.
   syncTerminalVisibility();
-  queueMicrotask(() => {
-    if (onScreen() !== s) return;
-    sendSize(s);
-    s.term.focus();
-  });
 }
 
 // After the tab step: `term` names a side terminal of that card, or the agent.

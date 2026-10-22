@@ -7,6 +7,7 @@
 // drag that starts an agent (or a wake after sleep) does not replay every
 // tab's scrollback on the main thread. Reconnects still drain one at a time
 // with backoff if the visible socket drops.
+import { createEffect, createMemo, type JSX } from 'solid-js';
 import van from 'vanjs-core';
 import { cardOf } from '../board/status.ts';
 import { socketUrl } from '../daemon/client.ts';
@@ -14,7 +15,7 @@ import { linkProvider } from '../links/provider.ts';
 import { here } from '../nav/router.ts';
 import { current, terminalOptions } from '../settings/settings.ts';
 import { icons } from '../ui/icons.tsx';
-import { scoped } from '../ui/keyed.ts';
+import { fromVan } from '../ui/interop.ts';
 import { ring } from './bell.ts';
 import { scanBell } from './bell-scan.ts';
 import { coalescer } from './coalesce.ts';
@@ -22,6 +23,7 @@ import { type ExtraKey, keyInput, withCtrl } from './extra-keys.ts';
 import { type Heartbeat, heartbeat, type Timers } from './heartbeat.ts';
 import { enqueueReconnect, nextReconnect, retryDelay, shouldDrainReconnects, terminalInView } from './reconnect.ts';
 import {
+  active,
   allTerms,
   findTerm,
   onActivate,
@@ -31,6 +33,7 @@ import {
   type SessionInfo,
   screen,
   sendSize,
+  sessionList,
   setSessions,
   store,
   sync,
@@ -189,9 +192,9 @@ export function openSession(info: SessionInfo): Session {
   if (known) return known;
   const { id, name } = info;
   const parent = info.parent ?? null;
-  // Shown while this terminal is the one on screen.
-  const el = scoped(() => van.tags.div({ class: () => (screen.val?.id === id ? 'term active' : 'term') }));
-  document.getElementById('terms')?.append(el);
+  // Placed in #terms by TermHost, once the session is in the list.
+  const el = document.createElement('div');
+  el.className = 'term';
 
   const term = new Terminal({
     cursorBlink: true,
@@ -291,7 +294,6 @@ export function openSession(info: SessionInfo): Session {
     if (!card) {
       s.closed = true;
       s.term.dispose();
-      el.remove();
       return s;
     }
     card.sides.val = [...card.sides.val, s];
@@ -317,6 +319,31 @@ export function openSession(info: SessionInfo): Session {
   // Only the on-screen tab attaches; a sync that opens others parks them.
   syncTerminalVisibility();
   return s;
+}
+
+// The cards and their side terminals, each card before its own.
+export function termSessions(): Session[] {
+  return fromVan(sessionList)().flatMap((s) => [s, ...fromVan(s.sides)()]);
+}
+
+// A terminal's place in #terms: the element openSession made, never a new
+// one, so its xterm and scrollback live on.
+export function TermHost(props: { session: Session }): JSX.Element {
+  const s = props.session;
+  const shown = fromVan(screen);
+  const tab = fromVan(active);
+  createEffect(() => s.el.classList.toggle('active', shown()?.id === s.id));
+  // Come on screen: fit it to the view it now has and give it the keyboard.
+  // This runs after the effect above shows it, and after the render effects
+  // that size its view (the session bar, the key bar). A memo, so a mirror
+  // that fires again without a change doesn't take the keyboard back.
+  const arrived = createMemo(() => shown()?.id === s.id && !!tab());
+  createEffect(() => {
+    if (!arrived()) return;
+    sendSize(s);
+    s.term.focus();
+  });
+  return s.el;
 }
 
 // Resolves true once the first (replay) binary frame is parsed, or false if

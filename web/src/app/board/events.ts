@@ -11,7 +11,7 @@ import { type ActivityKind, activityEffect } from '../sessions/activity.ts';
 import { ring } from '../sessions/bell.ts';
 import { findTerm, onScreen, store, sync } from '../sessions/store.ts';
 import { orderTabs, setName } from '../sessions/tabs.ts';
-import { parkedMs } from '../sessions/terminal.ts';
+import { parkedMs } from '../sessions/terminal.tsx';
 import { asStatus, dropOrder } from './model.ts';
 import { notifyStatus } from './notify.ts';
 import { applyCard } from './status.ts';

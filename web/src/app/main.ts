@@ -33,7 +33,7 @@ import {
 } from './sessions/store.ts';
 import { initTabStrip } from './sessions/tabs.ts';
 import { initTabLabels } from './sessions/tags.ts';
-import { syncTerminalVisibility } from './sessions/terminal.ts';
+import { syncTerminalVisibility } from './sessions/terminal.tsx';
 import { FONTS, fontStack, prefersLight, THEMES } from './settings/catalog.ts';
 import { applySettings, current, loadSettings, onApply, terminalOptions } from './settings/settings.ts';
 import { initChime } from './sound/chime.ts';
