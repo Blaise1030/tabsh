@@ -551,6 +551,8 @@ test('tags ticked in the Tags panel show on the card, and are offered next time'
   await expect(rows).toHaveText(['bug', 'docs', 'ui']);
   await expect(chip.locator('.tag-badge')).toHaveText(['bug', 'ui', 'docs']);
   await rows.filter({ hasText: 'docs' }).click(); // untick; the panel stays open
+  await expect(rows.filter({ hasText: 'docs' }).locator('input')).not.toBeChecked();
+  await expect(page.locator('#new-card .tags-submenu')).toBeVisible();
   await rows.filter({ hasText: 'bug' }).click();
   await expect(rows.filter({ hasText: 'bug' }).locator('input')).not.toBeChecked();
   await field.fill('perf'); // typed but not entered: still counts
