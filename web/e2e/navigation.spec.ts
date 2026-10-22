@@ -7,7 +7,7 @@ import { rmSync } from 'node:fs';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import type { Daemon } from './daemon.ts';
-import { cdInTerminal, expect, newTab, openApp, setOnboarded, test, typeInTerminal } from './fixture.ts';
+import { cdInTerminal, expect, newTab, openApp, setOnboarded, termCellPoint, test, typeInTerminal } from './fixture.ts';
 
 const tabs = (page: Page) => page.locator('#tabs .tab:not(.mirror)');
 const urlTab = (page: Page) => new URL(page.url()).searchParams.get('tab');
@@ -123,13 +123,16 @@ const urlLine = (page: Page) => new URL(page.url()).searchParams.get('line');
 async function openLink(page: Page, typed: string, shown: string): Promise<void> {
   await typeInTerminal(page, `echo ${typed}`);
   await page.keyboard.press('Enter');
-  const escaped = shown.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const row = page.locator('.term.active .xterm-rows > div', { hasText: new RegExp(`^${escaped}\\s*$`) }).last();
-  await expect(row).toBeVisible();
   const name = shown.split(':')[0].split('/').pop() as string;
   await expect(async () => {
-    await row.hover({ position: { x: 8, y: 6 } });
-    await row.click({ position: { x: 8, y: 6 }, modifiers: ['ControlOrMeta'] });
+    const { x, y } = await termCellPoint(page, shown);
+    await page.mouse.move(x, y); // hover first: the linkifier decorates on hover
+    await page.keyboard.down('ControlOrMeta');
+    try {
+      await page.mouse.click(x, y);
+    } finally {
+      await page.keyboard.up('ControlOrMeta');
+    }
     await expect(page.locator('#pane .pane-head')).toContainText(name, { timeout: 1_000 });
   }).toPass({ timeout: 10_000 });
 }
