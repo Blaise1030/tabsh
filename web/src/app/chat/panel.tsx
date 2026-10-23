@@ -23,11 +23,8 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
   const [queue, setQueue] = createSignal<string[]>([]);
   const [notice, setNotice] = createSignal<string | null>(null);
   const [images, setImages] = createSignal<PendingImage[]>([]);
-  const [dragging, setDragging] = createSignal(false);
   let transcript: HTMLDivElement | undefined;
-  let dock: HTMLDivElement | undefined;
   let posting = false;
-  const hasFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes('Files');
   // Server turn only — queued optimistic lines must not keep busy latched.
   const busy = createMemo(() => turnOpen(chunks()));
   const viewChunks = createMemo(() => withOptimisticUser(chunks(), pendingUser(), queue()));
@@ -223,35 +220,7 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
               <ThinkingRow agentCommand={props.agentCommand} />
             </Show>
           </div>
-          {/* biome-ignore lint/a11y/noStaticElementInteractions: drop target for image attach; keyboard uses the paperclip */}
-          <div
-            class={`chat-composer-dock${dragging() ? ' dragging' : ''}`}
-            ref={dock}
-            onDragEnter={(e) => {
-              if (!hasFiles(e)) return;
-              e.preventDefault();
-              e.stopPropagation();
-              setDragging(true);
-            }}
-            onDragOver={(e) => {
-              if (!hasFiles(e)) return;
-              e.preventDefault();
-              e.stopPropagation();
-              if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
-              setDragging(true);
-            }}
-            onDragLeave={(e) => {
-              e.stopPropagation();
-              if (!dock?.contains(e.relatedTarget as Node | null)) setDragging(false);
-            }}
-            onDrop={(e) => {
-              if (!hasFiles(e)) return;
-              e.preventDefault();
-              e.stopPropagation();
-              setDragging(false);
-              addImages(e.dataTransfer?.files ?? []);
-            }}
-          >
+          <div class="chat-composer-dock">
             <Composer
               sessionId={props.sessionId}
               busy={busy()}

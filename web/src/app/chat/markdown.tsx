@@ -23,7 +23,7 @@ export function Markdown(props: { text: string; class?: string; sessionId?: stri
               <a
                 href={p.href || encodeFileHref(file.text, file.line)}
                 title={p.title ?? file.text}
-                class="chat-md-path"
+                class="badge chat-md-path"
                 onClick={(e) => {
                   e.preventDefault();
                   openInPane({ id: props.sessionId!, closed: false }, file);
@@ -40,7 +40,7 @@ export function Markdown(props: { text: string; class?: string; sessionId?: stri
               <a
                 href={href}
                 title={p.title ?? href}
-                class="chat-md-path"
+                class="badge chat-md-path"
                 onClick={(e) => {
                   e.preventDefault();
                   openInPane({ id: props.sessionId!, closed: false }, { text: href });

@@ -480,15 +480,6 @@ file-tree-container {
   /* Short fade so the dock does not haze over the last messages. */
   background: linear-gradient(to top, var(--background) 88%, transparent);
 }
-.chat-composer-dock.dragging {
-  outline: 1px dashed color-mix(in srgb, var(--primary) 55%, var(--border));
-  outline-offset: -4px;
-  background: linear-gradient(
-    to top,
-    color-mix(in srgb, var(--primary) 8%, var(--background)) 88%,
-    transparent
-  );
-}
 .chat-row {
   display: grid;
   grid-template-columns: 1.75rem minmax(0, 1fr);
@@ -593,7 +584,22 @@ file-tree-container {
   color: var(--muted-foreground);
 }
 .chat-md a { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
-.chat-md a.chat-md-path { word-break: break-all; }
+/* File paths: Basecoat badge pills (not underlined links), one per line when listed. */
+.chat-md a.chat-md-path.badge {
+  display: inline-flex; align-items: center; max-width: 100%;
+  height: auto; min-height: 1.625rem; padding: .15rem .5rem;
+  margin: .1rem 0; vertical-align: middle;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: .75rem; font-weight: 500; line-height: 1.35;
+  color: var(--foreground); text-decoration: none;
+  word-break: break-all; overflow-wrap: anywhere; white-space: normal;
+  background: color-mix(in srgb, var(--muted) 80%, transparent);
+  border: 1px solid var(--border); border-radius: .375rem;
+  cursor: pointer;
+}
+.chat-md a.chat-md-path.badge:hover {
+  background: color-mix(in srgb, var(--muted) 100%, transparent);
+}
 .chat-user-msg { display: flex; flex-direction: column; gap: .5rem; min-width: 0; width: 100%; }
 .chat-user-images { display: flex; flex-wrap: wrap; gap: .5rem; }
 .chat-user-image {
@@ -651,15 +657,13 @@ file-tree-container {
 .chat-error { color: var(--destructive, #ef4444); display: flex; flex-direction: column; gap: .25rem; }
 .chat-hint { color: var(--muted-foreground); font-size: .8125rem; }
 .chat-composer-toolbar {
-  display: flex; flex-wrap: wrap; align-items: center; gap: .5rem;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: .5rem;
   box-sizing: border-box; width: 100%; max-width: 64rem;
   margin-inline: auto; padding: 0 1rem .65rem;
   min-height: 0;
 }
-.chat-attach {
-  display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: .35rem;
-  min-width: 0; flex: 1 1 auto;
-}
+/* contents: paperclip + model chip share the toolbar row at the start; badges still span full width. */
+.chat-attach { display: contents; }
 .chat-attach-badges {
   display: flex; flex-wrap: wrap; align-items: center; gap: .35rem;
   min-width: 0; order: -1; flex: 1 1 100%;
@@ -724,7 +728,7 @@ file-tree-container {
   column-gap: .75rem;
   align-items: start;
   box-sizing: border-box; width: 100%; max-width: 64rem;
-  margin-inline: auto; padding: .5rem 1rem .75rem;
+  margin-inline: auto; padding: .5rem 1rem .15rem;
 }
 .chat-composer:not(:has(.chat-composer-actions)) {
   grid-template-columns: 1.75rem minmax(0, 1fr);
@@ -734,7 +738,7 @@ file-tree-container {
   min-width: 0; width: 100%; resize: none; overflow-y: auto;
   min-height: calc(1lh + 1rem); max-height: 8rem; field-sizing: content;
   border: 0; margin: 0; background: transparent; color: inherit; font: inherit;
-  padding: .5rem 0; box-sizing: border-box;
+  padding: .5rem 0 .25rem; box-sizing: border-box;
 }
 .chat-composer textarea:focus { outline: none; }
 .chat-composer-actions {
