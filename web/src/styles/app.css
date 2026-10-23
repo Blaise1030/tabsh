@@ -600,20 +600,20 @@ file-tree-container {
 .chat-error { color: var(--destructive, #ef4444); display: flex; flex-direction: column; gap: .25rem; }
 .chat-hint { color: var(--muted-foreground); font-size: .8125rem; }
 .chat-composer-toolbar {
-  display: flex; flex-wrap: wrap; align-items: end; gap: .5rem;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .5rem;
   box-sizing: border-box; width: 100%; max-width: 64rem;
   margin-inline: auto; padding: 0 1rem .65rem;
   min-height: 0;
 }
 .chat-attach {
-  display: flex; flex-direction: column; align-items: flex-start; gap: .35rem;
+  display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: .35rem;
 }
 .chat-attach-thumbs {
-  display: flex; flex-wrap: wrap; gap: .375rem;
+  display: flex; flex-wrap: wrap; gap: .375rem; order: -1; flex: 1 1 100%;
 }
 .chat-attach-thumbs .nc-thumb { width: 3rem; height: 3rem; }
 .chat-attach-btn { flex: none; }
-.chat-model-menu { display: inline-flex; position: relative; }
+.chat-model-menu { display: inline-flex; position: relative; flex: none; }
 .chat-model-chip {
   display: inline-flex; align-items: center; gap: .25rem;
   max-width: 16rem; margin: 0; padding: .2rem .5rem;

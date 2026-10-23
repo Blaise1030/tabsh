@@ -21,24 +21,50 @@ export function ModelPicker(props: {
   let trigger: HTMLButtonElement | undefined;
   let popover: HTMLDivElement | undefined;
 
-  const load = async (id: string) => {
+  const load = async (id: string): Promise<boolean> => {
     try {
       const next = await fetchModels(id);
-      setModels(next.options.length ? next : null);
+      if (next.options.length) {
+        setModels(next);
+        return true;
+      }
+      return false;
     } catch {
-      setModels(null);
+      return false;
     }
   };
 
+  // The agent may still be handshaking when the panel mounts — keep
+  // polling until models appear (or we give up), and refresh on busy flips.
   createEffect(() => {
     const id = props.sessionId;
-    void load(id);
-    const t = window.setTimeout(() => void load(id), 800);
-    onCleanup(() => clearTimeout(t));
+    setModels(null);
+    let tries = 0;
+    let done = false;
+    const tick = () => {
+      if (done) return;
+      void load(id).then((ok) => {
+        if (ok) done = true;
+      });
+    };
+    tick();
+    const iv = window.setInterval(() => {
+      tries += 1;
+      if (done || tries > 24) {
+        window.clearInterval(iv);
+        return;
+      }
+      tick();
+    }, 750);
+    onCleanup(() => {
+      done = true;
+      window.clearInterval(iv);
+    });
   });
 
   createEffect(() => {
-    if (!props.busy) void load(props.sessionId);
+    props.busy;
+    void load(props.sessionId);
   });
 
   const placePopover = () => {

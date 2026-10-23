@@ -28,28 +28,8 @@ pub(crate) fn parse_model_config(config_options: &Value) -> Option<ModelConfig> 
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    let options = opt
-        .get("options")
-        .and_then(Value::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|entry| {
-                    let id = entry
-                        .get("value")
-                        .or_else(|| entry.get("id"))
-                        .and_then(Value::as_str)?
-                        .to_string();
-                    let name = entry
-                        .get("name")
-                        .or_else(|| entry.get("title"))
-                        .and_then(Value::as_str)
-                        .unwrap_or(&id)
-                        .to_string();
-                    Some(ModelChoice { id, name })
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+    let mut options = Vec::new();
+    flatten_choices(opt.get("options"), &mut options);
     if options.is_empty() {
         return None;
     }
@@ -60,10 +40,52 @@ pub(crate) fn parse_model_config(config_options: &Value) -> Option<ModelConfig> 
     })
 }
 
+fn flatten_choices(node: Option<&Value>, out: &mut Vec<ModelChoice>) {
+    let Some(node) = node else { return };
+    let Some(arr) = node.as_array() else { return };
+    for entry in arr {
+        if let Some(s) = entry.as_str() {
+            out.push(ModelChoice {
+                id: s.to_string(),
+                name: s.to_string(),
+            });
+            continue;
+        }
+        // Nested groups (provider → models): recurse into `options`.
+        if entry.get("options").and_then(Value::as_array).is_some()
+            && entry.get("value").is_none()
+            && entry.get("id").is_none()
+        {
+            flatten_choices(entry.get("options"), out);
+            continue;
+        }
+        let Some(id) = entry
+            .get("value")
+            .or_else(|| entry.get("id"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+        else {
+            // Group with only a name + nested options.
+            flatten_choices(entry.get("options"), out);
+            continue;
+        };
+        let name = entry
+            .get("name")
+            .or_else(|| entry.get("title"))
+            .and_then(Value::as_str)
+            .unwrap_or(&id)
+            .to_string();
+        out.push(ModelChoice { id, name });
+    }
+}
+
 fn is_model_option(opt: &Value) -> bool {
     let id = opt.get("id").and_then(Value::as_str).unwrap_or("");
     let category = opt.get("category").and_then(Value::as_str).unwrap_or("");
-    id.eq_ignore_ascii_case("model") || category.eq_ignore_ascii_case("model")
+    let name = opt.get("name").and_then(Value::as_str).unwrap_or("");
+    id.eq_ignore_ascii_case("model")
+        || category.eq_ignore_ascii_case("model")
+        || name.eq_ignore_ascii_case("model")
 }
 
 #[cfg(test)]
@@ -122,5 +144,30 @@ mod tests {
         }]))
         .is_none());
         assert!(parse_model_config(&json!({"not": "array"})).is_none());
+    }
+
+    #[test]
+    fn parse_model_config_flattens_groups_and_string_entries() {
+        let cfg = parse_model_config(&json!([{
+            "id": "model",
+            "name": "Model",
+            "currentValue": "auto",
+            "options": [
+                "auto",
+                {
+                    "name": "Claude",
+                    "options": [
+                        {"value": "opus", "name": "Opus"},
+                        {"value": "sonnet", "name": "Sonnet"}
+                    ]
+                }
+            ]
+        }]))
+        .expect("model");
+        assert_eq!(cfg.current, "auto");
+        assert_eq!(
+            cfg.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(),
+            ["auto", "opus", "sonnet"]
+        );
     }
 }
