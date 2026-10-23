@@ -416,6 +416,11 @@ impl ChatManager {
                 .session_new(cwd)
                 .await
                 .map_err(|e| ChatError::Failed(e.to_string()))?;
+            // OpenCode (and similar) can resume a backend session that still
+            // holds a prompt from a prior daemon death. Clear it so the first
+            // real message is not rejected with "already has an active ACP prompt".
+            let _ = client.cancel(&acp_session_id).await;
+            client.clear_cancelled();
             Ok::<_, ChatError>((client, acp_session_id))
         })
         .await
@@ -553,7 +558,18 @@ impl ChatManager {
         let weak = Arc::downgrade(live);
         let mgr = self.clone();
         tokio::spawn(async move {
-            if let Err(e) = client.prompt(&acp_session_id, &text).await {
+            let first = client.prompt(&acp_session_id, &text).await;
+            let result = match first {
+                Err(e) if prompt_busy(&e.to_string()) => {
+                    // Agent still thinks a prior turn is running; cancel and
+                    // try this message once more.
+                    let _ = client.cancel(&acp_session_id).await;
+                    client.clear_cancelled();
+                    client.prompt(&acp_session_id, &text).await
+                }
+                other => other,
+            };
+            if let Err(e) = result {
                 eprintln!("chat: ACP prompt failed: {e}");
                 // The POST already returned 202. Auth and protocol
                 // failures reach the panel only as a chunk. A dead
@@ -755,6 +771,13 @@ fn agent_gone(err: &str) -> bool {
     lower.contains("acp agent exited")
         || lower.contains("broken pipe")
         || lower.contains("os error 32")
+}
+
+/// OpenCode (and peers) reject a new prompt while a prior one is still open
+/// on the resumed session — often after a daemon restart mid-turn.
+fn prompt_busy(err: &str) -> bool {
+    err.to_ascii_lowercase()
+        .contains("already has an active acp prompt")
 }
 
 /// Idle `end_turn` means the agent is waiting on the user. `completed` only
