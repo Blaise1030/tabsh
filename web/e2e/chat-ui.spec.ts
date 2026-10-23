@@ -49,7 +49,8 @@ test('a UI card in progress shows the chat composer', async ({ page, daemon, pro
   await dialog.locator('button[type="submit"]').click();
 
   const created = card(page, 'Say hello');
-  await expect(col(page, 'in_progress').locator('.board-card').filter({ hasText: 'Say hello' })).toBeVisible();
+  // Launch can move the card to Needs input before this assertion runs.
+  await expect(created).toBeVisible();
   const id = await created.getAttribute('data-id');
   const list = await page.request.get(`${daemon.baseUrl}/api/sessions`, {
     headers: { Authorization: `Bearer ${daemon.token}` },
