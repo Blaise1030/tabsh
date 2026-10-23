@@ -358,6 +358,82 @@ function ChipMenu<T extends string>(props: {
   );
 }
 
+// Agent chip: provider plus TUI/UI in one menu. The face shows the mode so
+// the separate mode crumb is not needed.
+function AgentMenu(): JSX.Element {
+  const prov = () => current.saved.providers.find((p) => p.name === provider());
+  const face = () => (
+    <>
+      {providerIcon(prov()?.command ?? '')()}
+      <span class="nc-value">{provider() || 'Agent'}</span>
+      <span class="nc-mode-tag">{agentMode() === 'ui' ? 'UI' : 'TUI'}</span>
+    </>
+  );
+  return (
+    <div
+      class="dropdown-menu nc-menu nc-agent-menu"
+      on:keydown={(e) => {
+        if (e.key !== 'Escape' || !(e.currentTarget as Element).querySelector('[aria-expanded="true"]')) return;
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+    >
+      <button type="button" class="nc-chip nc-trigger" aria-label="Agent" aria-haspopup="menu" aria-expanded="false">
+        <span class="nc-trigger-body">
+          {face()}
+          {icons.chevronDown()}
+        </span>
+      </button>
+      <div data-popover="" aria-hidden="true">
+        <div role="menu" aria-label="Agent">
+          <For each={providers()}>
+            {(v) => (
+              // biome-ignore lint/a11y/useFocusableInteractive: Basecoat's rows
+              <div
+                role="menuitemradio"
+                aria-checked={provider() === v}
+                on:click={() => {
+                  setProvider(v);
+                  const next = current.saved.providers.find((p) => p.name === v);
+                  if (agentMode() === 'ui' && !canUseUi(next)) setAgentMode('tui');
+                }}
+              >
+                {named(
+                  providerIcon(current.saved.providers.find((p) => p.name === v)?.command ?? ''),
+                  v || 'Agent',
+                )}
+                {provider() === v ? icons.check() : <span />}
+              </div>
+            )}
+          </For>
+          <div role="separator" class="nc-menu-sep" />
+          <div class="nc-menu-label" aria-hidden="true">
+            Mode
+          </div>
+          {(['tui', 'ui'] as const).map((mode) => {
+            const disabled = mode === 'ui' && !canUseUi(prov());
+            return (
+              // biome-ignore lint/a11y/useFocusableInteractive: Basecoat's rows
+              <div
+                role="menuitemradio"
+                aria-checked={agentMode() === mode}
+                aria-disabled={disabled || undefined}
+                data-disabled={disabled || undefined}
+                on:click={() => {
+                  if (!disabled) setAgentMode(mode);
+                }}
+              >
+                <span class="nc-value">{mode === 'tui' ? 'TUI' : 'UI'}</span>
+                {agentMode() === mode ? icons.check() : <span />}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const named = (icon: () => SVGSVGElement, text: string): JSX.Element => [icon(), <span class="nc-value">{text}</span>];
 
 // The New card dialog lives as long as the page.
@@ -489,40 +565,7 @@ export function NewCard(): JSX.Element {
             <span class="nc-sep" aria-hidden="true">
               {icons.chevronRight()}
             </span>
-            <ChipMenu
-              name="Agent"
-              items={providers()}
-              value={provider}
-              set={(v) => {
-                setProvider(v);
-                const prov = current.saved.providers.find((p) => p.name === v);
-                if (agentMode() === 'ui' && !canUseUi(prov)) setAgentMode('tui');
-              }}
-              face={providerFace}
-            />
-            <span class="nc-sep" aria-hidden="true">
-              {icons.chevronRight()}
-            </span>
-            <div class="nc-mode" role="radiogroup" aria-label="Agent mode">
-              {(['tui', 'ui'] as const).map((mode) => {
-                const prov = () => current.saved.providers.find((p) => p.name === provider());
-                const disabled = mode === 'ui' && !canUseUi(prov());
-                return (
-                  // biome-ignore lint/a11y/useSemanticElements: segmented control beside the agent chip, like ChipMenu's menuitemradio rows
-                  <button
-                    type="button"
-                    class="nc-mode-btn"
-                    role="radio"
-                    aria-checked={agentMode() === mode}
-                    aria-disabled={disabled}
-                    disabled={disabled}
-                    on:click={() => !disabled && setAgentMode(mode)}
-                  >
-                    {mode === 'tui' ? 'TUI' : 'UI'}
-                  </button>
-                );
-              })}
-            </div>
+            <AgentMenu />
           </div>
           <div class="nc-tools">
             <button

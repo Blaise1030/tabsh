@@ -43,8 +43,9 @@ test('a UI card in progress shows the chat composer', async ({ page, daemon, pro
   await dialog.locator('textarea[name="prompt"]').fill('Say hello');
   await dialog.locator('button[aria-label="Agent"]').click();
   await dialog.getByRole('menuitemradio', { name: 'Fake ACP', exact: true }).click();
-  await dialog.getByRole('radio', { name: 'UI', exact: true }).click();
-  await expect(dialog.getByRole('radio', { name: 'UI', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await dialog.locator('button[aria-label="Agent"]').click();
+  await dialog.getByRole('menuitemradio', { name: 'UI', exact: true }).click();
+  await expect(dialog.locator('button[aria-label="Agent"]')).toContainText('UI');
   await dialog.locator('button[type="submit"]').click();
 
   const created = card(page, 'Say hello');
@@ -71,7 +72,8 @@ async function openUiCard(page: Page, project: string, name: string): Promise<vo
   await dialog.locator('textarea[name="prompt"]').fill(name);
   await dialog.locator('button[aria-label="Agent"]').click();
   await dialog.getByRole('menuitemradio', { name: 'Fake ACP', exact: true }).click();
-  await dialog.getByRole('radio', { name: 'UI', exact: true }).click();
+  await dialog.locator('button[aria-label="Agent"]').click();
+  await dialog.getByRole('menuitemradio', { name: 'UI', exact: true }).click();
   await dialog.locator('button[type="submit"]').click();
   // The launch turn can move the card to Needs input before this looks.
   const created = card(page, name);

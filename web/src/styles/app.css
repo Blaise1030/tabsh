@@ -1052,18 +1052,18 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
    fills it, the current one checked. */
 .nc-menu [role="menuitemradio"] > span { flex: 1; }
 .nc-menu [data-popover] { min-width: 10rem; }
-.nc-mode {
-  display: inline-flex; align-items: stretch; flex: none; height: 1.875rem;
-  border: 1px solid var(--border); border-radius: var(--radius, .5rem); overflow: hidden;
+.nc-agent-menu [data-popover] { min-width: 12rem; }
+.nc-menu-sep { height: 1px; margin: .25rem .5rem; background: var(--border); }
+.nc-menu-label {
+  padding: .35rem .75rem .15rem; font-size: .6875rem; font-weight: 500;
+  color: var(--muted-foreground); text-transform: uppercase; letter-spacing: .04em;
 }
-.nc-mode-btn {
-  all: unset; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
-  min-width: 2.25rem; padding: 0 .5rem; font: inherit; font-size: .8125rem; color: var(--muted-foreground);
-  cursor: pointer;
+.nc-menu [role="menuitemradio"][data-disabled] { opacity: .45; pointer-events: none; }
+.nc-mode-tag {
+  flex: none; margin-left: .125rem; padding: 0 .35rem; border-radius: .25rem;
+  font-size: .6875rem; font-weight: 500; color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
 }
-.nc-mode-btn:hover:not(:disabled) { background: var(--accent); color: var(--foreground); }
-.nc-mode-btn[aria-checked="true"] { background: var(--accent); color: var(--foreground); font-weight: 500; }
-.nc-mode-btn:disabled { opacity: .45; cursor: not-allowed; }
 .nc-trigger-body > svg:last-child:not(:first-child) { width: 12px; height: 12px; }
 .nc-body { display: flex; flex-direction: column; gap: .75rem; }
 .nc-prompt {
