@@ -289,6 +289,7 @@ struct Approve {
 
 /// Answers the pending `session/request_permission`. An unknown id still
 /// acknowledges, matching a click that arrived after the agent moved on.
+/// Always records the decision in the transcript (even when not live).
 async fn approve(
     State(st): State<AppState>,
     Path(id): Path<String>,
@@ -297,12 +298,10 @@ async fn approve(
     if card_row(&st, &id).is_none() {
         return Err(StatusCode::NOT_FOUND.into_response());
     }
-    if st.chats.is_live(&id) {
-        st.chats
-            .answer(&id, &body.request_id, body.allow)
-            .await
-            .map_err(chat_error)?;
-    }
+    st.chats
+        .answer(&id, &body.request_id, body.allow)
+        .await
+        .map_err(chat_error)?;
     Ok(StatusCode::NO_CONTENT)
 }
 

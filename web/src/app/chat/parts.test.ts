@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { ChatChunk } from './client.ts';
-import { chatBlocks, chatLines } from './thread.ts';
+import { chatBlocks, chatLines, lineSegments } from './thread.ts';
 
 function lines(...chunks: ChatChunk[]) {
   return chatLines(chunks);
@@ -35,6 +35,30 @@ test('thought_delta lines are omitted', () => {
   assert.equal(out[0]?.chunk.type, 'text_delta');
 });
 
+test('answered permissions are omitted across reload', () => {
+  const out = chatLines([
+    {
+      type: 'permission',
+      request_id: '1',
+      tool_call: { title: 'Delete a' },
+    },
+    {
+      type: 'permission',
+      request_id: '2',
+      tool_call: { title: 'Delete b' },
+    },
+    { type: 'permission_answered', request_id: '1', allow: true },
+    { type: 'text_delta', text: 'ok' },
+  ]);
+  assert.deepEqual(
+    out.map((l) => [l.chunk.type, l.chunk.request_id ?? l.text]),
+    [
+      ['permission', '2'],
+      ['text_delta', 'ok'],
+    ],
+  );
+});
+
 test('queued user lines stay in their own block', () => {
   const grouped = chatBlocks(
     chatLines([
@@ -65,4 +89,25 @@ test('tool_call updates with the same id fold into one line', () => {
   const second = grouped[1]!.chunk.tool_call as { title?: string };
   assert.equal(first.title, 'ls -la');
   assert.equal(second.title, 'Read');
+});
+
+test('lineSegments folds consecutive tools and splits on text', () => {
+  const segs = lineSegments(
+    lines(
+      { type: 'text_delta', text: 'hi' },
+      { type: 'tool_call', tool_call: { title: 'Read' } },
+      { type: 'tool_call', tool_call: { title: 'grep' } },
+      { type: 'text_delta', text: 'done' },
+      { type: 'tool_call', tool_call: { title: 'Write' } },
+    ),
+  );
+  assert.deepEqual(
+    segs.map((s) => [s.kind, s.lines.length]),
+    [
+      ['rest', 1],
+      ['tools', 2],
+      ['rest', 1],
+      ['tools', 1],
+    ],
+  );
 });

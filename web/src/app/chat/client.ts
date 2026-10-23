@@ -12,6 +12,7 @@ export interface ChatChunk {
   tool_call?: unknown;
   entries?: unknown;
   request_id?: string;
+  allow?: boolean;
   options?: unknown;
   stop_reason?: string;
   update?: unknown;
@@ -28,6 +29,7 @@ const CHUNK_TYPES = new Set([
   'tool_call_update',
   'plan',
   'permission',
+  'permission_answered',
   'turn_end',
   'unknown',
   'error',

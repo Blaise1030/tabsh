@@ -83,6 +83,7 @@ fn last_session_id(chunks: &[UiChunk]) -> String {
             | UiChunk::ToolCallUpdate { session_id, .. }
             | UiChunk::Plan { session_id, .. }
             | UiChunk::Permission { session_id, .. }
+            | UiChunk::PermissionAnswered { session_id, .. }
             | UiChunk::TurnEnd { session_id, .. }
             | UiChunk::Unknown { session_id, .. } => session_id.as_str(),
             UiChunk::Error { .. } => continue,

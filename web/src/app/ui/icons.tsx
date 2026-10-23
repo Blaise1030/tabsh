@@ -54,6 +54,8 @@ export const icons: Record<
   | 'search'
   | 'close'
   | 'check'
+  | 'circleCheck'
+  | 'circleX'
   | 'theme'
   | 'font'
   | 'size'
@@ -213,6 +215,19 @@ export const icons: Record<
     </>
   )),
   check: lucide(() => <path d="M20 6 9 17l-5-5" />),
+  circleCheck: lucide(() => (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <path d="m9 12 2 2 4-4" />
+    </>
+  )),
+  circleX: lucide(() => (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <path d="m15 9-6 6" />
+      <path d="m9 9 6 6" />
+    </>
+  )),
   theme: lucide(() => (
     <>
       <path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z" />

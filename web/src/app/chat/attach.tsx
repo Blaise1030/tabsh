@@ -1,5 +1,5 @@
-// Image attach for the chat composer toolbar (New card style: upload paths
-// on send). Thumbs sit above the paperclip row.
+// Image attach for the chat composer toolbar. Pending files show as removable
+// badges; paths are uploaded on send (same as the New card flow).
 import { For, type JSX, Show } from 'solid-js';
 import { icons } from '../ui/icons.tsx';
 
@@ -23,14 +23,15 @@ export function AttachBar(props: {
   return (
     <div class="chat-attach">
       <Show when={props.images.length}>
-        <div class="chat-attach-thumbs">
+        <div class="chat-attach-badges">
           <For each={props.images}>
             {(x) => (
-              <span class="nc-thumb">
-                <img src={x.url} alt={x.file.name} title={x.file.name} />
+              <span class="badge chat-attach-badge" title={x.file.name}>
+                {icons.paperclip()}
+                <span class="chat-attach-name">{x.file.name}</span>
                 <button
                   type="button"
-                  class="nc-thumb-off"
+                  class="chat-attach-off"
                   aria-label={`Remove ${x.file.name}`}
                   onClick={() => props.onRemove(x)}
                 >

@@ -1,9 +1,11 @@
 // Dropping files on the terminal types their paths at the prompt (as a
 // paste, so TUIs like Claude Code pick up image paths). Browsers never
 // reveal a dropped file's real path, so files are uploaded to the daemon
-// first and the saved copy's path is used.
+// first and the saved copy's path is used. On a chat card, image files
+// attach as composer badges instead (uploaded when the message is sent).
 import { CARD_DRAG, drawer, shown } from '../board/view.tsx';
-import { deliverAgentText } from '../chat/deliver.ts';
+import { isImageFile } from '../chat/attach.tsx';
+import { deliverAgentImages, deliverAgentText } from '../chat/deliver.ts';
 import { uploadFile } from '../daemon/client.ts';
 import { go } from '../nav/router.ts';
 import { isChatCard, onScreen } from '../sessions/store.ts';
@@ -17,15 +19,10 @@ const isDroppable = (dt: DataTransfer | null): dt is DataTransfer =>
   !dt.types.includes(CARD_DRAG) &&
   ['Files', 'text/uri-list', 'text/plain'].some((t) => dt.types.includes(t));
 
-async function textForDrop(dt: DataTransfer): Promise<string> {
-  const local = localPaths(dt.getData('text/uri-list') || '');
-  if (local.length) return `${local.map(shellQuote).join(' ')} `;
-  const files = [...dt.files];
-  if (files.length) {
-    const paths = await Promise.all(files.map(uploadFile));
-    return `${paths.map(shellQuote).join(' ')} `;
-  }
-  return dt.getData('text/plain') || '';
+async function textForFiles(files: File[]): Promise<string> {
+  if (!files.length) return '';
+  const paths = await Promise.all(files.map(uploadFile));
+  return `${paths.map(shellQuote).join(' ')} `;
 }
 
 export function initDrop(): void {
@@ -52,13 +49,31 @@ export function initDrop(): void {
     if (e.defaultPrevented || !isDroppable(e.dataTransfer)) return;
     e.preventDefault();
     const target = onScreen();
-    if (!target) return;
+    if (!target || target.closed) return;
+    const chat = isChatCard(target);
     try {
-      const text = await textForDrop(e.dataTransfer);
-      if (text && !target.closed) {
-        deliverAgentText(isChatCard(target), target.id, text, target.term);
-        if (isChatCard(target) && onScreen() !== target) go({ term: null });
+      const local = localPaths(e.dataTransfer.getData('text/uri-list') || '');
+      if (local.length) {
+        deliverAgentText(chat, target.id, `${local.map(shellQuote).join(' ')} `, target.term);
+      } else {
+        const files = [...e.dataTransfer.files];
+        if (files.length) {
+          if (chat) {
+            const images = files.filter(isImageFile);
+            const other = files.filter((f) => !isImageFile(f));
+            if (images.length) deliverAgentImages(target.id, images);
+            const text = await textForFiles(other);
+            if (text) deliverAgentText(true, target.id, text, target.term);
+          } else {
+            const text = await textForFiles(files);
+            if (text) deliverAgentText(false, target.id, text, target.term);
+          }
+        } else {
+          const plain = e.dataTransfer.getData('text/plain') || '';
+          if (plain) deliverAgentText(chat, target.id, plain, target.term);
+        }
       }
+      if (chat && onScreen() !== target) go({ term: null });
     } catch (err) {
       console.error(err);
     }

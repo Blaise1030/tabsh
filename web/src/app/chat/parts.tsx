@@ -2,14 +2,19 @@
 // so a stream of tokens reads as a sentence. Agent lines share one icon
 // on the left; the body is full width. A permission row answers the
 // agent: Allow or Deny posts to the daemon, and a 204 for an id the agent
-// already left is not an error.
-import { createSignal, For, type JSX, Match, Show, Switch } from 'solid-js';
+// already left is not an error. Consecutive tool calls fold into one
+// "N operations" collapsible.
+import { createEffect, createSignal, For, type JSX, Match, onCleanup, Show, Switch } from 'solid-js';
+import { daemonFetch } from '../daemon/client.ts';
+import { rawBlobUrl } from '../files/api.ts';
 import { type Icon, icons, providerIcon } from '../ui/icons.tsx';
 import { errorNotice, postApprove } from './client.ts';
+import { ZoomableImage } from './image-lightbox.tsx';
 import { Markdown } from './markdown.tsx';
-import { type ChatBlock, type ChatLine, chatBlocks, chatLines } from './thread.ts';
+import { type ChatBlock, type ChatLine, chatBlocks, chatLines, lineSegments } from './thread.ts';
 import { toolDetail, toolSummary } from './tool.ts';
 import { permissionLabel } from './turn.ts';
+import { splitAttachedImages } from './user-images.ts';
 
 export type { ChatBlock, ChatLine };
 export { chatBlocks, chatLines };
@@ -27,10 +32,10 @@ export function Part(props: {
         <ErrorLine message={text()} />
       </Match>
       <Match when={chunk().type === 'user_text'}>
-        <Markdown class="chat-md chat-user" text={text()} />
+        <UserMessage text={text()} sessionId={props.sessionId} />
       </Match>
       <Match when={chunk().type === 'text_delta'}>
-        <Markdown class="chat-md chat-text" text={text()} />
+        <Markdown class="chat-md chat-text" text={text()} sessionId={props.sessionId} />
       </Match>
       <Match when={chunk().type === 'thought_delta'}>{null}</Match>
       <Match when={chunk().type === 'tool_call' || chunk().type === 'tool_call_update'}>
@@ -61,6 +66,7 @@ export function Block(props: {
 }): JSX.Element {
   const role = () => props.block.role;
   const queued = () => !!props.block.queued;
+  const segments = () => lineSegments(props.block.lines);
   return (
     <div class={`chat-row chat-row-${role()}${queued() ? ' chat-row-queued' : ''}`}>
       <Show when={role() === 'agent' || role() === 'error'}>
@@ -74,8 +80,16 @@ export function Block(props: {
         </span>
       </Show>
       <div class="chat-body">
-        <For each={props.block.lines}>
-          {(line) => <Part line={line} sessionId={props.sessionId} onError={props.onError} />}
+        <For each={segments()}>
+          {(seg) =>
+            seg.kind === 'tools' ? (
+              <ToolGroup lines={seg.lines} />
+            ) : (
+              <For each={seg.lines}>
+                {(line) => <Part line={line} sessionId={props.sessionId} onError={props.onError} />}
+              </For>
+            )
+          }
         </For>
         <Show when={props.thinking}>
           <LoadingLabel />
@@ -111,6 +125,61 @@ function agentMark(command: string | null | undefined): Icon {
   return providerIcon(command?.trim() || 'agent');
 }
 
+function UserMessage(props: { text: string; sessionId?: string }): JSX.Element {
+  const split = () => splitAttachedImages(props.text);
+  return (
+    <div class="chat-user-msg">
+      <Show when={split().body}>
+        {(body) => <Markdown class="chat-md chat-user" text={body()} sessionId={props.sessionId} />}
+      </Show>
+      <Show when={split().images.length}>
+        <div class="chat-user-images">
+          <For each={split().images}>{(path) => <ChatImage path={path} />}</For>
+        </div>
+      </Show>
+    </div>
+  );
+}
+
+function ChatImage(props: { path: string }): JSX.Element {
+  const [url, setUrl] = createSignal<string | null>(null);
+  createEffect(() => {
+    const path = props.path;
+    let objectUrl: string | null = null;
+    let cancelled = false;
+    setUrl(null);
+    void rawBlobUrl(daemonFetch, path).then(
+      (u) => {
+        if (cancelled) {
+          URL.revokeObjectURL(u);
+          return;
+        }
+        objectUrl = u;
+        setUrl(u);
+      },
+      () => {
+        if (!cancelled) setUrl(null);
+      },
+    );
+    onCleanup(() => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    });
+  });
+  return (
+    <Show
+      when={url()}
+      fallback={
+        <code class="chat-md-codespan" title={props.path}>
+          {props.path}
+        </code>
+      }
+    >
+      {(src) => <ZoomableImage class="chat-user-image" src={src()} alt="" title={props.path} />}
+    </Show>
+  );
+}
+
 function PermissionRow(props: {
   sessionId: string;
   requestId: string;
@@ -131,19 +200,36 @@ function PermissionRow(props: {
     }
   };
   return (
-    <div class="chat-permission">
-      <span>{permissionLabel(props.tool)}</span>
-      <Show when={props.requestId}>
-        <span class="chat-permission-actions">
-          <button type="button" class="btn" disabled={done()} onClick={() => void answer(true)}>
-            Allow
-          </button>
-          <button type="button" class="btn" disabled={done()} onClick={() => void answer(false)}>
-            Deny
-          </button>
-        </span>
-      </Show>
-    </div>
+    <Show when={!done()}>
+      <div class="chat-permission">
+        <span class="chat-permission-label">{permissionLabel(props.tool)}</span>
+        <Show when={props.requestId}>
+          <span class="chat-permission-actions">
+            <button
+              type="button"
+              class="btn"
+              data-size="icon-sm"
+              aria-label="Allow"
+              title="Allow"
+              onClick={() => void answer(true)}
+            >
+              {icons.circleCheck()}
+            </button>
+            <button
+              type="button"
+              class="btn"
+              data-variant="outline"
+              data-size="icon-sm"
+              aria-label="Deny"
+              title="Deny"
+              onClick={() => void answer(false)}
+            >
+              {icons.circleX()}
+            </button>
+          </span>
+        </Show>
+      </div>
+    </Show>
   );
 }
 
@@ -154,6 +240,24 @@ function ErrorLine(props: { message: string }): JSX.Element {
       <span>{note().text}</span>
       <Show when={note().hint}>{(hint) => <span class="chat-hint">{hint()}</span>}</Show>
     </p>
+  );
+}
+
+function ToolGroup(props: { lines: ChatLine[] }): JSX.Element {
+  const count = () => props.lines.length;
+  const label = () => (count() === 1 ? '1 operation' : `${count()} operations`);
+  return (
+    <details class="chat-ops">
+      <summary class="chat-ops-summary">
+        <span class="chat-tool-chevron" aria-hidden="true">
+          {icons.chevronRight()}
+        </span>
+        <span class="chat-ops-label">{label()}</span>
+      </summary>
+      <div class="chat-ops-list">
+        <For each={props.lines}>{(line) => <ToolRow tool={line.chunk.tool_call} />}</For>
+      </div>
+    </details>
   );
 }
 

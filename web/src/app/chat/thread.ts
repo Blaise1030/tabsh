@@ -19,8 +19,15 @@ export interface ChatBlock {
 }
 
 export function chatLines(chunks: ChatChunk[]): ChatLine[] {
+  // Answered permissions stay in the JSONL as `permission_answered` so a
+  // reload can omit the matching request cards.
+  const answered = new Set(
+    chunks.filter((c) => c.type === 'permission_answered' && c.request_id).map((c) => c.request_id as string),
+  );
   const lines: ChatLine[] = [];
   for (const chunk of chunks) {
+    if (chunk.type === 'permission_answered') continue;
+    if (chunk.type === 'permission' && chunk.request_id && answered.has(chunk.request_id)) continue;
     if (isTool(chunk.type)) {
       const id = toolCallId(chunk.tool_call);
       if (id) {
@@ -73,4 +80,21 @@ export function chatBlocks(lines: ChatLine[]): ChatBlock[] {
     blocks.push({ role, lines: [line], queued: queued || undefined });
   }
   return blocks;
+}
+
+/** Consecutive tool rows vs everything else, so the UI can fold tools into one "N operations" group. */
+export type LineSegment = { kind: 'tools' | 'rest'; lines: ChatLine[] };
+
+export function lineSegments(lines: ChatLine[]): LineSegment[] {
+  const out: LineSegment[] = [];
+  for (const line of lines) {
+    const kind = isTool(line.chunk.type) ? 'tools' : 'rest';
+    const last = out[out.length - 1];
+    if (last?.kind === kind) {
+      last.lines.push(line);
+      continue;
+    }
+    out.push({ kind, lines: [line] });
+  }
+  return out;
 }

@@ -29,10 +29,12 @@ export function Composer(props: {
   };
   createEffect(() => {
     const id = props.sessionId;
+    const attachImages = props.onPasteImages;
     onCleanup(
       registerComposer(id, {
         insert: (incoming) => setText((cur) => insertIntoComposer(cur, incoming)),
         focus: () => field?.focus(),
+        attachImages,
       }),
     );
   });

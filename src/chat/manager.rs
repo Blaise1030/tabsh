@@ -692,19 +692,50 @@ impl ChatManager {
         Ok(())
     }
 
-    /// Answers a `session/request_permission` the agent is blocked on.
-    /// An id that is not pending still succeeds: the route acknowledges it.
+    /// Answers a `session/request_permission` the agent is blocked on, and
+    /// records `permission_answered` in the transcript so the UI stays
+    /// hidden across reloads. An id that is not pending still succeeds.
     pub(crate) async fn answer(
         &self,
         session_id: &str,
         request_id: &str,
         allow: bool,
     ) -> ChatResult<()> {
-        let live = self.live(session_id).ok_or(ChatError::NotLive)?;
-        live.client
-            .answer_permission(request_id, allow)
-            .await
-            .map_err(|e| ChatError::Failed(e.to_string()))
+        if let Some(live) = self.live(session_id) {
+            live.client
+                .answer_permission(request_id, allow)
+                .await
+                .map_err(|e| ChatError::Failed(e.to_string()))?;
+            live.record(UiChunk::PermissionAnswered {
+                session_id: live.acp_session_id.clone(),
+                request_id: request_id.to_string(),
+                allow,
+            });
+            return Ok(());
+        }
+        // Agent gone: still persist so a reload does not resurrect the card.
+        let acp_sid = transcript::load(&self.inner.data_dir, session_id)
+            .into_iter()
+            .rev()
+            .find_map(|c| match c {
+                UiChunk::Permission {
+                    session_id: sid,
+                    request_id: rid,
+                    ..
+                } if rid == request_id => Some(sid),
+                _ => None,
+            })
+            .unwrap_or_default();
+        transcript::append(
+            &self.inner.data_dir,
+            session_id,
+            &UiChunk::PermissionAnswered {
+                session_id: acp_sid,
+                request_id: request_id.to_string(),
+                allow,
+            },
+        )
+        .map_err(|e| ChatError::Failed(e.to_string()))
     }
 
     /// Models the live session advertises. `None` when not live or empty.
