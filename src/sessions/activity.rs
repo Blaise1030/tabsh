@@ -1,11 +1,12 @@
 //! A session's output as a cheap signal for pages whose tab is parked (no
 //! socket): at most one "output" per window however much it prints (plus a
 //! trailing one when the window held some back), and a "bell" for a BEL
-//! outside an escape string, as the page's `bell-scan.ts` finds them, at
-//! most one per bell window. A signal also carries the window title the
-//! shell last set (OSC 0 or 2), when it changed since the last signal: a
-//! parked tab's xterm isn't there to read it, so its tab and card would keep
-//! their old name until it attached.
+//! outside an escape string, at most one per bell window. An attached page
+//! gets every BEL from the socket's own `bell` event instead (ws.rs). A
+//! signal also carries the window title the shell last set (OSC 0 or 2),
+//! when it changed since the last signal: a parked tab's xterm isn't there
+//! to read it, so its tab and card would keep their old name until it
+//! attached.
 
 use crate::board::{ActivityEvent, BoardEvent};
 use serde::Serialize;
@@ -27,6 +28,14 @@ pub(super) const BELL_WINDOW: Duration = Duration::from_millis(250);
 pub(crate) enum Activity {
     Output,
     Bell,
+}
+
+/// What one chunk tells the board and attached sockets. The board's signals
+/// are throttled; a BEL is not: an attached page has no other way to hear it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Signal {
+    pub(super) activity: Option<Activity>,
+    pub(super) bell: bool,
 }
 
 /// Escape state carried across chunks.
@@ -101,20 +110,32 @@ impl Throttle {
 
     /// What this chunk signals, if anything: a bell (outside the bell
     /// window), or output once a window has passed since the last signal.
-    pub(super) fn feed(&mut self, bytes: &[u8], now: Instant) -> Option<Activity> {
-        if self.scan(bytes) && !within(self.bell, now, BELL_WINDOW) {
+    /// `bell` is true for every BEL outside an escape string, throttled or
+    /// not, so the socket reader can pass it on to attached pages.
+    pub(super) fn feed(&mut self, bytes: &[u8], now: Instant) -> Signal {
+        let bell = self.scan(bytes);
+        if bell && !within(self.bell, now, BELL_WINDOW) {
             self.bell = Some(now);
             self.output = Some(now);
             self.held = None;
-            return Some(Activity::Bell);
+            return Signal {
+                activity: Some(Activity::Bell),
+                bell,
+            };
         }
         if within(self.output, now, self.window) {
             self.held = Some(now);
-            return None;
+            return Signal {
+                activity: None,
+                bell,
+            };
         }
         self.output = Some(now);
         self.held = None;
-        Some(Activity::Output)
+        Signal {
+            activity: Some(Activity::Output),
+            bell,
+        }
     }
 
     /// The trailing output signal, once the window that held some back is
@@ -153,8 +174,9 @@ impl Throttle {
 
     /// Whether `bytes` hold a BEL outside an escape string (OSC, DCS, APC,
     /// PM, SOS), which BEL may terminate: shells set the title on every
-    /// prompt. Same states as the page's `scanBell`. Titles set on the way
-    /// are kept for [`Throttle::take_title`].
+    /// prompt. The scanner keeps its state across chunks, so a string split
+    /// by a read boundary stays one string. Titles set on the way are kept
+    /// for [`Throttle::take_title`].
     fn scan(&mut self, bytes: &[u8]) -> bool {
         let mut bell = false;
         for &b in bytes {
@@ -272,19 +294,20 @@ impl Signals {
         }
     }
 
-    pub(super) fn feed(&self, bytes: &[u8]) {
+    pub(super) fn feed(&self, bytes: &[u8]) -> bool {
         let mut t = self.throttle.lock().unwrap();
         let was_held = t.held.is_some();
         let signal = t.feed(bytes, Instant::now());
-        let title = signal.and_then(|_| t.take_title());
+        let title = signal.activity.and_then(|_| t.take_title());
         let wake = !was_held && t.held.is_some();
         drop(t);
         if wake {
             self.sweeper.unpark();
         }
-        if let Some(activity) = signal {
+        if let Some(activity) = signal.activity {
             send(&self.events, &self.session, activity, Duration::ZERO, title);
         }
+        signal.bell
     }
 }
 
@@ -326,7 +349,10 @@ mod tests {
         let mut t = Throttle::default();
         let now = Instant::now();
         let seen: Vec<_> = (0..1000)
-            .filter_map(|i| t.feed(b"line of output\r\n", now + Duration::from_micros(i)))
+            .filter_map(|i| {
+                t.feed(b"line of output\r\n", now + Duration::from_micros(i))
+                    .activity
+            })
             .collect();
         assert_eq!(seen, [Activity::Output]);
     }
@@ -335,44 +361,50 @@ mod tests {
     fn output_after_the_window_publishes_again() {
         let mut t = Throttle::default();
         let now = Instant::now();
-        assert_eq!(t.feed(b"a", now), Some(Activity::Output));
-        assert_eq!(t.feed(b"b", now + WINDOW / 2), None);
-        assert_eq!(t.feed(b"c", now + WINDOW), Some(Activity::Output));
+        assert_eq!(t.feed(b"a", now).activity, Some(Activity::Output));
+        assert_eq!(t.feed(b"b", now + WINDOW / 2).activity, None);
+        assert_eq!(t.feed(b"c", now + WINDOW).activity, Some(Activity::Output));
     }
 
     #[test]
     fn a_bare_bel_publishes_a_bell_at_once() {
         let mut t = Throttle::default();
         let now = Instant::now();
-        assert_eq!(t.feed(b"a", now), Some(Activity::Output));
-        assert_eq!(
-            t.feed(b"done\x07\r\n", now + Duration::from_millis(1)),
-            Some(Activity::Bell)
-        );
+        assert_eq!(t.feed(b"a", now).activity, Some(Activity::Output));
+        let signal = t.feed(b"done\x07\r\n", now + Duration::from_millis(1));
+        assert_eq!(signal.activity, Some(Activity::Bell));
+        assert!(signal.bell, "an attached page hears it too");
     }
 
     #[test]
     fn a_bel_ending_an_osc_title_does_not_ring() {
         let mut t = Throttle::default();
         let now = Instant::now();
-        assert_eq!(t.feed(b"\x1b]0;title\x07", now), Some(Activity::Output));
+        let signal = t.feed(b"\x1b]0;title\x07", now);
+        assert_eq!(signal.activity, Some(Activity::Output));
+        assert!(!signal.bell);
         let later = now + WINDOW;
-        assert_eq!(t.feed(b"\x1b]0;ti", later), Some(Activity::Output));
-        assert_eq!(t.feed(b"tle\x07$ ", later), None, "split across chunks");
+        assert_eq!(t.feed(b"\x1b]0;ti", later).activity, Some(Activity::Output));
+        let signal = t.feed(b"tle\x07$ ", later);
+        assert_eq!(signal.activity, None, "split across chunks");
+        assert!(!signal.bell, "the BEL ended the title, so it did not ring");
     }
 
     #[test]
     fn a_bel_after_a_string_ended_by_st_rings() {
         let mut t = Throttle::default();
         let now = Instant::now();
-        assert_eq!(t.feed(b"\x1b]0;title\x1b\\\x07", now), Some(Activity::Bell));
+        assert_eq!(
+            t.feed(b"\x1b]0;title\x1b\\\x07", now).activity,
+            Some(Activity::Bell)
+        );
     }
 
     #[test]
     fn a_bel_after_a_plain_escape_rings() {
         let mut t = Throttle::default();
         assert_eq!(
-            t.feed(b"\x1b[31mred\x1b[0m\x07", Instant::now()),
+            t.feed(b"\x1b[31mred\x1b[0m\x07", Instant::now()).activity,
             Some(Activity::Bell)
         );
     }
@@ -382,7 +414,7 @@ mod tests {
         let mut t = Throttle::default();
         let now = Instant::now();
         let seen: Vec<_> = (0..1000)
-            .filter_map(|i| t.feed(b"\x07", now + Duration::from_micros(i)))
+            .filter_map(|i| t.feed(b"\x07", now + Duration::from_micros(i)).activity)
             .collect();
         assert_eq!(seen, [Activity::Bell]);
     }
@@ -391,17 +423,34 @@ mod tests {
     fn a_bell_after_the_bell_window_rings_again() {
         let mut t = Throttle::default();
         let now = Instant::now();
-        assert_eq!(t.feed(b"\x07", now), Some(Activity::Bell));
-        assert_eq!(t.feed(b"\x07", now + BELL_WINDOW / 2), None);
-        assert_eq!(t.feed(b"\x07", now + BELL_WINDOW), Some(Activity::Bell));
+        assert_eq!(t.feed(b"\x07", now).activity, Some(Activity::Bell));
+        assert_eq!(t.feed(b"\x07", now + BELL_WINDOW / 2).activity, None);
+        assert_eq!(
+            t.feed(b"\x07", now + BELL_WINDOW).activity,
+            Some(Activity::Bell)
+        );
+    }
+
+    // The board throttles bells, but an attached page hears every one: it
+    // has no other path for the shell's BEL.
+    #[test]
+    fn every_bell_reaches_an_attached_socket() {
+        let mut t = Throttle::default();
+        let now = Instant::now();
+        let first = t.feed(b"\x07", now);
+        assert_eq!(first.activity, Some(Activity::Bell));
+        assert!(first.bell);
+        let second = t.feed(b"\x07", now + BELL_WINDOW / 2);
+        assert_eq!(second.activity, None, "the board's bell is throttled");
+        assert!(second.bell, "the socket's bell is not");
     }
 
     #[test]
     fn a_throttled_bell_still_ends_as_trailing_output() {
         let mut t = Throttle::default();
         let now = Instant::now();
-        assert_eq!(t.feed(b"\x07", now), Some(Activity::Bell));
-        assert_eq!(t.feed(b"\x07", now + BELL_WINDOW / 2), None);
+        assert_eq!(t.feed(b"\x07", now).activity, Some(Activity::Bell));
+        assert_eq!(t.feed(b"\x07", now + BELL_WINDOW / 2).activity, None);
         assert!(t.tick(now + WINDOW).is_some(), "never vanishes");
     }
 
@@ -409,8 +458,8 @@ mod tests {
     fn output_held_back_by_the_window_gets_a_trailing_signal() {
         let mut t = Throttle::default();
         let now = Instant::now();
-        assert_eq!(t.feed(b"a", now), Some(Activity::Output));
-        assert_eq!(t.feed(b"b", now + WINDOW / 4), None);
+        assert_eq!(t.feed(b"a", now).activity, Some(Activity::Output));
+        assert_eq!(t.feed(b"b", now + WINDOW / 4).activity, None);
         assert_eq!(t.tick(now + WINDOW / 2), None, "the window isn't over");
         assert_eq!(
             t.tick(now + WINDOW),
@@ -425,7 +474,7 @@ mod tests {
         let mut t = Throttle::default();
         let now = Instant::now();
         assert_eq!(t.tick(now), None, "no output yet");
-        assert_eq!(t.feed(b"a", now), Some(Activity::Output));
+        assert_eq!(t.feed(b"a", now).activity, Some(Activity::Output));
         assert_eq!(t.tick(now + WINDOW * 2), None);
     }
 
@@ -542,6 +591,18 @@ mod tests {
         assert_eq!(next(&mut rx, TEST_WINDOW).unwrap().age_ms, 0, "leading");
         let ev = next(&mut rx, Duration::from_secs(2)).expect("the sweeper woke");
         assert_eq!(ev.activity, Activity::Output);
+    }
+
+    #[test]
+    fn signals_tell_an_attached_socket_about_every_bell() {
+        let (tx, _rx) = broadcast::channel(16);
+        let signals = Signals::start_with(tx, "s1".into(), TEST_WINDOW);
+        assert!(signals.feed(b"\x07"));
+        assert!(
+            signals.feed(b"\x07"),
+            "the board throttles the second bell, not the socket"
+        );
+        assert!(!signals.feed(b"plain output"));
     }
 
     #[test]

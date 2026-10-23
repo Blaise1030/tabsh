@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.1.35
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.34...v0.1.35)
+
+### Features
+
+- Open card menus from the board ([c4760b5](https://github.com/Blaise1030/tabsh/commit/c4760b5))
+- **web:** Add the temporary VanJS bridge and presence lists ([54417f6](https://github.com/Blaise1030/tabsh/commit/54417f6))
+- **web:** Extract shadcn tokens with a Tailwind theme bridge ([2949e77](https://github.com/Blaise1030/tabsh/commit/2949e77))
+
+### Performance
+
+- **daemon:** Signal bells and coalesce socket output ([2c3b100](https://github.com/Blaise1030/tabsh/commit/2c3b100))
+- **web:** Xterm 6 with WebGL on the Solid UI base ([bd110d1](https://github.com/Blaise1030/tabsh/commit/bd110d1))
+
+### Fixes
+
+- **web:** Presence rows follow their list on first render ([652bdb2](https://github.com/Blaise1030/tabsh/commit/652bdb2))
+- **web:** Tick a tag from its label in the Tags picker ([fdc4dbf](https://github.com/Blaise1030/tabsh/commit/fdc4dbf))
+
 ## v0.1.34
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.33...v0.1.34)

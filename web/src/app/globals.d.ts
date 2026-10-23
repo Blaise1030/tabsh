@@ -1,7 +1,8 @@
-// xterm.js and its fit addon load from the SRI-pinned CDN scripts in
+// xterm.js and its fit/WebGL addons load from the SRI-pinned CDN scripts in
 // pages/app/index.astro; their npm packages provide the types only.
 declare const Terminal: typeof import('@xterm/xterm').Terminal;
 declare const FitAddon: { FitAddon: typeof import('@xterm/addon-fit').FitAddon };
+declare const WebglAddon: { WebglAddon: typeof import('@xterm/addon-webgl').WebglAddon };
 
 // The subset of the Navigation API the router uses (nav/router.ts);
 // TypeScript's DOM lib has only NavigationHistoryEntry so far.

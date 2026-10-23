@@ -17,6 +17,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test as base, expect, type Page } from '@playwright/test';
 import { startDaemon, type Daemon } from './daemon.ts';
+import { installTerminalSpy } from './term.ts';
 
 // `fake-agent` on PATH: the worker daemon sets `TABSH_TEST_ACP=1`, which
 // stores this command on a UI card instead of the provider's real ACP line.
@@ -32,7 +33,19 @@ function installFakeAgent(): string {
 // One daemon — its own port and its own empty state dir — per worker, so
 // specs never see each other's tabs. Tests within a worker run one at a time.
 // (The second generic types worker-scoped fixtures; tests still get `daemon`.)
-const test = base.extend<{ project: string; crowd: string; twins: { alpha: string; beta: string } }, { daemon: Daemon }>({
+const test = base.extend<
+  { project: string; crowd: string; twins: { alpha: string; beta: string }; terminalSpy: void },
+  { daemon: Daemon }
+>({
+  // Record every xterm the page opens so termText() can read its buffer.
+  // Auto: every spec gets it, even ones that only use tabs.
+  terminalSpy: [
+    async ({ page }, use) => {
+      await page.addInitScript(installTerminalSpy);
+      await use();
+    },
+    { auto: true },
+  ],
   // A git project for the file explorer: a README, `src/main.rs`, an ignored
   // `target/`, an empty `docs/`, a dotfile, a file whose name is markup, and one whose name has a space
   // and a quote.
@@ -100,6 +113,7 @@ const test = base.extend<{ project: string; crowd: string; twins: { alpha: strin
 });
 
 export { test, expect };
+export { termCellPoint, termCols, termLines, termText } from './term.ts';
 
 // Pair the page with the daemon and wait for the app: the token rides in the
 // URL fragment, exactly as in the link the daemon prints, and the page clears

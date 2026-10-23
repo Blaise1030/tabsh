@@ -283,13 +283,16 @@ impl Output {
     /// trimmed, their modes remembered) and sent to attached clients. Both
     /// happen under the `output` lock so a client attaching (`replay`) sees
     /// each byte once, in its history or live; neither waits on a client.
-    pub(super) fn append(&mut self, chunk: Bytes) {
+    pub(super) fn append(&mut self, chunk: Bytes, bell: bool) {
         self.scrollback.extend(&chunk[..]);
         let excess = self.scrollback.len().saturating_sub(SCROLLBACK_BYTES);
         self.trimmed_modes.feed(self.scrollback.drain(..excess));
         self.dirty = true;
         self.total += chunk.len() as u64;
         let _ = self.tx.send(Event::Output(chunk));
+        if bell {
+            let _ = self.tx.send(Event::Bell);
+        }
     }
 
     /// The scrollback as one buffer, for a replay or a save.
@@ -416,11 +419,11 @@ fn spawn_session(
         let signals = Signals::start(st.events.clone(), id.clone());
         while let Ok(n @ 1..) = reader.read(&mut buf) {
             // Parked tabs hear this instead of the output; outside the lock.
-            signals.feed(&buf[..n]);
+            let bell = signals.feed(&buf[..n]);
             // Copied before the lock: attaching clients and the flusher wait
             // on it, so it covers only the append and the broadcast.
             let chunk = Bytes::copy_from_slice(&buf[..n]);
-            s.output.lock().unwrap().append(chunk);
+            s.output.lock().unwrap().append(chunk, bell);
         }
         // Sends output held back in its last second; stops its sweeper.
         drop(signals);
@@ -486,8 +489,8 @@ mod tests {
     fn appending_keeps_the_newest_scrollback_and_the_modes_trimmed_off() {
         let mut out = Output::new(VecDeque::new());
         let mut rx = out.tx.subscribe();
-        out.append(Bytes::from_static(b"\x1b[?1049h"));
-        out.append(Bytes::from(vec![b'x'; SCROLLBACK_BYTES]));
+        out.append(Bytes::from_static(b"\x1b[?1049h"), false);
+        out.append(Bytes::from(vec![b'x'; SCROLLBACK_BYTES]), false);
         assert_eq!(out.scrollback.len(), SCROLLBACK_BYTES);
         assert!(out.scrollback.iter().all(|&b| b == b'x'));
         assert_eq!(out.trimmed_modes.replay_prefix(), b"\x1b[?1049h");
@@ -502,6 +505,21 @@ mod tests {
             [8, SCROLLBACK_BYTES],
             "each chunk broadcast once, whole"
         );
+    }
+
+    #[test]
+    fn a_bell_is_broadcast_after_the_output_it_was_in() {
+        let mut out = Output::new(VecDeque::new());
+        let mut rx = out.tx.subscribe();
+        out.append(Bytes::from_static(b"done\x07"), true);
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(Event::Output(data)) if &data[..] == b"done\x07"
+        ));
+        assert!(matches!(rx.try_recv(), Ok(Event::Bell)));
+        out.append(Bytes::from_static(b"quiet"), false);
+        assert!(matches!(rx.try_recv(), Ok(Event::Output(_))));
+        assert!(rx.try_recv().is_err(), "quiet output sends no bell");
     }
 
     #[test]

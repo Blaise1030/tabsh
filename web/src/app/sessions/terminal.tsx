@@ -13,13 +13,14 @@ import { socketUrl } from '../daemon/client.ts';
 import { linkProvider } from '../links/provider.ts';
 import { here } from '../nav/router.ts';
 import { current, terminalOptions } from '../settings/settings.ts';
+import { isMac } from '../ui/dom.ts';
 import { icons } from '../ui/icons.tsx';
 import { ring } from './bell.ts';
-import { scanBell } from './bell-scan.ts';
 import { coalescer } from './coalesce.ts';
 import { type ExtraKey, keyInput, withCtrl } from './extra-keys.ts';
 import { scrollToTab } from './groups.tsx';
 import { type Heartbeat, heartbeat, type Timers } from './heartbeat.ts';
+import { wordJumpSequence } from './keys.ts';
 import { enqueueReconnect, nextReconnect, retryDelay, shouldDrainReconnects, terminalInView } from './reconnect.ts';
 import {
   active,
@@ -42,8 +43,30 @@ import {
 import { setName } from './tabs.ts';
 import { labelTab } from './tags.tsx';
 import { watchTouch } from './touch.ts';
+import { softwareRenderer } from './webgl.ts';
 
 const enc = new TextEncoder();
+
+// One probe for the page: software WebGL (SwiftShader, llvmpipe) paints a busy
+// terminal far slower than the DOM renderer, so it counts as no WebGL. A real
+// GPU keeps WebGL; no context or a failed probe also leaves the DOM renderer.
+let gpuAllowed: boolean | undefined;
+function webglAllowed(): boolean {
+  if (gpuAllowed !== undefined) return gpuAllowed;
+  gpuAllowed = false;
+  try {
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl2') ?? canvas.getContext('webgl');
+    if (gl) {
+      const ext = gl.getExtension('WEBGL_debug_renderer_info');
+      gpuAllowed = !softwareRenderer(ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : '');
+      gl.getExtension('WEBGL_lose_context')?.loseContext();
+    }
+  } catch {
+    // Probe failure: the DOM renderer is the safe choice.
+  }
+  return gpuAllowed;
+}
 
 let reconnectQueue: string[] = [];
 const reconnectAttempts = new Map<string, number>();
@@ -207,6 +230,17 @@ export function openSession(info: SessionInfo): Session {
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
   term.open(el);
+  // Paint through WebGL on a real GPU; software rasterizers, a refused
+  // context, or an addon error leave xterm's DOM renderer.
+  if (webglAllowed()) {
+    try {
+      const webgl = new WebglAddon.WebglAddon();
+      webgl.onContextLoss(() => webgl.dispose());
+      term.loadAddon(webgl);
+    } catch {
+      // No WebGL (or no context at init): the DOM renderer stays.
+    }
+  }
   // Phone keyboards otherwise correct, capitalise and predict into the shell.
   for (const [k, v] of [
     ['autocorrect', 'off'],
@@ -216,6 +250,16 @@ export function openSession(info: SessionInfo): Session {
   ])
     term.textarea?.setAttribute(k, v);
   term.registerLinkProvider(linkProvider(() => s, term, el));
+
+  // xterm 6 dropped macOS Option+Arrow → Ctrl+Arrow (#5346); keep the shell's
+  // word jump without changing other modifiers.
+  term.attachCustomKeyEventHandler((event) => {
+    if (event.type !== 'keydown') return true;
+    const sequence = wordJumpSequence(event.key, event, isMac);
+    if (!sequence) return true;
+    term.input(sequence);
+    return false;
+  });
 
   // A program that redraws without taking the alternate screen can leave the
   // view stuck above its output; this brings it back.
@@ -285,7 +329,6 @@ export function openSession(info: SessionInfo): Session {
     stream: null,
     replaying: false,
     parsingReplay: false,
-    esc: 0,
     bell: readBell,
     setBell: writeBell,
     unread: readUnread,
@@ -388,9 +431,9 @@ function connect(s: Session): Promise<boolean> {
     };
 
     // The first binary message is the replay (always sent, maybe empty);
-    // bells inside it already rang. The text frame before it says whether
-    // it is the whole scrollback, for a clean screen, or only what this
-    // screen missed (`resumed`).
+    // bells inside it are left to the daemon's live Bell events. The text
+    // frame before it says whether it is the whole scrollback, for a clean
+    // screen, or only what this screen missed (`resumed`).
     // Only a daemon that has answered a ping can be found dead by a missing
     // pong: an older one never answers.
     let answers = false;
@@ -399,7 +442,6 @@ function connect(s: Session): Promise<boolean> {
       s.stream = null;
       s.replaying = true;
       s.parsingReplay = false;
-      s.esc = 0;
       sendSize(s);
       const hb = heartbeat(
         (n) => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ ping: n })),
@@ -419,6 +461,10 @@ function connect(s: Session): Promise<boolean> {
         } else if (msg.stream) {
           s.stream = { epoch: msg.stream.epoch, at: msg.stream.at };
           resumed = msg.stream.resumed === true && seen?.epoch === msg.stream.epoch;
+        } else if (msg.bell) {
+          // The daemon scans live output, so this skips replayed history and
+          // doesn't need a second scan on the main thread for every chunk.
+          ring(s);
         } else if (msg.exit) {
           removeSession(s);
           finish(false);
@@ -426,8 +472,6 @@ function connect(s: Session): Promise<boolean> {
         return;
       }
       const bytes = new Uint8Array(e.data);
-      const scanned = scanBell(s.esc, bytes);
-      s.esc = scanned.esc;
       if (s.replaying) {
         s.replaying = false;
         s.parsingReplay = true;
@@ -443,11 +487,10 @@ function connect(s: Session): Promise<boolean> {
         });
         return;
       }
-      // A burst paints once a frame, not once a message; bell and unread
-      // still follow each chunk.
+      // A burst paints once a frame, not once a message; unread still follows
+      // each chunk.
       if (s.stream) s.stream.at += bytes.length;
       s.out.push(bytes);
-      if (scanned.bell) ring(s);
       if (s !== onScreen()) s.setUnread(true);
     };
     // Dropped without an exit message (network blip, client lagged, daemon

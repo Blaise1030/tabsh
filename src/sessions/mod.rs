@@ -151,9 +151,11 @@ const SCROLLBACK_BYTES: usize = 512 * 1024;
 /// How often changed scrollback and cwd are written to the database.
 pub(crate) const FLUSH_INTERVAL: Duration = Duration::from_secs(2);
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum Event {
     Output(Bytes),
+    /// A BEL outside an escape string, for attached pages.
+    Bell,
     Exit,
     /// This shell was replaced (`restart`): the session stays; its tabs are
     /// told to reattach to the replacement.
