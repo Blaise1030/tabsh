@@ -1,29 +1,17 @@
 // One transcript row. Consecutive text (or thought) deltas are one line,
-// so a stream of tokens reads as a sentence. A permission row answers the
+// so a stream of tokens reads as a sentence. Agent lines share one icon
+// on the left; the body is full width. A permission row answers the
 // agent: Allow or Deny posts to the daemon, and a 204 for an id the agent
 // already left is not an error.
-import { createSignal, type JSX, Match, Show, Switch } from 'solid-js';
-import { type ChatChunk, errorNotice, postApprove } from './client.ts';
+import { createSignal, For, type JSX, Match, Show, Switch } from 'solid-js';
+import { type Icon, icons, providerIcon } from '../ui/icons.tsx';
+import { errorNotice, postApprove } from './client.ts';
 import { Markdown } from './markdown.tsx';
+import { type ChatBlock, type ChatLine, chatBlocks, chatLines } from './thread.ts';
 import { permissionLabel } from './turn.ts';
 
-export interface ChatLine {
-  chunk: ChatChunk;
-  text: string;
-}
-
-export function chatLines(chunks: ChatChunk[]): ChatLine[] {
-  const lines: ChatLine[] = [];
-  for (const chunk of chunks) {
-    const last = lines[lines.length - 1];
-    if ((chunk.type === 'text_delta' || chunk.type === 'thought_delta') && last?.chunk.type === chunk.type) {
-      last.text += chunk.text ?? '';
-      continue;
-    }
-    lines.push({ chunk, text: chunk.text ?? chunk.message ?? '' });
-  }
-  return lines;
-}
+export type { ChatBlock, ChatLine };
+export { chatBlocks, chatLines };
 
 export function Part(props: {
   line: ChatLine;
@@ -62,6 +50,41 @@ export function Part(props: {
       </Match>
     </Switch>
   );
+}
+
+export function Block(props: {
+  block: ChatBlock;
+  sessionId: string;
+  agentCommand?: string | null;
+  onError?: (message: string | null) => void;
+}): JSX.Element {
+  const role = () => props.block.role;
+  return (
+    <div class={`chat-row chat-row-${role()}`}>
+      <Show when={role() === 'agent'}>
+        <span class="chat-avatar" aria-hidden="true">
+          {agentMark(props.agentCommand)()}
+        </span>
+      </Show>
+      <Show when={role() === 'user'}>
+        <span class="chat-avatar chat-avatar-user" aria-hidden="true">
+          {icons.messageSquarePlus()}
+        </span>
+      </Show>
+      <Show when={role() === 'error'}>
+        <span class="chat-avatar" aria-hidden="true" />
+      </Show>
+      <div class="chat-body">
+        <For each={props.block.lines}>
+          {(line) => <Part line={line} sessionId={props.sessionId} onError={props.onError} />}
+        </For>
+      </div>
+    </div>
+  );
+}
+
+function agentMark(command: string | null | undefined): Icon {
+  return providerIcon(command?.trim() || 'agent');
 }
 
 function PermissionRow(props: {

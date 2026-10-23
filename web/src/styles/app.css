@@ -455,9 +455,24 @@ file-tree-container {
     transparent
   );
 }
-.chat-user { align-self: flex-end; max-width: 40rem; }
-.chat-text, .chat-thought, .chat-tool, .chat-plan, .chat-permission, .chat-error {
-  margin: 0; max-width: 46rem; overflow-wrap: anywhere;
+.chat-row {
+  display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+  column-gap: .75rem;
+  align-items: start;
+  width: 100%;
+}
+.chat-avatar {
+  display: flex; align-items: center; justify-content: center;
+  width: 1.75rem; height: 1.75rem; margin-top: .1rem;
+  border-radius: .375rem; color: var(--foreground);
+  background: var(--muted); flex: none;
+}
+.chat-avatar svg { width: 1rem; height: 1rem; }
+.chat-avatar-user { color: var(--muted-foreground); background: transparent; border: 1px solid var(--border); }
+.chat-body { min-width: 0; display: flex; flex-direction: column; gap: .5rem; width: 100%; }
+.chat-user, .chat-text, .chat-thought, .chat-tool, .chat-plan, .chat-permission, .chat-error {
+  margin: 0; max-width: none; width: 100%; overflow-wrap: anywhere;
 }
 .chat-tool, .chat-plan, .chat-permission, .chat-error { white-space: pre-wrap; }
 .chat-thought, .chat-tool, .chat-plan, .chat-permission { color: var(--muted-foreground); }

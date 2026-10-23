@@ -6,10 +6,10 @@ import { createEffect, createSignal, For, type JSX, onCleanup, Show } from 'soli
 import { ApiError } from '../daemon/client.ts';
 import { type ChatChunk, readChatStream } from './client.ts';
 import { Composer } from './composer.tsx';
-import { chatLines, Part } from './parts.tsx';
+import { Block, chatBlocks, chatLines } from './parts.tsx';
 import { turnOpen } from './turn.ts';
 
-export function ChatPanel(props: { sessionId: string }): JSX.Element {
+export function ChatPanel(props: { sessionId: string; agentCommand?: string | null }): JSX.Element {
   const [chunks, setChunks] = createSignal<ChatChunk[]>([]);
   const [notice, setNotice] = createSignal<string | null>(null);
   let transcript: HTMLDivElement | undefined;
@@ -76,11 +76,27 @@ export function ChatPanel(props: { sessionId: string }): JSX.Element {
   return (
     <section class="chat" aria-label="Chat">
       <div class="chat-transcript" ref={transcript}>
-        <For each={chatLines(chunks())}>
-          {(line) => <Part line={line} sessionId={props.sessionId} onError={setNotice} />}
+        <For each={chatBlocks(chatLines(chunks()))}>
+          {(block) => (
+            <Block
+              block={block}
+              sessionId={props.sessionId}
+              agentCommand={props.agentCommand}
+              onError={setNotice}
+            />
+          )}
         </For>
         <Show when={notice()}>
-          {(message) => <Part line={{ chunk: { type: 'error', message: message() }, text: message() }} />}
+          {(message) => (
+            <Block
+              block={{
+                role: 'error',
+                lines: [{ chunk: { type: 'error', message: message() }, text: message() }],
+              }}
+              sessionId={props.sessionId}
+              onError={setNotice}
+            />
+          )}
         </Show>
       </div>
       <Composer sessionId={props.sessionId} busy={turnOpen(chunks())} onError={setNotice} />

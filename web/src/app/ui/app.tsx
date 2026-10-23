@@ -194,7 +194,7 @@ function Workspace(): JSX.Element {
           <Gate />
           <For each={terms()}>{(s) => (isChatCard(s) ? null : <TermHost session={s} />)}</For>
           <Show when={chatCard()} keyed>
-            {(s) => <ChatPanel sessionId={s.id} />}
+            {(s) => <ChatPanel sessionId={s.id} agentCommand={s.card().agent} />}
           </Show>
         </div>
         <KeyBar />
