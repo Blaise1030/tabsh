@@ -10,6 +10,7 @@ export function Composer(props: {
   sessionId: string;
   busy: boolean;
   onError: (message: string | null) => void;
+  onSent?: () => void;
 }): JSX.Element {
   const [text, setText] = createSignal('');
   let sending = false;
@@ -29,9 +30,11 @@ export function Composer(props: {
     if (!value || sending || props.busy) return;
     sending = true;
     setText('');
+    props.onSent?.();
     try {
       await postMessage(props.sessionId, value);
       props.onError(null);
+      props.onSent?.();
     } catch (e) {
       setText(value);
       props.onError(e instanceof ApiError ? e.message : 'Could not send that message.');

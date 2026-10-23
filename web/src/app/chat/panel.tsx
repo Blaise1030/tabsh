@@ -66,11 +66,19 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
     })();
   });
 
+  const scrollToBottom = () => {
+    const el = transcript;
+    if (!el) return;
+    // After send / stream paint, wait a frame so scrollHeight includes new rows.
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+  };
+
   createEffect(() => {
     chunks();
     notice();
-    const el = transcript;
-    if (el) el.scrollTop = el.scrollHeight;
+    scrollToBottom();
   });
 
   return (
@@ -102,7 +110,12 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
             </Show>
           </div>
           <div class="chat-composer-dock">
-            <Composer sessionId={props.sessionId} busy={turnOpen(chunks())} onError={setNotice} />
+            <Composer
+              sessionId={props.sessionId}
+              busy={turnOpen(chunks())}
+              onError={setNotice}
+              onSent={scrollToBottom}
+            />
           </div>
         </div>
       </div>
