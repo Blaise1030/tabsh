@@ -471,6 +471,15 @@ file-tree-container {
   align-items: start;
   width: 100%;
 }
+.chat-row-queued { opacity: .72; }
+.chat-queue-mark {
+  display: flex; align-items: center; gap: .5rem;
+  width: 100%; padding: .35rem 0 .15rem;
+  color: var(--muted-foreground); font-size: .75rem; font-weight: 500;
+}
+.chat-queue-label { flex: none; letter-spacing: .02em; }
+.chat-queue-wave { flex: 1; min-width: 2rem; height: .5rem; display: block; color: var(--muted-foreground); opacity: .7; }
+.chat-queue-wave svg { display: block; width: 100%; height: 100%; }
 .chat-avatar {
   display: flex; align-items: center; justify-content: center;
   width: 1.75rem; height: 1.75rem;

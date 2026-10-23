@@ -16,6 +16,8 @@ export interface ChatChunk {
   stop_reason?: string;
   update?: unknown;
   message?: string;
+  /** Client-only: waiting in the composer queue, not POSTed yet. */
+  queued?: boolean;
 }
 
 const CHUNK_TYPES = new Set([

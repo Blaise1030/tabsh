@@ -35,6 +35,18 @@ test('thought_delta lines are omitted', () => {
   assert.equal(out[0]?.chunk.type, 'text_delta');
 });
 
+test('queued user lines stay in their own block', () => {
+  const grouped = chatBlocks(
+    chatLines([
+      { type: 'user_text', text: 'sent' },
+      { type: 'user_text', text: 'later', queued: true },
+    ]),
+  );
+  assert.equal(grouped.length, 2);
+  assert.equal(grouped[0]?.queued, undefined);
+  assert.equal(grouped[1]?.queued, true);
+});
+
 test('errors are their own block', () => {
   const grouped = chatBlocks(lines({ type: 'error', message: 'boom' }, { type: 'text_delta', text: 'ok' }));
   assert.equal(grouped[0]?.role, 'error');

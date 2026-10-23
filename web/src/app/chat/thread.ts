@@ -14,6 +14,8 @@ export type ChatRole = 'user' | 'agent' | 'error';
 export interface ChatBlock {
   role: ChatRole;
   lines: ChatLine[];
+  /** Waiting in the send queue (not on the wire yet). */
+  queued?: boolean;
 }
 
 export function chatLines(chunks: ChatChunk[]): ChatLine[] {
@@ -64,12 +66,13 @@ export function chatBlocks(lines: ChatLine[]): ChatBlock[] {
   const blocks: ChatBlock[] = [];
   for (const line of lines) {
     const role = roleOf(line);
+    const queued = !!line.chunk.queued;
     const last = blocks[blocks.length - 1];
-    if (last && last.role === role && role !== 'error') {
+    if (last && last.role === role && role !== 'error' && !!last.queued === queued) {
       last.lines.push(line);
       continue;
     }
-    blocks.push({ role, lines: [line] });
+    blocks.push({ role, lines: [line], queued: queued || undefined });
   }
   return blocks;
 }

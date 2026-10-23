@@ -23,9 +23,13 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
   let posting = false;
   // Server turn only — queued optimistic lines must not keep busy latched.
   const busy = createMemo(() => turnOpen(chunks()));
-  const viewChunks = createMemo(() => withOptimisticUser(chunks(), [...pendingUser(), ...queue()]));
+  const viewChunks = createMemo(() => withOptimisticUser(chunks(), pendingUser(), queue()));
   const blocks = createMemo(() => chatBlocks(chatLines(viewChunks())));
-  const lastIsAgent = createMemo(() => blocks().at(-1)?.role === 'agent');
+  const lastIsAgent = createMemo(() => {
+    const list = blocks();
+    const last = list.at(-1);
+    return last?.role === 'agent' && !last.queued;
+  });
 
   createEffect(() => {
     const id = props.sessionId;
@@ -130,15 +134,33 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
         <div class="chat-scroll">
           <div class="chat-list">
             <For each={blocks()}>
-              {(block, i) => (
-                <Block
-                  block={block}
-                  sessionId={props.sessionId}
-                  agentCommand={props.agentCommand}
-                  thinking={busy() && block.role === 'agent' && i() === blocks().length - 1}
-                  onError={setNotice}
-                />
-              )}
+              {(block, i) => {
+                const prev = () => blocks()[i() - 1];
+                const showQueueMark = () => block.queued && !prev()?.queued;
+                // Shimmer only on the last non-queued agent block while busy.
+                const thinking = () => {
+                  if (!busy() || block.role !== 'agent' || block.queued) return false;
+                  const list = blocks();
+                  for (let j = list.length - 1; j >= 0; j--) {
+                    if (list[j]?.role === 'agent' && !list[j]?.queued) return j === i();
+                  }
+                  return false;
+                };
+                return (
+                  <>
+                    <Show when={showQueueMark()}>
+                      <QueueMark />
+                    </Show>
+                    <Block
+                      block={block}
+                      sessionId={props.sessionId}
+                      agentCommand={props.agentCommand}
+                      thinking={thinking()}
+                      onError={setNotice}
+                    />
+                  </>
+                );
+              }}
             </For>
             <Show when={notice()}>
               {(message) => (
@@ -184,6 +206,36 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
         </div>
       </div>
     </section>
+  );
+}
+
+function QueueMark(): JSX.Element {
+  return (
+    <div class="chat-queue-mark" role="separator" aria-label="Queued messages">
+      <span class="chat-queue-wave" aria-hidden="true">
+        <svg viewBox="0 0 80 8" preserveAspectRatio="none">
+          <path
+            d="M0 4 Q 5 0.5 10 4 T 20 4 T 30 4 T 40 4 T 50 4 T 60 4 T 70 4 T 80 4"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.25"
+            stroke-linecap="round"
+          />
+        </svg>
+      </span>
+      <span class="chat-queue-label">Queued</span>
+      <span class="chat-queue-wave" aria-hidden="true">
+        <svg viewBox="0 0 80 8" preserveAspectRatio="none">
+          <path
+            d="M0 4 Q 5 0.5 10 4 T 20 4 T 30 4 T 40 4 T 50 4 T 60 4 T 70 4 T 80 4"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.25"
+            stroke-linecap="round"
+          />
+        </svg>
+      </span>
+    </div>
   );
 }
 

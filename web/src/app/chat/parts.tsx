@@ -63,8 +63,9 @@ export function Block(props: {
   onError?: (message: string | null) => void;
 }): JSX.Element {
   const role = () => props.block.role;
+  const queued = () => !!props.block.queued;
   return (
-    <div class={`chat-row chat-row-${role()}`}>
+    <div class={`chat-row chat-row-${role()}${queued() ? ' chat-row-queued' : ''}`}>
       <Show when={role() === 'agent'}>
         <span class="chat-avatar" aria-hidden="true">
           {agentMark(props.agentCommand)()}
