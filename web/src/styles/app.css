@@ -450,7 +450,7 @@ file-tree-container {
   mask-image: linear-gradient(to bottom, transparent, #000 1.5rem, #000);
 }
 .chat-scroll {
-  box-sizing: border-box; width: 100%; min-height: 100%;
+  box-sizing: border-box; width: 100%;
   display: flex; flex-direction: column;
 }
 .chat-list {
@@ -460,7 +460,7 @@ file-tree-container {
 }
 .chat-composer-dock {
   position: sticky; bottom: 0; z-index: 1;
-  width: 100%; margin-top: auto;
+  width: 100%;
   background: var(--background);
   box-shadow: 0 -1rem 1.25rem -.25rem var(--background);
 }
