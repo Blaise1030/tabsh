@@ -1,9 +1,7 @@
 // The footer of a UI card: Enter sends (or queues while busy); ⌘Enter steers.
-// There is no send button — only Stop / Steer when a turn is open.
+// There is no send button — Steer appears when a turn is open and the field has text.
 import { createEffect, createSignal, type JSX, onCleanup, Show } from 'solid-js';
-import { ApiError } from '../daemon/client.ts';
 import { icons } from '../ui/icons.tsx';
-import { postStop } from './client.ts';
 import { insertIntoComposer, registerComposer } from './deliver.ts';
 
 export function Composer(props: {
@@ -56,15 +54,6 @@ export function Composer(props: {
     props.onSteer(value);
   };
 
-  const stop = async () => {
-    try {
-      await postStop(props.sessionId);
-      props.onError(null);
-    } catch (e) {
-      props.onError(e instanceof ApiError ? e.message : 'Could not stop the agent.');
-    }
-  };
-
   return (
     <div class="chat-composer">
       <span class="chat-avatar chat-avatar-user" aria-hidden="true">
@@ -90,23 +79,18 @@ export function Composer(props: {
           send();
         }}
       />
-      <Show when={props.busy}>
+      <Show when={props.busy && text().trim()}>
         <span class="chat-composer-actions">
-          <button type="button" class="btn" onClick={() => void stop()}>
-            Stop
+          <button
+            type="button"
+            class="btn"
+            data-variant="ghost"
+            aria-label="Steer"
+            title="Stop and send now"
+            onClick={() => steer()}
+          >
+            Steer
           </button>
-          <Show when={text().trim()}>
-            <button
-              type="button"
-              class="btn"
-              data-variant="ghost"
-              aria-label="Steer"
-              title="Stop and send now"
-              onClick={() => steer()}
-            >
-              Steer
-            </button>
-          </Show>
         </span>
       </Show>
     </div>
