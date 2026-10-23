@@ -552,9 +552,10 @@ file-tree-container {
 }
 .chat-composer .chat-avatar { margin-top: .45rem; }
 .chat-composer textarea {
-  min-width: 0; width: 100%; resize: none; min-height: 2.5rem; max-height: 8rem;
+  min-width: 0; width: 100%; resize: none; overflow-y: auto;
+  min-height: calc(1lh + 1rem); max-height: 8rem; field-sizing: content;
   border: 0; margin: 0; background: transparent; color: inherit; font: inherit;
-  padding: .5rem 0;
+  padding: .5rem 0; box-sizing: border-box;
 }
 .chat-composer textarea:focus { outline: none; }
 .chat-composer .btn { flex: none; align-self: end; margin-bottom: .25rem; }

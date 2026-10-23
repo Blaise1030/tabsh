@@ -15,6 +15,14 @@ export function Composer(props: {
   const [text, setText] = createSignal('');
   let sending = false;
   let field: HTMLTextAreaElement | undefined;
+  const fitField = () => {
+    const el = field;
+    if (!el) return;
+    // Fallback when `field-sizing: content` is missing: grow to the text,
+    // then cap at the CSS max-height so long drafts scroll inside.
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  };
   createEffect(() => {
     const id = props.sessionId;
     onCleanup(
@@ -23,6 +31,10 @@ export function Composer(props: {
         focus: () => field?.focus(),
       }),
     );
+  });
+  createEffect(() => {
+    text();
+    queueMicrotask(fitField);
   });
 
   const send = async () => {
@@ -65,12 +77,15 @@ export function Composer(props: {
       </span>
       <textarea
         ref={field}
-        rows={2}
+        rows={1}
         placeholder="Message"
         aria-label="Message"
         disabled={props.busy}
         value={text()}
-        onInput={(e) => setText(e.currentTarget.value)}
+        onInput={(e) => {
+          setText(e.currentTarget.value);
+          fitField();
+        }}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
