@@ -505,7 +505,10 @@ file-tree-container {
   min-width: 0; display: flex; flex-direction: column; gap: .5rem; width: 100%;
   padding-top: calc((1.75rem - 1lh) / 2);
 }
-.chat-loading { margin: 0; font-size: .8125rem; line-height: 1.25; }
+.chat-loading {
+  margin: 0; padding-top: .35rem;
+  font-size: 1rem; line-height: 1.5;
+}
 .chat-loading-text {
   display: inline-block;
   background: linear-gradient(
