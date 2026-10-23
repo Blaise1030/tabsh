@@ -29,6 +29,7 @@ use tokio::sync::{broadcast, watch};
 
 use super::{
     acp::{AcpClient, AcpEvent},
+    models::ModelConfig,
     normalize::{UiChunk, to_chunks},
     transcript,
 };
@@ -74,6 +75,8 @@ struct LiveChat {
     acp_session_id: String,
     tx: broadcast::Sender<UiChunk>,
     history: Mutex<Vec<UiChunk>>,
+    /// Model select from ACP `configOptions`, if the agent advertises one.
+    models: Mutex<Option<ModelConfig>>,
     data_dir: PathBuf,
     card_id: String,
     board: Option<BoardPipe>,
@@ -412,22 +415,22 @@ impl ChatManager {
                 .initialize()
                 .await
                 .map_err(|e| ChatError::Failed(e.to_string()))?;
-            let acp_session_id = client
+            let created = client
                 .session_new(cwd)
                 .await
                 .map_err(|e| ChatError::Failed(e.to_string()))?;
             // OpenCode (and similar) can resume a backend session that still
             // holds a prompt from a prior daemon death. Clear it so the first
             // real message is not rejected with "already has an active ACP prompt".
-            let _ = client.cancel(&acp_session_id).await;
+            let _ = client.cancel(&created.session_id).await;
             client.clear_cancelled();
-            Ok::<_, ChatError>((client, acp_session_id))
+            Ok::<_, ChatError>((client, created))
         })
         .await
         .map_err(|_| ChatError::Failed("ACP agent handshake timed out".into()))
         .and_then(|r| r);
 
-        let (client, acp_session_id) = match handshake {
+        let (client, created) = match handshake {
             Ok(pair) => pair,
             Err(e) => {
                 let mut surfaces = self
@@ -455,9 +458,10 @@ impl ChatManager {
             .clone();
         let live = Arc::new(LiveChat {
             client,
-            acp_session_id,
+            acp_session_id: created.session_id,
             tx: broadcast::channel(256).0,
             history: Mutex::new(transcript::load(&self.inner.data_dir, session_id)),
+            models: Mutex::new(created.models),
             data_dir: self.inner.data_dir.clone(),
             card_id: session_id.to_string(),
             board,
@@ -705,6 +709,54 @@ impl ChatManager {
             .map_err(|e| ChatError::Failed(e.to_string()))
     }
 
+    /// Models the live session advertises. `None` when not live or empty.
+    pub(crate) fn models(&self, session_id: &str) -> Option<ModelConfig> {
+        let live = self.live(session_id)?;
+        live.models
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Selects a model on the live ACP session. Refused while a turn is open.
+    pub(crate) async fn set_model(&self, session_id: &str, model_id: &str) -> ChatResult<ModelConfig> {
+        let live = self.live(session_id).ok_or(ChatError::NotLive)?;
+        {
+            let history = live.history.lock().unwrap_or_else(|e| e.into_inner());
+            if transcript_turn_open(&history) {
+                return Err(ChatError::Invalid(
+                    "Wait for the current turn to finish before changing the model.".into(),
+                ));
+            }
+        }
+        let config_id = {
+            let models = live.models.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(cfg) = models.as_ref() else {
+                return Err(ChatError::Invalid(
+                    "This agent does not expose a model list.".into(),
+                ));
+            };
+            if !cfg.options.iter().any(|o| o.id == model_id) {
+                return Err(ChatError::Invalid(format!("Unknown model: {model_id}")));
+            }
+            cfg.config_id.clone()
+        };
+        let refreshed = live
+            .client
+            .set_config_option(&live.acp_session_id, &config_id, model_id)
+            .await
+            .map_err(|e| ChatError::Failed(e.to_string()))?;
+        let mut models = live.models.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(next) = refreshed {
+            *models = Some(next);
+        } else if let Some(cfg) = models.as_mut() {
+            cfg.current = model_id.to_string();
+        }
+        models
+            .clone()
+            .ok_or_else(|| ChatError::Invalid("This agent does not expose a model list.".into()))
+    }
+
     /// Drops the live chat, if any; the agent process dies with its last
     /// client reference (`kill_on_drop`).
     pub(crate) fn forget(&self, session_id: &str) {
@@ -762,6 +814,18 @@ fn apply_event(live: &std::sync::Weak<LiveChat>, ev: &AcpEvent) {
     {
         crate::board::note_acp_status(&board.db, &board.events, &live.card_id, status);
     }
+}
+
+fn transcript_turn_open(chunks: &[UiChunk]) -> bool {
+    let mut open = false;
+    for chunk in chunks {
+        match chunk {
+            UiChunk::UserText { .. } => open = true,
+            UiChunk::TurnEnd { .. } | UiChunk::Error { .. } => open = false,
+            _ => {}
+        }
+    }
+    open
 }
 
 /// A write or a waiter failed because the child is gone, not because the

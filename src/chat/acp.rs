@@ -40,6 +40,13 @@ pub(crate) struct InitializeResult {
     pub(crate) auth_methods: Vec<Value>,
 }
 
+/// `session/new` result: id plus optional model list from `configOptions`.
+#[derive(Debug, Clone)]
+pub(crate) struct SessionNew {
+    pub(crate) session_id: String,
+    pub(crate) models: Option<super::models::ModelConfig>,
+}
+
 /// An agent→client occurrence, buffered while a prompt turn runs.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum AcpEvent {
@@ -398,18 +405,45 @@ impl AcpClient {
         Ok(serde_json::from_value(result)?)
     }
 
-    pub(crate) async fn session_new(&self, cwd: &Path) -> Result<String> {
+    pub(crate) async fn session_new(&self, cwd: &Path) -> Result<SessionNew> {
         let result = self
             .request(
                 "session/new",
                 json!({"cwd": cwd.to_string_lossy(), "mcpServers": []}),
             )
             .await?;
-        result
+        let session_id = result
             .get("sessionId")
             .and_then(Value::as_str)
             .map(str::to_string)
-            .ok_or_else(|| "ACP session/new gave no sessionId".into())
+            .ok_or_else(|| "ACP session/new gave no sessionId".to_string())?;
+        let models = result
+            .get("configOptions")
+            .and_then(super::models::parse_model_config);
+        Ok(SessionNew { session_id, models })
+    }
+
+    /// Changes a session config option (model, mode, …). Returns the
+    /// refreshed model list when the agent echoes `configOptions`.
+    pub(crate) async fn set_config_option(
+        &self,
+        session_id: &str,
+        config_id: &str,
+        value: &str,
+    ) -> Result<Option<super::models::ModelConfig>> {
+        let result = self
+            .request(
+                "session/set_config_option",
+                json!({
+                    "sessionId": session_id,
+                    "configId": config_id,
+                    "value": value,
+                }),
+            )
+            .await?;
+        Ok(result
+            .get("configOptions")
+            .and_then(super::models::parse_model_config))
     }
 
     fn emit_prompt_end(&self, session_id: &str, stop_reason: &str) {
@@ -594,6 +628,18 @@ def update(session_id, upd):
     send({"jsonrpc": "2.0", "method": "session/update",
           "params": {"sessionId": session_id, "update": upd}})
 
+MODEL = {"current": "fast"}
+
+def model_options():
+    return [{
+        "id": "model", "name": "Model", "category": "model",
+        "currentValue": MODEL["current"],
+        "options": [
+            {"value": "fast", "name": "Fast"},
+            {"value": "smart", "name": "Smart"},
+        ],
+    }]
+
 while True:
     line = sys.stdin.readline()
     if not line:
@@ -611,7 +657,14 @@ while True:
             "agentInfo": {"name": "fake-agent", "version": "0.1.0"},
             "authMethods": []}})
     elif method == "session/new":
-        send({"jsonrpc": "2.0", "id": mid, "result": {"sessionId": "fake-session-1"}})
+        send({"jsonrpc": "2.0", "id": mid, "result": {
+            "sessionId": "fake-session-1",
+            "configOptions": model_options()}})
+    elif method == "session/set_config_option":
+        if params.get("configId") == "model":
+            MODEL["current"] = params.get("value") or MODEL["current"]
+        send({"jsonrpc": "2.0", "id": mid, "result": {
+            "configOptions": model_options()}})
     elif method == "session/prompt":
         sid = params.get("sessionId", "")
         text = "".join(c.get("text", "") for c in params.get("prompt", [])
@@ -735,7 +788,7 @@ mod tests {
         let init = client.initialize().await.unwrap();
         assert_eq!(init.protocol_version, serde_json::json!(1));
 
-        let session_id = client.session_new(&cwd).await.unwrap();
+        let session_id = client.session_new(&cwd).await.unwrap().session_id;
         assert_eq!(session_id, "fake-session-1");
 
         client.prompt(&session_id, "hi").await.unwrap();
@@ -810,7 +863,7 @@ mod tests {
         let cwd = std::env::temp_dir();
         let client = Arc::new(AcpClient::spawn(&cmd, &args, &cwd).await.unwrap());
         client.initialize().await.unwrap();
-        let session_id = client.session_new(&cwd).await.unwrap();
+        let session_id = client.session_new(&cwd).await.unwrap().session_id;
         let text = prompt_and_answer(&client, &session_id, "needs permission", true).await;
         Arc::try_unwrap(client)
             .unwrap_or_else(|_| panic!("prompt task still holds the client"))
@@ -829,7 +882,7 @@ mod tests {
         let cwd = std::env::temp_dir();
         let client = Arc::new(AcpClient::spawn(&cmd, &args, &cwd).await.unwrap());
         client.initialize().await.unwrap();
-        let session_id = client.session_new(&cwd).await.unwrap();
+        let session_id = client.session_new(&cwd).await.unwrap().session_id;
         let mut rx = client.event_stream();
 
         // Prompt runs on another task; cancel must work through `&self`
@@ -878,7 +931,7 @@ mod tests {
         let cwd = std::env::temp_dir();
         let client = Arc::new(AcpClient::spawn(&cmd, &args, &cwd).await.unwrap());
         client.initialize().await.unwrap();
-        let session_id = client.session_new(&cwd).await.unwrap();
+        let session_id = client.session_new(&cwd).await.unwrap().session_id;
         let text =
             prompt_and_answer(&client, &session_id, "no_allow permission please", true).await;
         Arc::try_unwrap(client)
@@ -898,7 +951,7 @@ mod tests {
         let cwd = std::env::temp_dir();
         let client = AcpClient::spawn(&cmd, &args, &cwd).await.unwrap();
         client.initialize().await.unwrap();
-        let session_id = client.session_new(&cwd).await.unwrap();
+        let session_id = client.session_new(&cwd).await.unwrap().session_id;
         client.cancel(&session_id).await.unwrap();
         client.shutdown().await.unwrap();
     }
@@ -910,7 +963,7 @@ mod tests {
         let cwd = std::env::temp_dir();
         let client = Arc::new(AcpClient::spawn(&cmd, &args, &cwd).await.unwrap());
         client.initialize().await.unwrap();
-        let session_id = client.session_new(&cwd).await.unwrap();
+        let session_id = client.session_new(&cwd).await.unwrap().session_id;
         let mut rx = client.event_stream();
 
         let first = client.clone();
@@ -969,7 +1022,7 @@ mod tests {
         let cwd = std::env::temp_dir();
         let client = Arc::new(AcpClient::spawn(&cmd, &args, &cwd).await.unwrap());
         client.initialize().await.unwrap();
-        let session_id = client.session_new(&cwd).await.unwrap();
+        let session_id = client.session_new(&cwd).await.unwrap().session_id;
         let mut rx = client.event_stream();
         client.cancel(&session_id).await.unwrap();
 

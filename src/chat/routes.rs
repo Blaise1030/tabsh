@@ -26,6 +26,8 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/api/sessions/{id}/chat/message", post(message))
         .route("/api/sessions/{id}/chat/stop", post(stop))
         .route("/api/sessions/{id}/chat/approve", post(approve))
+        .route("/api/sessions/{id}/chat/models", get(models))
+        .route("/api/sessions/{id}/chat/model", post(set_model))
 }
 
 /// What the chat handlers need of a card row.
@@ -69,7 +71,11 @@ fn may_start_chat(status: &str) -> bool {
 
 fn chat_error(err: ChatError) -> Response {
     match err {
-        ChatError::Invalid(_) => StatusCode::BAD_REQUEST.into_response(),
+        ChatError::Invalid(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"message": e})),
+        )
+            .into_response(),
         // 409 keeps its status and an empty body. The page's own copy
         // ("This card already has a terminal running.") is the message.
         ChatError::NotLive | ChatError::Conflict(_) => StatusCode::CONFLICT.into_response(),
@@ -270,6 +276,59 @@ async fn approve(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[derive(Serialize)]
+struct ModelsBody {
+    current: Option<String>,
+    options: Vec<super::models::ModelChoice>,
+}
+
+/// Models the live ACP session advertises. Empty when the chat is not
+/// live or the agent has no model `configOptions`.
+async fn models(
+    State(st): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<ModelsBody>, StatusCode> {
+    if card_row(&st, &id).is_none() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let Some(cfg) = st.chats.models(&id) else {
+        return Ok(Json(ModelsBody {
+            current: None,
+            options: Vec::new(),
+        }));
+    };
+    Ok(Json(ModelsBody {
+        current: Some(cfg.current),
+        options: cfg.options,
+    }))
+}
+
+#[derive(Deserialize)]
+struct SetModel {
+    id: String,
+}
+
+/// Selects a model via ACP `session/set_config_option`. 409 when a turn
+/// is open; 400 when the id is unknown or the agent has no model option.
+async fn set_model(
+    State(st): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<SetModel>,
+) -> Result<Json<ModelsBody>, Response> {
+    if card_row(&st, &id).is_none() {
+        return Err(StatusCode::NOT_FOUND.into_response());
+    }
+    let cfg = st
+        .chats
+        .set_model(&id, &body.id)
+        .await
+        .map_err(chat_error)?;
+    Ok(Json(ModelsBody {
+        current: Some(cfg.current),
+        options: cfg.options,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -457,6 +516,66 @@ mod tests {
         .await;
         assert_eq!(code, StatusCode::NO_CONTENT);
 
+        st.chats.forget(&id);
+    }
+
+    #[tokio::test]
+    async fn chat_models_list_and_set_via_fake_acp() {
+        let st = test_state();
+        let id = create_ui_card(&st, "hi").await;
+        move_in_progress(&st, &id).await;
+        wait_live(&st, &id).await;
+        wait_for_text(&st, &id, "fake reply: hi").await;
+
+        let (code, body) = req(
+            &st,
+            Method::GET,
+            &format!("/api/sessions/{id}/chat/models"),
+            serde_json::Value::Null,
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "{body}");
+        assert_eq!(body["current"], "fast");
+        assert_eq!(body["options"].as_array().map(|a| a.len()), Some(2));
+
+        let (code, body) = req(
+            &st,
+            Method::POST,
+            &format!("/api/sessions/{id}/chat/model"),
+            serde_json::json!({"id": "smart"}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "{body}");
+        assert_eq!(body["current"], "smart");
+
+        let (code, body) = req(
+            &st,
+            Method::GET,
+            &format!("/api/sessions/{id}/chat/models"),
+            serde_json::Value::Null,
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "{body}");
+        assert_eq!(body["current"], "smart");
+        st.chats.forget(&id);
+    }
+
+    #[tokio::test]
+    async fn chat_set_model_rejects_unknown_id() {
+        let st = test_state();
+        let id = create_ui_card(&st, "hi").await;
+        move_in_progress(&st, &id).await;
+        wait_live(&st, &id).await;
+        wait_for_text(&st, &id, "fake reply: hi").await;
+
+        let (code, _) = req(
+            &st,
+            Method::POST,
+            &format!("/api/sessions/{id}/chat/model"),
+            serde_json::json!({"id": "nope"}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::BAD_REQUEST);
         st.chats.forget(&id);
     }
 

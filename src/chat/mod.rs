@@ -6,6 +6,7 @@
 
 pub(crate) mod acp;
 pub(crate) mod manager;
+pub(crate) mod models;
 pub(crate) mod normalize;
 pub(crate) mod routes;
 pub(crate) mod transcript;

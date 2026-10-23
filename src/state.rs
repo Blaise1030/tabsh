@@ -94,6 +94,8 @@ mod tests {
             (Method::POST, "/api/sessions/x/chat/message"),
             (Method::POST, "/api/sessions/x/chat/stop"),
             (Method::POST, "/api/sessions/x/chat/approve"),
+            (Method::GET, "/api/sessions/x/chat/models"),
+            (Method::POST, "/api/sessions/x/chat/model"),
             (Method::PATCH, "/api/board/agents/x/status"),
             (Method::GET, "/api/board/events"),
             (Method::GET, "/api/settings"),

@@ -8,6 +8,7 @@ import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show 
 import { ApiError } from '../daemon/client.ts';
 import { type ChatChunk, postMessage, postStop, readChatStream } from './client.ts';
 import { Composer } from './composer.tsx';
+import { ModelPicker } from './model-picker.tsx';
 import { takePending, withOptimisticUser } from './optimistic.ts';
 import { Block, chatBlocks, chatLines, ThinkingRow } from './parts.tsx';
 import { turnOpen, turnWaiting } from './turn.ts';
@@ -179,6 +180,9 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
             </Show>
           </div>
           <div class="chat-composer-dock">
+            <div class="chat-composer-toolbar">
+              <ModelPicker sessionId={props.sessionId} busy={busy()} onError={setNotice} />
+            </div>
             <Composer
               sessionId={props.sessionId}
               busy={busy()}
