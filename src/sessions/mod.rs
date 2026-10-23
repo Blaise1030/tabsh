@@ -212,6 +212,10 @@ pub(crate) struct SessionInfo {
     pub(crate) agent_command: Option<String>,
     /// Set on a side terminal: the card it belongs to. Null on a card.
     pub(crate) parent: Option<String>,
+    /// How the card runs: `"tui"` (a PTY shell) or `"ui"` (an ACP chat).
+    pub(crate) mode: String,
+    /// The provider's ACP command stored at create, for `"ui"` cards.
+    pub(crate) acp_command: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -237,6 +241,10 @@ struct NewSession {
     resume: Option<String>,
     /// The card this side terminal belongs to. One level only.
     parent: Option<String>,
+    /// `"tui"` or `"ui"`; omitted means `"tui"`.
+    mode: Option<String>,
+    /// The provider's ACP command, for a `"ui"` card.
+    acp_command: Option<String>,
 }
 
 async fn list_sessions(State(st): State<AppState>) -> Result<Json<Vec<SessionInfo>>, StatusCode> {
@@ -254,11 +262,33 @@ async fn list_sessions(State(st): State<AppState>) -> Result<Json<Vec<SessionInf
     Ok(Json(rows))
 }
 
+/// When `TABSH_TEST_ACP=1`, a UI card's stored ACP command is
+/// `TABSH_CHAT_ACP` if that is non-empty, otherwise `fake-agent` on `PATH`.
+/// The page can still send the provider's real command; end-to-end tests
+/// never launch it.
+fn ui_test_acp_override(mode: &str) -> Option<String> {
+    if mode != "ui" || std::env::var("TABSH_TEST_ACP").ok().as_deref() != Some("1") {
+        return None;
+    }
+    Some(
+        std::env::var("TABSH_CHAT_ACP")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "fake-agent".to_string()),
+    )
+}
+
 async fn create_session(
     State(st): State<AppState>,
     body: Option<Json<NewSession>>,
 ) -> Result<Json<SessionInfo>, StatusCode> {
     let body = body.map(|Json(b)| b).unwrap_or_default();
+    let mode = match body.mode.as_deref() {
+        None => "tui",
+        Some(mode @ ("tui" | "ui")) => mode,
+        Some(_) => return Err(StatusCode::BAD_REQUEST),
+    };
     if let Some(parent) = body.parent.clone() {
         return create_side(&st, &parent, body);
     }
@@ -300,6 +330,15 @@ async fn create_session(
     let resume_input = agent_session
         .as_deref()
         .and_then(|s| crate::board::resume_line(resume.as_deref(), None, Some(s)));
+    // E2E sets `TABSH_TEST_ACP=1` so a UI card stores `fake-agent` (or
+    // `TABSH_CHAT_ACP`) instead of the provider command the page sent.
+    let test_acp = ui_test_acp_override(mode);
+    let given_acp = body
+        .acp_command
+        .as_deref()
+        .map(str::trim)
+        .filter(|c| !c.is_empty());
+    let acp_command = test_acp.as_deref().or(given_acp);
     let card = store::NewCard {
         cwd: body.cwd.as_deref(),
         name: name.as_deref(),
@@ -313,6 +352,8 @@ async fn create_session(
         agent_session: agent_session.as_deref(),
         resume_input: resume_input.as_deref(),
         parent: None,
+        mode,
+        acp_command,
     };
     let db = st.db.lock().unwrap();
     store::insert_card(&db, &card)
@@ -480,6 +521,7 @@ fn is_card(st: &AppState, id: &str) -> bool {
 }
 
 fn close(st: &AppState, id: &str) -> StatusCode {
+    st.chats.forget(id);
     if is_card(st, id) {
         close_children(st, id);
     }
@@ -487,9 +529,14 @@ fn close(st: &AppState, id: &str) -> StatusCode {
     let _turn = st.starting.turn(id);
     let live = st.live.lock().unwrap();
     if let Some(session) = live.get(id) {
+        // Its reader thread releases the PTY surface claim as it exits.
         let _ = session.killer.lock().unwrap().kill();
         return StatusCode::NO_CONTENT;
     }
+    drop(live);
+    // No live shell (never started, already exited, or mid-restart):
+    // no reader will release the PTY claim, so close releases it here.
+    st.chats.release_pty(id);
     match st
         .db
         .lock()
@@ -783,6 +830,29 @@ mod tests {
         assert_eq!(pending(&st, &body["id"]), None);
         let (_, body) = create(&st, serde_json::json!({})).await;
         assert_eq!(body["name"], "Terminal 1");
+    }
+
+    #[tokio::test]
+    async fn create_session_accepts_mode_ui() {
+        let st = test_state();
+        let (code, body) = create(&st, serde_json::json!({"cwd": "/tmp", "mode": "ui"})).await;
+        assert_eq!(code, StatusCode::OK);
+        assert_eq!(body["mode"], "ui");
+        assert_eq!(
+            column(&st, &body["id"], "mode").as_deref(),
+            Some("ui"),
+            "the mode is stored on the session"
+        );
+        let (_, plain) = create(&st, serde_json::json!({"cwd": "/tmp"})).await;
+        assert_eq!(plain["mode"], "tui", "an omitted mode defaults to tui");
+        assert_eq!(column(&st, &plain["id"], "mode").as_deref(), Some("tui"));
+    }
+
+    #[tokio::test]
+    async fn create_session_rejects_unknown_mode() {
+        let st = test_state();
+        let (code, _) = create(&st, serde_json::json!({"cwd": "/tmp", "mode": "bogus"})).await;
+        assert_eq!(code, StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

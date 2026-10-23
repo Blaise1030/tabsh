@@ -37,14 +37,18 @@ app, CI rejects app source changes that omit `src/app.html` or
 2. a **free port**, taken by binding to `127.0.0.1:0` and passing the port as
    the daemon's argv;
 3. `TABSH_NO_BROWSER=1`, because the browser here is playwright's to open;
-4. it **waits for the daemon's own `tabsh listening on …` line** on stdout,
+4. `TABSH_TEST_ACP=1` and a `fake-agent` directory at the front of `PATH`
+   (`e2e/fake-agent.py`). A UI card stores `fake-agent` as its ACP command
+   instead of the provider's real one;
+5. it **waits for the daemon's own `tabsh listening on …` line** on stdout,
    not for a ping: that line means the port is bound, the database is open
    and the token file exists;
-5. it reads the **pairing token from `<state dir>/token`** (beside the
+6. it reads the **pairing token from `<state dir>/token`** (beside the
    database, exactly where the daemon puts it).
 
-`startDaemon({ env })` merges extra environment variables over the daemon's
-(the shared worker fixture passes none). `remote.spec.ts` starts its own daemon
+`startDaemon({ env })` merges extra environment variables over the daemon's.
+The shared worker fixture passes `TABSH_TEST_ACP` and a `PATH` that finds
+`fake-agent`. `remote.spec.ts` starts its own daemon
 with `TABSH_REMOTE_ADDRESS: '::1'`, so the sharing listener binds `[::1]:<port>`
 beside `127.0.0.1:<port>`; since `::1` is loopback, the guard's remote-peer
 rules don't apply there (unit tests cover them). It skips when the machine has

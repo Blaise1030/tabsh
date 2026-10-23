@@ -6,6 +6,7 @@
 // biome-ignore-all lint/a11y/useAriaPropsForRole: Basecoat's group heading, named by the group's aria-labelledby
 import { children, createEffect, createSignal, For, type JSX } from 'solid-js';
 import { toggleBoard, toggleBoardLayout } from '../board/view.tsx';
+import { focusAgentSurface } from '../chat/deliver.ts';
 import { daemonFetch } from '../daemon/client.ts';
 import { searchFiles, toggleExplorer } from '../explorer/explorer.ts';
 import { loadedPane } from '../files/open.tsx';
@@ -19,7 +20,7 @@ import {
   revokeRemoteDevice,
   toggleSharing,
 } from '../remote/share.ts';
-import { cycleTab, onScreen, store } from '../sessions/store.ts';
+import { cycleTab, isChatCard, onScreen, store } from '../sessions/store.ts';
 import { comboFromEvent, comboProblem, type KeyId, matchesKey } from '../settings/keys.ts';
 import type { Settings } from '../settings/schema.ts';
 import { applySettings, current, keyHint, saveSetting, setPreviewing } from '../settings/settings.ts';
@@ -359,7 +360,8 @@ export function initPalette(): void {
     editing = null;
     setPreviewing(false);
     applySettings(current.saved);
-    onScreen()?.term.focus();
+    const shown = onScreen();
+    if (shown) focusAgentSurface(isChatCard(shown), shown.id, shown.term);
     if (!here().palette || isLeavingPalette()) return;
     if (isPaletteEntry()) back();
     else go({ palette: null }, 'replace');

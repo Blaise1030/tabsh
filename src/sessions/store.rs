@@ -135,7 +135,7 @@ fn save(state: &AppState, id: &str, session: &Session, scrollback: Vec<u8>) {
 /// The columns `SessionInfo` is read from, in `info_row`'s order.
 pub(crate) const INFO_COLUMNS: &str =
     "id, name, status, status_at, note, cwd, pinned, pending_prompt, pending_command,
-     COALESCE(pending_command, resume_command), parent";
+     COALESCE(pending_command, resume_command), parent, mode, acp_command";
 
 pub(super) fn info_row(r: &rusqlite::Row) -> rusqlite::Result<SessionInfo> {
     Ok(SessionInfo {
@@ -150,6 +150,8 @@ pub(super) fn info_row(r: &rusqlite::Row) -> rusqlite::Result<SessionInfo> {
         pending_command: r.get(8)?,
         agent_command: r.get(9)?,
         parent: r.get(10)?,
+        mode: r.get(11)?,
+        acp_command: r.get(12)?,
     })
 }
 
@@ -188,6 +190,11 @@ pub(crate) struct NewCard<'a> {
     pub(crate) resume_input: Option<&'a str>,
     /// The card this row is a side terminal of. None for a card.
     pub(crate) parent: Option<&'a str>,
+    /// `"tui"` or `"ui"`.
+    pub(crate) mode: &'a str,
+    /// The provider's ACP command for a `"ui"` card, stored at create so
+    /// the daemon can start (and restart) the chat without the page.
+    pub(crate) acp_command: Option<&'a str>,
 }
 
 impl Default for NewCard<'_> {
@@ -204,6 +211,8 @@ impl Default for NewCard<'_> {
             agent_session: None,
             resume_input: None,
             parent: None,
+            mode: "tui",
+            acp_command: None,
         }
     }
 }
@@ -259,9 +268,10 @@ pub(crate) fn insert_card(db: &Connection, card: &NewCard) -> rusqlite::Result<S
     };
     db.execute(
         "INSERT INTO sessions (id, name, position, cwd, status, status_at, pending_input, pending_prompt,
-                                pending_command, pinned, resume_command, agent_session, resume_input, parent)
+                                pending_command, pinned, resume_command, agent_session, resume_input, parent, mode,
+                                acp_command)
          VALUES (?1, ?2, (SELECT COALESCE(MAX(position), 0) + 1 FROM sessions), ?3, ?4, unixepoch(), ?5, ?6,
-                 ?7, ?8, ?9, ?10, ?11, ?12)",
+                 ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             id,
             name,
@@ -274,7 +284,9 @@ pub(crate) fn insert_card(db: &Connection, card: &NewCard) -> rusqlite::Result<S
             card.resume,
             card.agent_session,
             card.resume_input,
-            card.parent
+            card.parent,
+            card.mode,
+            card.acp_command
         ],
     )?;
     Ok(info(db, &id)?.expect("just inserted"))
@@ -630,6 +642,8 @@ mod tests {
                 agent_session: None,
                 resume_input: None,
                 parent: None,
+                mode: "tui",
+                acp_command: None,
             },
         )
         .unwrap();

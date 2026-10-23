@@ -41,6 +41,10 @@ const featureRules = [
     paths: [/^web\/src\/app\/sound\//],
     specs: ['typing-sound'],
   },
+  {
+    paths: [/^web\/src\/app\/chat\//, /^src\/chat\//],
+    specs: ['chat-ui'],
+  },
 ];
 
 const generatedApp = (path) => path === 'src/app.html' || path.startsWith('src/app-assets/');

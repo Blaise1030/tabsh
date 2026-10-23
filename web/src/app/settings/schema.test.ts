@@ -151,6 +151,49 @@ test('recent agent commands from before providers become providers', () => {
   ]);
   assert.equal(Object.hasOwn(s, 'agentCommands'), false);
 });
+test('default providers carry their ACP commands', () => {
+  const byName = new Map(DEFAULT_PROVIDERS.map((p) => [p.name, p]));
+  assert.ok(byName.get('Cursor CLI')?.acp?.includes('acp'));
+  assert.equal(byName.get('Cursor CLI')?.acp, 'cursor-agent acp');
+  assert.equal(byName.get('OpenCode')?.acp, 'opencode acp');
+  assert.equal(byName.get('OpenCode')?.command, 'opencode --session ses_{session} --prompt {prompt}');
+  assert.equal(byName.get('OpenCode')?.resume, 'opencode --session ses_{session}');
+  assert.equal(byName.get('Claude Code')?.acp, 'npx --yes @agentclientprotocol/claude-agent-acp');
+  assert.equal(byName.get('Codex')?.acp, 'npx --yes @agentclientprotocol/codex-acp');
+});
+test('cleaning keeps a non-empty acp and strips an empty one', () => {
+  const s = cleanSettings(
+    {
+      providers: [
+        { name: 'Mine', command: 'mine {prompt}', resume: '', acp: ' mine acp ', extra: 'ignored' },
+        { name: 'Bare', command: 'bare', resume: '', acp: '' },
+        { name: 'Blank', command: 'blank', resume: '', acp: '   ' },
+      ],
+    },
+    true,
+  );
+  assert.deepEqual(s.providers, [
+    { name: 'Mine', command: 'mine {prompt}', resume: '', acp: 'mine acp' },
+    { name: 'Bare', command: 'bare', resume: '' },
+    { name: 'Blank', command: 'blank', resume: '' },
+  ]);
+  assert.equal(Object.hasOwn(s.providers[0], 'extra'), false);
+});
+test('the pre-ACP stock providers pick up the new defaults', () => {
+  assert.deepEqual(
+    cleanSettings(
+      {
+        providers: [
+          { name: 'Claude Code', command: 'claude {prompt}', resume: 'claude --resume {session}' },
+          { name: 'Codex', command: 'codex {prompt}', resume: 'codex resume {session}' },
+          { name: 'Cursor CLI', command: 'agent {prompt}', resume: 'agent --resume={session}' },
+        ],
+      },
+      true,
+    ).providers,
+    DEFAULT_PROVIDERS,
+  );
+});
 test('a provider name must be there and unique', () => {
   assert.equal(providerNameProblem(DEFAULT_PROVIDERS, -1, 'Aider'), null);
   assert.equal(providerNameProblem(DEFAULT_PROVIDERS, 0, ' Claude Code '), null, 'its own name');

@@ -5,10 +5,20 @@
 import { batch, createEffect, createMemo, createSignal, For, type JSX, on, onCleanup, Show } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { DOCS_URL } from '../../site.ts';
+import { focusAgentSurface } from '../chat/deliver.ts';
 import { api } from '../daemon/client.ts';
 import { go, here, onPlace } from '../nav/router.ts';
 import { tagColor } from '../sessions/labels.ts';
-import { newSession, onScreen, openTab, type Session, sendSize, sessionList, store } from '../sessions/store.ts';
+import {
+  isChatCard,
+  newSession,
+  onScreen,
+  openTab,
+  type Session,
+  sendSize,
+  sessionList,
+  store,
+} from '../sessions/store.ts';
 import { orderTabs } from '../sessions/tabs.ts';
 import { onTagsChange, tagBadge } from '../sessions/tags.tsx';
 import { syncTerminalVisibility } from '../sessions/terminal.tsx';
@@ -981,7 +991,7 @@ export function Board(): JSX.Element {
         const term = onScreen();
         if (!term || (isShown() && !inDrawer())) return;
         sendSize(term);
-        term.term.focus();
+        focusAgentSurface(isChatCard(term), term.id, term.term);
       },
       { defer: true },
     ),

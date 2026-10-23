@@ -5,6 +5,7 @@ import type { Terminal as XTerm } from '@xterm/xterm';
 import { type Accessor, batch, createSignal, type Setter } from 'solid-js';
 import type { Card } from '../board/model.ts';
 import { applyCard, cardOf } from '../board/status.ts';
+import { focusAgentSurface } from '../chat/deliver.ts';
 import { api } from '../daemon/client.ts';
 import { loadedPane } from '../files/open.tsx';
 import { go, here, onPlace } from '../nav/router.ts';
@@ -55,6 +56,9 @@ export interface Session {
   pinned: boolean;
   // Set on a side terminal: the card it belongs to.
   parent: string | null;
+  // How the card runs. A side terminal is always `tui`. Missing on an older
+  // payload (the demo) reads as `tui`.
+  mode: 'tui' | 'ui';
   // The card's side terminals, in position order. Empty on a side terminal.
   sides: Accessor<Session[]>;
   setSides: Setter<Session[]>;
@@ -74,6 +78,7 @@ export interface SessionInfo {
   // The agent it runs (its launch or resume command), if any.
   agent_command?: string | null;
   parent?: string | null;
+  mode: 'tui' | 'ui';
 }
 
 const activateListeners: (() => void)[] = [];
@@ -95,6 +100,10 @@ export const [screen, setScreen] = createSignal<Session | null>(null);
 export const [shownTurn, setShownTurn] = createSignal<{ tab: boolean }>({ tab: false });
 export function onScreen(): Session | null {
   return screen();
+}
+// The card's agent is the chat panel: UI mode, and not a side terminal.
+export function isChatCard(s: Session): boolean {
+  return s.mode === 'ui' && s.parent === null;
 }
 export function findTerm(id: string): Session | undefined {
   for (const card of sessionList()) {
@@ -140,7 +149,15 @@ export const savedActive = (): string | null => {
 // tag, it gets that group's tag. It becomes the active tab unless `focus` is
 // false. A sync may have opened it first: then that session is the tab.
 export async function openTab(
-  body?: { cwd?: string; name?: string; prompt?: string; command?: string; resume?: string },
+  body?: {
+    cwd?: string;
+    name?: string;
+    prompt?: string;
+    command?: string;
+    resume?: string;
+    mode?: 'tui' | 'ui';
+    acp_command?: string;
+  },
   focus = true,
 ): Promise<Session> {
   const { tag } = newTabGroup();
@@ -244,7 +261,7 @@ export function activate(s: Session | null): void {
 export function pick(s: Session): void {
   if (s === store.active) {
     if (onScreen() !== s) go({ term: null });
-    else s.term.focus();
+    else focusAgentSurface(isChatCard(s), s.id, s.term);
   } else go({ tab: s.id });
 }
 

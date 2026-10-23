@@ -25,6 +25,7 @@ import { addTag } from '../sessions/labels.ts';
 import { openTab, type Session, type SessionInfo, store } from '../sessions/store.ts';
 import { setName } from '../sessions/tabs.ts';
 import { setTags, tagBadge } from '../sessions/tags.tsx';
+import type { AgentMode } from '../settings/schema.ts';
 import { current, saveSetting } from '../settings/settings.ts';
 import { isMac } from '../ui/dom.ts';
 import { glyph, icons, providerIcon } from '../ui/icons.tsx';
@@ -32,6 +33,7 @@ import { type FolderPicker, initFolderPicker } from './folder-picker.ts';
 import { STATUS_NAMES } from './glyph.ts';
 import { recentFolders, type Status, withImages } from './model.ts';
 import { setEditCard } from './move-menu.tsx';
+import { canUseUi, openTabCreateBody } from './new-card-mode.ts';
 import { applyCard, cardOf } from './status.ts';
 import { TagsPanel } from './tags-submenu.tsx';
 import { moveToTop, setNewCard } from './view.tsx';
@@ -52,6 +54,7 @@ let tagsPanel: TagsPanel;
 // said (null: nothing).
 const [providers, setProviders] = createSignal<string[]>([]);
 const [provider, setProvider] = createSignal('');
+const [agentMode, setAgentMode] = createSignal<AgentMode>('tui');
 const [error, setError] = createSignal<string | null>(null);
 const [start, setStart] = createSignal<Start>('backlog');
 const [images, setImages] = createSignal<Image[]>([]);
@@ -102,7 +105,11 @@ export function openNewCard(status: Status): void {
   const names = current.saved.providers.map((p) => p.name);
   setProviders(names);
   const last = current.saved.agentProvider;
-  setProvider(names.includes(last) ? last : (names[0] ?? ''));
+  const picked = names.includes(last) ? last : (names[0] ?? '');
+  setProvider(picked);
+  const prov = current.saved.providers.find((p) => p.name === picked);
+  const mode = current.saved.agentMode;
+  setAgentMode(mode === 'ui' && canUseUi(prov) ? 'ui' : 'tui');
   const { tag } = newTabGroup();
   setPickedTags(tag ? [tag] : []);
   tagsPanel.field.value = '';
@@ -193,7 +200,12 @@ async function submit(e: Event): Promise<void> {
     }
     const prompt = withImages(String(data.get('prompt') ?? '').trim(), paths);
     try {
-      s = await openTab({ ...(cwd && { cwd }), prompt, command, resume }, false);
+      const body = openTabCreateBody(
+        { ...(cwd && { cwd }), prompt, command, resume: resume ?? '' },
+        chosen,
+        agentMode(),
+      );
+      s = await openTab(body, false);
     } catch (err) {
       // The daemon answers 400 for a folder that isn't there.
       const badFolder = err instanceof ApiError && err.status === 400 && cwd;
@@ -207,6 +219,7 @@ async function submit(e: Event): Promise<void> {
   setTags(s, picked);
   // The next card offers it first.
   saveSetting('agentProvider', chosen.name);
+  saveSetting('agentMode', agentMode());
   if (more) {
     // Same folder, agent, column and tags; a fresh prompt.
     promptEl.value = '';
@@ -345,6 +358,83 @@ function ChipMenu<T extends string>(props: {
   );
 }
 
+// Agent chip: provider plus TUI/UI in one menu. The face shows the mode so
+// the separate mode crumb is not needed.
+function AgentMenu(): JSX.Element {
+  const prov = () => current.saved.providers.find((p) => p.name === provider());
+  const face = () => (
+    <>
+      {providerIcon(prov()?.command ?? '')()}
+      <span class="nc-value">{provider() || 'Agent'}</span>
+      <span class="nc-mode-tag">{agentMode() === 'ui' ? 'UI' : 'TUI'}</span>
+    </>
+  );
+  return (
+    <div
+      class="dropdown-menu nc-menu nc-agent-menu"
+      on:keydown={(e) => {
+        if (e.key !== 'Escape' || !(e.currentTarget as Element).querySelector('[aria-expanded="true"]')) return;
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+    >
+      <button type="button" class="nc-chip nc-trigger" aria-label="Agent" aria-haspopup="menu" aria-expanded="false">
+        <span class="nc-trigger-body">
+          {face()}
+          {icons.chevronDown()}
+        </span>
+      </button>
+      <div data-popover="" aria-hidden="true">
+        <div role="menu" aria-label="Agent">
+          <For each={providers()}>
+            {(v) => (
+              // biome-ignore lint/a11y/useFocusableInteractive: Basecoat's rows
+              <div
+                role="menuitemradio"
+                aria-checked={provider() === v}
+                on:click={() => {
+                  setProvider(v);
+                  const next = current.saved.providers.find((p) => p.name === v);
+                  if (agentMode() === 'ui' && !canUseUi(next)) setAgentMode('tui');
+                }}
+              >
+                {named(providerIcon(current.saved.providers.find((p) => p.name === v)?.command ?? ''), v || 'Agent')}
+                {provider() === v ? icons.check() : <span />}
+              </div>
+            )}
+          </For>
+          <hr class="nc-menu-sep" />
+          <label class="nc-mode-row" on:click={(e) => e.stopPropagation()} on:pointerdown={(e) => e.stopPropagation()}>
+            <span class="nc-mode-row-label">Mode</span>
+            <span class="nc-mode-row-control">
+              <span class={agentMode() === 'tui' ? 'on' : ''}>TUI</span>
+              <input
+                type="checkbox"
+                role="switch"
+                class="input"
+                aria-label="UI mode"
+                aria-checked={agentMode() === 'ui'}
+                checked={agentMode() === 'ui'}
+                disabled={!canUseUi(prov())}
+                on:click={(e) => e.stopPropagation()}
+                on:change={(e) => {
+                  if (!canUseUi(prov())) {
+                    e.currentTarget.checked = false;
+                    setAgentMode('tui');
+                    return;
+                  }
+                  setAgentMode(e.currentTarget.checked ? 'ui' : 'tui');
+                }}
+              />
+              <span class={agentMode() === 'ui' ? 'on' : ''}>UI</span>
+            </span>
+          </label>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const named = (icon: () => SVGSVGElement, text: string): JSX.Element => [icon(), <span class="nc-value">{text}</span>];
 
 // The New card dialog lives as long as the page.
@@ -401,8 +491,6 @@ export function NewCard(): JSX.Element {
     },
     tagsPanel.panel,
   );
-  const providerFace = (v: string) =>
-    named(providerIcon(current.saved.providers.find((p) => p.name === v)?.command ?? ''), v || 'Agent');
   const dialog = (
     <dialog
       ref={(el) => {
@@ -476,13 +564,7 @@ export function NewCard(): JSX.Element {
             <span class="nc-sep" aria-hidden="true">
               {icons.chevronRight()}
             </span>
-            <ChipMenu
-              name="Agent"
-              items={providers()}
-              value={provider}
-              set={(v) => setProvider(v)}
-              face={providerFace}
-            />
+            <AgentMenu />
           </div>
           <div class="nc-tools">
             <button

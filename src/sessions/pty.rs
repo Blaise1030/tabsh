@@ -135,7 +135,20 @@ pub(crate) fn get_or_spawn(st: &AppState, id: &str) -> Result<Option<Arc<Session
     if let Some(s) = running() {
         return Ok(Some(s));
     }
-    let row = st
+    // One active agent surface per card, claimed atomically in the
+    // ChatManager: this claim and a chat's reservation are taken under
+    // the same lock, so whichever surface claims first wins and the
+    // other is refused — no recheck window remains. The claim holds
+    // for the shell's whole life (a restart's replacement proceeds
+    // under `AlreadyPty`); the reader thread releases it on exit, and
+    // `close` releases it when no shell is live.
+    match st.chats.try_claim_pty(id) {
+        crate::chat::PtyClaim::BlockedByChat => {
+            return Err(format!("a chat is live for session {id}").into());
+        }
+        crate::chat::PtyClaim::Acquired | crate::chat::PtyClaim::AlreadyPty => {}
+    }
+    let row = match st
         .db
         .lock()
         .unwrap()
@@ -154,19 +167,33 @@ pub(crate) fn get_or_spawn(st: &AppState, id: &str) -> Result<Option<Arc<Session
                 ))
             },
         )
-        .optional()?;
+        .optional()
+    {
+        Ok(row) => row,
+        Err(e) => {
+            st.chats.release_pty(id);
+            return Err(e.into());
+        }
+    };
     let Some((cwd, scrollback, status, prompt, pending, resume)) = row else {
+        st.chats.release_pty(id);
         return Ok(None);
     };
     let shell = user_shell();
-    let session = spawn_session(
+    let session = match spawn_session(
         st.clone(),
         id.to_owned(),
         &shell,
         cwd,
         scrollback,
         prompt.as_deref(),
-    )?;
+    ) {
+        Ok(session) => session,
+        Err(e) => {
+            st.chats.release_pty(id);
+            return Err(e);
+        }
+    };
     match startup_input(&status, pending.is_some(), resume) {
         Startup::Launch => type_launch_line(st, id, &session),
         Startup::Resume(line) => {
@@ -426,8 +453,12 @@ fn spawn_session(
             }
         }
         if restarting {
+            // The PTY claim stays: the replacement shell runs under it.
             return;
         }
+        // The shell is gone: release its PTY surface claim so a chat
+        // may start for this card from here on.
+        st.chats.release_pty(&id);
         // A card's exit takes its side terminals. Not on restart: the row stays.
         super::forget_exited(&st, &id);
     });
@@ -698,6 +729,27 @@ mod tests {
             !st.live.lock().unwrap().contains_key(&id),
             "the ended shell was forgotten"
         );
+    }
+
+    // A shell holds its card's agent-surface claim for its whole life:
+    // a chat cannot claim the card until the shell has exited.
+    #[test]
+    fn a_shell_claims_its_surface_until_it_exits() {
+        let st = test_state();
+        let id = new_card(&st);
+        let session = get_or_spawn(&st, &id).unwrap().unwrap();
+        assert!(st.chats.pty_claimed(&id), "the shell claimed its card");
+        assert_eq!(
+            st.chats.try_claim_pty(&id),
+            crate::chat::PtyClaim::AlreadyPty
+        );
+        kill(&session);
+        assert!(
+            eventually(|| !st.chats.pty_claimed(&id)),
+            "the claim was released when the shell exited"
+        );
+        assert_eq!(st.chats.try_claim_pty(&id), crate::chat::PtyClaim::Acquired);
+        st.chats.release_pty(&id);
     }
 
     // Tabs attaching to one session at once share one shell.

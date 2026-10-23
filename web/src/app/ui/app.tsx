@@ -1,10 +1,11 @@
 // The page: the dialogs, the tab bar, the board or the workspace under it
 // (or both: the workspace in a drawer beside the board), and the drop glow.
 // Features find their parts by id once this is mounted.
-import { createMemo, For, type JSX, untrack } from 'solid-js';
+import { createMemo, For, type JSX, Show, untrack } from 'solid-js';
 import { DrawerMoveButton } from '../board/move-menu.tsx';
 import { NewCard } from '../board/new-card.tsx';
 import { Board, drawer as boardDrawer, shown as boardShown, FilterButton, layout } from '../board/view.tsx';
+import { ChatPanel } from '../chat/panel.tsx';
 import { open as explorerOpen, toggleExplorer } from '../explorer/explorer.ts';
 import { Sidebar } from '../explorer/sidebar.tsx';
 import { paneShown } from '../files/open.tsx';
@@ -13,7 +14,7 @@ import { PaletteRows } from '../palette/palette.tsx';
 import { grouping, TabStrip } from '../sessions/groups.tsx';
 import { KeyBar } from '../sessions/keybar.tsx';
 import { SessionBar } from '../sessions/session-bar.tsx';
-import { active, noTab, type Session } from '../sessions/store.ts';
+import { active, isChatCard, noTab, type Session, screen } from '../sessions/store.ts';
 import { TermHost, termSessions } from '../sessions/terminal.tsx';
 import { Welcome } from '../welcome/view.tsx';
 import { Gate } from './gate.tsx';
@@ -172,6 +173,13 @@ function Workspace(): JSX.Element {
   const empty = noTab;
   const pane = paneShown;
   const terms = createMemo<Session[]>(termSessions, []);
+  const shown = screen;
+  // The agent surface of a UI card is the chat. A side terminal named by
+  // the place stays an xterm.
+  const chatCard = createMemo(() => {
+    const s = shown();
+    return s && isChatCard(s) ? s : null;
+  });
   return (
     <div id="workspace">
       <div id="main">
@@ -184,7 +192,10 @@ function Workspace(): JSX.Element {
             </button>
           </div>
           <Gate />
-          <For each={terms()}>{(s) => <TermHost session={s} />}</For>
+          <For each={terms()}>{(s) => (isChatCard(s) ? null : <TermHost session={s} />)}</For>
+          <Show when={chatCard()} keyed>
+            {(s) => <ChatPanel sessionId={s.id} agentCommand={s.card().agent} />}
+          </Show>
         </div>
         <KeyBar />
       </div>

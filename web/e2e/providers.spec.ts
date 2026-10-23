@@ -48,7 +48,7 @@ test('a provider is added and edited in the palette and offered by New card', as
   await page.locator('#board .board-col[data-status="backlog"] header .btn').click();
   await page.locator('#new-card button[aria-label="Agent"]').click();
   const options = page.locator('#new-card [role="menu"][aria-label="Agent"] [role="menuitemradio"]');
-  await expect(options).toHaveText(['Claude Code', 'Codex', 'Cursor CLI', 'Aider <b>x</b>']);
+  await expect(options).toHaveText(['Claude Code', 'Codex', 'Cursor CLI', 'OpenCode', 'Aider <b>x</b>']);
   await page.keyboard.press('Escape'); // the menu closes, not the dialog
   await expect(options.first()).toBeHidden();
   await page.locator('#new-card button[value="cancel"]').click();

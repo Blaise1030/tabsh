@@ -3,8 +3,10 @@
 // reveal a dropped file's real path, so files are uploaded to the daemon
 // first and the saved copy's path is used.
 import { CARD_DRAG, drawer, shown } from '../board/view.tsx';
+import { deliverAgentText } from '../chat/deliver.ts';
 import { uploadFile } from '../daemon/client.ts';
-import { onScreen } from '../sessions/store.ts';
+import { go } from '../nav/router.ts';
+import { isChatCard, onScreen } from '../sessions/store.ts';
 import { localPaths, shellQuote } from './drop-paths.ts';
 
 // Not a card dragged on the board, nor anything while the board hides the
@@ -54,8 +56,8 @@ export function initDrop(): void {
     try {
       const text = await textForDrop(e.dataTransfer);
       if (text && !target.closed) {
-        target.term.paste(text);
-        target.term.focus();
+        deliverAgentText(isChatCard(target), target.id, text, target.term);
+        if (isChatCard(target) && onScreen() !== target) go({ term: null });
       }
     } catch (err) {
       console.error(err);

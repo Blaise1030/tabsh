@@ -13,6 +13,18 @@ body {
 #app { display: contents; }
 body { font-family: var(--font-sans); }
 
+/* Thin scrollbars: Firefox + WebKit. */
+* { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--foreground) 28%, transparent) transparent; }
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--foreground) 28%, transparent);
+  border-radius: 9999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--foreground) 45%, transparent);
+}
+
 /* The group and settings buttons sit together at the bar's right end. */
 #tab-group-btn { margin-left: auto; }
 /* Near the top of the screen at Tailwind's max-w-xl width; tall enough to show
@@ -444,6 +456,227 @@ file-tree-container {
    black frame. Leave the viewport clear and let the theme show through. */
 .term .xterm .xterm-viewport { background-color: transparent; }
 .term.active { display: block; }
+/* A UI card's chat: the scrollport is full width; message text and the
+   composer fields stay in a max-w-5xl column. The composer dock is sticky
+   across the whole page. */
+.chat { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; background: var(--background); color: var(--foreground); }
+.chat-transcript {
+  flex: 1; min-height: 0; overflow-y: auto; width: 100%;
+  /* Fade only the top into the session bar; the sticky dock has its own edge. */
+  mask-image: linear-gradient(to bottom, transparent, #000 1.5rem, #000);
+}
+.chat-scroll {
+  box-sizing: border-box; width: 100%;
+  display: flex; flex-direction: column;
+}
+.chat-list {
+  box-sizing: border-box; width: 100%; max-width: 64rem;
+  margin-inline: auto; padding: 1.5rem 1rem .5rem;
+  display: flex; flex-direction: column; gap: .625rem;
+}
+.chat-composer-dock {
+  position: sticky; bottom: 0; z-index: 1;
+  width: 100%;
+  background: linear-gradient(to top, var(--background) 55%, transparent);
+}
+.chat-row {
+  display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+  column-gap: .75rem;
+  align-items: start;
+  width: 100%;
+}
+.chat-row-queued { opacity: .72; }
+.chat-queue-mark {
+  display: flex; align-items: center; gap: .5rem;
+  box-sizing: border-box; width: 100%; max-width: 48rem; margin-inline: auto;
+  padding: .35rem 0 .15rem;
+  color: var(--muted-foreground); font-size: .75rem; font-weight: 500;
+}
+.chat-queue-label { flex: none; letter-spacing: .02em; }
+.chat-queue-wave { flex: 1; min-width: 2rem; height: .5rem; display: block; color: var(--muted-foreground); opacity: .7; }
+.chat-queue-wave svg { display: block; width: 100%; height: 100%; }
+.chat-avatar {
+  display: flex; align-items: center; justify-content: center;
+  width: 1.75rem; height: 1.75rem;
+  border-radius: 9999px; color: var(--foreground);
+  background: var(--muted); flex: none;
+}
+.chat-avatar svg { width: 1rem; height: 1rem; }
+.chat-avatar-user { color: var(--muted-foreground); background: transparent; border: 1px solid var(--border); }
+/* First line sits on the avatar's vertical mid, not its top edge. */
+.chat-body {
+  min-width: 0; display: flex; flex-direction: column; gap: .5rem; width: 100%;
+  padding-top: calc((1.75rem - 1lh) / 2);
+}
+.chat-loading {
+  margin: 0; padding-top: .1rem;
+  font-size: .875rem; line-height: 1.35;
+}
+.chat-loading-text {
+  display: inline-block;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--foreground) 35%, transparent) 0%,
+    var(--foreground) 45%,
+    color-mix(in srgb, var(--foreground) 35%, transparent) 90%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: chat-loading-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes chat-loading-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-loading-text {
+    animation: none; color: var(--muted-foreground);
+    background: none; -webkit-background-clip: unset; background-clip: unset;
+  }
+}
+.chat-user, .chat-text, .chat-thought, .chat-tool, .chat-plan, .chat-permission, .chat-error {
+  margin: 0; max-width: none; width: 100%; overflow-wrap: anywhere;
+}
+.chat-plan, .chat-permission, .chat-error { white-space: pre-wrap; }
+.chat-thought, .chat-tool, .chat-plan, .chat-permission { color: var(--muted-foreground); }
+.chat-thought, .chat-tool, .chat-plan, .chat-permission { font-size: .8125rem; }
+.chat-tool { border-radius: .375rem; }
+.chat-tool-summary {
+  display: flex; align-items: flex-start; gap: .35rem;
+  cursor: pointer; list-style: none; user-select: none;
+  min-width: 0;
+}
+.chat-tool-summary::-webkit-details-marker { display: none; }
+.chat-tool-chevron {
+  display: flex; flex: none; align-items: center; justify-content: center;
+  width: 1rem; height: 1.15rem; color: var(--muted-foreground);
+  transition: transform .12s ease;
+}
+.chat-tool-chevron svg { width: .875rem; height: .875rem; }
+.chat-tool[open] .chat-tool-chevron,
+.chat-thought[open] .chat-tool-chevron { transform: rotate(90deg); }
+.chat-thought-body {
+  margin: .35rem 0 0; color: var(--muted-foreground); font-size: .8125rem;
+}
+.chat-tool-title {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.chat-tool-body {
+  margin: .35rem 0 0; padding: .5rem .625rem; overflow-x: auto;
+  border-radius: .375rem; background: var(--muted); border: 1px solid var(--border);
+  color: var(--foreground); font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: .75rem; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.chat-md { display: flex; flex-direction: column; gap: .5rem; min-width: 0; }
+.chat-md > :first-child { margin-top: 0; }
+.chat-md > :last-child { margin-bottom: 0; }
+.chat-md p, .chat-md ul, .chat-md ol, .chat-md blockquote, .chat-md pre,
+.chat-md h1, .chat-md h2, .chat-md h3, .chat-md h4, .chat-md h5, .chat-md h6 { margin: 0; }
+.chat-md h1, .chat-md h2, .chat-md h3 { font-size: 1rem; font-weight: 600; }
+.chat-md ul, .chat-md ol { padding-left: 1.25rem; }
+.chat-md blockquote {
+  margin: 0; padding-left: .75rem; border-left: 2px solid var(--border);
+  color: var(--muted-foreground);
+}
+.chat-md a { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; }
+.chat-md-codespan, .chat-md-code code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: .875em;
+}
+.chat-md-codespan {
+  padding: .1em .35em; border-radius: .25rem;
+  background: var(--muted); color: var(--foreground);
+}
+.chat-md-code {
+  position: relative; margin: 0; padding: .75rem; overflow-x: auto;
+  border-radius: .375rem; background: var(--muted); border: 1px solid var(--border);
+}
+.chat-md-code code { white-space: pre; }
+.chat-md-lang {
+  position: absolute; top: .35rem; right: .5rem;
+  font-size: .6875rem; color: var(--muted-foreground); text-transform: lowercase;
+}
+.chat-permission { display: flex; flex-direction: column; align-items: flex-start; gap: .375rem; }
+.chat-permission-actions { display: flex; gap: .375rem; }
+.chat-error { color: var(--destructive, #ef4444); display: flex; flex-direction: column; gap: .25rem; }
+.chat-hint { color: var(--muted-foreground); font-size: .8125rem; }
+.chat-composer-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .5rem;
+  box-sizing: border-box; width: 100%; max-width: 64rem;
+  margin-inline: auto; padding: 0 1rem .65rem;
+  min-height: 0;
+}
+.chat-attach {
+  display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: .35rem;
+}
+.chat-attach-thumbs {
+  display: flex; flex-wrap: wrap; gap: .375rem; order: -1; flex: 1 1 100%;
+}
+.chat-attach-thumbs .nc-thumb { width: 3rem; height: 3rem; }
+.chat-attach-btn {
+  flex: none; width: 1.875rem; height: 1.875rem; min-width: 1.875rem; padding: 0;
+  border-radius: var(--radius, .5rem);
+}
+.chat-attach-btn svg { width: 14px; height: 14px; }
+/* Model chip reuses New card Tags/Folder chip chrome (nc-chip / nc-pop). */
+.chat-model-menu { display: inline-flex; position: relative; flex: none; }
+.chat-model-chip {
+  max-width: 16rem; height: 1.875rem; box-sizing: border-box;
+  color: var(--foreground);
+}
+.chat-model-chip:disabled { opacity: .55; cursor: default; }
+.chat-model-menu > .chat-model-popover[data-popover] {
+  /* Fixed so the sticky composer does not clip it; same look as .nc-pop. */
+  position: fixed; top: auto; left: auto; margin: 0; z-index: 40;
+  width: 18rem; max-width: calc(100vw - 2rem);
+  min-width: 14rem; overflow: hidden;
+}
+.chat-model-menu .chat-model-popover > .nc-search {
+  flex: none; border-bottom: 1px solid var(--border);
+}
+.chat-model-options {
+  display: flex; flex-direction: column;
+  flex: 1; min-height: 0; max-height: 14rem; overflow-y: auto;
+}
+.chat-model-options .menu-check {
+  display: flex; align-items: center; justify-content: space-between; gap: .5rem;
+  min-height: 2.25rem; padding: .5rem .625rem; box-sizing: border-box;
+  cursor: default; border-radius: calc(var(--radius, .5rem) - 2px);
+}
+.chat-model-options .menu-check:hover { background: var(--accent); }
+.chat-model-options .menu-check > span:first-child {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.chat-model-options .menu-check svg { flex: none; width: 14px; height: 14px; }
+.chat-composer {
+  display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr) auto;
+  column-gap: .75rem;
+  align-items: start;
+  box-sizing: border-box; width: 100%; max-width: 64rem;
+  margin-inline: auto; padding: .5rem 1rem .75rem;
+}
+.chat-composer:not(:has(.chat-composer-actions)) {
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+}
+.chat-composer .chat-avatar { margin-top: .45rem; }
+.chat-composer textarea {
+  min-width: 0; width: 100%; resize: none; overflow-y: auto;
+  min-height: calc(1lh + 1rem); max-height: 8rem; field-sizing: content;
+  border: 0; margin: 0; background: transparent; color: inherit; font: inherit;
+  padding: .5rem 0; box-sizing: border-box;
+}
+.chat-composer textarea:focus { outline: none; }
+.chat-composer-actions {
+  display: flex; align-items: end; gap: .375rem; flex: none; margin-bottom: .25rem;
+}
+.chat-composer-actions .btn {
+  flex: none; width: 1.875rem; height: 1.875rem; min-width: 1.875rem; padding: 0;
+}
+.chat-composer-actions .btn svg { width: 14px; height: 14px; }
 .term-bottom { position: absolute; right: 1rem; bottom: .75rem; z-index: 5; border-radius: 9999px; box-shadow: 0 2px 8px rgb(0 0 0 / .25); }
 .term-bottom[hidden] { display: none; }
 /* The touch key bar (sessions/keybar.ts): touch screens only. */
@@ -470,7 +703,7 @@ file-tree-container {
   /* While you type in a terminal, it ends above the keyboard, so the prompt
      stays in sight (iOS lays the keyboard over the page). The body's
      safe-area padding already keeps it off the bottom of the screen. */
-  body:has(.term .xterm-helper-textarea:focus) #main {
+  body:has(.term .xterm-helper-textarea:focus, .chat-composer textarea:focus) #main {
     padding-bottom: max(0px, var(--keyboard, 0px) - env(safe-area-inset-bottom));
   }
   /* Long press selects (sessions/touch.ts), not the system's text callout. */
@@ -938,6 +1171,28 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
    fills it, the current one checked. */
 .nc-menu [role="menuitemradio"] > span { flex: 1; }
 .nc-menu [data-popover] { min-width: 10rem; }
+.nc-agent-menu [data-popover] { min-width: 12rem; }
+.nc-menu-sep {
+  height: 1px; margin: .25rem .5rem; border: 0; padding: 0;
+  background: var(--border);
+}
+.nc-mode-row {
+  display: flex; align-items: center; justify-content: space-between; gap: .75rem;
+  padding: .4rem .75rem .5rem; font-size: .8125rem; cursor: default;
+}
+.nc-mode-row-label { color: var(--foreground); }
+.nc-mode-row-control {
+  display: inline-flex; align-items: center; gap: .375rem;
+  font-size: .75rem; color: var(--muted-foreground);
+}
+.nc-mode-row-control > span.on { color: var(--foreground); font-weight: 500; }
+.nc-mode-row-control > .input { margin: 0; }
+.nc-mode-row:has(input:disabled) { opacity: .55; }
+.nc-mode-tag {
+  flex: none; margin-left: .125rem; padding: 0 .35rem; border-radius: .25rem;
+  font-size: .6875rem; font-weight: 500; color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+}
 .nc-trigger-body > svg:last-child:not(:first-child) { width: 12px; height: 12px; }
 .nc-body { display: flex; flex-direction: column; gap: .75rem; }
 .nc-prompt {

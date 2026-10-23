@@ -121,6 +121,8 @@ interface Info {
   agent_command?: string | null;
   pending_prompt?: string | null;
   pending_command?: string | null;
+  mode: 'tui' | 'ui';
+  acp_command?: string | null;
 }
 interface Shell {
   info: Info;
@@ -140,7 +142,16 @@ const shells: Shell[] = [];
 function addShell(name: string, cwd: string, status: string, output: string, extra: Partial<Shell> = {}): Shell {
   const prompt = promptIn(cwd);
   const sh: Shell = {
-    info: { id: `demo-${nextId++}`, name, status, status_at: now() - 60 * nextId, note: null, cwd, pinned: true },
+    info: {
+      id: `demo-${nextId++}`,
+      name,
+      status,
+      status_at: now() - 60 * nextId,
+      note: null,
+      cwd,
+      pinned: true,
+      mode: 'tui',
+    },
     output: output + prompt,
     input: '',
     prompt,
@@ -440,6 +451,69 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const empty = (status: number) => new Response(null, { status });
 
+// A UI card's chat. History is scripted, then each message appends a short
+// assistant reply. Open streams receive the same chunks as SSE `data:` lines.
+type ChatChunk = Record<string, unknown>;
+const transcripts = new Map<string, ChatChunk[]>();
+const chatFans = new Map<string, Set<(frame: Uint8Array) => void>>();
+
+function scriptedChat(id: string): ChatChunk[] {
+  let rows = transcripts.get(id);
+  if (!rows) {
+    rows = [
+      { type: 'text_delta', session_id: id, text: 'This demo agent is ready.' },
+      { type: 'turn_end', session_id: id, stop_reason: 'end_turn' },
+    ];
+    transcripts.set(id, rows);
+  }
+  return rows;
+}
+
+function sseFrame(chunk: ChatChunk): Uint8Array {
+  return enc.encode(`data: ${JSON.stringify(chunk)}\n\n`);
+}
+
+function pushChat(id: string, chunk: ChatChunk): void {
+  scriptedChat(id).push(chunk);
+  const frame = sseFrame(chunk);
+  for (const send of chatFans.get(id) ?? []) send(frame);
+}
+
+function chatEvents(id: string): Response {
+  let listener: ((frame: Uint8Array) => void) | undefined;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const replay = [...scriptedChat(id)];
+      const fans = chatFans.get(id) ?? new Set<(frame: Uint8Array) => void>();
+      listener = (frame) => {
+        try {
+          controller.enqueue(frame);
+        } catch {
+          if (listener) fans.delete(listener);
+        }
+      };
+      fans.add(listener);
+      chatFans.set(id, fans);
+      for (const chunk of replay) controller.enqueue(sseFrame(chunk));
+    },
+    cancel() {
+      if (listener) chatFans.get(id)?.delete(listener);
+    },
+  });
+  return new Response(body, {
+    headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
+  });
+}
+
+function chatMessage(id: string, body: Record<string, unknown>): Response {
+  const text = typeof body.text === 'string' ? body.text.trim() : '';
+  if (!text) return empty(400);
+  pushChat(id, { type: 'user_text', session_id: id, text });
+  pushChat(id, { type: 'text_delta', session_id: id, text: `Demo reply: ${text.slice(0, 80)}` });
+  pushChat(id, { type: 'turn_end', session_id: id, stop_reason: 'end_turn' });
+  return empty(202);
+}
+
 let settings: Record<string, unknown> = { boardOnboarded: true, welcomeSeen: true };
 
 async function answer(method: string, url: URL, body: unknown): Promise<Response> {
@@ -470,14 +544,26 @@ async function answer(method: string, url: URL, body: unknown): Promise<Response
   }
 
   if (path.startsWith('/api/sessions')) {
-    const [id, action] = path.slice('/api/sessions/'.length).split('/');
+    const [id, action, sub] = path.slice('/api/sessions/'.length).split('/');
     const b = (body ?? {}) as Record<string, unknown>;
     if (!id && method === 'GET') return json(shells.map((s) => s.info));
     if (!id && method === 'POST') {
       const cwd = typeof b.cwd === 'string' ? b.cwd : HOME;
+      const prompt = typeof b.prompt === 'string' ? b.prompt.trim() : '';
       const n = shells.filter((s) => s.info.name.startsWith('zsh')).length;
-      const sh = addShell(typeof b.name === 'string' ? b.name : n ? `zsh ${n + 1}` : 'zsh', cwd, 'backlog', '');
+      const titled = prompt.split('\n')[0]?.slice(0, 100);
+      const name = typeof b.name === 'string' ? b.name : titled || (n ? `zsh ${n + 1}` : 'zsh');
+      const sh = addShell(name, cwd, 'backlog', '');
       sh.info.pinned = typeof b.name === 'string';
+      sh.info.mode = b.mode === 'ui' ? 'ui' : 'tui';
+      if (prompt) {
+        sh.info.pending_prompt = prompt;
+        if (typeof b.command === 'string') {
+          sh.info.pending_command = b.command;
+          sh.info.agent_command = b.command;
+        }
+      }
+      if (typeof b.acp_command === 'string' && b.acp_command.trim()) sh.info.acp_command = b.acp_command.trim();
       return json(sh.info);
     }
     if (id === 'order' && method === 'PUT') {
@@ -487,6 +573,13 @@ async function answer(method: string, url: URL, body: unknown): Promise<Response
     }
     const sh = shell(id);
     if (!sh) return empty(404);
+    if (action === 'chat') {
+      if (method === 'GET' && !sub) return json({ messages: [...scriptedChat(sh.info.id)] });
+      if (method === 'GET' && sub === 'stream') return chatEvents(sh.info.id);
+      if (method === 'POST' && sub === 'message') return chatMessage(sh.info.id, b);
+      if (method === 'POST' && (sub === 'stop' || sub === 'approve')) return empty(204);
+      return empty(404);
+    }
     if (method === 'DELETE') {
       shells.splice(shells.indexOf(sh), 1);
       sh.socket?.deliver(JSON.stringify({ exit: 0 }));
