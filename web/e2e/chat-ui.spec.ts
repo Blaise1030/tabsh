@@ -98,3 +98,13 @@ test('Allow answers an in-thread permission request', async ({ page, daemon, pro
   await expect(page.locator('.chat-transcript')).toContainText('permission outcome: selected:allow');
   await expect(page.locator('.chat-composer textarea')).toBeEnabled();
 });
+
+test('Stop ends the running turn and the composer works again', async ({ page, daemon, project }) => {
+  await openApp(page, daemon);
+  await openUiCard(page, project, 'Say hello');
+  await sendChat(page, 'slow please');
+  await expect(page.getByRole('button', { name: 'Stop' })).toBeVisible();
+  await page.getByRole('button', { name: 'Stop' }).click();
+  await expect(page.locator('.chat-composer textarea')).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Stop' })).toBeHidden();
+});

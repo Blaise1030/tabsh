@@ -1,7 +1,9 @@
 // The footer of a UI card: Enter sends (or queues while busy); ⌘Enter steers.
-// No send / stop / steer buttons — keyboard only.
-import { createEffect, createSignal, type JSX, onCleanup } from 'solid-js';
+// Stop cancels an open turn so a hung agent does not queue forever.
+import { createEffect, createSignal, type JSX, onCleanup, Show } from 'solid-js';
+import { ApiError } from '../daemon/client.ts';
 import { icons } from '../ui/icons.tsx';
+import { postStop } from './client.ts';
 import { insertIntoComposer, registerComposer } from './deliver.ts';
 
 export function Composer(props: {
@@ -54,6 +56,15 @@ export function Composer(props: {
     props.onSteer(value);
   };
 
+  const stop = async () => {
+    try {
+      await postStop(props.sessionId);
+      props.onError(null);
+    } catch (e) {
+      props.onError(e instanceof ApiError ? e.message : 'Could not stop the agent.');
+    }
+  };
+
   return (
     <div class="chat-composer">
       <span class="chat-avatar chat-avatar-user" aria-hidden="true">
@@ -79,6 +90,13 @@ export function Composer(props: {
           send();
         }}
       />
+      <Show when={props.busy}>
+        <span class="chat-composer-actions">
+          <button type="button" class="btn" onClick={() => void stop()}>
+            Stop
+          </button>
+        </span>
+      </Show>
     </div>
   );
 }
