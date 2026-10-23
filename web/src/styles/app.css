@@ -474,7 +474,7 @@ file-tree-container {
 .chat-avatar {
   display: flex; align-items: center; justify-content: center;
   width: 1.75rem; height: 1.75rem; margin-top: .1rem;
-  border-radius: .375rem; color: var(--foreground);
+  border-radius: 9999px; color: var(--foreground);
   background: var(--muted); flex: none;
 }
 .chat-avatar svg { width: 1rem; height: 1rem; }
