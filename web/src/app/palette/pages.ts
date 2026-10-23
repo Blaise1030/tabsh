@@ -177,7 +177,7 @@ export function pages(ctx: {
               label: 'Agent providers…',
               icon: icons.agent,
               hint: saved.providers.map((p) => p.name).join(', '),
-              keywords: 'agent provider command resume startup launch claude codex gemini opencode new card',
+              keywords: 'agent provider command resume acp startup launch claude codex gemini opencode new card',
               go: 'providers',
             },
           ],
@@ -446,18 +446,23 @@ export function pages(ctx: {
   };
 }
 
-// One provider: its name, startup and resume commands, and deleting it (the
-// last one stays).
+// One provider: its name, startup, resume and ACP commands, and deleting it
+// (the last one stays).
 function providerPage(list: Provider[], i: number): PalettePage {
   const p = list[i];
   const self = `provider:${i}`;
   const put = (changes: Partial<Provider>) =>
     saveSetting(
       'providers',
-      list.map((q, j) => (j === i ? { ...q, ...changes } : q)),
+      list.map((q, j) => {
+        if (j !== i) return q;
+        const next = { ...q, ...changes };
+        if (changes.acp !== undefined && !changes.acp) delete next.acp;
+        return next;
+      }),
     );
-  const command = (field: 'command' | 'resume', placeholder: string): TextEdit => ({
-    value: p[field],
+  const command = (field: 'command' | 'resume' | 'acp', placeholder: string): TextEdit => ({
+    value: p[field] ?? '',
     placeholder,
     save: (value) => {
       const v = value.trim();
@@ -508,6 +513,16 @@ function providerPage(list: Provider[], i: number): PalettePage {
             edit: command(
               'resume',
               '{session} is the conversation (tabsh’s, or what its hooks report); empty for none  (Esc to cancel)',
+            ),
+          },
+          {
+            label: 'ACP command…',
+            icon: icons.edit,
+            hint: p.acp || 'None — UI mode stays off',
+            keywords: 'acp ui mode chat agent client protocol',
+            edit: command(
+              'acp',
+              'Command that speaks ACP for UI-mode cards (e.g. opencode acp); empty keeps UI mode off  (Esc to cancel)',
             ),
           },
         ],
