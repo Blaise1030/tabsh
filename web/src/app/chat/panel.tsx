@@ -76,30 +76,32 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
   return (
     <section class="chat" aria-label="Chat">
       <div class="chat-transcript" ref={transcript}>
-        <For each={chatBlocks(chatLines(chunks()))}>
-          {(block) => (
-            <Block
-              block={block}
-              sessionId={props.sessionId}
-              agentCommand={props.agentCommand}
-              onError={setNotice}
-            />
-          )}
-        </For>
-        <Show when={notice()}>
-          {(message) => (
-            <Block
-              block={{
-                role: 'error',
-                lines: [{ chunk: { type: 'error', message: message() }, text: message() }],
-              }}
-              sessionId={props.sessionId}
-              onError={setNotice}
-            />
-          )}
-        </Show>
+        <div class="chat-list">
+          <For each={chatBlocks(chatLines(chunks()))}>
+            {(block) => (
+              <Block
+                block={block}
+                sessionId={props.sessionId}
+                agentCommand={props.agentCommand}
+                onError={setNotice}
+              />
+            )}
+          </For>
+          <Show when={notice()}>
+            {(message) => (
+              <Block
+                block={{
+                  role: 'error',
+                  lines: [{ chunk: { type: 'error', message: message() }, text: message() }],
+                }}
+                sessionId={props.sessionId}
+                onError={setNotice}
+              />
+            )}
+          </Show>
+          <Composer sessionId={props.sessionId} busy={turnOpen(chunks())} onError={setNotice} />
+        </div>
       </div>
-      <Composer sessionId={props.sessionId} busy={turnOpen(chunks())} onError={setNotice} />
     </section>
   );
 }

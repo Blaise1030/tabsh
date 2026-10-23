@@ -440,21 +440,18 @@ file-tree-container {
    rows from the parent's full height, so parent padding overflows the page. */
 .term .xterm { padding: 6px 0 0 8px; }
 .term.active { display: block; }
-/* A UI card's chat, in the terminal's place: transcript, then the composer,
-   with the transcript fading out so the join is not a hard edge. */
+/* A UI card's chat: one scrollable list; the composer is the last row and
+   sticks to the bottom of the scrollport. */
 .chat { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; background: var(--background); color: var(--foreground); }
 .chat-transcript {
-  flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: .625rem;
-  box-sizing: border-box; width: 100%; max-width: 64rem; margin-inline: auto;
-  padding: 1.5rem 1rem;
-  /* Fade both ends so scrolling into the session bar or composer isn't a hard cut. */
-  mask-image: linear-gradient(
-    to bottom,
-    transparent,
-    #000 1.5rem,
-    #000 calc(100% - 1.5rem),
-    transparent
-  );
+  flex: 1; min-height: 0; overflow-y: auto;
+  /* Fade only the top into the session bar; the sticky composer has its own edge. */
+  mask-image: linear-gradient(to bottom, transparent, #000 1.5rem, #000);
+}
+.chat-list {
+  box-sizing: border-box; width: 100%; max-width: 64rem; min-height: 100%;
+  margin-inline: auto; padding: 1.5rem 1rem .75rem;
+  display: flex; flex-direction: column; gap: .625rem;
 }
 .chat-row {
   display: grid;
@@ -539,8 +536,11 @@ file-tree-container {
   grid-template-columns: 1.75rem minmax(0, 1fr) auto;
   column-gap: .75rem;
   align-items: start;
-  box-sizing: border-box; width: 100%; max-width: 64rem; margin-inline: auto;
-  padding: 0 1rem .75rem;
+  position: sticky; bottom: 0; z-index: 1;
+  box-sizing: border-box; width: 100%; margin-top: auto;
+  padding: .75rem 0 0;
+  background: var(--background);
+  box-shadow: 0 -1rem 1.25rem -.25rem var(--background);
 }
 .chat-composer .chat-avatar { margin-top: .45rem; }
 .chat-composer textarea {
