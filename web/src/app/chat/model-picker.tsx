@@ -1,8 +1,14 @@
 // Compact model chip for a UI card. Hidden when the agent advertises no models.
+// The popover is position:fixed and placed against the viewport so a sticky
+// composer dock or short card does not clip it.
 import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from 'solid-js';
 import { ApiError } from '../daemon/client.ts';
 import { icons } from '../ui/icons.tsx';
 import { type ChatModelChoice, type ChatModels, fetchModels, postModel } from './client.ts';
+
+const VIEW_PAD = 8;
+const GAP = 6;
+const MAX_POPOVER = 20 * 16; // 20rem
 
 export function ModelPicker(props: {
   sessionId: string;
@@ -12,6 +18,8 @@ export function ModelPicker(props: {
   const [models, setModels] = createSignal<ChatModels | null>(null);
   const [pending, setPending] = createSignal(false);
   const [query, setQuery] = createSignal('');
+  let trigger: HTMLButtonElement | undefined;
+  let popover: HTMLDivElement | undefined;
 
   const load = async (id: string) => {
     try {
@@ -25,14 +33,74 @@ export function ModelPicker(props: {
   createEffect(() => {
     const id = props.sessionId;
     void load(id);
-    // Retry shortly after mount — the chat may still be handshaking.
     const t = window.setTimeout(() => void load(id), 800);
     onCleanup(() => clearTimeout(t));
   });
 
   createEffect(() => {
-    // Refresh when a turn ends so a late-started agent shows its list.
     if (!props.busy) void load(props.sessionId);
+  });
+
+  const placePopover = () => {
+    const btn = trigger;
+    const pop = popover;
+    if (!btn || !pop || btn.getAttribute('aria-expanded') !== 'true') return;
+    const r = btn.getBoundingClientRect();
+    const spaceAbove = r.top - VIEW_PAD;
+    const spaceBelow = window.innerHeight - r.bottom - VIEW_PAD;
+    const preferAbove = spaceAbove >= 12 * 16 || spaceAbove >= spaceBelow;
+    const avail = Math.max(120, preferAbove ? spaceAbove - GAP : spaceBelow - GAP);
+    const maxH = Math.min(MAX_POPOVER, avail);
+    pop.style.maxHeight = `${maxH}px`;
+    void pop.offsetHeight;
+    const ph = pop.offsetHeight || maxH;
+    const pw = Math.max(pop.offsetWidth, 224);
+    let top = preferAbove ? r.top - GAP - ph : r.bottom + GAP;
+    if (top < VIEW_PAD) top = VIEW_PAD;
+    if (top + ph > window.innerHeight - VIEW_PAD) {
+      top = Math.max(VIEW_PAD, window.innerHeight - VIEW_PAD - ph);
+    }
+    let left = r.left;
+    left = Math.max(VIEW_PAD, Math.min(left, window.innerWidth - pw - VIEW_PAD));
+    pop.style.top = `${top}px`;
+    pop.style.left = `${left}px`;
+    pop.style.right = 'auto';
+    pop.style.bottom = 'auto';
+  };
+
+  const schedulePlace = () => {
+    requestAnimationFrame(() => requestAnimationFrame(placePopover));
+  };
+
+  createEffect(() => {
+    if (!models()) return;
+    let obs: MutationObserver | undefined;
+    let cancelled = false;
+    const bind = () => {
+      if (cancelled) return;
+      const btn = trigger;
+      if (!btn) {
+        requestAnimationFrame(bind);
+        return;
+      }
+      obs = new MutationObserver(() => {
+        if (btn.getAttribute('aria-expanded') === 'true') {
+          setQuery('');
+          schedulePlace();
+        }
+      });
+      obs.observe(btn, { attributes: true, attributeFilter: ['aria-expanded'] });
+    };
+    bind();
+    const onReposition = () => placePopover();
+    window.addEventListener('resize', onReposition);
+    window.addEventListener('scroll', onReposition, true);
+    onCleanup(() => {
+      cancelled = true;
+      obs?.disconnect();
+      window.removeEventListener('resize', onReposition);
+      window.removeEventListener('scroll', onReposition, true);
+    });
   });
 
   const currentName = () => {
@@ -50,6 +118,12 @@ export function ModelPicker(props: {
     return m.options.filter(
       (o) => o.name.toLowerCase().includes(q) || o.id.toLowerCase().includes(q),
     );
+  });
+
+  createEffect(() => {
+    filtered();
+    query();
+    if (trigger?.getAttribute('aria-expanded') === 'true') schedulePlace();
   });
 
   const select = async (choice: ChatModelChoice) => {
@@ -80,6 +154,7 @@ export function ModelPicker(props: {
           }}
         >
           <button
+            ref={trigger}
             type="button"
             class="chat-model-chip"
             aria-label="Model"
@@ -87,12 +162,12 @@ export function ModelPicker(props: {
             aria-expanded="false"
             disabled={props.busy || pending()}
             title={props.busy ? 'Wait for the current turn to finish' : 'Model'}
-            onClick={() => setQuery('')}
+            onClick={() => schedulePlace()}
           >
             <span class="chat-model-chip-label">{currentName()}</span>
             {icons.chevronDown()}
           </button>
-          <div data-popover="" data-side="top" aria-hidden="true">
+          <div ref={popover} class="chat-model-popover" data-popover="" aria-hidden="true">
             <div class="chat-model-search">
               <input
                 type="search"
