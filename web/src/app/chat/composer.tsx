@@ -102,8 +102,15 @@ export function Composer(props: {
       />
       <Show when={props.busy}>
         <span class="chat-composer-actions">
-          <button type="button" class="btn" onClick={() => void stop()}>
-            Stop
+          <button
+            type="button"
+            class="btn"
+            data-size="icon-sm"
+            aria-label="Stop"
+            title="Stop"
+            onClick={() => void stop()}
+          >
+            {icons.stop()}
           </button>
         </span>
       </Show>
