@@ -79,16 +79,20 @@ async function openUiCard(page: Page, project: string, name: string): Promise<vo
   const created = card(page, name);
   await expect(created).toBeVisible();
   await created.click();
-  // Send stays disabled until there is text. The field is what a finished
-  // launch turn re-enables.
+  // Enter sends. The field is what a finished launch turn leaves usable.
   await expect(page.locator('.chat-composer textarea')).toBeEnabled();
+}
+
+async function sendChat(page: Page, text: string): Promise<void> {
+  const field = page.locator('.chat-composer textarea');
+  await field.fill(text);
+  await field.press('Enter');
 }
 
 test('Allow answers an in-thread permission request', async ({ page, daemon, project }) => {
   await openApp(page, daemon);
   await openUiCard(page, project, 'Say hello');
-  await page.locator('.chat-composer textarea').fill('needs permission');
-  await page.getByRole('button', { name: 'Send' }).click();
+  await sendChat(page, 'needs permission');
   await expect(page.locator('.chat-permission')).toContainText('Fake tool');
   await page.getByRole('button', { name: 'Allow' }).click();
   await expect(page.locator('.chat-transcript')).toContainText('permission outcome: selected:allow');
@@ -98,10 +102,9 @@ test('Allow answers an in-thread permission request', async ({ page, daemon, pro
 test('Stop ends the running turn and the composer works again', async ({ page, daemon, project }) => {
   await openApp(page, daemon);
   await openUiCard(page, project, 'Say hello');
-  await page.locator('.chat-composer textarea').fill('slow please');
-  await page.getByRole('button', { name: 'Send' }).click();
+  await sendChat(page, 'slow please');
   await expect(page.getByRole('button', { name: 'Stop' })).toBeVisible();
   await page.getByRole('button', { name: 'Stop' }).click();
   await expect(page.locator('.chat-composer textarea')).toBeEnabled();
-  await expect(page.getByRole('button', { name: 'Send' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Stop' })).toBeHidden();
 });

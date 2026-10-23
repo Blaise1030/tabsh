@@ -1,6 +1,5 @@
-// The footer of a UI card: posts the text, and puts it back if the daemon
-// refuses so a spawn failure does not eat the message. While a turn runs,
-// Send queues (or steers: stop then send); the textarea stays editable.
+// The footer of a UI card: Enter sends (or queues while busy); ⌘Enter steers.
+// There is no send button — only Stop / Steer when a turn is open.
 import { createEffect, createSignal, type JSX, onCleanup, Show } from 'solid-js';
 import { ApiError } from '../daemon/client.ts';
 import { icons } from '../ui/icons.tsx';
@@ -21,8 +20,6 @@ export function Composer(props: {
   const fitField = () => {
     const el = field;
     if (!el) return;
-    // Fallback when `field-sizing: content` is missing: grow to the text,
-    // then cap at the CSS max-height so long drafts scroll inside.
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight}px`;
   };
@@ -69,17 +66,7 @@ export function Composer(props: {
   };
 
   return (
-    <form
-      class="chat-composer"
-      onSubmit={(e) => {
-        e.preventDefault();
-        // Enter queues while busy; ⌘/Ctrl+Enter steers (stop + send now).
-        if (props.busy && (e as SubmitEvent).submitter == null) {
-          // keyboard submit — handled in onKeyDown
-        }
-        send();
-      }}
-    >
+    <div class="chat-composer">
       <span class="chat-avatar chat-avatar-user" aria-hidden="true">
         {icons.messageSquarePlus()}
       </span>
@@ -103,36 +90,25 @@ export function Composer(props: {
           send();
         }}
       />
-      <span class="chat-composer-actions">
-        <Show when={props.busy}>
+      <Show when={props.busy}>
+        <span class="chat-composer-actions">
           <button type="button" class="btn" onClick={() => void stop()}>
             Stop
           </button>
-        </Show>
-        <Show when={props.busy && text().trim()}>
-          <button
-            type="button"
-            class="btn"
-            data-variant="ghost"
-            aria-label="Steer"
-            title="Stop and send now"
-            onClick={() => steer()}
-          >
-            Steer
-          </button>
-        </Show>
-        <button
-          type="button"
-          class="btn"
-          data-size="icon-sm"
-          aria-label={props.busy ? 'Queue' : 'Send'}
-          title={props.busy ? 'Queue for when this turn ends' : 'Send'}
-          disabled={!text().trim()}
-          onClick={() => send()}
-        >
-          {icons.send()}
-        </button>
-      </span>
-    </form>
+          <Show when={text().trim()}>
+            <button
+              type="button"
+              class="btn"
+              data-variant="ghost"
+              aria-label="Steer"
+              title="Stop and send now"
+              onClick={() => steer()}
+            >
+              Steer
+            </button>
+          </Show>
+        </span>
+      </Show>
+    </div>
   );
 }
