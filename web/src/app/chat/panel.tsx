@@ -9,7 +9,7 @@ import { ApiError } from '../daemon/client.ts';
 import { type ChatChunk, postMessage, postStop, readChatStream } from './client.ts';
 import { Composer } from './composer.tsx';
 import { takePending, withOptimisticUser } from './optimistic.ts';
-import { Block, chatBlocks, chatLines } from './parts.tsx';
+import { Block, chatBlocks, chatLines, ThinkingRow } from './parts.tsx';
 import { turnOpen } from './turn.ts';
 
 export function ChatPanel(props: { sessionId: string; agentCommand?: string | null }): JSX.Element {
@@ -24,6 +24,8 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
   // Server turn only — queued optimistic lines must not keep busy latched.
   const busy = createMemo(() => turnOpen(chunks()));
   const viewChunks = createMemo(() => withOptimisticUser(chunks(), [...pendingUser(), ...queue()]));
+  const blocks = createMemo(() => chatBlocks(chatLines(viewChunks())));
+  const lastIsAgent = createMemo(() => blocks().at(-1)?.role === 'agent');
 
   createEffect(() => {
     const id = props.sessionId;
@@ -127,12 +129,13 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
       <div class="chat-transcript" ref={transcript}>
         <div class="chat-scroll">
           <div class="chat-list">
-            <For each={chatBlocks(chatLines(viewChunks()))}>
-              {(block) => (
+            <For each={blocks()}>
+              {(block, i) => (
                 <Block
                   block={block}
                   sessionId={props.sessionId}
                   agentCommand={props.agentCommand}
+                  thinking={busy() && block.role === 'agent' && i() === blocks().length - 1}
                   onError={setNotice}
                 />
               )}
@@ -148,6 +151,9 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
                   onError={setNotice}
                 />
               )}
+            </Show>
+            <Show when={busy() && !lastIsAgent()}>
+              <ThinkingRow agentCommand={props.agentCommand} />
             </Show>
           </div>
           <div class="chat-composer-dock">

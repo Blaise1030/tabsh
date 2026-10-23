@@ -58,6 +58,8 @@ export function Block(props: {
   block: ChatBlock;
   sessionId: string;
   agentCommand?: string | null;
+  /** Shimmer under this agent block while the turn is still open. */
+  thinking?: boolean;
   onError?: (message: string | null) => void;
 }): JSX.Element {
   const role = () => props.block.role;
@@ -80,7 +82,34 @@ export function Block(props: {
         <For each={props.block.lines}>
           {(line) => <Part line={line} sessionId={props.sessionId} onError={props.onError} />}
         </For>
+        <Show when={props.thinking}>
+          <Shimmer />
+        </Show>
       </div>
+    </div>
+  );
+}
+
+/** Agent avatar + shimmer when the turn is open but no agent block yet. */
+export function ThinkingRow(props: { agentCommand?: string | null }): JSX.Element {
+  return (
+    <div class="chat-row chat-row-agent" aria-busy="true" aria-label="Thinking">
+      <span class="chat-avatar" aria-hidden="true">
+        {agentMark(props.agentCommand)()}
+      </span>
+      <div class="chat-body">
+        <Shimmer />
+      </div>
+    </div>
+  );
+}
+
+function Shimmer(): JSX.Element {
+  return (
+    <div class="chat-shimmer" aria-hidden="true">
+      <span class="chat-shimmer-bar" />
+      <span class="chat-shimmer-bar" />
+      <span class="chat-shimmer-bar" />
     </div>
   );
 }
