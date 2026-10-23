@@ -33,7 +33,7 @@ export function Part(props: {
         <Markdown class="chat-md chat-text" text={text()} />
       </Match>
       <Match when={chunk().type === 'thought_delta'}>
-        <Markdown class="chat-md chat-thought" text={text()} />
+        <ThoughtRow text={text()} />
       </Match>
       <Match when={chunk().type === 'tool_call' || chunk().type === 'tool_call_update'}>
         <ToolRow tool={chunk().tool_call} />
@@ -131,6 +131,20 @@ function ErrorLine(props: { message: string }): JSX.Element {
       <span>{note().text}</span>
       <Show when={note().hint}>{(hint) => <span class="chat-hint">{hint()}</span>}</Show>
     </p>
+  );
+}
+
+function ThoughtRow(props: { text: string }): JSX.Element {
+  return (
+    <details class="chat-thought">
+      <summary class="chat-tool-summary">
+        <span class="chat-tool-chevron" aria-hidden="true">
+          {icons.chevronRight()}
+        </span>
+        <span class="chat-tool-title">Thought</span>
+      </summary>
+      <Markdown class="chat-md chat-thought-body" text={props.text} />
+    </details>
   );
 }
 

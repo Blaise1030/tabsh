@@ -485,7 +485,7 @@ file-tree-container {
 }
 .chat-plan, .chat-permission, .chat-error { white-space: pre-wrap; }
 .chat-thought, .chat-tool, .chat-plan, .chat-permission { color: var(--muted-foreground); }
-.chat-tool, .chat-plan, .chat-permission { font-size: .8125rem; }
+.chat-thought, .chat-tool, .chat-plan, .chat-permission { font-size: .8125rem; }
 .chat-tool { border-radius: .375rem; }
 .chat-tool-summary {
   display: flex; align-items: flex-start; gap: .35rem;
@@ -499,7 +499,11 @@ file-tree-container {
   transition: transform .12s ease;
 }
 .chat-tool-chevron svg { width: .875rem; height: .875rem; }
-.chat-tool[open] .chat-tool-chevron { transform: rotate(90deg); }
+.chat-tool[open] .chat-tool-chevron,
+.chat-thought[open] .chat-tool-chevron { transform: rotate(90deg); }
+.chat-thought-body {
+  margin: .35rem 0 0; color: var(--muted-foreground); font-size: .8125rem;
+}
 .chat-tool-title {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
