@@ -74,3 +74,20 @@ export function chatBlocks(lines: ChatLine[]): ChatBlock[] {
   }
   return blocks;
 }
+
+/** Consecutive tool rows vs everything else, so the UI can fold tools into one "N operations" group. */
+export type LineSegment = { kind: 'tools' | 'rest'; lines: ChatLine[] };
+
+export function lineSegments(lines: ChatLine[]): LineSegment[] {
+  const out: LineSegment[] = [];
+  for (const line of lines) {
+    const kind = isTool(line.chunk.type) ? 'tools' : 'rest';
+    const last = out[out.length - 1];
+    if (last?.kind === kind) {
+      last.lines.push(line);
+      continue;
+    }
+    out.push({ kind, lines: [line] });
+  }
+  return out;
+}

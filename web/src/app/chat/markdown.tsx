@@ -3,23 +3,59 @@
 import remarkGfm from 'remark-gfm';
 import type { JSX } from 'solid-js';
 import { SolidMarkdown } from 'solid-markdown';
-import { transformLinkUri } from './markdown.ts';
+import { openInPane } from '../files/open.tsx';
+import { encodeFileHref, parseFileHref, remarkAutolinkPaths, transformLinkUri } from './markdown.ts';
 
-export function Markdown(props: { text: string; class?: string }): JSX.Element {
+export function Markdown(props: { text: string; class?: string; sessionId?: string }): JSX.Element {
   return (
     <SolidMarkdown
       class={props.class ?? 'chat-md'}
       renderingStrategy="reconcile"
       skipHtml
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={[remarkGfm, remarkAutolinkPaths]}
       transformLinkUri={transformLinkUri}
       linkTarget="_blank"
       components={{
-        a: (p) => (
-          <a href={p.href} title={p.title} target="_blank" rel="noopener noreferrer">
-            {p.children}
-          </a>
-        ),
+        a: (p) => {
+          const file = parseFileHref(p.href);
+          if (file && props.sessionId) {
+            return (
+              <a
+                href={p.href || encodeFileHref(file.text, file.line)}
+                title={p.title ?? file.text}
+                class="chat-md-path"
+                onClick={(e) => {
+                  e.preventDefault();
+                  openInPane({ id: props.sessionId!, closed: false }, file);
+                }}
+              >
+                {p.children}
+              </a>
+            );
+          }
+          // Absolute paths from markdown links (e.g. `/Users/…/a.ts`) open in the pane.
+          const href = p.href?.trim() ?? '';
+          if (props.sessionId && href.startsWith('/') && !href.startsWith('//') && !/^https?:/i.test(href)) {
+            return (
+              <a
+                href={href}
+                title={p.title ?? href}
+                class="chat-md-path"
+                onClick={(e) => {
+                  e.preventDefault();
+                  openInPane({ id: props.sessionId!, closed: false }, { text: href });
+                }}
+              >
+                {p.children}
+              </a>
+            );
+          }
+          return (
+            <a href={p.href} title={p.title} target="_blank" rel="noopener noreferrer">
+              {p.children}
+            </a>
+          );
+        },
         pre: (p) => <pre class="chat-md-code">{p.children}</pre>,
         code: (p) =>
           p.inline ? <code class="chat-md-codespan">{p.children}</code> : <code class={p.class}>{p.children}</code>,

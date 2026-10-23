@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { ChatChunk } from './client.ts';
-import { chatBlocks, chatLines } from './thread.ts';
+import { chatBlocks, chatLines, lineSegments } from './thread.ts';
 
 function lines(...chunks: ChatChunk[]) {
   return chatLines(chunks);
@@ -65,4 +65,25 @@ test('tool_call updates with the same id fold into one line', () => {
   const second = grouped[1]!.chunk.tool_call as { title?: string };
   assert.equal(first.title, 'ls -la');
   assert.equal(second.title, 'Read');
+});
+
+test('lineSegments folds consecutive tools and splits on text', () => {
+  const segs = lineSegments(
+    lines(
+      { type: 'text_delta', text: 'hi' },
+      { type: 'tool_call', tool_call: { title: 'Read' } },
+      { type: 'tool_call', tool_call: { title: 'grep' } },
+      { type: 'text_delta', text: 'done' },
+      { type: 'tool_call', tool_call: { title: 'Write' } },
+    ),
+  );
+  assert.deepEqual(
+    segs.map((s) => [s.kind, s.lines.length]),
+    [
+      ['rest', 1],
+      ['tools', 2],
+      ['rest', 1],
+      ['tools', 1],
+    ],
+  );
 });
