@@ -639,8 +639,8 @@ file-tree-container {
 }
 .chat-model-options .menu-check {
   display: flex; align-items: center; justify-content: space-between; gap: .5rem;
-  padding: .375rem .5rem; cursor: default;
-  border-radius: calc(var(--radius, .5rem) - 2px);
+  min-height: 2.25rem; padding: .5rem .625rem; box-sizing: border-box;
+  cursor: default; border-radius: calc(var(--radius, .5rem) - 2px);
 }
 .chat-model-options .menu-check:hover { background: var(--accent); }
 .chat-model-options .menu-check > span:first-child {
