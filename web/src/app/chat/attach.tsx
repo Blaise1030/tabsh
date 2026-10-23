@@ -45,7 +45,7 @@ export function AttachBar(props: {
         type="button"
         class="btn chat-attach-btn"
         data-variant="outline"
-        data-size="icon"
+        data-size="icon-sm"
         aria-label="Attach images"
         title="Attach images"
         onClick={() => input?.click()}
