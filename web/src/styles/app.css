@@ -541,9 +541,9 @@ file-tree-container {
 .chat-user, .chat-text, .chat-thought, .chat-tool, .chat-plan, .chat-permission, .chat-error {
   margin: 0; max-width: none; width: 100%; overflow-wrap: anywhere;
 }
-.chat-plan, .chat-permission, .chat-error { white-space: pre-wrap; }
-.chat-thought, .chat-tool, .chat-plan, .chat-permission { color: var(--muted-foreground); }
-.chat-thought, .chat-tool, .chat-plan, .chat-permission { font-size: .8125rem; }
+.chat-plan, .chat-error { white-space: pre-wrap; }
+.chat-thought, .chat-tool, .chat-plan { color: var(--muted-foreground); }
+.chat-thought, .chat-tool, .chat-plan { font-size: .8125rem; }
 .chat-tool { border-radius: .375rem; }
 .chat-tool-summary {
   display: flex; align-items: flex-start; gap: .35rem;
@@ -652,8 +652,36 @@ file-tree-container {
   position: absolute; top: .35rem; right: .5rem;
   font-size: .6875rem; color: var(--muted-foreground); text-transform: lowercase;
 }
-.chat-permission { display: flex; flex-direction: column; align-items: flex-start; gap: .375rem; }
-.chat-permission-actions { display: flex; gap: .375rem; }
+/* Permission: long card — label + actions on one row when wide; actions
+   wrap under the label when the card is too narrow to fit both. */
+.chat-permission {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem;
+  box-sizing: border-box; padding: .5rem .625rem .5rem .75rem;
+  border: 1px solid var(--border); border-radius: .5rem;
+  background: color-mix(in srgb, var(--muted) 60%, transparent);
+  font-size: .8125rem; line-height: 1.35;
+  container-type: inline-size; container-name: chat-perm;
+}
+.chat-permission.answered { opacity: .55; }
+.chat-permission-label {
+  flex: 1 1 16rem; min-width: min(100%, 16rem);
+  color: var(--muted-foreground); overflow-wrap: anywhere;
+}
+.chat-permission-actions {
+  display: flex; flex: none; align-items: center; gap: .375rem;
+  margin-inline-start: auto;
+}
+.chat-permission-actions .btn {
+  width: 1.875rem; height: 1.875rem; min-width: 1.875rem; padding: 0;
+}
+.chat-permission-actions .btn svg { width: 14px; height: 14px; }
+@container chat-perm (max-width: 28rem) {
+  .chat-permission-label { flex: 1 1 100%; min-width: 100%; }
+  .chat-permission-actions {
+    flex: 1 1 auto; width: 100%;
+    margin-inline-start: 0; justify-content: flex-end;
+  }
+}
 .chat-error { color: var(--destructive, #ef4444); display: flex; flex-direction: column; gap: .25rem; }
 .chat-hint { color: var(--muted-foreground); font-size: .8125rem; }
 .chat-composer-toolbar {

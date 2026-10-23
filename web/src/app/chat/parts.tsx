@@ -199,15 +199,32 @@ function PermissionRow(props: {
     }
   };
   return (
-    <div class="chat-permission">
-      <span>{permissionLabel(props.tool)}</span>
+    <div class={`chat-permission${done() ? ' answered' : ''}`}>
+      <span class="chat-permission-label">{permissionLabel(props.tool)}</span>
       <Show when={props.requestId}>
         <span class="chat-permission-actions">
-          <button type="button" class="btn" disabled={done()} onClick={() => void answer(true)}>
-            Allow
+          <button
+            type="button"
+            class="btn"
+            data-size="icon-sm"
+            aria-label="Allow"
+            title="Allow"
+            disabled={done()}
+            onClick={() => void answer(true)}
+          >
+            {icons.circleCheck()}
           </button>
-          <button type="button" class="btn" disabled={done()} onClick={() => void answer(false)}>
-            Deny
+          <button
+            type="button"
+            class="btn"
+            data-variant="outline"
+            data-size="icon-sm"
+            aria-label="Deny"
+            title="Deny"
+            disabled={done()}
+            onClick={() => void answer(false)}
+          >
+            {icons.circleX()}
           </button>
         </span>
       </Show>
