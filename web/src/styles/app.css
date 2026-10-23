@@ -445,8 +445,15 @@ file-tree-container {
 .chat { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; background: var(--background); color: var(--foreground); }
 .chat-transcript {
   flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: .625rem;
-  padding: .75rem 1rem 1.5rem;
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 1.5rem), transparent);
+  padding: 1.5rem 1rem;
+  /* Fade both ends so scrolling into the session bar or composer isn't a hard cut. */
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 1.5rem,
+    #000 calc(100% - 1.5rem),
+    transparent
+  );
 }
 .chat-user { align-self: flex-end; max-width: 40rem; }
 .chat-text, .chat-thought, .chat-tool, .chat-plan, .chat-permission, .chat-error {
