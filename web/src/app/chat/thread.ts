@@ -37,8 +37,10 @@ export function chatLines(chunks: ChatChunk[]): ChatLine[] {
       lines.push({ chunk: { ...chunk, type: 'tool_call' }, text: '' });
       continue;
     }
+    // Thinking is kept out of the transcript UI (still on the wire / JSONL).
+    if (chunk.type === 'thought_delta') continue;
     const last = lines[lines.length - 1];
-    if ((chunk.type === 'text_delta' || chunk.type === 'thought_delta') && last?.chunk.type === chunk.type) {
+    if (chunk.type === 'text_delta' && last?.chunk.type === chunk.type) {
       last.text += chunk.text ?? '';
       continue;
     }

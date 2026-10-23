@@ -22,14 +22,18 @@ export function mergeToolCall(base: unknown, patch: unknown): unknown {
   return out;
 }
 
+// Collapsed label only: keep the long command/path out of the row; that
+// belongs in the expanded body.
 export function toolSummary(tool: unknown): string {
-  const title = field(tool, 'title') ?? field(tool, 'name');
+  const name = field(tool, 'name')?.trim();
+  if (name) return name;
+  const title = field(tool, 'title')?.trim();
   const command = toolCommand(tool);
-  if (command) {
-    if (!title || title.toLowerCase() === 'shell' || title === command) return command;
-    return title;
-  }
-  return title?.trim() || 'Tool';
+  if (title && title !== command && !title.includes(' ')) return title;
+  if (title && !command) return title;
+  const kind = field(tool, 'kind')?.trim();
+  if (kind) return kind;
+  return 'Tool';
 }
 
 export function toolDetail(tool: unknown): string {

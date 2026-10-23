@@ -21,8 +21,18 @@ test('chatBlocks groups agent lines under one block, user alone', () => {
   assert.equal(grouped[0]?.role, 'user');
   assert.equal(grouped[0]?.lines.length, 1);
   assert.equal(grouped[1]?.role, 'agent');
-  assert.equal(grouped[1]?.lines.length, 3);
+  // thought_delta is dropped from the transcript
+  assert.equal(grouped[1]?.lines.length, 2);
   assert.equal(grouped[2]?.role, 'user');
+});
+
+test('thought_delta lines are omitted', () => {
+  const out = chatLines([
+    { type: 'thought_delta', text: 'secret' },
+    { type: 'text_delta', text: 'hello' },
+  ]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0]?.chunk.type, 'text_delta');
 });
 
 test('errors are their own block', () => {
