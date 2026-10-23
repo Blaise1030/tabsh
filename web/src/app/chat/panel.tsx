@@ -32,6 +32,7 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
     const last = list.at(-1);
     return last?.role === 'agent' && !last.queued;
   });
+  const hasQueued = createMemo(() => blocks().some((b) => b.queued));
 
   createEffect(() => {
     const id = props.sessionId;
@@ -144,6 +145,9 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
                 return (
                   <>
                     <Show when={showQueueMark()}>
+                      <Show when={waiting()}>
+                        <ThinkingRow agentCommand={props.agentCommand} />
+                      </Show>
                       <QueueMark />
                     </Show>
                     <Block
@@ -169,7 +173,7 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
                 />
               )}
             </Show>
-            <Show when={waiting() && !lastIsAgent()}>
+            <Show when={waiting() && !lastIsAgent() && !hasQueued()}>
               <ThinkingRow agentCommand={props.agentCommand} />
             </Show>
           </div>

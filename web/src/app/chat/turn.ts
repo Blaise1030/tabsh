@@ -13,10 +13,12 @@ export function turnOpen(chunks: { type: string }[]): boolean {
 
 // True only until the agent has produced something visible in this turn
 // (text, tool, plan, or permission) — so Loading does not sit under a reply.
-export function turnWaiting(chunks: { type: string }[]): boolean {
+// Client-only queued lines are ignored; they are not a new turn.
+export function turnWaiting(chunks: { type: string; queued?: boolean }[]): boolean {
   let open = false;
   let sawAgent = false;
   for (const chunk of chunks) {
+    if (chunk.queued) continue;
     if (chunk.type === 'user_text') {
       open = true;
       sawAgent = false;

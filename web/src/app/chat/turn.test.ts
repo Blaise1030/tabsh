@@ -20,6 +20,17 @@ test('waiting ends once the agent has produced a visible chunk', () => {
   assert.equal(turnWaiting([{ type: 'user_text' }, { type: 'turn_end' }]), false);
 });
 
+test('queued follow-ups do not reopen waiting after the agent has replied', () => {
+  assert.equal(
+    turnWaiting([
+      { type: 'user_text' },
+      { type: 'text_delta' },
+      { type: 'user_text', queued: true },
+    ]),
+    false,
+  );
+});
+
 test('a permission row names the tool', () => {
   assert.equal(permissionLabel({ title: 'Fake tool' }), 'Fake tool');
   assert.equal(permissionLabel({ name: 'Bash' }), 'Bash');
