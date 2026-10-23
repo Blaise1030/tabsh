@@ -605,7 +605,7 @@ file-tree-container {
   column-gap: .75rem;
   align-items: start;
   box-sizing: border-box; width: 100%; max-width: 64rem;
-  margin-inline: auto; padding: 1.25rem 1rem .75rem;
+  margin-inline: auto; padding: 1rem 1rem .75rem;
 }
 .chat-composer:not(:has(.chat-composer-actions)) {
   grid-template-columns: 1.75rem minmax(0, 1fr);
