@@ -10,7 +10,7 @@ import { type ChatChunk, postMessage, postStop, readChatStream } from './client.
 import { Composer } from './composer.tsx';
 import { takePending, withOptimisticUser } from './optimistic.ts';
 import { Block, chatBlocks, chatLines, ThinkingRow } from './parts.tsx';
-import { turnOpen } from './turn.ts';
+import { turnOpen, turnWaiting } from './turn.ts';
 
 export function ChatPanel(props: { sessionId: string; agentCommand?: string | null }): JSX.Element {
   const [chunks, setChunks] = createSignal<ChatChunk[]>([]);
@@ -24,6 +24,8 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
   // Server turn only — queued optimistic lines must not keep busy latched.
   const busy = createMemo(() => turnOpen(chunks()));
   const viewChunks = createMemo(() => withOptimisticUser(chunks(), pendingUser(), queue()));
+  // Loading only until the agent has produced a visible chunk this turn.
+  const waiting = createMemo(() => turnWaiting(viewChunks()));
   const blocks = createMemo(() => chatBlocks(chatLines(viewChunks())));
   const lastIsAgent = createMemo(() => {
     const list = blocks();
@@ -137,15 +139,8 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
               {(block, i) => {
                 const prev = () => blocks()[i() - 1];
                 const showQueueMark = () => block.queued && !prev()?.queued;
-                // Shimmer only on the last non-queued agent block while busy.
-                const thinking = () => {
-                  if (!busy() || block.role !== 'agent' || block.queued) return false;
-                  const list = blocks();
-                  for (let j = list.length - 1; j >= 0; j--) {
-                    if (list[j]?.role === 'agent' && !list[j]?.queued) return j === i();
-                  }
-                  return false;
-                };
+                const thinking = () =>
+                  waiting() && block.role === 'agent' && !block.queued && i() === blocks().length - 1;
                 return (
                   <>
                     <Show when={showQueueMark()}>
@@ -174,7 +169,7 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
                 />
               )}
             </Show>
-            <Show when={busy() && !lastIsAgent()}>
+            <Show when={waiting() && !lastIsAgent()}>
               <ThinkingRow agentCommand={props.agentCommand} />
             </Show>
           </div>

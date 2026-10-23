@@ -58,7 +58,7 @@ export function Block(props: {
   block: ChatBlock;
   sessionId: string;
   agentCommand?: string | null;
-  /** Shimmer under this agent block while the turn is still open. */
+  /** "Loading…" under this agent block while waiting for the first reply. */
   thinking?: boolean;
   onError?: (message: string | null) => void;
 }): JSX.Element {
@@ -84,34 +84,32 @@ export function Block(props: {
           {(line) => <Part line={line} sessionId={props.sessionId} onError={props.onError} />}
         </For>
         <Show when={props.thinking}>
-          <Shimmer />
+          <LoadingLabel />
         </Show>
       </div>
     </div>
   );
 }
 
-/** Agent avatar + shimmer when the turn is open but no agent block yet. */
+/** Agent avatar + Loading when the turn is waiting and no agent block yet. */
 export function ThinkingRow(props: { agentCommand?: string | null }): JSX.Element {
   return (
-    <div class="chat-row chat-row-agent" aria-busy="true" aria-label="Thinking">
+    <div class="chat-row chat-row-agent" aria-busy="true" aria-label="Loading">
       <span class="chat-avatar" aria-hidden="true">
         {agentMark(props.agentCommand)()}
       </span>
       <div class="chat-body">
-        <Shimmer />
+        <LoadingLabel />
       </div>
     </div>
   );
 }
 
-function Shimmer(): JSX.Element {
+function LoadingLabel(): JSX.Element {
   return (
-    <div class="chat-shimmer" aria-hidden="true">
-      <span class="chat-shimmer-bar" />
-      <span class="chat-shimmer-bar" />
-      <span class="chat-shimmer-bar" />
-    </div>
+    <p class="chat-loading">
+      <span class="chat-loading-text">Loading…</span>
+    </p>
   );
 }
 

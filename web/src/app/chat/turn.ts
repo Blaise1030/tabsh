@@ -11,6 +11,32 @@ export function turnOpen(chunks: { type: string }[]): boolean {
   return open;
 }
 
+// True only until the agent has produced something visible in this turn
+// (text, tool, plan, or permission) — so Loading does not sit under a reply.
+export function turnWaiting(chunks: { type: string }[]): boolean {
+  let open = false;
+  let sawAgent = false;
+  for (const chunk of chunks) {
+    if (chunk.type === 'user_text') {
+      open = true;
+      sawAgent = false;
+    } else if (chunk.type === 'turn_end' || chunk.type === 'error') {
+      open = false;
+      sawAgent = false;
+    } else if (
+      open &&
+      (chunk.type === 'text_delta' ||
+        chunk.type === 'tool_call' ||
+        chunk.type === 'tool_call_update' ||
+        chunk.type === 'plan' ||
+        chunk.type === 'permission')
+    ) {
+      sawAgent = true;
+    }
+  }
+  return open && !sawAgent;
+}
+
 export function permissionLabel(tool: unknown): string {
   if (tool && typeof tool === 'object') {
     const record = tool as { title?: unknown; name?: unknown };
