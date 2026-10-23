@@ -506,8 +506,8 @@ file-tree-container {
   padding-top: calc((1.75rem - 1lh) / 2);
 }
 .chat-loading {
-  margin: 0; padding-top: .35rem;
-  font-size: 1rem; line-height: 1.5;
+  margin: 0; padding-top: .1rem;
+  font-size: .875rem; line-height: 1.35;
 }
 .chat-loading-text {
   display: inline-block;
