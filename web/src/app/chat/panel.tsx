@@ -180,9 +180,6 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
             </Show>
           </div>
           <div class="chat-composer-dock">
-            <div class="chat-composer-toolbar">
-              <ModelPicker sessionId={props.sessionId} busy={busy()} onError={setNotice} />
-            </div>
             <Composer
               sessionId={props.sessionId}
               busy={busy()}
@@ -206,6 +203,9 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
                 );
               }}
             />
+            <div class="chat-composer-toolbar">
+              <ModelPicker sessionId={props.sessionId} busy={busy()} onError={setNotice} />
+            </div>
           </div>
         </div>
       </div>

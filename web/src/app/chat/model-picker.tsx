@@ -1,5 +1,5 @@
 // Compact model chip for a UI card. Hidden when the agent advertises no models.
-import { createEffect, createSignal, For, type JSX, onCleanup, Show } from 'solid-js';
+import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from 'solid-js';
 import { ApiError } from '../daemon/client.ts';
 import { icons } from '../ui/icons.tsx';
 import { type ChatModelChoice, type ChatModels, fetchModels, postModel } from './client.ts';
@@ -11,6 +11,7 @@ export function ModelPicker(props: {
 }): JSX.Element {
   const [models, setModels] = createSignal<ChatModels | null>(null);
   const [pending, setPending] = createSignal(false);
+  const [query, setQuery] = createSignal('');
 
   const load = async (id: string) => {
     try {
@@ -41,12 +42,23 @@ export function ModelPicker(props: {
     return hit?.name ?? m.current ?? 'Model';
   };
 
+  const filtered = createMemo(() => {
+    const m = models();
+    if (!m) return [];
+    const q = query().trim().toLowerCase();
+    if (!q) return m.options;
+    return m.options.filter(
+      (o) => o.name.toLowerCase().includes(q) || o.id.toLowerCase().includes(q),
+    );
+  });
+
   const select = async (choice: ChatModelChoice) => {
     if (props.busy || pending() || choice.id === models()?.current) return;
     setPending(true);
     try {
       const next = await postModel(props.sessionId, choice.id);
       setModels(next.options.length ? next : null);
+      setQuery('');
       props.onError(null);
     } catch (e) {
       props.onError(e instanceof ApiError ? e.message : 'Could not change the model.');
@@ -75,25 +87,42 @@ export function ModelPicker(props: {
             aria-expanded="false"
             disabled={props.busy || pending()}
             title={props.busy ? 'Wait for the current turn to finish' : 'Model'}
+            onClick={() => setQuery('')}
           >
             <span class="chat-model-chip-label">{currentName()}</span>
             {icons.chevronDown()}
           </button>
-          <div data-popover="" aria-hidden="true">
+          <div data-popover="" data-side="top" aria-hidden="true">
+            <div class="chat-model-search">
+              <input
+                type="search"
+                placeholder="Search models"
+                aria-label="Search models"
+                value={query()}
+                onInput={(e) => setQuery(e.currentTarget.value)}
+                onKeyDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
             <div role="menu" aria-label="Model">
-              <For each={m().options}>
-                {(opt) => (
-                  // biome-ignore lint/a11y/useFocusableInteractive: Basecoat menu keeps focus
-                  <div
-                    role="menuitemradio"
-                    aria-checked={opt.id === m().current}
-                    on:click={() => void select(opt)}
-                  >
-                    <span>{opt.name}</span>
-                    {opt.id === m().current ? icons.check() : <span />}
-                  </div>
-                )}
-              </For>
+              <Show
+                when={filtered().length}
+                fallback={<p class="chat-model-empty">No matches</p>}
+              >
+                <For each={filtered()}>
+                  {(opt) => (
+                    // biome-ignore lint/a11y/useFocusableInteractive: Basecoat menu keeps focus
+                    <div
+                      role="menuitemradio"
+                      aria-checked={opt.id === m().current}
+                      on:click={() => void select(opt)}
+                    >
+                      <span>{opt.name}</span>
+                      {opt.id === m().current ? icons.check() : <span />}
+                    </div>
+                  )}
+                </For>
+              </Show>
             </div>
           </div>
         </div>
