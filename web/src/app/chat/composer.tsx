@@ -1,6 +1,6 @@
 // The footer of a UI card: Enter sends (or queues while busy); ⌘Enter steers.
-// There is no send button — Steer appears when a turn is open and the field has text.
-import { createEffect, createSignal, type JSX, onCleanup, Show } from 'solid-js';
+// No send / stop / steer buttons — keyboard only.
+import { createEffect, createSignal, type JSX, onCleanup } from 'solid-js';
 import { icons } from '../ui/icons.tsx';
 import { insertIntoComposer, registerComposer } from './deliver.ts';
 
@@ -79,20 +79,6 @@ export function Composer(props: {
           send();
         }}
       />
-      <Show when={props.busy && text().trim()}>
-        <span class="chat-composer-actions">
-          <button
-            type="button"
-            class="btn"
-            data-variant="ghost"
-            aria-label="Steer"
-            title="Stop and send now"
-            onClick={() => steer()}
-          >
-            Steer
-          </button>
-        </span>
-      </Show>
     </div>
   );
 }
