@@ -440,18 +440,29 @@ file-tree-container {
    rows from the parent's full height, so parent padding overflows the page. */
 .term .xterm { padding: 6px 0 0 8px; }
 .term.active { display: block; }
-/* A UI card's chat: one scrollable list; the composer is the last row and
-   sticks to the bottom of the scrollport. */
+/* A UI card's chat: the scrollport is full width; message text and the
+   composer fields stay in a max-w-5xl column. The composer dock is sticky
+   across the whole page. */
 .chat { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; background: var(--background); color: var(--foreground); }
 .chat-transcript {
-  flex: 1; min-height: 0; overflow-y: auto;
-  /* Fade only the top into the session bar; the sticky composer has its own edge. */
+  flex: 1; min-height: 0; overflow-y: auto; width: 100%;
+  /* Fade only the top into the session bar; the sticky dock has its own edge. */
   mask-image: linear-gradient(to bottom, transparent, #000 1.5rem, #000);
 }
+.chat-scroll {
+  box-sizing: border-box; width: 100%; min-height: 100%;
+  display: flex; flex-direction: column;
+}
 .chat-list {
-  box-sizing: border-box; width: 100%; max-width: 64rem; min-height: 100%;
-  margin-inline: auto; padding: 1.5rem 1rem .75rem;
+  box-sizing: border-box; width: 100%; max-width: 64rem;
+  margin-inline: auto; padding: 1.5rem 1rem .5rem;
   display: flex; flex-direction: column; gap: .625rem;
+}
+.chat-composer-dock {
+  position: sticky; bottom: 0; z-index: 1;
+  width: 100%; margin-top: auto;
+  background: var(--background);
+  box-shadow: 0 -1rem 1.25rem -.25rem var(--background);
 }
 .chat-row {
   display: grid;
@@ -536,11 +547,8 @@ file-tree-container {
   grid-template-columns: 1.75rem minmax(0, 1fr) auto;
   column-gap: .75rem;
   align-items: start;
-  position: sticky; bottom: 0; z-index: 1;
-  box-sizing: border-box; width: 100%; margin-top: auto;
-  padding: .75rem 0 0;
-  background: var(--background);
-  box-shadow: 0 -1rem 1.25rem -.25rem var(--background);
+  box-sizing: border-box; width: 100%; max-width: 64rem;
+  margin-inline: auto; padding: .75rem 1rem;
 }
 .chat-composer .chat-avatar { margin-top: .45rem; }
 .chat-composer textarea {
