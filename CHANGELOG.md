@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.37
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.36...v0.1.37)
+
+### Fixes
+
+- **settings:** Let providers set ACP command for UI mode ([9748dce](https://github.com/Blaise1030/tabsh/commit/9748dce))
+
 ## v0.1.36
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.35...v0.1.36)
