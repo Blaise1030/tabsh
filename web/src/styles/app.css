@@ -562,7 +562,10 @@ file-tree-container {
   padding: .5rem 0; box-sizing: border-box;
 }
 .chat-composer textarea:focus { outline: none; }
-.chat-composer .btn { flex: none; align-self: end; margin-bottom: .25rem; }
+.chat-composer-actions {
+  display: flex; align-items: end; gap: .375rem; flex: none; margin-bottom: .25rem;
+}
+.chat-composer-actions .btn { flex: none; }
 .term-bottom { position: absolute; right: 1rem; bottom: .75rem; z-index: 5; border-radius: 9999px; box-shadow: 0 2px 8px rgb(0 0 0 / .25); }
 .term-bottom[hidden] { display: none; }
 /* The touch key bar (sessions/keybar.ts): touch screens only. */

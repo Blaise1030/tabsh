@@ -2,11 +2,11 @@
 // says next, with the composer along the bottom. A dropped stream connects
 // again; the first chunk of that connection replaces the transcript, because
 // the daemon replays finished turns before the new ones. A send paints the
-// user line at once; the SSE user_text (or a failed POST) clears that pending
-// line so it does not show twice.
+// user line at once; while a turn is open, further sends join a queue that
+// drains after turn_end (Steer stops first, then sends that text next).
 import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from 'solid-js';
 import { ApiError } from '../daemon/client.ts';
-import { type ChatChunk, readChatStream } from './client.ts';
+import { type ChatChunk, postMessage, postStop, readChatStream } from './client.ts';
 import { Composer } from './composer.tsx';
 import { takePending, withOptimisticUser } from './optimistic.ts';
 import { Block, chatBlocks, chatLines } from './parts.tsx';
@@ -14,14 +14,22 @@ import { turnOpen } from './turn.ts';
 
 export function ChatPanel(props: { sessionId: string; agentCommand?: string | null }): JSX.Element {
   const [chunks, setChunks] = createSignal<ChatChunk[]>([]);
+  // POSTed, waiting for the matching SSE user_text.
   const [pendingUser, setPendingUser] = createSignal<string[]>([]);
+  // Not POSTed yet; shown like user lines, drained when the turn is idle.
+  const [queue, setQueue] = createSignal<string[]>([]);
   const [notice, setNotice] = createSignal<string | null>(null);
   let transcript: HTMLDivElement | undefined;
-  const viewChunks = createMemo(() => withOptimisticUser(chunks(), pendingUser()));
+  let posting = false;
+  // Server turn only — queued optimistic lines must not keep busy latched.
+  const busy = createMemo(() => turnOpen(chunks()));
+  const viewChunks = createMemo(() => withOptimisticUser(chunks(), [...pendingUser(), ...queue()]));
 
   createEffect(() => {
     const id = props.sessionId;
     setPendingUser([]);
+    setQueue([]);
+    posting = false;
     const ac = new AbortController();
     let gone = false;
     onCleanup(() => {
@@ -78,11 +86,35 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
   const scrollToBottom = () => {
     const el = transcript;
     if (!el) return;
-    // After send / stream paint, wait a frame so scrollHeight includes new rows.
     requestAnimationFrame(() => {
       el.scrollTop = el.scrollHeight;
     });
   };
+
+  const postOne = async (text: string) => {
+    setPendingUser((list) => [...list, text]);
+    scrollToBottom();
+    posting = true;
+    try {
+      await postMessage(props.sessionId, text);
+      setNotice(null);
+    } catch (e) {
+      setPendingUser((list) => takePending(list, text));
+      setQueue((list) => [text, ...list]);
+      setNotice(e instanceof ApiError ? e.message : 'Could not send that message.');
+    } finally {
+      posting = false;
+    }
+  };
+
+  // When the agent is idle and something is queued, send the next line.
+  createEffect(() => {
+    if (busy() || posting) return;
+    const next = queue()[0];
+    if (!next) return;
+    setQueue((list) => list.slice(1));
+    void postOne(next);
+  });
 
   createEffect(() => {
     viewChunks();
@@ -121,13 +153,26 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
           <div class="chat-composer-dock">
             <Composer
               sessionId={props.sessionId}
-              busy={turnOpen(viewChunks())}
+              busy={busy()}
               onError={setNotice}
               onSend={(text) => {
-                setPendingUser((list) => [...list, text]);
-                scrollToBottom();
+                if (busy()) {
+                  setQueue((list) => [...list, text]);
+                  scrollToBottom();
+                  return;
+                }
+                void postOne(text);
               }}
-              onSendFailed={(text) => setPendingUser((list) => takePending(list, text))}
+              onSteer={(text) => {
+                // This text goes next; anything already queued stays after it.
+                setQueue((list) => [text, ...list]);
+                scrollToBottom();
+                void postStop(props.sessionId).then(
+                  () => setNotice(null),
+                  (e) =>
+                    setNotice(e instanceof ApiError ? e.message : 'Could not stop the agent.'),
+                );
+              }}
             />
           </div>
         </div>
