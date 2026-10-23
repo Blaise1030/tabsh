@@ -8,6 +8,7 @@ import { type Icon, icons, providerIcon } from '../ui/icons.tsx';
 import { errorNotice, postApprove } from './client.ts';
 import { Markdown } from './markdown.tsx';
 import { type ChatBlock, type ChatLine, chatBlocks, chatLines } from './thread.ts';
+import { toolDetail, toolSummary } from './tool.ts';
 import { permissionLabel } from './turn.ts';
 
 export type { ChatBlock, ChatLine };
@@ -35,7 +36,7 @@ export function Part(props: {
         <Markdown class="chat-md chat-thought" text={text()} />
       </Match>
       <Match when={chunk().type === 'tool_call' || chunk().type === 'tool_call_update'}>
-        <p class="chat-tool">{toolLabel(chunk().tool_call, chunk().type === 'tool_call_update')}</p>
+        <ToolRow tool={chunk().tool_call} />
       </Match>
       <Match when={chunk().type === 'plan'}>
         <p class="chat-plan">Plan updated</p>
@@ -133,11 +134,24 @@ function ErrorLine(props: { message: string }): JSX.Element {
   );
 }
 
-function toolLabel(tool: unknown, update: boolean): string {
-  if (tool && typeof tool === 'object') {
-    const record = tool as { title?: unknown; name?: unknown };
-    const title = record.title ?? record.name;
-    if (typeof title === 'string' && title.trim()) return title;
-  }
-  return update ? 'Tool update' : 'Tool';
+function ToolRow(props: { tool: unknown }): JSX.Element {
+  const summary = () => toolSummary(props.tool);
+  const detail = () => toolDetail(props.tool);
+  const hasBody = () => !!detail();
+  return (
+    <Show
+      when={hasBody()}
+      fallback={<p class="chat-tool chat-tool-plain">{summary()}</p>}
+    >
+      <details class="chat-tool">
+        <summary class="chat-tool-summary">
+          <span class="chat-tool-chevron" aria-hidden="true">
+            {icons.chevronRight()}
+          </span>
+          <span class="chat-tool-title">{summary()}</span>
+        </summary>
+        <pre class="chat-tool-body">{detail()}</pre>
+      </details>
+    </Show>
+  );
 }

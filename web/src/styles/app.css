@@ -475,9 +475,32 @@ file-tree-container {
 .chat-user, .chat-text, .chat-thought, .chat-tool, .chat-plan, .chat-permission, .chat-error {
   margin: 0; max-width: none; width: 100%; overflow-wrap: anywhere;
 }
-.chat-tool, .chat-plan, .chat-permission, .chat-error { white-space: pre-wrap; }
+.chat-plan, .chat-permission, .chat-error { white-space: pre-wrap; }
 .chat-thought, .chat-tool, .chat-plan, .chat-permission { color: var(--muted-foreground); }
 .chat-tool, .chat-plan, .chat-permission { font-size: .8125rem; }
+.chat-tool { border-radius: .375rem; }
+.chat-tool-summary {
+  display: flex; align-items: flex-start; gap: .35rem;
+  cursor: pointer; list-style: none; user-select: none;
+  min-width: 0;
+}
+.chat-tool-summary::-webkit-details-marker { display: none; }
+.chat-tool-chevron {
+  display: flex; flex: none; align-items: center; justify-content: center;
+  width: 1rem; height: 1.15rem; color: var(--muted-foreground);
+  transition: transform .12s ease;
+}
+.chat-tool-chevron svg { width: .875rem; height: .875rem; }
+.chat-tool[open] .chat-tool-chevron { transform: rotate(90deg); }
+.chat-tool-title {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.chat-tool-body {
+  margin: .35rem 0 0; padding: .5rem .625rem; overflow-x: auto;
+  border-radius: .375rem; background: var(--muted); border: 1px solid var(--border);
+  color: var(--foreground); font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: .75rem; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere;
+}
 .chat-md { display: flex; flex-direction: column; gap: .5rem; min-width: 0; }
 .chat-md > :first-child { margin-top: 0; }
 .chat-md > :last-child { margin-bottom: 0; }

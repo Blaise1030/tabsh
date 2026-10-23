@@ -30,3 +30,15 @@ test('errors are their own block', () => {
   assert.equal(grouped[0]?.role, 'error');
   assert.equal(grouped[1]?.role, 'agent');
 });
+
+test('tool_call updates with the same id fold into one line', () => {
+  const grouped = chatLines([
+    { type: 'tool_call', tool_call: { toolCallId: 'tc-1', title: 'shell' } },
+    { type: 'tool_call_update', tool_call: { toolCallId: 'tc-1', title: 'ls -la', status: 'completed' } },
+    { type: 'tool_call', tool_call: { toolCallId: 'tc-2', title: 'Read' } },
+  ]);
+  assert.equal(grouped.length, 2);
+  assert.equal(grouped[0]?.chunk.type, 'tool_call');
+  assert.equal((grouped[0]?.chunk.tool_call as { title?: string }).title, 'ls -la');
+  assert.equal((grouped[1]?.chunk.tool_call as { title?: string }).title, 'Read');
+});
