@@ -57,6 +57,9 @@ export function Composer(props: {
         void send();
       }}
     >
+      <span class="chat-avatar chat-avatar-user" aria-hidden="true">
+        {icons.messageSquarePlus()}
+      </span>
       <textarea
         ref={field}
         rows={2}
