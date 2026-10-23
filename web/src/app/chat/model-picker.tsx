@@ -196,7 +196,7 @@ export function ModelPicker(props: {
           <button
             ref={trigger}
             type="button"
-            class="chat-model-chip"
+            class="nc-chip nc-trigger chat-model-chip"
             aria-label="Model"
             aria-haspopup="menu"
             aria-expanded="false"
@@ -204,30 +204,32 @@ export function ModelPicker(props: {
             title={props.busy ? 'Wait for the current turn to finish' : 'Model'}
             onClick={() => schedulePlace()}
           >
-            <span class="chat-model-chip-label">{currentName()}</span>
-            {icons.chevronDown()}
+            <span class="nc-trigger-body">
+              <span class="nc-value">{currentName()}</span>
+              {icons.chevronDown()}
+            </span>
           </button>
-          <div ref={popover} class="chat-model-popover" data-popover="" aria-hidden="true">
-            <div class="chat-model-search">
-              <input
-                type="search"
-                placeholder="Search models"
-                aria-label="Search models"
-                value={query()}
-                onInput={(e) => setQuery(e.currentTarget.value)}
-                onKeyDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-              />
-            </div>
-            <div role="menu" aria-label="Model">
+          <div ref={popover} class="chat-model-popover nc-pop" data-popover="" aria-hidden="true">
+            <input
+              class="nc-search"
+              type="search"
+              placeholder="Search models"
+              aria-label="Search models"
+              value={query()}
+              onInput={(e) => setQuery(e.currentTarget.value)}
+              onKeyDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+            />
+            <div class="chat-model-options" role="menu" aria-label="Model">
               <Show
                 when={filtered().length}
-                fallback={<p class="chat-model-empty">No matches</p>}
+                fallback={<p class="tags-submenu-empty">No matches</p>}
               >
                 <For each={filtered()}>
                   {(opt) => (
                     // biome-ignore lint/a11y/useFocusableInteractive: Basecoat menu keeps focus
                     <div
+                      class="menu-check"
                       role="menuitemradio"
                       aria-checked={opt.id === m().current}
                       on:click={() => void select(opt)}
