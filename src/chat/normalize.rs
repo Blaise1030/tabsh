@@ -40,6 +40,13 @@ pub(crate) enum UiChunk {
         tool_call: Value,
         options: Value,
     },
+    /// The user answered a permission request. Kept in the transcript so
+    /// the UI can hide that request across reloads.
+    PermissionAnswered {
+        session_id: String,
+        request_id: String,
+        allow: bool,
+    },
     /// A prompt turn finished; `stop_reason` is the ACP `stopReason`
     /// (e.g. `end_turn`, `cancelled`).
     TurnEnd {

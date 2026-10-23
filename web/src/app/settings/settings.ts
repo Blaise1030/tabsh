@@ -91,8 +91,15 @@ export async function applySettings(s: Settings): Promise<void> {
   current.applied = { ...s };
   const theme = THEMES[s.theme];
   const root = document.documentElement;
-  root.style.setProperty('--term-bg', theme.colors.background);
+  const fontPx = deviceFont ?? s.fontSize;
+  const bg = theme.colors.background;
+  root.style.setProperty('--term-bg', bg);
   root.style.setProperty('--term-fg', theme.colors.foreground);
+  // UI chat cards use the same size as the terminal (palette → Font size).
+  root.style.setProperty('--chat-font-size', `${fontPx}px`);
+  // Keep the browser chrome (status bar / home indicator) matching the page.
+  const themeMeta = document.querySelector('meta[name="theme-color"]');
+  if (themeMeta) themeMeta.setAttribute('content', bg);
   root.classList.add('themed');
   root.classList.toggle('dark', !theme.light);
   for (const fn of applyListeners) fn(s);

@@ -9,6 +9,7 @@ import { daemonFetch } from '../daemon/client.ts';
 import { rawBlobUrl } from '../files/api.ts';
 import { type Icon, icons, providerIcon } from '../ui/icons.tsx';
 import { errorNotice, postApprove } from './client.ts';
+import { ZoomableImage } from './image-lightbox.tsx';
 import { Markdown } from './markdown.tsx';
 import { type ChatBlock, type ChatLine, chatBlocks, chatLines, lineSegments } from './thread.ts';
 import { toolDetail, toolSummary } from './tool.ts';
@@ -174,7 +175,7 @@ function ChatImage(props: { path: string }): JSX.Element {
         </code>
       }
     >
-      {(src) => <img class="chat-user-image" src={src()} alt="" title={props.path} />}
+      {(src) => <ZoomableImage class="chat-user-image" src={src()} alt="" title={props.path} />}
     </Show>
   );
 }
@@ -199,36 +200,36 @@ function PermissionRow(props: {
     }
   };
   return (
-    <div class={`chat-permission${done() ? ' answered' : ''}`}>
-      <span class="chat-permission-label">{permissionLabel(props.tool)}</span>
-      <Show when={props.requestId}>
-        <span class="chat-permission-actions">
-          <button
-            type="button"
-            class="btn"
-            data-size="icon-sm"
-            aria-label="Allow"
-            title="Allow"
-            disabled={done()}
-            onClick={() => void answer(true)}
-          >
-            {icons.circleCheck()}
-          </button>
-          <button
-            type="button"
-            class="btn"
-            data-variant="outline"
-            data-size="icon-sm"
-            aria-label="Deny"
-            title="Deny"
-            disabled={done()}
-            onClick={() => void answer(false)}
-          >
-            {icons.circleX()}
-          </button>
-        </span>
-      </Show>
-    </div>
+    <Show when={!done()}>
+      <div class="chat-permission">
+        <span class="chat-permission-label">{permissionLabel(props.tool)}</span>
+        <Show when={props.requestId}>
+          <span class="chat-permission-actions">
+            <button
+              type="button"
+              class="btn"
+              data-size="icon-sm"
+              aria-label="Allow"
+              title="Allow"
+              onClick={() => void answer(true)}
+            >
+              {icons.circleCheck()}
+            </button>
+            <button
+              type="button"
+              class="btn"
+              data-variant="outline"
+              data-size="icon-sm"
+              aria-label="Deny"
+              title="Deny"
+              onClick={() => void answer(false)}
+            >
+              {icons.circleX()}
+            </button>
+          </span>
+        </Show>
+      </div>
+    </Show>
   );
 }
 

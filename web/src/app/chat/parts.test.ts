@@ -35,6 +35,30 @@ test('thought_delta lines are omitted', () => {
   assert.equal(out[0]?.chunk.type, 'text_delta');
 });
 
+test('answered permissions are omitted across reload', () => {
+  const out = chatLines([
+    {
+      type: 'permission',
+      request_id: '1',
+      tool_call: { title: 'Delete a' },
+    },
+    {
+      type: 'permission',
+      request_id: '2',
+      tool_call: { title: 'Delete b' },
+    },
+    { type: 'permission_answered', request_id: '1', allow: true },
+    { type: 'text_delta', text: 'ok' },
+  ]);
+  assert.deepEqual(
+    out.map((l) => [l.chunk.type, l.chunk.request_id ?? l.text]),
+    [
+      ['permission', '2'],
+      ['text_delta', 'ok'],
+    ],
+  );
+});
+
 test('queued user lines stay in their own block', () => {
   const grouped = chatBlocks(
     chatLines([

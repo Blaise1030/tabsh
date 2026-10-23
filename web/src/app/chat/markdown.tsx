@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import type { JSX } from 'solid-js';
 import { SolidMarkdown } from 'solid-markdown';
 import { openInPane } from '../files/open.tsx';
+import { MarkdownImage } from './image-lightbox.tsx';
 import { encodeFileHref, parseFileHref, remarkAutolinkPaths, transformLinkUri } from './markdown.ts';
 
 export function Markdown(props: { text: string; class?: string; sessionId?: string }): JSX.Element {
@@ -64,6 +65,7 @@ export function Markdown(props: { text: string; class?: string; sessionId?: stri
             <table>{p.children}</table>
           </div>
         ),
+        img: (p) => <MarkdownImage src={p.src} alt={p.alt} title={p.title} />,
       }}
     >
       {props.text}
