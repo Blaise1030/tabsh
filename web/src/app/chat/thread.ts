@@ -24,9 +24,7 @@ export function chatLines(chunks: ChatChunk[]): ChatLine[] {
     if (isTool(chunk.type)) {
       const id = toolCallId(chunk.tool_call);
       if (id) {
-        const prior = lines.findLast(
-          (line) => isTool(line.chunk.type) && toolCallId(line.chunk.tool_call) === id,
-        );
+        const prior = lines.findLast((line) => isTool(line.chunk.type) && toolCallId(line.chunk.tool_call) === id);
         if (prior) {
           prior.chunk = {
             ...prior.chunk,

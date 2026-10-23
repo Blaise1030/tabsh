@@ -32,10 +32,7 @@ export function Part(props: {
       <Match when={chunk().type === 'text_delta'}>
         <Markdown class="chat-md chat-text" text={text()} />
       </Match>
-      <Match when={chunk().type === 'thought_delta'}>
-        {/* Thinking stays out of the transcript; expand via nothing for now. */}
-        <></>
-      </Match>
+      <Match when={chunk().type === 'thought_delta'}>{null}</Match>
       <Match when={chunk().type === 'tool_call' || chunk().type === 'tool_call_update'}>
         <ToolRow tool={chunk().tool_call} />
       </Match>
@@ -91,7 +88,7 @@ export function Block(props: {
 /** Agent avatar + Loading when the turn is waiting and no agent block yet. */
 export function ThinkingRow(props: { agentCommand?: string | null }): JSX.Element {
   return (
-    <div class="chat-row chat-row-agent" aria-busy="true" aria-label="Loading">
+    <div class="chat-row chat-row-agent" role="status" aria-busy="true" aria-label="Loading">
       <span class="chat-avatar" aria-hidden="true">
         {agentMark(props.agentCommand)()}
       </span>
@@ -165,10 +162,7 @@ function ToolRow(props: { tool: unknown }): JSX.Element {
   const detail = () => toolDetail(props.tool);
   const hasBody = () => !!detail();
   return (
-    <Show
-      when={hasBody()}
-      fallback={<p class="chat-tool chat-tool-plain">{summary()}</p>}
-    >
+    <Show when={hasBody()} fallback={<p class="chat-tool chat-tool-plain">{summary()}</p>}>
       <details class="chat-tool">
         <summary class="chat-tool-summary">
           <span class="chat-tool-chevron" aria-hidden="true">

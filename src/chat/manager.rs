@@ -717,7 +717,11 @@ impl ChatManager {
     }
 
     /// Selects a model on the live ACP session. Refused while a turn is open.
-    pub(crate) async fn set_model(&self, session_id: &str, model_id: &str) -> ChatResult<ModelConfig> {
+    pub(crate) async fn set_model(
+        &self,
+        session_id: &str,
+        model_id: &str,
+    ) -> ChatResult<ModelConfig> {
         let live = self.live(session_id).ok_or(ChatError::NotLive)?;
         {
             let history = live.history.lock().unwrap_or_else(|e| e.into_inner());

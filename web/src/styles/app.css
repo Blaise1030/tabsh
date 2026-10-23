@@ -1172,7 +1172,10 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .nc-menu [role="menuitemradio"] > span { flex: 1; }
 .nc-menu [data-popover] { min-width: 10rem; }
 .nc-agent-menu [data-popover] { min-width: 12rem; }
-.nc-menu-sep { height: 1px; margin: .25rem .5rem; background: var(--border); }
+.nc-menu-sep {
+  height: 1px; margin: .25rem .5rem; border: 0; padding: 0;
+  background: var(--border);
+}
 .nc-mode-row {
   display: flex; align-items: center; justify-content: space-between; gap: .75rem;
   padding: .4rem .75rem .5rem; font-size: .8125rem; cursor: default;

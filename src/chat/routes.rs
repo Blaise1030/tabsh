@@ -4,6 +4,10 @@
 //! `state::router()` and listed in `every_route_is_guarded`). The browser
 //! never speaks ACP; it renders the `UiChunk`s these routes serve.
 
+// Axum `Response` as `Err` is large; handlers stay `Result<T, Response>` for
+// early returns with JSON bodies from `chat_error`.
+#![allow(clippy::result_large_err)]
+
 use std::{collections::VecDeque, convert::Infallible, path::PathBuf};
 
 use axum::{
@@ -189,10 +193,7 @@ struct Message {
 
 /// Bring up the ACP agent with no prompt so the composer can read models.
 /// 204 when already live or starting; 202 after a fresh handshake.
-async fn start(
-    State(st): State<AppState>,
-    Path(id): Path<String>,
-) -> Result<StatusCode, Response> {
+async fn start(State(st): State<AppState>, Path(id): Path<String>) -> Result<StatusCode, Response> {
     let Some(card) = card_row(&st, &id) else {
         return Err(StatusCode::NOT_FOUND.into_response());
     };

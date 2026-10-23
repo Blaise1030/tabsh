@@ -2,11 +2,7 @@
 // queued lines waiting until the current turn ends.
 import type { ChatChunk } from './client.ts';
 
-export function withOptimisticUser(
-  chunks: ChatChunk[],
-  pending: string[],
-  queue: string[] = [],
-): ChatChunk[] {
+export function withOptimisticUser(chunks: ChatChunk[], pending: string[], queue: string[] = []): ChatChunk[] {
   if (!pending.length && !queue.length) return chunks;
   return [
     ...chunks,

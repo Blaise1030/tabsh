@@ -61,6 +61,8 @@ test('tool_call updates with the same id fold into one line', () => {
   ]);
   assert.equal(grouped.length, 2);
   assert.equal(grouped[0]?.chunk.type, 'tool_call');
-  assert.equal((grouped[0]?.chunk.tool_call as { title?: string }).title, 'ls -la');
-  assert.equal((grouped[1]?.chunk.tool_call as { title?: string }).title, 'Read');
+  const first = grouped[0]!.chunk.tool_call as { title?: string };
+  const second = grouped[1]!.chunk.tool_call as { title?: string };
+  assert.equal(first.title, 'ls -la');
+  assert.equal(second.title, 'Read');
 });

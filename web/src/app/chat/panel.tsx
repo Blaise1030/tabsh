@@ -7,12 +7,7 @@
 import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from 'solid-js';
 import { withImages } from '../board/model.ts';
 import { ApiError, uploadFile } from '../daemon/client.ts';
-import {
-  AttachBar,
-  isImageFile,
-  type PendingImage,
-  revokeImages,
-} from './attach.tsx';
+import { AttachBar, isImageFile, type PendingImage, revokeImages } from './attach.tsx';
 import { type ChatChunk, postMessage, postStop, readChatStream } from './client.ts';
 import { Composer } from './composer.tsx';
 import { ModelPicker } from './model-picker.tsx';
@@ -251,8 +246,7 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
                   scrollToBottom();
                   void postStop(props.sessionId).then(
                     () => setNotice(null),
-                    (e) =>
-                      setNotice(e instanceof ApiError ? e.message : 'Could not stop the agent.'),
+                    (e) => setNotice(e instanceof ApiError ? e.message : 'Could not stop the agent.'),
                   );
                 });
               }}
@@ -269,31 +263,24 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
 }
 
 function QueueMark(): JSX.Element {
+  const wave = () => (
+    <span class="chat-queue-wave" aria-hidden="true">
+      <svg viewBox="0 0 80 8" preserveAspectRatio="none" aria-hidden="true">
+        <path
+          d="M0 4 Q 5 0.5 10 4 T 20 4 T 30 4 T 40 4 T 50 4 T 60 4 T 70 4 T 80 4"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.25"
+          stroke-linecap="round"
+        />
+      </svg>
+    </span>
+  );
   return (
-    <div class="chat-queue-mark" role="separator" aria-label="Queued messages">
-      <span class="chat-queue-wave" aria-hidden="true">
-        <svg viewBox="0 0 80 8" preserveAspectRatio="none">
-          <path
-            d="M0 4 Q 5 0.5 10 4 T 20 4 T 30 4 T 40 4 T 50 4 T 60 4 T 70 4 T 80 4"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.25"
-            stroke-linecap="round"
-          />
-        </svg>
-      </span>
+    <div class="chat-queue-mark">
+      {wave()}
       <span class="chat-queue-label">Queued</span>
-      <span class="chat-queue-wave" aria-hidden="true">
-        <svg viewBox="0 0 80 8" preserveAspectRatio="none">
-          <path
-            d="M0 4 Q 5 0.5 10 4 T 20 4 T 30 4 T 40 4 T 50 4 T 60 4 T 70 4 T 80 4"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.25"
-            stroke-linecap="round"
-          />
-        </svg>
-      </span>
+      {wave()}
     </div>
   );
 }

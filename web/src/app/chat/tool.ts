@@ -3,7 +3,7 @@
 
 export function toolCallId(tool: unknown): string | null {
   const id = field(tool, 'toolCallId') ?? field(tool, 'tool_call_id');
-  return id && id.trim() ? id : null;
+  return id?.trim() ? id : null;
 }
 
 export function mergeToolCall(base: unknown, patch: unknown): unknown {

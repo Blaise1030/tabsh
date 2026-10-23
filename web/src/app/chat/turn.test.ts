@@ -22,11 +22,7 @@ test('waiting ends once the agent has produced a visible chunk', () => {
 
 test('queued follow-ups do not reopen waiting after the agent has replied', () => {
   assert.equal(
-    turnWaiting([
-      { type: 'user_text' },
-      { type: 'text_delta' },
-      { type: 'user_text', queued: true },
-    ]),
+    turnWaiting([{ type: 'user_text' }, { type: 'text_delta' }, { type: 'user_text', queued: true }]),
     false,
   );
 });

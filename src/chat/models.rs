@@ -137,12 +137,14 @@ mod tests {
     #[test]
     fn parse_model_config_returns_none_without_choices() {
         assert!(parse_model_config(&json!([])).is_none());
-        assert!(parse_model_config(&json!([{
-            "id": "model",
-            "currentValue": "x",
-            "options": []
-        }]))
-        .is_none());
+        assert!(
+            parse_model_config(&json!([{
+                "id": "model",
+                "currentValue": "x",
+                "options": []
+            }]))
+            .is_none()
+        );
         assert!(parse_model_config(&json!({"not": "array"})).is_none());
     }
 
@@ -166,7 +168,10 @@ mod tests {
         .expect("model");
         assert_eq!(cfg.current, "auto");
         assert_eq!(
-            cfg.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(),
+            cfg.options
+                .iter()
+                .map(|o| o.id.as_str())
+                .collect::<Vec<_>>(),
             ["auto", "opus", "sonnet"]
         );
     }

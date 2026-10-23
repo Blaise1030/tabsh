@@ -398,30 +398,22 @@ function AgentMenu(): JSX.Element {
                   if (agentMode() === 'ui' && !canUseUi(next)) setAgentMode('tui');
                 }}
               >
-                {named(
-                  providerIcon(current.saved.providers.find((p) => p.name === v)?.command ?? ''),
-                  v || 'Agent',
-                )}
+                {named(providerIcon(current.saved.providers.find((p) => p.name === v)?.command ?? ''), v || 'Agent')}
                 {provider() === v ? icons.check() : <span />}
               </div>
             )}
           </For>
-          <div role="separator" class="nc-menu-sep" />
-          {/* biome-ignore lint/a11y/noLabelWithoutControl: the switch is the control; clicks must not close the menu */}
-          <label
-            class="nc-mode-row"
-            on:click={(e) => e.stopPropagation()}
-            on:pointerdown={(e) => e.stopPropagation()}
-          >
+          <hr class="nc-menu-sep" />
+          <label class="nc-mode-row" on:click={(e) => e.stopPropagation()} on:pointerdown={(e) => e.stopPropagation()}>
             <span class="nc-mode-row-label">Mode</span>
             <span class="nc-mode-row-control">
               <span class={agentMode() === 'tui' ? 'on' : ''}>TUI</span>
-              {/* biome-ignore lint/a11y/useAriaPropsForRole: Basecoat switch; checked is UI mode */}
               <input
                 type="checkbox"
                 role="switch"
                 class="input"
                 aria-label="UI mode"
+                aria-checked={agentMode() === 'ui'}
                 checked={agentMode() === 'ui'}
                 disabled={!canUseUi(prov())}
                 on:click={(e) => e.stopPropagation()}

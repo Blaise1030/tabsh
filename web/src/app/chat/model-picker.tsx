@@ -4,13 +4,7 @@
 import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from 'solid-js';
 import { ApiError } from '../daemon/client.ts';
 import { icons } from '../ui/icons.tsx';
-import {
-  type ChatModelChoice,
-  type ChatModels,
-  ensureChat,
-  fetchModels,
-  postModel,
-} from './client.ts';
+import { type ChatModelChoice, type ChatModels, ensureChat, fetchModels, postModel } from './client.ts';
 
 const VIEW_PAD = 8;
 const GAP = 6;
@@ -155,9 +149,7 @@ export function ModelPicker(props: {
     if (!m) return [];
     const q = query().trim().toLowerCase();
     if (!q) return m.options;
-    return m.options.filter(
-      (o) => o.name.toLowerCase().includes(q) || o.id.toLowerCase().includes(q),
-    );
+    return m.options.filter((o) => o.name.toLowerCase().includes(q) || o.id.toLowerCase().includes(q));
   });
 
   createEffect(() => {
@@ -187,8 +179,7 @@ export function ModelPicker(props: {
         <div
           class="dropdown-menu chat-model-menu"
           on:keydown={(e) => {
-            if (e.key !== 'Escape' || !(e.currentTarget as Element).querySelector('[aria-expanded="true"]'))
-              return;
+            if (e.key !== 'Escape' || !(e.currentTarget as Element).querySelector('[aria-expanded="true"]')) return;
             e.preventDefault();
             e.stopPropagation();
           }}
@@ -221,10 +212,7 @@ export function ModelPicker(props: {
               onClick={(e) => e.stopPropagation()}
             />
             <div class="chat-model-options" role="menu" aria-label="Model">
-              <Show
-                when={filtered().length}
-                fallback={<p class="tags-submenu-empty">No matches</p>}
-              >
+              <Show when={filtered().length} fallback={<p class="tags-submenu-empty">No matches</p>}>
                 <For each={filtered()}>
                   {(opt) => (
                     // biome-ignore lint/a11y/useFocusableInteractive: Basecoat menu keeps focus

@@ -28,10 +28,7 @@ test('mergeToolCall ignores empty title patches', () => {
 });
 
 test('toolSummary stays short; command is for the body', () => {
-  assert.equal(
-    toolSummary({ name: 'shell', title: 'ls -la /tmp', rawInput: { command: 'ls -la /tmp' } }),
-    'shell',
-  );
+  assert.equal(toolSummary({ name: 'shell', title: 'ls -la /tmp', rawInput: { command: 'ls -la /tmp' } }), 'shell');
   assert.equal(toolSummary({ title: 'Read', name: 'Read' }), 'Read');
   assert.equal(toolSummary({ title: 'ls -la /tmp', rawInput: { command: 'ls -la /tmp' } }), 'Tool');
 });
