@@ -2,6 +2,7 @@
 // refuses so a spawn failure does not eat the message.
 import { createEffect, createSignal, type JSX, onCleanup, Show } from 'solid-js';
 import { ApiError } from '../daemon/client.ts';
+import { icons } from '../ui/icons.tsx';
 import { postMessage, postStop } from './client.ts';
 import { insertIntoComposer, registerComposer } from './deliver.ts';
 
@@ -74,8 +75,15 @@ export function Composer(props: {
       <Show
         when={props.busy}
         fallback={
-          <button type="submit" class="btn" disabled={!text().trim()}>
-            Send
+          <button
+            type="submit"
+            class="btn"
+            data-size="icon-sm"
+            aria-label="Send"
+            title="Send"
+            disabled={!text().trim()}
+          >
+            {icons.send()}
           </button>
         }
       >
