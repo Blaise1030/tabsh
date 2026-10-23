@@ -114,7 +114,14 @@ function cleanProviders(stored: Record<string, unknown>): Provider[] {
         (p.acp ?? '') === (stock[i].acp ?? ''),
     );
   const stock = isStock(PREVIOUS_PROVIDERS) || isStock(PRE_ACP_PROVIDERS);
-  return stock ? DEFAULT_PROVIDERS : list.slice(0, MAX_PROVIDERS);
+  if (stock) return DEFAULT_PROVIDERS;
+  // Customized lists keep their commands; fill a missing ACP from the stock
+  // provider of the same name (case-insensitive) so UI mode can turn on.
+  return list.slice(0, MAX_PROVIDERS).map((p) => {
+    if (p.acp) return p;
+    const acp = DEFAULT_PROVIDERS.find((d) => d.name.toLowerCase() === p.name.toLowerCase())?.acp;
+    return acp ? { ...p, acp } : p;
+  });
 }
 
 // Why `name` can't name provider `index` of `list` (-1: a new one), or null.

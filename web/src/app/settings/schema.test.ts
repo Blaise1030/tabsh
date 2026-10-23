@@ -179,6 +179,36 @@ test('cleaning keeps a non-empty acp and strips an empty one', () => {
   ]);
   assert.equal(Object.hasOwn(s.providers[0], 'extra'), false);
 });
+test('cleaning fills a stock ACP when a known provider is missing one', () => {
+  const s = cleanSettings(
+    {
+      providers: [
+        { name: 'Claude Code', command: 'claude {prompt}', resume: 'claude --resume {session}' },
+        {
+          name: 'Cursor CLI',
+          command: 'cursor-agent {prompt}',
+          resume: 'cursor-agent --resume={session}',
+        },
+        { name: 'opencode', command: 'opencode --prompt {prompt}', resume: 'opencode --session {session}' },
+        { name: 'Mine', command: 'mine {prompt}', resume: '' },
+        {
+          name: 'Codex',
+          command: 'codex {prompt}',
+          resume: 'codex resume {session}',
+          acp: 'my-codex-acp',
+        },
+      ],
+    },
+    true,
+  );
+  const byName = new Map(s.providers.map((p) => [p.name, p]));
+  assert.equal(byName.get('Claude Code')?.acp, 'npx --yes @agentclientprotocol/claude-agent-acp');
+  assert.equal(byName.get('Cursor CLI')?.acp, 'cursor-agent acp');
+  assert.equal(byName.get('opencode')?.acp, 'opencode acp');
+  assert.equal(byName.get('Codex')?.acp, 'my-codex-acp');
+  assert.equal(byName.get('Mine')?.acp, undefined);
+  assert.equal(byName.get('opencode')?.command, 'opencode --prompt {prompt}');
+});
 test('the pre-ACP stock providers pick up the new defaults', () => {
   assert.deepEqual(
     cleanSettings(
