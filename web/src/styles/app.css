@@ -1054,11 +1054,18 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 .nc-menu [data-popover] { min-width: 10rem; }
 .nc-agent-menu [data-popover] { min-width: 12rem; }
 .nc-menu-sep { height: 1px; margin: .25rem .5rem; background: var(--border); }
-.nc-menu-label {
-  padding: .35rem .75rem .15rem; font-size: .6875rem; font-weight: 500;
-  color: var(--muted-foreground); text-transform: uppercase; letter-spacing: .04em;
+.nc-mode-row {
+  display: flex; align-items: center; justify-content: space-between; gap: .75rem;
+  padding: .4rem .75rem .5rem; font-size: .8125rem; cursor: default;
 }
-.nc-menu [role="menuitemradio"][data-disabled] { opacity: .45; pointer-events: none; }
+.nc-mode-row-label { color: var(--foreground); }
+.nc-mode-row-control {
+  display: inline-flex; align-items: center; gap: .375rem;
+  font-size: .75rem; color: var(--muted-foreground);
+}
+.nc-mode-row-control > span.on { color: var(--foreground); font-weight: 500; }
+.nc-mode-row-control > .input { margin: 0; }
+.nc-mode-row:has(input:disabled) { opacity: .55; }
 .nc-mode-tag {
   flex: none; margin-left: .125rem; padding: 0 .35rem; border-radius: .25rem;
   font-size: .6875rem; font-weight: 500; color: var(--muted-foreground);

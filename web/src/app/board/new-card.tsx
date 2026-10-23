@@ -407,27 +407,36 @@ function AgentMenu(): JSX.Element {
             )}
           </For>
           <div role="separator" class="nc-menu-sep" />
-          <div class="nc-menu-label" aria-hidden="true">
-            Mode
-          </div>
-          {(['tui', 'ui'] as const).map((mode) => {
-            const disabled = mode === 'ui' && !canUseUi(prov());
-            return (
-              // biome-ignore lint/a11y/useFocusableInteractive: Basecoat's rows
-              <div
-                role="menuitemradio"
-                aria-checked={agentMode() === mode}
-                aria-disabled={disabled || undefined}
-                data-disabled={disabled || undefined}
-                on:click={() => {
-                  if (!disabled) setAgentMode(mode);
+          {/* biome-ignore lint/a11y/noLabelWithoutControl: the switch is the control; clicks must not close the menu */}
+          <label
+            class="nc-mode-row"
+            on:click={(e) => e.stopPropagation()}
+            on:pointerdown={(e) => e.stopPropagation()}
+          >
+            <span class="nc-mode-row-label">Mode</span>
+            <span class="nc-mode-row-control">
+              <span class={agentMode() === 'tui' ? 'on' : ''}>TUI</span>
+              {/* biome-ignore lint/a11y/useAriaPropsForRole: Basecoat switch; checked is UI mode */}
+              <input
+                type="checkbox"
+                role="switch"
+                class="input"
+                aria-label="UI mode"
+                checked={agentMode() === 'ui'}
+                disabled={!canUseUi(prov())}
+                on:click={(e) => e.stopPropagation()}
+                on:change={(e) => {
+                  if (!canUseUi(prov())) {
+                    e.currentTarget.checked = false;
+                    setAgentMode('tui');
+                    return;
+                  }
+                  setAgentMode(e.currentTarget.checked ? 'ui' : 'tui');
                 }}
-              >
-                <span class="nc-value">{mode === 'tui' ? 'TUI' : 'UI'}</span>
-                {agentMode() === mode ? icons.check() : <span />}
-              </div>
-            );
-          })}
+              />
+              <span class={agentMode() === 'ui' ? 'on' : ''}>UI</span>
+            </span>
+          </label>
         </div>
       </div>
     </div>

@@ -44,7 +44,7 @@ test('a UI card in progress shows the chat composer', async ({ page, daemon, pro
   await dialog.locator('button[aria-label="Agent"]').click();
   await dialog.getByRole('menuitemradio', { name: 'Fake ACP', exact: true }).click();
   await dialog.locator('button[aria-label="Agent"]').click();
-  await dialog.getByRole('menuitemradio', { name: 'UI', exact: true }).click();
+  await dialog.getByRole('switch', { name: 'UI mode' }).check();
   await expect(dialog.locator('button[aria-label="Agent"]')).toContainText('UI');
   await dialog.locator('button[type="submit"]').click();
 
@@ -73,7 +73,7 @@ async function openUiCard(page: Page, project: string, name: string): Promise<vo
   await dialog.locator('button[aria-label="Agent"]').click();
   await dialog.getByRole('menuitemradio', { name: 'Fake ACP', exact: true }).click();
   await dialog.locator('button[aria-label="Agent"]').click();
-  await dialog.getByRole('menuitemradio', { name: 'UI', exact: true }).click();
+  await dialog.getByRole('switch', { name: 'UI mode' }).check();
   await dialog.locator('button[type="submit"]').click();
   // The launch turn can move the card to Needs input before this looks.
   const created = card(page, name);
