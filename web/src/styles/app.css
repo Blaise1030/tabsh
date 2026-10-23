@@ -445,6 +445,7 @@ file-tree-container {
 .chat { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; background: var(--background); color: var(--foreground); }
 .chat-transcript {
   flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: .625rem;
+  box-sizing: border-box; width: 100%; max-width: 64rem; margin-inline: auto;
   padding: 1.5rem 1rem;
   /* Fade both ends so scrolling into the session bar or composer isn't a hard cut. */
   mask-image: linear-gradient(
@@ -515,6 +516,7 @@ file-tree-container {
   grid-template-columns: 1.75rem minmax(0, 1fr) auto;
   column-gap: .75rem;
   align-items: start;
+  box-sizing: border-box; width: 100%; max-width: 64rem; margin-inline: auto;
   padding: 0 1rem .75rem;
 }
 .chat-composer .chat-avatar { margin-top: .45rem; }
