@@ -5,7 +5,14 @@
 // user line at once; while a turn is open, further sends join a queue that
 // drains after turn_end (Steer stops first, then sends that text next).
 import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from 'solid-js';
-import { ApiError } from '../daemon/client.ts';
+import { withImages } from '../board/model.ts';
+import { ApiError, uploadFile } from '../daemon/client.ts';
+import {
+  AttachBar,
+  isImageFile,
+  type PendingImage,
+  revokeImages,
+} from './attach.tsx';
 import { type ChatChunk, postMessage, postStop, readChatStream } from './client.ts';
 import { Composer } from './composer.tsx';
 import { ModelPicker } from './model-picker.tsx';
@@ -20,6 +27,7 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
   // Not POSTed yet; shown like user lines, drained when the turn is idle.
   const [queue, setQueue] = createSignal<string[]>([]);
   const [notice, setNotice] = createSignal<string | null>(null);
+  const [images, setImages] = createSignal<PendingImage[]>([]);
   let transcript: HTMLDivElement | undefined;
   let posting = false;
   // Server turn only — queued optimistic lines must not keep busy latched.
@@ -35,16 +43,54 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
   });
   const hasQueued = createMemo(() => blocks().some((b) => b.queued));
 
+  const clearImages = () => {
+    setImages((list) => {
+      revokeImages(list);
+      return [];
+    });
+  };
+
+  const addImages = (files: FileList | File[]) => {
+    const added = [...files].filter(isImageFile).map((file) => ({
+      file,
+      url: URL.createObjectURL(file),
+    }));
+    if (added.length) setImages((list) => [...list, ...added]);
+  };
+
+  const removeImage = (gone: PendingImage) => {
+    URL.revokeObjectURL(gone.url);
+    setImages((list) => list.filter((x) => x !== gone));
+  };
+
+  /** Upload pending thumbs (if any) and return the text to send, or null on failure. */
+  const withUploads = async (text: string): Promise<string | null> => {
+    const pending = images();
+    if (!pending.length) return text.trim() ? text.trim() : null;
+    try {
+      const paths = await Promise.all(pending.map((x) => uploadFile(x.file)));
+      clearImages();
+      setNotice(null);
+      return withImages(text.trim(), paths);
+    } catch {
+      setNotice("Couldn't attach the images");
+      return null;
+    }
+  };
+
   createEffect(() => {
     const id = props.sessionId;
     setPendingUser([]);
     setQueue([]);
+    // setImages updater does not subscribe this effect to `images`.
+    clearImages();
     posting = false;
     const ac = new AbortController();
     let gone = false;
     onCleanup(() => {
       gone = true;
       ac.abort();
+      clearImages();
     });
     void (async () => {
       // A stream error clears once the next connection delivers a chunk.
@@ -183,27 +229,36 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
             <Composer
               sessionId={props.sessionId}
               busy={busy()}
+              hasAttachments={images().length > 0}
               onError={setNotice}
+              onPasteImages={addImages}
               onSend={(text) => {
-                if (busy()) {
-                  setQueue((list) => [...list, text]);
-                  scrollToBottom();
-                  return;
-                }
-                void postOne(text);
+                void withUploads(text).then((body) => {
+                  if (body === null) return;
+                  if (busy()) {
+                    setQueue((list) => [...list, body]);
+                    scrollToBottom();
+                    return;
+                  }
+                  void postOne(body);
+                });
               }}
               onSteer={(text) => {
-                // This text goes next; anything already queued stays after it.
-                setQueue((list) => [text, ...list]);
-                scrollToBottom();
-                void postStop(props.sessionId).then(
-                  () => setNotice(null),
-                  (e) =>
-                    setNotice(e instanceof ApiError ? e.message : 'Could not stop the agent.'),
-                );
+                void withUploads(text).then((body) => {
+                  if (body === null) return;
+                  // This text goes next; anything already queued stays after it.
+                  setQueue((list) => [body, ...list]);
+                  scrollToBottom();
+                  void postStop(props.sessionId).then(
+                    () => setNotice(null),
+                    (e) =>
+                      setNotice(e instanceof ApiError ? e.message : 'Could not stop the agent.'),
+                  );
+                });
               }}
             />
             <div class="chat-composer-toolbar">
+              <AttachBar images={images()} onAdd={addImages} onRemove={removeImage} />
               <ModelPicker sessionId={props.sessionId} busy={busy()} onError={setNotice} />
             </div>
           </div>

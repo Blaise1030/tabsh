@@ -3,13 +3,17 @@
 import { createEffect, createSignal, type JSX, onCleanup, Show } from 'solid-js';
 import { ApiError } from '../daemon/client.ts';
 import { icons } from '../ui/icons.tsx';
+import { isImageFile } from './attach.tsx';
 import { postStop } from './client.ts';
 import { insertIntoComposer, registerComposer } from './deliver.ts';
 
 export function Composer(props: {
   sessionId: string;
   busy: boolean;
+  /** True when pending image thumbs mean Enter may send with empty text. */
+  hasAttachments?: boolean;
   onError: (message: string | null) => void;
+  onPasteImages?: (files: File[]) => void;
   /** Idle send, or queue while a turn is open. */
   onSend: (text: string) => void;
   /** Stop the turn, then send this text next (skip the queue front). */
@@ -39,20 +43,20 @@ export function Composer(props: {
 
   const take = (): string | null => {
     const value = text().trim();
-    if (!value) return null;
+    if (!value && !props.hasAttachments) return null;
     setText('');
     return value;
   };
 
   const send = () => {
     const value = take();
-    if (!value) return;
+    if (value === null) return;
     props.onSend(value);
   };
 
   const steer = () => {
     const value = take();
-    if (!value) return;
+    if (value === null) return;
     props.onSteer(value);
   };
 
@@ -79,6 +83,12 @@ export function Composer(props: {
         onInput={(e) => {
           setText(e.currentTarget.value);
           fitField();
+        }}
+        onPaste={(e) => {
+          const pasted = [...(e.clipboardData?.files ?? [])].filter(isImageFile);
+          if (!pasted.length || !props.onPasteImages) return;
+          e.preventDefault();
+          props.onPasteImages(pasted);
         }}
         onKeyDown={(e) => {
           if (e.key !== 'Enter' || e.shiftKey) return;
