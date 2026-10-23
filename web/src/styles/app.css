@@ -473,7 +473,7 @@ file-tree-container {
 .chat-composer-dock {
   position: sticky; bottom: 0; z-index: 1;
   width: 100%;
-  background: var(--background);
+  background: linear-gradient(to top, var(--background) 55%, transparent);
 }
 .chat-row {
   display: grid;
