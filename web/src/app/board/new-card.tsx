@@ -490,8 +490,6 @@ export function NewCard(): JSX.Element {
     },
     tagsPanel.panel,
   );
-  const providerFace = (v: string) =>
-    named(providerIcon(current.saved.providers.find((p) => p.name === v)?.command ?? ''), v || 'Agent');
   const dialog = (
     <dialog
       ref={(el) => {
