@@ -1,5 +1,85 @@
 # Changelog
 
+## v0.1.36
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.35...v0.1.36)
+
+### Features
+
+- **sessions:** Persist tui ([ui mode on cards](https://github.com/Blaise1030/tabsh/commit/ui mode on cards))
+- **settings:** Optional ACP command per agent provider ([a21a8f2](https://github.com/Blaise1030/tabsh/commit/a21a8f2))
+- **chat:** ACP stdio client with fake agent tests ([60d1f0f](https://github.com/Blaise1030/tabsh/commit/60d1f0f))
+- **chat:** ACP session manager, SSE routes, UI launch without PTY ([0b11c54](https://github.com/Blaise1030/tabsh/commit/0b11c54))
+- **board:** TUI ([UI mode beside New card agent provider](https://github.com/Blaise1030/tabsh/commit/UI mode beside New card agent provider))
+- **web:** ACP chat panel for UI-mode cards ([da16847](https://github.com/Blaise1030/tabsh/commit/da16847))
+- **chat:** Stop, permission approve, status mapping hooks ([1a27521](https://github.com/Blaise1030/tabsh/commit/1a27521))
+- **chat:** Render UI transcript markdown as Solid elements ([8d37e4d](https://github.com/Blaise1030/tabsh/commit/8d37e4d))
+- **chat:** Use a small send icon button in the composer ([027ada1](https://github.com/Blaise1030/tabsh/commit/027ada1))
+- **chat:** Full-width message rows with a left agent icon ([a9acb76](https://github.com/Blaise1030/tabsh/commit/a9acb76))
+- **chat:** Show the user avatar beside the composer ([f9b9c91](https://github.com/Blaise1030/tabsh/commit/f9b9c91))
+- **chat:** Collapse tool calls and fold streamed updates ([d92b8ac](https://github.com/Blaise1030/tabsh/commit/d92b8ac))
+- **new-card:** Put TUI/UI mode inside the agent selector ([a44c23f](https://github.com/Blaise1030/tabsh/commit/a44c23f))
+- **new-card:** Use a Mode switch instead of TUI/UI menu rows ([54af83c](https://github.com/Blaise1030/tabsh/commit/54af83c))
+- **chat:** Show the user message optimistically on send ([ec31d71](https://github.com/Blaise1030/tabsh/commit/ec31d71))
+- **chat:** Queue follow-ups while busy; Steer stops and sends next ([89e7b63](https://github.com/Blaise1030/tabsh/commit/89e7b63))
+- **chat:** Drop the send button; Enter submits ([71b8610](https://github.com/Blaise1030/tabsh/commit/71b8610))
+- **chat:** Shimmer beside the agent avatar while the turn is open ([fddeedd](https://github.com/Blaise1030/tabsh/commit/fddeedd))
+- **chat:** Mark queued messages with a squiggly Queued divider ([1529b3d](https://github.com/Blaise1030/tabsh/commit/1529b3d))
+- **chat:** Model picker from ACP configOptions ([c31fc72](https://github.com/Blaise1030/tabsh/commit/c31fc72))
+- **chat:** Attach images beside the model picker ([9fa3620](https://github.com/Blaise1030/tabsh/commit/9fa3620))
+
+### Performance
+
+- **chat:** Render markdown with solid-markdown reconcile ([960b56e](https://github.com/Blaise1030/tabsh/commit/960b56e))
+
+### Fixes
+
+- **chat:** Concurrent cancel via &self AcpClient, drop auto-allow fallback ([1ee707e](https://github.com/Blaise1030/tabsh/commit/1ee707e))
+- **chat:** Gap-free SSE replay, pre-live subscribers, single start reservation ([c2e3603](https://github.com/Blaise1030/tabsh/commit/c2e3603))
+- **chat:** Single atomic claim for PTY-vs-chat exclusion ([e611538](https://github.com/Blaise1030/tabsh/commit/e611538))
+- **chat:** Show spawn failures and keep UI input in the composer ([643eb96](https://github.com/Blaise1030/tabsh/commit/643eb96))
+- **chat:** Cancel every prompt and prefer allow_once ([3ebdf36](https://github.com/Blaise1030/tabsh/commit/3ebdf36))
+- **chat:** Keep launch prompt cancelled if a message waits on handshake ([abe1681](https://github.com/Blaise1030/tabsh/commit/abe1681))
+- **chat:** Mark the client cancelled after the live insert ([53c6712](https://github.com/Blaise1030/tabsh/commit/53c6712))
+- **chat:** Wire permission, stop, restart, and the launch prompt ([52ecf2d](https://github.com/Blaise1030/tabsh/commit/52ecf2d))
+- **chat:** Fade the transcript at the top as well as the bottom ([280adc3](https://github.com/Blaise1030/tabsh/commit/280adc3))
+- **chat:** Cap the chat column at max-w-5xl ([4b46673](https://github.com/Blaise1030/tabsh/commit/4b46673))
+- **chat:** Keep the composer in the list, sticky at the bottom ([9f0d944](https://github.com/Blaise1030/tabsh/commit/9f0d944))
+- **chat:** Scroll the full chat pane, not the max-w column ([44bdee9](https://github.com/Blaise1030/tabsh/commit/44bdee9))
+- **chat:** Scroll to the bottom when a message is sent ([1ac7d51](https://github.com/Blaise1030/tabsh/commit/1ac7d51))
+- **chat:** Keep the composer under the latest message when short ([fc3ec79](https://github.com/Blaise1030/tabsh/commit/fc3ec79))
+- **chat:** Use circular avatars in the transcript ([808e3cd](https://github.com/Blaise1030/tabsh/commit/808e3cd))
+- **chat:** Auto-grow the composer textarea with its content ([2f826a1](https://github.com/Blaise1030/tabsh/commit/2f826a1))
+- **chat:** Collapse thinking traces behind a Thought disclosure ([e88f37a](https://github.com/Blaise1030/tabsh/commit/e88f37a))
+- **chat:** Add more top padding above the composer ([4791eb3](https://github.com/Blaise1030/tabsh/commit/4791eb3))
+- **chat:** Omit thinking from the transcript; keep tool titles short ([9f7a308](https://github.com/Blaise1030/tabsh/commit/9f7a308))
+- **chat:** Vertically align the first line with the avatar mid ([56f8857](https://github.com/Blaise1030/tabsh/commit/56f8857))
+- **chat:** Remove the fade gradient above the composer ([4fb275b](https://github.com/Blaise1030/tabsh/commit/4fb275b))
+- **chat:** Show shimmering Loading… only while waiting for a reply ([190cd90](https://github.com/Blaise1030/tabsh/commit/190cd90))
+- **chat:** Cap the Queued divider at max-w-3xl ([6390767](https://github.com/Blaise1030/tabsh/commit/6390767))
+- **ui:** Use thinner scrollbars across the app ([4654df4](https://github.com/Blaise1030/tabsh/commit/4654df4))
+- **chat:** Enlarge Loading… and add top padding ([ec7300f](https://github.com/Blaise1030/tabsh/commit/ec7300f))
+- **chat:** Tone down Loading… size and padding ([2f08a7d](https://github.com/Blaise1030/tabsh/commit/2f08a7d))
+- **chat:** Set composer padding-top to 1rem ([77ef59e](https://github.com/Blaise1030/tabsh/commit/77ef59e))
+- **chat:** Remove Stop button from composer ([6ad92a7](https://github.com/Blaise1030/tabsh/commit/6ad92a7))
+- **chat:** Remove Steer button from composer ([a2f977e](https://github.com/Blaise1030/tabsh/commit/a2f977e))
+- **chat:** Reduce composer padding-top ([ddd9cc3](https://github.com/Blaise1030/tabsh/commit/ddd9cc3))
+- **chat:** Ignore queued lines in turnWaiting ([78c86ef](https://github.com/Blaise1030/tabsh/commit/78c86ef))
+- **chat:** Seal orphan open turns and restore Stop ([14f7e6f](https://github.com/Blaise1030/tabsh/commit/14f7e6f))
+- **chat:** Clear stuck ACP prompts after restart ([c897962](https://github.com/Blaise1030/tabsh/commit/c897962))
+- **chat:** Show agent icon on ACP error rows ([f2a4d08](https://github.com/Blaise1030/tabsh/commit/f2a4d08))
+- **chat:** Put model picker under composer with search ([2aa7651](https://github.com/Blaise1030/tabsh/commit/2aa7651))
+- **chat:** Keep model popover inside the viewport ([5b011c0](https://github.com/Blaise1030/tabsh/commit/5b011c0))
+- **chat:** Retry model list until the agent is live ([cf56f1d](https://github.com/Blaise1030/tabsh/commit/cf56f1d))
+- **chat:** Start ACP on open so the model chip can appear ([2f18320](https://github.com/Blaise1030/tabsh/commit/2f18320))
+- **chat:** Match model picker chrome to the Tags chip ([35e61b6](https://github.com/Blaise1030/tabsh/commit/35e61b6))
+- **chat:** Align attach and model chip heights ([28bdb25](https://github.com/Blaise1030/tabsh/commit/28bdb25))
+- **chat:** Taller model picker list rows ([8cc54ae](https://github.com/Blaise1030/tabsh/commit/8cc54ae))
+- **chat:** Stop as small icon button ([3ed227c](https://github.com/Blaise1030/tabsh/commit/3ed227c))
+- **chat:** Bottom-to-top gradient on composer dock ([c675629](https://github.com/Blaise1030/tabsh/commit/c675629))
+- **ci:** Clear biome and clippy failures for ACP UI ([438f01d](https://github.com/Blaise1030/tabsh/commit/438f01d))
+- **e2e:** OpenCode in providers list; relax UI card column assert ([71d81e5](https://github.com/Blaise1030/tabsh/commit/71d81e5))
+
 ## v0.1.35
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.34...v0.1.35)
