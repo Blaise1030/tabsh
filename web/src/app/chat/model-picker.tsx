@@ -4,7 +4,13 @@
 import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from 'solid-js';
 import { ApiError } from '../daemon/client.ts';
 import { icons } from '../ui/icons.tsx';
-import { type ChatModelChoice, type ChatModels, fetchModels, postModel } from './client.ts';
+import {
+  type ChatModelChoice,
+  type ChatModels,
+  ensureChat,
+  fetchModels,
+  postModel,
+} from './client.ts';
 
 const VIEW_PAD = 8;
 const GAP = 6;
@@ -34,29 +40,37 @@ export function ModelPicker(props: {
     }
   };
 
-  // The agent may still be handshaking when the panel mounts — keep
-  // polling until models appear (or we give up), and refresh on busy flips.
+  // Models only exist after the ACP agent is live. Wake it (no prompt), then
+  // poll until the list appears — otherwise the chip stays hidden next to attach.
   createEffect(() => {
     const id = props.sessionId;
     setModels(null);
     let tries = 0;
     let done = false;
+    let cancelled = false;
     const tick = () => {
-      if (done) return;
+      if (done || cancelled) return;
       void load(id).then((ok) => {
         if (ok) done = true;
       });
     };
-    tick();
+    void ensureChat(id)
+      .catch(() => {
+        /* backlog / conflict — still poll in case it is already live */
+      })
+      .finally(() => {
+        if (!cancelled) tick();
+      });
     const iv = window.setInterval(() => {
       tries += 1;
-      if (done || tries > 24) {
+      if (done || cancelled || tries > 40) {
         window.clearInterval(iv);
         return;
       }
       tick();
-    }, 750);
+    }, 500);
     onCleanup(() => {
+      cancelled = true;
       done = true;
       window.clearInterval(iv);
     });

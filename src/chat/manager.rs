@@ -230,9 +230,7 @@ impl ChatManager {
         self.live(session_id).is_some()
     }
 
-    /// Live, or a start is handshaking (tests assert on the
-    /// reservation; the PTY path uses the atomic `try_claim_pty`).
-    #[cfg(test)]
+    /// Live, or a start is handshaking (composer start / PTY claim).
     pub(crate) fn is_live_or_starting(&self, session_id: &str) -> bool {
         self.inner
             .surfaces

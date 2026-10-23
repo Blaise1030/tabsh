@@ -28,6 +28,7 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/api/sessions/{id}/chat/approve", post(approve))
         .route("/api/sessions/{id}/chat/models", get(models))
         .route("/api/sessions/{id}/chat/model", post(set_model))
+        .route("/api/sessions/{id}/chat/start", post(start))
 }
 
 /// What the chat handlers need of a card row.
@@ -186,6 +187,22 @@ struct Message {
     text: String,
 }
 
+/// Bring up the ACP agent with no prompt so the composer can read models.
+/// 204 when already live or starting; 202 after a fresh handshake.
+async fn start(
+    State(st): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, Response> {
+    let Some(card) = card_row(&st, &id) else {
+        return Err(StatusCode::NOT_FOUND.into_response());
+    };
+    if st.chats.is_live_or_starting(&id) {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+    ensure_ui_agent(&st, &card, &id).await?;
+    Ok(StatusCode::ACCEPTED)
+}
+
 async fn message(
     State(st): State<AppState>,
     Path(id): Path<String>,
@@ -204,8 +221,20 @@ async fn message(
             .map_err(chat_error)?;
         return Ok(StatusCode::ACCEPTED);
     }
+    ensure_ui_agent(&st, &card, &id).await?;
+    // This call was parked on Starting. Clearing the stop latch here would
+    // let the launch prompt proceed after a stop during the handshake.
+    st.chats
+        .send_keeping_stop(&id, &body.text)
+        .await
+        .map_err(chat_error)?;
+    Ok(StatusCode::ACCEPTED)
+}
+
+/// Shared guards + handshake for the first ACP process on a UI card.
+async fn ensure_ui_agent(st: &AppState, card: &CardRow, id: &str) -> Result<(), Response> {
     // One active agent surface per card: a live agent PTY refuses chat.
-    if st.live.lock().unwrap().contains_key(&id) {
+    if st.live.lock().unwrap().contains_key(id) {
         return Err(StatusCode::CONFLICT.into_response());
     }
     if card.mode != "ui" {
@@ -220,24 +249,24 @@ async fn message(
         )
             .into_response());
     }
-    let Some(acp) = card.acp_command.filter(|c| !c.trim().is_empty()) else {
+    let Some(acp) = card
+        .acp_command
+        .as_ref()
+        .filter(|c| !c.trim().is_empty())
+        .cloned()
+    else {
         return Err(StatusCode::BAD_REQUEST.into_response());
     };
     let cwd = card
         .cwd
+        .as_ref()
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir);
     st.chats
-        .start(&id, &acp, &cwd, None)
+        .start(id, &acp, &cwd, None)
         .await
         .map_err(chat_error)?;
-    // This call was parked on Starting. Clearing the stop latch here would
-    // let the launch prompt proceed after a stop during the handshake.
-    st.chats
-        .send_keeping_stop(&id, &body.text)
-        .await
-        .map_err(chat_error)?;
-    Ok(StatusCode::ACCEPTED)
+    Ok(())
 }
 
 async fn stop(State(st): State<AppState>, Path(id): Path<String>) -> Result<StatusCode, Response> {
@@ -516,6 +545,37 @@ mod tests {
         .await;
         assert_eq!(code, StatusCode::NO_CONTENT);
 
+        st.chats.forget(&id);
+    }
+
+    #[tokio::test]
+    async fn chat_start_makes_models_available_without_a_message() {
+        let st = test_state();
+        let id = create_ui_card(&st, "").await;
+        move_in_progress(&st, &id).await;
+        // Launch may race; start is what the composer uses.
+        let (code, _) = req(
+            &st,
+            Method::POST,
+            &format!("/api/sessions/{id}/chat/start"),
+            serde_json::Value::Null,
+        )
+        .await;
+        assert!(
+            code == StatusCode::ACCEPTED || code == StatusCode::NO_CONTENT,
+            "start: {code}"
+        );
+        wait_live(&st, &id).await;
+        let (code, body) = req(
+            &st,
+            Method::GET,
+            &format!("/api/sessions/{id}/chat/models"),
+            serde_json::Value::Null,
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "{body}");
+        assert_eq!(body["current"], "fast");
+        assert!(body["options"].as_array().is_some_and(|a| !a.is_empty()));
         st.chats.forget(&id);
     }
 

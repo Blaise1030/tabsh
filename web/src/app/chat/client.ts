@@ -127,6 +127,17 @@ export async function fetchModels(sessionId: string): Promise<ChatModels> {
   return (await res.json()) as ChatModels;
 }
 
+/** Start the ACP agent with no prompt so models become available. */
+export async function ensureChat(sessionId: string): Promise<void> {
+  const { ApiError, daemonFetch } = await import('../daemon/client.ts');
+  const res = await daemonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/chat/start`, {
+    method: 'POST',
+  });
+  if (!res.ok && res.status !== 204) {
+    throw new ApiError(failureText(res.status, await res.text()), res.status);
+  }
+}
+
 export async function postModel(sessionId: string, id: string): Promise<ChatModels> {
   const { ApiError, daemonFetch } = await import('../daemon/client.ts');
   const res = await daemonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/chat/model`, {

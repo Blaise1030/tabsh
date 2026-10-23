@@ -96,6 +96,7 @@ mod tests {
             (Method::POST, "/api/sessions/x/chat/approve"),
             (Method::GET, "/api/sessions/x/chat/models"),
             (Method::POST, "/api/sessions/x/chat/model"),
+            (Method::POST, "/api/sessions/x/chat/start"),
             (Method::PATCH, "/api/board/agents/x/status"),
             (Method::GET, "/api/board/events"),
             (Method::GET, "/api/settings"),
