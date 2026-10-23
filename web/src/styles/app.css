@@ -462,7 +462,6 @@ file-tree-container {
   position: sticky; bottom: 0; z-index: 1;
   width: 100%;
   background: var(--background);
-  box-shadow: 0 -1rem 1.25rem -.25rem var(--background);
 }
 .chat-row {
   display: grid;
