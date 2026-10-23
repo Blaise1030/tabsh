@@ -4,6 +4,7 @@
 // already left is not an error.
 import { createSignal, type JSX, Match, Show, Switch } from 'solid-js';
 import { type ChatChunk, errorNotice, postApprove } from './client.ts';
+import { Markdown } from './markdown.tsx';
 import { permissionLabel } from './turn.ts';
 
 export interface ChatLine {
@@ -37,13 +38,13 @@ export function Part(props: {
         <ErrorLine message={text()} />
       </Match>
       <Match when={chunk().type === 'user_text'}>
-        <p class="chat-user">{text()}</p>
+        <Markdown class="chat-md chat-user" text={text()} />
       </Match>
       <Match when={chunk().type === 'text_delta'}>
-        <p class="chat-text">{text()}</p>
+        <Markdown class="chat-md chat-text" text={text()} />
       </Match>
       <Match when={chunk().type === 'thought_delta'}>
-        <p class="chat-thought">{text()}</p>
+        <Markdown class="chat-md chat-thought" text={text()} />
       </Match>
       <Match when={chunk().type === 'tool_call' || chunk().type === 'tool_call_update'}>
         <p class="chat-tool">{toolLabel(chunk().tool_call, chunk().type === 'tool_call_update')}</p>
