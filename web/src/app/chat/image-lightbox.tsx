@@ -3,12 +3,7 @@ import { type JSX, Show } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { icons } from '../ui/icons.tsx';
 
-export function ZoomableImage(props: {
-  src: string;
-  alt?: string;
-  title?: string;
-  class?: string;
-}): JSX.Element {
+export function ZoomableImage(props: { src: string; alt?: string; title?: string; class?: string }): JSX.Element {
   let sheet!: HTMLDialogElement;
 
   const open = () => {
@@ -50,7 +45,7 @@ export function ZoomableImage(props: {
           >
             {icons.circleX()}
           </button>
-          <img src={props.src} alt={props.alt ?? ''} title={props.title} onClick={close} />
+          <img src={props.src} alt={props.alt ?? ''} title={props.title} />
         </dialog>
       </Portal>
     </>
@@ -58,11 +53,7 @@ export function ZoomableImage(props: {
 }
 
 /** Markdown `<img>` → zoomable when it has a src. */
-export function MarkdownImage(props: {
-  src?: string;
-  alt?: string;
-  title?: string;
-}): JSX.Element {
+export function MarkdownImage(props: { src?: string; alt?: string; title?: string }): JSX.Element {
   return (
     <Show when={props.src} fallback={<img src={props.src} alt={props.alt ?? ''} title={props.title} />}>
       {(src) => <ZoomableImage src={src()} alt={props.alt} title={props.title} class="chat-md-image" />}
