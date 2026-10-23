@@ -10,7 +10,10 @@ export function Composer(props: {
   sessionId: string;
   busy: boolean;
   onError: (message: string | null) => void;
-  onSent?: () => void;
+  /** Paint the user line before the POST / SSE catch up. */
+  onSend?: (text: string) => void;
+  /** Drop that optimistic line when the POST fails. */
+  onSendFailed?: (text: string) => void;
 }): JSX.Element {
   const [text, setText] = createSignal('');
   let sending = false;
@@ -42,12 +45,12 @@ export function Composer(props: {
     if (!value || sending || props.busy) return;
     sending = true;
     setText('');
-    props.onSent?.();
+    props.onSend?.(value);
     try {
       await postMessage(props.sessionId, value);
       props.onError(null);
-      props.onSent?.();
     } catch (e) {
+      props.onSendFailed?.(value);
       setText(value);
       props.onError(e instanceof ApiError ? e.message : 'Could not send that message.');
     } finally {

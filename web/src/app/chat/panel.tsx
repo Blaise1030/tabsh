@@ -1,21 +1,27 @@
 // A UI card's agent surface: the stream's replay, then whatever the agent
 // says next, with the composer along the bottom. A dropped stream connects
 // again; the first chunk of that connection replaces the transcript, because
-// the daemon replays finished turns before the new ones.
-import { createEffect, createSignal, For, type JSX, onCleanup, Show } from 'solid-js';
+// the daemon replays finished turns before the new ones. A send paints the
+// user line at once; the SSE user_text (or a failed POST) clears that pending
+// line so it does not show twice.
+import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from 'solid-js';
 import { ApiError } from '../daemon/client.ts';
 import { type ChatChunk, readChatStream } from './client.ts';
 import { Composer } from './composer.tsx';
+import { takePending, withOptimisticUser } from './optimistic.ts';
 import { Block, chatBlocks, chatLines } from './parts.tsx';
 import { turnOpen } from './turn.ts';
 
 export function ChatPanel(props: { sessionId: string; agentCommand?: string | null }): JSX.Element {
   const [chunks, setChunks] = createSignal<ChatChunk[]>([]);
+  const [pendingUser, setPendingUser] = createSignal<string[]>([]);
   const [notice, setNotice] = createSignal<string | null>(null);
   let transcript: HTMLDivElement | undefined;
+  const viewChunks = createMemo(() => withOptimisticUser(chunks(), pendingUser()));
 
   createEffect(() => {
     const id = props.sessionId;
+    setPendingUser([]);
     const ac = new AbortController();
     let gone = false;
     onCleanup(() => {
@@ -40,6 +46,9 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
         try {
           await readChatStream(id, ac.signal, (chunk) => {
             if (gone) return;
+            if (chunk.type === 'user_text' && typeof chunk.text === 'string') {
+              setPendingUser((list) => takePending(list, chunk.text ?? ''));
+            }
             if (!replaced) {
               replaced = true;
               pending = [chunk];
@@ -76,7 +85,7 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
   };
 
   createEffect(() => {
-    chunks();
+    viewChunks();
     notice();
     scrollToBottom();
   });
@@ -86,7 +95,7 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
       <div class="chat-transcript" ref={transcript}>
         <div class="chat-scroll">
           <div class="chat-list">
-            <For each={chatBlocks(chatLines(chunks()))}>
+            <For each={chatBlocks(chatLines(viewChunks()))}>
               {(block) => (
                 <Block
                   block={block}
@@ -112,9 +121,13 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
           <div class="chat-composer-dock">
             <Composer
               sessionId={props.sessionId}
-              busy={turnOpen(chunks())}
+              busy={turnOpen(viewChunks())}
               onError={setNotice}
-              onSent={scrollToBottom}
+              onSend={(text) => {
+                setPendingUser((list) => [...list, text]);
+                scrollToBottom();
+              }}
+              onSendFailed={(text) => setPendingUser((list) => takePending(list, text))}
             />
           </div>
         </div>
