@@ -66,7 +66,7 @@ export function Block(props: {
   const queued = () => !!props.block.queued;
   return (
     <div class={`chat-row chat-row-${role()}${queued() ? ' chat-row-queued' : ''}`}>
-      <Show when={role() === 'agent'}>
+      <Show when={role() === 'agent' || role() === 'error'}>
         <span class="chat-avatar" aria-hidden="true">
           {agentMark(props.agentCommand)()}
         </span>
@@ -75,9 +75,6 @@ export function Block(props: {
         <span class="chat-avatar chat-avatar-user" aria-hidden="true">
           {icons.messageSquarePlus()}
         </span>
-      </Show>
-      <Show when={role() === 'error'}>
-        <span class="chat-avatar" aria-hidden="true" />
       </Show>
       <div class="chat-body">
         <For each={props.block.lines}>

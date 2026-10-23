@@ -169,6 +169,7 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
                     lines: [{ chunk: { type: 'error', message: message() }, text: message() }],
                   }}
                   sessionId={props.sessionId}
+                  agentCommand={props.agentCommand}
                   onError={setNotice}
                 />
               )}
