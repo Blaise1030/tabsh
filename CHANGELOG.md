@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.1.39
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.37...v0.1.39)
+
+### Features
+
+- **chat:** Badges, path links, image drop, and folded tool ops ([011dee6](https://github.com/Blaise1030/tabsh/commit/011dee6))
+- **chat:** Path badges, composer polish, and window-drop images ([c5bcc78](https://github.com/Blaise1030/tabsh/commit/c5bcc78))
+- **chat:** Restyle permission rows as responsive icon cards ([68091d1](https://github.com/Blaise1030/tabsh/commit/68091d1))
+- **chat:** Persist answered permissions and add image lightbox ([78028d2](https://github.com/Blaise1030/tabsh/commit/78028d2))
+
+### Fixes
+
+- **chat:** Render GFM tables and soften composer fade ([4ca309f](https://github.com/Blaise1030/tabsh/commit/4ca309f))
+- **web:** Prebundle remark stack for Astro/Vite dev ([ebffcbf](https://github.com/Blaise1030/tabsh/commit/ebffcbf))
+- **chat:** Satisfy biome a11y/format on image lightbox ([8686b90](https://github.com/Blaise1030/tabsh/commit/8686b90))
+
 ## v0.1.38
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.37...v0.1.38)
