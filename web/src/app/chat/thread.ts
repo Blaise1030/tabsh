@@ -98,3 +98,54 @@ export function lineSegments(lines: ChatLine[]): LineSegment[] {
   }
   return out;
 }
+
+/** Keep prior block/line object identity when content is unchanged so Solid `<For>` does not remount. */
+export function stabilizeBlocks(prev: ChatBlock[] | undefined, next: ChatBlock[]): ChatBlock[] {
+  if (!prev) return next;
+  let allSame = prev.length === next.length;
+  const out = next.map((n, i) => {
+    const p = prev[i];
+    if (!p || p.role !== n.role || !!p.queued !== !!n.queued) {
+      allSame = false;
+      return n;
+    }
+    const lines = stabilizeLines(p.lines, n.lines);
+    if (lines === p.lines) return p;
+    allSame = false;
+    return { role: n.role, lines, queued: n.queued };
+  });
+  if (allSame && out.every((b, i) => b === prev[i])) return prev;
+  return out;
+}
+
+function stabilizeLines(prev: ChatLine[], next: ChatLine[]): ChatLine[] {
+  if (prev.length === next.length && prev.every((p, i) => lineSame(p, next[i]!))) return prev;
+  return next.map((n, i) => {
+    const p = prev[i];
+    return p && lineSame(p, n) ? p : n;
+  });
+}
+
+function lineSame(a: ChatLine, b: ChatLine): boolean {
+  const ac = a.chunk;
+  const bc = b.chunk;
+  return (
+    ac.type === bc.type &&
+    a.text === b.text &&
+    !!ac.queued === !!bc.queued &&
+    (ac.message ?? '') === (bc.message ?? '') &&
+    (ac.request_id ?? '') === (bc.request_id ?? '') &&
+    (ac.allow ?? null) === (bc.allow ?? null) &&
+    toolSame(ac.tool_call, bc.tool_call)
+  );
+}
+
+function toolSame(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return a === b;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}

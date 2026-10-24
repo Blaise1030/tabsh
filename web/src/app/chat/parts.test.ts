@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { ChatChunk } from './client.ts';
-import { chatBlocks, chatLines, lineSegments } from './thread.ts';
+import { chatBlocks, chatLines, lineSegments, stabilizeBlocks } from './thread.ts';
 
 function lines(...chunks: ChatChunk[]) {
   return chatLines(chunks);
@@ -110,4 +110,28 @@ test('lineSegments folds consecutive tools and splits on text', () => {
       ['tools', 1],
     ],
   );
+});
+
+test('stabilizeBlocks keeps earlier block identity when the last text grows', () => {
+  const first = chatBlocks(
+    chatLines([
+      { type: 'user_text', text: 'hi /tmp/shot.png' },
+      { type: 'text_delta', text: 'Hel' },
+    ]),
+  );
+  const second = chatBlocks(
+    chatLines([
+      { type: 'user_text', text: 'hi /tmp/shot.png' },
+      { type: 'text_delta', text: 'Hello' },
+    ]),
+  );
+  const stable = stabilizeBlocks(first, second);
+  assert.equal(stable[0], first[0]);
+  assert.notEqual(stable[1], first[1]);
+  assert.equal(stable[1]?.lines[0]?.text, 'Hello');
+});
+
+test('stabilizeBlocks returns the previous array when nothing changed', () => {
+  const blocks = chatBlocks(chatLines([{ type: 'user_text', text: 'hi' }]));
+  assert.equal(stabilizeBlocks(blocks, chatBlocks(chatLines([{ type: 'user_text', text: 'hi' }]))), blocks);
 });

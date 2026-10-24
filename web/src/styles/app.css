@@ -481,6 +481,8 @@ file-tree-container {
 .chat-transcript {
   flex: 1; min-width: 0; min-height: 0; width: 100%;
   overflow-x: hidden; overflow-y: auto; overscroll-behavior-x: none;
+  /* Fade only the top into the session bar; the sticky dock has its own edge. */
+  mask-image: linear-gradient(to bottom, transparent, #000 1.5rem, #000);
 }
 .chat-scroll {
   box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0;
@@ -494,8 +496,13 @@ file-tree-container {
 .chat-composer-dock {
   position: sticky; bottom: 0; z-index: 1;
   width: 100%; max-width: 100%; min-width: 0; border: 0; box-shadow: none;
-  /* Solid fill: a transparent gradient seam reads as a hairline on mobile GPUs. */
-  background: var(--background);
+  /* Short fade so the dock does not haze over the last messages. */
+  background: linear-gradient(to top, var(--background) 88%, transparent);
+}
+.chat-jump {
+  position: absolute; right: 1rem; top: 0; z-index: 5;
+  transform: translateY(calc(-100% - .5rem));
+  border-radius: 9999px; box-shadow: 0 2px 8px rgb(0 0 0 / .25);
 }
 .chat-row {
   display: grid;
@@ -735,7 +742,7 @@ file-tree-container {
   box-sizing: border-box; width: 100%; max-width: 64rem;
   margin-inline: auto;
   /* Tight to the screen; grow only for the home indicator when present. */
-  padding: 0 1rem max(0.2rem, env(safe-area-inset-bottom, 0px));
+  padding: 0 1rem max(0.45rem, env(safe-area-inset-bottom, 0px));
   min-height: 0;
 }
 /* contents: paperclip + model chip share the toolbar row at the start; badges still span full width. */
@@ -804,7 +811,7 @@ file-tree-container {
   column-gap: .75rem;
   align-items: start;
   box-sizing: border-box; width: 100%; max-width: 64rem;
-  margin-inline: auto; padding: .5rem 1rem .15rem;
+  margin-inline: auto; padding: .5rem 1rem .45rem;
 }
 .chat-composer:not(:has(.chat-composer-actions)) {
   grid-template-columns: 1.75rem minmax(0, 1fr);

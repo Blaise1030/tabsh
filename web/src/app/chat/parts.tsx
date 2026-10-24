@@ -11,13 +11,37 @@ import { type Icon, icons, providerIcon } from '../ui/icons.tsx';
 import { errorNotice, postApprove } from './client.ts';
 import { ZoomableImage } from './image-lightbox.tsx';
 import { Markdown } from './markdown.tsx';
-import { type ChatBlock, type ChatLine, chatBlocks, chatLines, lineSegments } from './thread.ts';
+import { type ChatBlock, type ChatLine, chatBlocks, chatLines, lineSegments, stabilizeBlocks } from './thread.ts';
 import { toolDetail, toolSummary } from './tool.ts';
 import { permissionLabel } from './turn.ts';
 import { splitAttachedImages } from './user-images.ts';
 
 export type { ChatBlock, ChatLine };
-export { chatBlocks, chatLines };
+export { chatBlocks, chatLines, stabilizeBlocks };
+
+/** Shared across remounts so streaming list churn does not flash screenshots. */
+const imageUrlCache = new Map<string, Promise<string>>();
+const imageUrlReady = new Map<string, string>();
+
+function cachedImageUrl(path: string): Promise<string> {
+  const ready = imageUrlReady.get(path);
+  if (ready) return Promise.resolve(ready);
+  let pending = imageUrlCache.get(path);
+  if (!pending) {
+    pending = rawBlobUrl(daemonFetch, path).then(
+      (url) => {
+        imageUrlReady.set(path, url);
+        return url;
+      },
+      (err) => {
+        imageUrlCache.delete(path);
+        throw err;
+      },
+    );
+    imageUrlCache.set(path, pending);
+  }
+  return pending;
+}
 
 export function Part(props: {
   line: ChatLine;
@@ -145,17 +169,16 @@ function ChatImage(props: { path: string }): JSX.Element {
   const [url, setUrl] = createSignal<string | null>(null);
   createEffect(() => {
     const path = props.path;
-    let objectUrl: string | null = null;
+    const hit = imageUrlReady.get(path);
+    if (hit) {
+      setUrl(hit);
+      return;
+    }
     let cancelled = false;
     setUrl(null);
-    void rawBlobUrl(daemonFetch, path).then(
+    void cachedImageUrl(path).then(
       (u) => {
-        if (cancelled) {
-          URL.revokeObjectURL(u);
-          return;
-        }
-        objectUrl = u;
-        setUrl(u);
+        if (!cancelled) setUrl(u);
       },
       () => {
         if (!cancelled) setUrl(null);
@@ -163,7 +186,6 @@ function ChatImage(props: { path: string }): JSX.Element {
     );
     onCleanup(() => {
       cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
     });
   });
   return (

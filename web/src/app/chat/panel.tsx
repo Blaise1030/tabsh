@@ -7,12 +7,14 @@
 import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from 'solid-js';
 import { withImages } from '../board/model.ts';
 import { ApiError, uploadFile } from '../daemon/client.ts';
+import { icons } from '../ui/icons.tsx';
 import { AttachBar, isImageFile, type PendingImage, revokeImages } from './attach.tsx';
 import { type ChatChunk, postMessage, postStop, readChatStream } from './client.ts';
 import { Composer } from './composer.tsx';
 import { ModelPicker } from './model-picker.tsx';
 import { takePending, withOptimisticUser } from './optimistic.ts';
-import { Block, chatBlocks, chatLines, ThinkingRow } from './parts.tsx';
+import { Block, chatBlocks, chatLines, stabilizeBlocks, ThinkingRow } from './parts.tsx';
+import { isNearBottom } from './scroll.ts';
 import { turnOpen, turnWaiting } from './turn.ts';
 
 export function ChatPanel(props: { sessionId: string; agentCommand?: string | null }): JSX.Element {
@@ -23,6 +25,9 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
   const [queue, setQueue] = createSignal<string[]>([]);
   const [notice, setNotice] = createSignal<string | null>(null);
   const [images, setImages] = createSignal<PendingImage[]>([]);
+  // Follow new output only while the user is near the bottom.
+  const [pinned, setPinned] = createSignal(true);
+  const [showJump, setShowJump] = createSignal(false);
   let transcript: HTMLDivElement | undefined;
   let posting = false;
   // Server turn only — queued optimistic lines must not keep busy latched.
@@ -30,13 +35,34 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
   const viewChunks = createMemo(() => withOptimisticUser(chunks(), pendingUser(), queue()));
   // Loading only until the agent has produced a visible chunk this turn.
   const waiting = createMemo(() => turnWaiting(viewChunks()));
-  const blocks = createMemo(() => chatBlocks(chatLines(viewChunks())));
+  const blocks = createMemo((prev?: ReturnType<typeof chatBlocks>) =>
+    stabilizeBlocks(prev, chatBlocks(chatLines(viewChunks()))),
+  );
   const lastIsAgent = createMemo(() => {
     const list = blocks();
     const last = list.at(-1);
     return last?.role === 'agent' && !last.queued;
   });
   const hasQueued = createMemo(() => blocks().some((b) => b.queued));
+
+  const syncScrollState = () => {
+    const el = transcript;
+    if (!el) return;
+    const near = isNearBottom(el);
+    setPinned(near);
+    setShowJump(!near);
+  };
+
+  const scrollToBottom = (force = false) => {
+    const el = transcript;
+    if (!el) return;
+    if (!force && !pinned()) return;
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+      setPinned(true);
+      setShowJump(false);
+    });
+  };
 
   const clearImages = () => {
     setImages((list) => {
@@ -77,6 +103,8 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
     const id = props.sessionId;
     setPendingUser([]);
     setQueue([]);
+    setPinned(true);
+    setShowJump(false);
     // setImages updater does not subscribe this effect to `images`.
     clearImages();
     posting = false;
@@ -134,17 +162,9 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
     })();
   });
 
-  const scrollToBottom = () => {
-    const el = transcript;
-    if (!el) return;
-    requestAnimationFrame(() => {
-      el.scrollTop = el.scrollHeight;
-    });
-  };
-
   const postOne = async (text: string) => {
     setPendingUser((list) => [...list, text]);
-    scrollToBottom();
+    scrollToBottom(true);
     posting = true;
     try {
       await postMessage(props.sessionId, text);
@@ -175,7 +195,7 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
 
   return (
     <section class="chat" aria-label="Chat">
-      <div class="chat-transcript" ref={transcript}>
+      <div class="chat-transcript" ref={transcript} onScroll={syncScrollState}>
         <div class="chat-scroll">
           <div class="chat-list">
             <For each={blocks()}>
@@ -221,6 +241,19 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
             </Show>
           </div>
           <div class="chat-composer-dock">
+            <Show when={showJump()}>
+              <button
+                type="button"
+                class="btn chat-jump"
+                data-variant="secondary"
+                data-size="icon-sm"
+                aria-label="Scroll to bottom"
+                title="Scroll to bottom"
+                onClick={() => scrollToBottom(true)}
+              >
+                {icons.chevronDown()}
+              </button>
+            </Show>
             <Composer
               sessionId={props.sessionId}
               busy={busy()}
@@ -232,7 +265,7 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
                   if (body === null) return;
                   if (busy()) {
                     setQueue((list) => [...list, body]);
-                    scrollToBottom();
+                    scrollToBottom(true);
                     return;
                   }
                   void postOne(body);
@@ -243,7 +276,7 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
                   if (body === null) return;
                   // This text goes next; anything already queued stays after it.
                   setQueue((list) => [body, ...list]);
-                  scrollToBottom();
+                  scrollToBottom(true);
                   void postStop(props.sessionId).then(
                     () => setNotice(null),
                     (e) => setNotice(e instanceof ApiError ? e.message : 'Could not stop the agent.'),
