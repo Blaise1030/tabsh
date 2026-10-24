@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.1.40
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.39...v0.1.40)
+
+### Fixes
+
+- **chat:** Stabilize streaming rows and pin scroll ([199387c](https://github.com/Blaise1030/tabsh/commit/199387c))
+- **chat:** Incremental transcript, per-card panels, durable queue ([588651b](https://github.com/Blaise1030/tabsh/commit/588651b))
+- **chat:** Move UI cards back to In progress on follow-up ([cd29179](https://github.com/Blaise1030/tabsh/commit/cd29179))
+
 ## v0.1.39
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.37...v0.1.39)
