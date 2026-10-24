@@ -543,6 +543,10 @@ impl ChatManager {
     /// A stop latched during handshake ends the turn here, before
     /// `prompt` can observe a later clear and write `session/prompt`.
     fn dispatch(&self, live: &Arc<LiveChat>, text: &str) {
+        // Mirror the TUI UserPromptSubmit hook: a new prompt means working again.
+        if let Some(board) = &live.board {
+            crate::board::note_acp_prompt(&board.db, &board.events, &live.card_id);
+        }
         live.record(UiChunk::UserText {
             session_id: live.acp_session_id.clone(),
             text: text.to_string(),

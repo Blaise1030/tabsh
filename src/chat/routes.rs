@@ -1049,6 +1049,41 @@ mod tests {
         st.chats.forget(&id);
     }
 
+    /// A follow-up chat message mirrors the TUI prompt hook: back to In progress.
+    #[tokio::test]
+    async fn a_follow_up_message_moves_the_card_back_to_in_progress() {
+        let st = test_state();
+        let id = create_ui_card(&st, "hi").await;
+        move_in_progress(&st, &id).await;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while card_status(&st, &id) != "needs_input" {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "status stayed {}",
+                card_status(&st, &id)
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        }
+        let (code, _) = req(
+            &st,
+            Method::POST,
+            &format!("/api/sessions/{id}/chat/message"),
+            serde_json::json!({"text": "more"}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::ACCEPTED);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while card_status(&st, &id) != "in_progress" {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "status stayed {}",
+                card_status(&st, &id)
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        }
+        st.chats.forget(&id);
+    }
+
     /// Completed only when the agent sends a session-end update. The
     /// following `end_turn` must not pull the card back to Needs input.
     #[tokio::test]

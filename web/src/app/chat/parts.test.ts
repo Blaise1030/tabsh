@@ -1,7 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { ChatChunk } from './client.ts';
-import { chatBlocks, chatLines, lineSegments } from './thread.ts';
+import {
+  applyChunk,
+  applyChunks,
+  chatBlocks,
+  chatLines,
+  emptyTranscript,
+  lineSegments,
+  replaceTranscript,
+  stabilizeBlocks,
+  stabilizeSessionBlocks,
+} from './thread.ts';
 
 function lines(...chunks: ChatChunk[]) {
   return chatLines(chunks);
@@ -110,4 +120,88 @@ test('lineSegments folds consecutive tools and splits on text', () => {
       ['tools', 1],
     ],
   );
+});
+
+test('stabilizeBlocks keeps earlier block identity when the last text grows', () => {
+  const first = chatBlocks(
+    chatLines([
+      { type: 'user_text', text: 'hi /tmp/shot.png' },
+      { type: 'text_delta', text: 'Hel' },
+    ]),
+  );
+  const second = chatBlocks(
+    chatLines([
+      { type: 'user_text', text: 'hi /tmp/shot.png' },
+      { type: 'text_delta', text: 'Hello' },
+    ]),
+  );
+  const stable = stabilizeBlocks(first, second);
+  assert.equal(stable[0], first[0]);
+  assert.notEqual(stable[1], first[1]);
+  assert.equal(stable[1]?.lines[0]?.text, 'Hello');
+});
+
+test('stabilizeBlocks returns the previous array when nothing changed', () => {
+  const blocks = chatBlocks(chatLines([{ type: 'user_text', text: 'hi' }]));
+  assert.equal(stabilizeBlocks(blocks, chatBlocks(chatLines([{ type: 'user_text', text: 'hi' }]))), blocks);
+});
+
+test('stabilizeSessionBlocks does not reuse blocks from another session', () => {
+  const fromA = chatBlocks(chatLines([{ type: 'user_text', text: 'from A' }]));
+  const fromB = chatBlocks(chatLines([{ type: 'user_text', text: 'from B' }]));
+  const prev = { sessionId: 'a', blocks: fromA };
+  const next = stabilizeSessionBlocks('b', prev, fromB);
+  assert.equal(next.sessionId, 'b');
+  assert.notEqual(next.blocks[0], fromA[0]);
+  assert.equal(next.blocks[0]?.lines[0]?.text, 'from B');
+});
+
+test('applyChunk matches a full rebuild across a mixed stream', () => {
+  const chunks: ChatChunk[] = [
+    { type: 'user_text', text: 'hi' },
+    { type: 'thought_delta', text: 'secret' },
+    { type: 'text_delta', text: 'Hel' },
+    { type: 'text_delta', text: 'lo' },
+    { type: 'tool_call', tool_call: { toolCallId: 't1', title: 'Read' } },
+    { type: 'tool_call_update', tool_call: { toolCallId: 't1', status: 'completed' } },
+    { type: 'turn_end' },
+  ];
+  let state = emptyTranscript();
+  for (const chunk of chunks) state = applyChunk(state, chunk);
+  const full = replaceTranscript(chunks);
+  assert.deepEqual(
+    state.blocks.map((b) => [b.role, b.lines.map((l) => [l.chunk.type, l.text])]),
+    full.blocks.map((b) => [b.role, b.lines.map((l) => [l.chunk.type, l.text])]),
+  );
+  assert.equal(state.chunks.length, chunks.length);
+});
+
+test('applyChunk keeps earlier block identity while text grows', () => {
+  let state = applyChunks(emptyTranscript(), [
+    { type: 'user_text', text: 'hi' },
+    { type: 'text_delta', text: 'Hel' },
+  ]);
+  const user = state.blocks[0];
+  const agent = state.blocks[1];
+  state = applyChunk(state, { type: 'text_delta', text: 'lo' });
+  assert.equal(state.blocks[0], user);
+  assert.notEqual(state.blocks[1], agent);
+  assert.equal(state.blocks[1]?.lines[0]?.text, 'Hello');
+});
+
+test('applyChunk removes a permission row once it is answered', () => {
+  let state = applyChunks(emptyTranscript(), [
+    { type: 'permission', request_id: '1', tool_call: { title: 'Delete' } },
+    { type: 'text_delta', text: 'ok' },
+  ]);
+  assert.equal(
+    state.blocks.some((b) => b.lines.some((l) => l.chunk.type === 'permission')),
+    true,
+  );
+  state = applyChunk(state, { type: 'permission_answered', request_id: '1', allow: true });
+  assert.equal(
+    state.blocks.some((b) => b.lines.some((l) => l.chunk.type === 'permission')),
+    false,
+  );
+  assert.equal(replaceTranscript(state.chunks).blocks.length, state.blocks.length);
 });
