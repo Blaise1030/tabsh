@@ -1,7 +1,7 @@
 // The page: the dialogs, the tab bar, the board or the workspace under it
 // (or both: the workspace in a drawer beside the board), and the drop glow.
 // Features find their parts by id once this is mounted.
-import { createMemo, For, type JSX, Show, untrack } from 'solid-js';
+import { createMemo, For, type JSX, untrack } from 'solid-js';
 import { DrawerMoveButton } from '../board/move-menu.tsx';
 import { NewCard } from '../board/new-card.tsx';
 import { Board, drawer as boardDrawer, shown as boardShown, FilterButton, layout } from '../board/view.tsx';
@@ -14,7 +14,7 @@ import { PaletteRows } from '../palette/palette.tsx';
 import { grouping, TabStrip } from '../sessions/groups.tsx';
 import { KeyBar } from '../sessions/keybar.tsx';
 import { SessionBar } from '../sessions/session-bar.tsx';
-import { active, isChatCard, noTab, type Session, screen } from '../sessions/store.ts';
+import { active, isChatCard, noTab, type Session, screen, sessionList } from '../sessions/store.ts';
 import { TermHost, termSessions } from '../sessions/terminal.tsx';
 import { Welcome } from '../welcome/view.tsx';
 import { Gate } from './gate.tsx';
@@ -174,12 +174,9 @@ function Workspace(): JSX.Element {
   const pane = paneShown;
   const terms = createMemo<Session[]>(termSessions, []);
   const shown = screen;
-  // The agent surface of a UI card is the chat. A side terminal named by
-  // the place stays an xterm.
-  const chatCard = createMemo(() => {
-    const s = shown();
-    return s && isChatCard(s) ? s : null;
-  });
+  // One chat panel per UI card (like TermHost): keep transcript state while
+  // browsing other tabs so a switch never paints another card's messages.
+  const chatCards = createMemo(() => sessionList().filter(isChatCard));
   return (
     <div id="workspace">
       <div id="main">
@@ -193,9 +190,19 @@ function Workspace(): JSX.Element {
           </div>
           <Gate />
           <For each={terms()}>{(s) => (isChatCard(s) ? null : <TermHost session={s} />)}</For>
-          <Show when={chatCard()} keyed>
-            {(s) => <ChatPanel sessionId={s.id} agentCommand={s.card().agent} />}
-          </Show>
+          <For each={chatCards()}>
+            {(s) => {
+              const visible = () => {
+                const on = shown();
+                return !!on && on.id === s.id;
+              };
+              return (
+                <div class="chat-host" hidden={!visible()}>
+                  <ChatPanel sessionId={s.id} agentCommand={s.card().agent} active={visible()} />
+                </div>
+              );
+            }}
+          </For>
         </div>
         <KeyBar />
       </div>

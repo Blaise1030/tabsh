@@ -11,13 +11,34 @@ import { type Icon, icons, providerIcon } from '../ui/icons.tsx';
 import { errorNotice, postApprove } from './client.ts';
 import { ZoomableImage } from './image-lightbox.tsx';
 import { Markdown } from './markdown.tsx';
-import { type ChatBlock, type ChatLine, chatBlocks, chatLines, lineSegments, stabilizeBlocks } from './thread.ts';
+import {
+  applyChunk,
+  applyChunks,
+  type ChatBlock,
+  type ChatLine,
+  chatBlocks,
+  chatLines,
+  emptyTranscript,
+  lineSegments,
+  replaceTranscript,
+  stabilizeBlocks,
+  stabilizeSessionBlocks,
+} from './thread.ts';
 import { toolDetail, toolSummary } from './tool.ts';
 import { permissionLabel } from './turn.ts';
 import { splitAttachedImages } from './user-images.ts';
 
 export type { ChatBlock, ChatLine };
-export { chatBlocks, chatLines, stabilizeBlocks };
+export {
+  applyChunk,
+  applyChunks,
+  chatBlocks,
+  chatLines,
+  emptyTranscript,
+  replaceTranscript,
+  stabilizeBlocks,
+  stabilizeSessionBlocks,
+};
 
 /** Shared across remounts so streaming list churn does not flash screenshots. */
 const imageUrlCache = new Map<string, Promise<string>>();

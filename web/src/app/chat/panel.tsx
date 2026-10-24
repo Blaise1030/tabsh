@@ -13,40 +13,55 @@ import { type ChatChunk, postMessage, postStop, readChatStream } from './client.
 import { Composer } from './composer.tsx';
 import { ModelPicker } from './model-picker.tsx';
 import { takePending, withOptimisticUser } from './optimistic.ts';
-import { Block, chatBlocks, chatLines, stabilizeBlocks, ThinkingRow } from './parts.tsx';
+import { Block, chatBlocks, chatLines, ThinkingRow } from './parts.tsx';
+import { loadQueue, saveQueue } from './queue.ts';
 import { isNearBottom } from './scroll.ts';
+import { applyChunks, emptyTranscript, replaceTranscript, type Transcript } from './thread.ts';
 import { turnOpen, turnWaiting } from './turn.ts';
 
-export function ChatPanel(props: { sessionId: string; agentCommand?: string | null }): JSX.Element {
-  const [chunks, setChunks] = createSignal<ChatChunk[]>([]);
+export function ChatPanel(props: {
+  sessionId: string;
+  agentCommand?: string | null;
+  /** When false, the panel stays mounted but drops its stream (tab not visible). */
+  active?: boolean;
+}): JSX.Element {
+  const [transcript, setTranscript] = createSignal<Transcript>(emptyTranscript());
   // POSTed, waiting for the matching SSE user_text.
   const [pendingUser, setPendingUser] = createSignal<string[]>([]);
   // Not POSTed yet; shown like user lines, drained when the turn is idle.
-  const [queue, setQueue] = createSignal<string[]>([]);
+  // Hydrated from this browser so a refresh keeps the queue.
+  const [queue, setQueue] = createSignal<string[]>(loadQueue(props.sessionId));
   const [notice, setNotice] = createSignal<string | null>(null);
   const [images, setImages] = createSignal<PendingImage[]>([]);
   // Follow new output only while the user is near the bottom.
   const [pinned, setPinned] = createSignal(true);
   const [showJump, setShowJump] = createSignal(false);
-  let transcript: HTMLDivElement | undefined;
+  let scroller: HTMLDivElement | undefined;
   let posting = false;
+  const isActive = () => props.active !== false;
+  const chunks = () => transcript().chunks;
   // Server turn only — queued optimistic lines must not keep busy latched.
   const busy = createMemo(() => turnOpen(chunks()));
   const viewChunks = createMemo(() => withOptimisticUser(chunks(), pendingUser(), queue()));
   // Loading only until the agent has produced a visible chunk this turn.
   const waiting = createMemo(() => turnWaiting(viewChunks()));
-  const blocks = createMemo((prev?: ReturnType<typeof chatBlocks>) =>
-    stabilizeBlocks(prev, chatBlocks(chatLines(viewChunks()))),
-  );
+  // Server blocks grow via applyChunk; pending/queue rows are a cheap tip overlay.
+  const blockList = createMemo(() => {
+    const base = transcript().blocks;
+    const pending = pendingUser();
+    const queued = queue();
+    if (!pending.length && !queued.length) return base;
+    return base.concat(chatBlocks(chatLines(withOptimisticUser([], pending, queued))));
+  });
   const lastIsAgent = createMemo(() => {
-    const list = blocks();
+    const list = blockList();
     const last = list.at(-1);
     return last?.role === 'agent' && !last.queued;
   });
-  const hasQueued = createMemo(() => blocks().some((b) => b.queued));
+  const hasQueued = createMemo(() => blockList().some((b) => b.queued));
 
   const syncScrollState = () => {
-    const el = transcript;
+    const el = scroller;
     if (!el) return;
     const near = isNearBottom(el);
     setPinned(near);
@@ -54,7 +69,7 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
   };
 
   const scrollToBottom = (force = false) => {
-    const el = transcript;
+    const el = scroller;
     if (!el) return;
     if (!force && !pinned()) return;
     requestAnimationFrame(() => {
@@ -99,10 +114,21 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
     }
   };
 
+  // Persist the not-yet-sent queue across reloads (and keep it while inactive).
+  createEffect(() => {
+    saveQueue(props.sessionId, queue());
+  });
+
   createEffect(() => {
     const id = props.sessionId;
+    // Inactive panels keep transcript + queue; only the visible card streams.
+    if (!isActive()) {
+      setPendingUser([]);
+      posting = false;
+      return;
+    }
     setPendingUser([]);
-    setQueue([]);
+    setNotice(null);
     setPinned(true);
     setShowJump(false);
     // setImages updater does not subscribe this effect to `images`.
@@ -110,25 +136,60 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
     posting = false;
     const ac = new AbortController();
     let gone = false;
+    // Trailing timer while coalescing the SSE replay across TCP reads.
+    let replayTimer: ReturnType<typeof setTimeout> | null = null;
     onCleanup(() => {
       gone = true;
       ac.abort();
-      clearImages();
+      if (replayTimer) {
+        clearTimeout(replayTimer);
+        replayTimer = null;
+      }
     });
     void (async () => {
       // A stream error clears once the next connection delivers a chunk.
       // A send error stays until the composer clears it.
       let streamError = false;
       while (!gone) {
-        let replaced = false;
-        let pending: ChatChunk[] | null = null;
-        let scheduled = false;
+        // First idle window of each connection replaces; later flushes apply at the tip.
+        // A single queueMicrotask flush after the first read painted a partial replay
+        // (outdated transcript) before the rest of the history arrived.
+        let replacing = true;
+        let batch: ChatChunk[] = [];
+        let applyScheduled = false;
         const flush = () => {
-          scheduled = false;
-          if (gone || !pending) return;
-          const next = pending;
-          pending = null;
-          setChunks(next);
+          applyScheduled = false;
+          if (replayTimer) {
+            clearTimeout(replayTimer);
+            replayTimer = null;
+          }
+          if (gone || !batch.length) return;
+          const next = batch;
+          batch = [];
+          if (replacing) {
+            replacing = false;
+            setTranscript(replaceTranscript(next));
+            if (streamError) {
+              streamError = false;
+              setNotice(null);
+            }
+          } else {
+            setTranscript((t) => applyChunks(t, next));
+          }
+        };
+        const scheduleFlush = () => {
+          if (replacing) {
+            if (replayTimer) clearTimeout(replayTimer);
+            replayTimer = setTimeout(() => {
+              replayTimer = null;
+              flush();
+            }, 48);
+            return;
+          }
+          if (!applyScheduled) {
+            applyScheduled = true;
+            queueMicrotask(flush);
+          }
         };
         try {
           await readChatStream(id, ac.signal, (chunk) => {
@@ -136,23 +197,14 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
             if (chunk.type === 'user_text' && typeof chunk.text === 'string') {
               setPendingUser((list) => takePending(list, chunk.text ?? ''));
             }
-            if (!replaced) {
-              replaced = true;
-              pending = [chunk];
-              if (streamError) {
-                streamError = false;
-                setNotice(null);
-              }
-            } else {
-              pending = [...(pending ?? chunks()), chunk];
-            }
-            if (!scheduled) {
-              scheduled = true;
-              queueMicrotask(flush);
-            }
+            batch.push(chunk);
+            scheduleFlush();
           });
+          // Connection ended mid-replay debounce: commit what we have.
+          if (!gone && batch.length) flush();
         } catch (e) {
           if (gone || ac.signal.aborted) return;
+          if (batch.length) flush();
           streamError = true;
           setNotice(e instanceof ApiError ? e.message : 'The chat stream stopped.');
         }
@@ -195,15 +247,15 @@ export function ChatPanel(props: { sessionId: string; agentCommand?: string | nu
 
   return (
     <section class="chat" aria-label="Chat">
-      <div class="chat-transcript" ref={transcript} onScroll={syncScrollState}>
+      <div class="chat-transcript" ref={scroller} onScroll={syncScrollState}>
         <div class="chat-scroll">
           <div class="chat-list">
-            <For each={blocks()}>
+            <For each={blockList()}>
               {(block, i) => {
-                const prev = () => blocks()[i() - 1];
+                const prev = () => blockList()[i() - 1];
                 const showQueueMark = () => block.queued && !prev()?.queued;
                 const thinking = () =>
-                  waiting() && block.role === 'agent' && !block.queued && i() === blocks().length - 1;
+                  waiting() && block.role === 'agent' && !block.queued && i() === blockList().length - 1;
                 return (
                   <>
                     <Show when={showQueueMark()}>
