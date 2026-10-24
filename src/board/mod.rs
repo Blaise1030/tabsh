@@ -421,6 +421,55 @@ pub(crate) fn note_acp_status(
     }
 }
 
+/// User sent a prompt on a UI card: mirror the TUI hook's
+/// `tabsh status in_progress` so a follow-up leaves Needs input / Completed.
+pub(crate) fn note_acp_prompt(
+    db: &std::sync::Mutex<Connection>,
+    events: &tokio::sync::broadcast::Sender<BoardEvent>,
+    id: &str,
+) {
+    let mut db = db.lock().unwrap_or_else(|e| e.into_inner());
+    let current: Option<String> = db
+        .query_row(
+            "SELECT status FROM sessions WHERE id = ?1 AND parent IS NULL",
+            params![id],
+            |r| r.get(0),
+        )
+        .optional()
+        .ok()
+        .flatten();
+    match current.as_deref() {
+        Some("needs_input") | Some("completed") => {}
+        _ => return,
+    }
+    if db
+        .execute(
+            "UPDATE sessions SET note = NULL,
+                 status_at = CASE WHEN status = 'in_progress' THEN status_at ELSE unixepoch() END,
+                 status = 'in_progress'
+             WHERE id = ?1",
+            params![id],
+        )
+        .is_err()
+    {
+        return;
+    }
+    if append_to_column(&mut db, id, "in_progress").is_err() {
+        return;
+    }
+    let info = store::info(&db, id).ok().flatten();
+    drop(db);
+    if let Some(info) = info {
+        let _ = events.send(BoardEvent::Status(StatusEvent {
+            id: info.id,
+            status: info.status,
+            status_at: info.status_at,
+            note: info.note,
+            source: "hook",
+        }));
+    }
+}
+
 /// Puts card `id` right after the last other card in `status`'s column (at
 /// the very end of the tab order when that column is empty), as the board's
 /// `dropOrder` does with no card to go before.
