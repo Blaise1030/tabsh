@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.1.0
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v1.0.0...v1.1.0)
+
+### Features
+
+- **web:** Make the board home and land onboarding in split ([ca576a0](https://github.com/Blaise1030/tabsh/commit/ca576a0))
+
 ## v1.0.0
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.40...v1.0.0)
