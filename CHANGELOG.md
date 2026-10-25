@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.2.0
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v1.1.0...v1.2.0)
+
+### Features
+
+- **web:** Add Product Hunt badge to the landing page ([a8f4bc6](https://github.com/Blaise1030/tabsh/commit/a8f4bc6))
+- **web:** Show the Product Hunt badge under the description ([707e05c](https://github.com/Blaise1030/tabsh/commit/707e05c))
+
+### Fixes
+
+- **web:** Put the hero badge after the install command ([10b993c](https://github.com/Blaise1030/tabsh/commit/10b993c))
+- **web:** Use the dark Product Hunt badge in both themes ([a2ce111](https://github.com/Blaise1030/tabsh/commit/a2ce111))
+
 ## v1.1.0
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v1.0.0...v1.1.0)
