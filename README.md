@@ -10,6 +10,8 @@ A small Rust daemon runs your shells on your machine, and a board keeps every ca
 Open it from any browser tab at https://tabsh.cc; shells and agents survive reloads, restarts and
 closed laptops.
 
+![The tabsh list beside a live terminal: cards from the shop and api projects grouped by status, with the shop's dev server running in the shell on the right](web/public/shots/list-terminal-dark.png)
+
 ```sh
 curl -fsSL https://tabsh.cc/install.sh | sh
 tabsh   # opens the app in your browser, paired
@@ -60,7 +62,7 @@ it builds.
 | Survives restarts        | Tabs, folders and scrollback are restored    |
 | Drop files in            | Dragged files type their path                |
 | Bells you notice         | The tab rings and the favicon gets a badge   |
-| Themes and fonts         | 10 themes, 9 fonts and a ⌘K palette          |
+| Themes and fonts         | 12 themes, 9 fonts and a ⌘K palette          |
 | Nothing leaves localhost | Keystrokes stay on 127.0.0.1                 |
 
 ## The board
@@ -86,7 +88,8 @@ terminal (TUI) or a chat panel (UI).
 
 `tabsh status <status> [--note <text>]` sets the card by hand.
 
-The walkthrough is at https://tabsh.cc/docs/.
+The walkthrough is at https://tabsh.cc/docs/. Assets and blurbs are at
+https://tabsh.cc/press/.
 
 ## How it connects
 
