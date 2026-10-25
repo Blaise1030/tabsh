@@ -112,21 +112,34 @@ export async function postApprove(sessionId: string, requestId: string, allow: b
   await postChat(sessionId, 'approve', { requestId, allow });
 }
 
-export interface ChatModelChoice {
+export interface ChatSelectChoice {
   id: string;
   name: string;
+  description?: string;
 }
 
-export interface ChatModels {
+export interface ChatSelect {
   current: string | null;
-  options: ChatModelChoice[];
+  options: ChatSelectChoice[];
 }
+
+export type ChatModelChoice = ChatSelectChoice;
+export type ChatModels = ChatSelect;
 
 export async function fetchModels(sessionId: string): Promise<ChatModels> {
+  return fetchSelect(sessionId, 'models');
+}
+
+/** The live agent's session modes (how it asks permission). */
+export async function fetchModes(sessionId: string): Promise<ChatSelect> {
+  return fetchSelect(sessionId, 'modes');
+}
+
+async function fetchSelect(sessionId: string, action: string): Promise<ChatSelect> {
   const { ApiError, daemonFetch } = await import('../daemon/client.ts');
-  const res = await daemonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/chat/models`);
+  const res = await daemonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/chat/${action}`);
   if (!res.ok) throw new ApiError(failureText(res.status, await res.text()), res.status);
-  return (await res.json()) as ChatModels;
+  return (await res.json()) as ChatSelect;
 }
 
 /** Start the ACP agent with no prompt so models become available. */
@@ -141,14 +154,45 @@ export async function ensureChat(sessionId: string): Promise<void> {
 }
 
 export async function postModel(sessionId: string, id: string): Promise<ChatModels> {
+  return postSelect(sessionId, 'model', id);
+}
+
+/** Choose a session mode on the live agent. */
+export async function postMode(sessionId: string, id: string): Promise<ChatSelect> {
+  return postSelect(sessionId, 'mode', id);
+}
+
+async function postSelect(sessionId: string, action: string, id: string): Promise<ChatSelect> {
   const { ApiError, daemonFetch } = await import('../daemon/client.ts');
-  const res = await daemonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/chat/model`, {
+  const res = await daemonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/chat/${action}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id }),
   });
   if (!res.ok) throw new ApiError(failureText(res.status, await res.text()), res.status);
-  return (await res.json()) as ChatModels;
+  return (await res.json()) as ChatSelect;
+}
+
+export interface ChatApprovals {
+  auto: boolean;
+}
+
+export async function fetchApprovals(sessionId: string): Promise<ChatApprovals> {
+  const { ApiError, daemonFetch } = await import('../daemon/client.ts');
+  const res = await daemonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/chat/approvals`);
+  if (!res.ok) throw new ApiError(failureText(res.status, await res.text()), res.status);
+  return (await res.json()) as ChatApprovals;
+}
+
+export async function postApprovals(sessionId: string, auto: boolean): Promise<ChatApprovals> {
+  const { ApiError, daemonFetch } = await import('../daemon/client.ts');
+  const res = await daemonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/chat/approvals`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ auto }),
+  });
+  if (!res.ok) throw new ApiError(failureText(res.status, await res.text()), res.status);
+  return (await res.json()) as ChatApprovals;
 }
 
 async function postChat(sessionId: string, action: string, body?: unknown): Promise<void> {

@@ -8,14 +8,15 @@ import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show 
 import { withImages } from '../board/model.ts';
 import { ApiError, uploadFile } from '../daemon/client.ts';
 import { icons } from '../ui/icons.tsx';
+import { ApprovalsToggle } from './approvals-toggle.tsx';
 import { AttachBar, isImageFile, type PendingImage, revokeImages } from './attach.tsx';
 import { type ChatChunk, postMessage, postStop, readChatStream } from './client.ts';
 import { Composer } from './composer.tsx';
-import { ModelPicker } from './model-picker.tsx';
 import { takePending, withOptimisticUser } from './optimistic.ts';
 import { Block, chatBlocks, chatLines, ThinkingRow } from './parts.tsx';
 import { loadQueue, saveQueue } from './queue.ts';
 import { isNearBottom } from './scroll.ts';
+import { SelectPicker } from './select-picker.tsx';
 import { applyChunks, emptyTranscript, replaceTranscript, type Transcript } from './thread.ts';
 import { turnOpen, turnWaiting } from './turn.ts';
 
@@ -338,7 +339,15 @@ export function ChatPanel(props: {
             />
             <div class="chat-composer-toolbar">
               <AttachBar images={images()} onAdd={addImages} onRemove={removeImage} />
-              <ModelPicker sessionId={props.sessionId} busy={busy()} onError={setNotice} />
+              <SelectPicker kind="mode" sessionId={props.sessionId} busy={busy()} onError={setNotice} />
+              <SelectPicker
+                kind="model"
+                sessionId={props.sessionId}
+                agentCommand={props.agentCommand}
+                busy={busy()}
+                onError={setNotice}
+              />
+              <ApprovalsToggle sessionId={props.sessionId} onError={setNotice} />
             </div>
           </div>
         </div>

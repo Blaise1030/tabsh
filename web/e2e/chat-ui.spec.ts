@@ -62,6 +62,9 @@ test('a UI card in progress shows the chat composer', async ({ page, daemon, pro
 
   await created.click();
   await expect(page.locator('.chat-composer')).toBeVisible();
+  const model = page.locator('.chat-select-chip[aria-label="Model"]');
+  await expect(model).toContainText('Fast');
+  await expect(model.locator('svg').first()).toBeVisible();
 });
 
 async function openUiCard(page: Page, project: string, name: string): Promise<void> {
@@ -89,6 +92,50 @@ async function sendChat(page: Page, text: string): Promise<void> {
   await field.fill(text);
   await field.press('Enter');
 }
+
+test('the agent mode chip changes the agent mode', async ({ page, daemon, project }) => {
+  await openApp(page, daemon);
+  await openUiCard(page, project, 'Say hello');
+  const chip = page.locator('.chat-select-chip[aria-label="Agent mode"]');
+  await expect(chip).toContainText('Ask');
+  await expect(chip.locator('svg').first()).toBeVisible();
+  await chip.click();
+  // The transcript's top fade must drop while the menu is open, or the
+  // fixed popover's search field is clipped at the top.
+  await expect(page.locator('.chat-transcript')).toHaveCSS('mask-image', 'none');
+  await expect(
+    page.locator('.chat-select-menu:has([aria-expanded="true"]) .chat-select-search > svg'),
+  ).toBeVisible();
+  await expect(
+    page.locator('.chat-select-menu:has([aria-expanded="true"]) .chat-select-search'),
+  ).toHaveCSS('border-bottom-width', '0px');
+  const code = page.getByRole('menuitemradio', { name: /Code/ });
+  await expect(code).not.toContainText('Write and modify code with full tool access');
+  await expect(code.locator('svg').first()).toBeVisible();
+  await code.click();
+  await expect(chip).toContainText('Code');
+});
+
+test('Allow all answers permission requests without asking', async ({ page, daemon, project }) => {
+  await openApp(page, daemon);
+  await openUiCard(page, project, 'Say hello');
+  const toggle = page.locator('.chat-approvals-chip');
+  await expect(toggle).toContainText('Approve');
+  await expect(toggle.locator('svg').first()).toBeVisible();
+  await toggle.click();
+  await expect(toggle).toContainText('Allow all');
+
+  await sendChat(page, 'needs permission');
+  await expect(page.locator('.chat-transcript')).toContainText('permission outcome: selected:allow');
+  await expect(page.locator('.chat-permission')).toHaveCount(0);
+
+  // Back to Approve: the next request waits for the user.
+  await toggle.click();
+  await expect(toggle).toContainText('Approve');
+  await sendChat(page, 'needs permission');
+  await expect(page.locator('.chat-permission')).toContainText('Fake tool');
+  await page.getByRole('button', { name: 'Allow' }).click();
+});
 
 test('Allow answers an in-thread permission request', async ({ page, daemon, project }) => {
   await openApp(page, daemon);

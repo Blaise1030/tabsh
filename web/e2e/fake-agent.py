@@ -19,6 +19,46 @@ def update(session_id, upd):
     )
 
 
+MODE = {"current": "ask"}
+MODEL = {"current": "fast"}
+
+
+def mode_options():
+    return [
+        {
+            "id": "mode",
+            "name": "Session Mode",
+            "category": "mode",
+            "currentValue": MODE["current"],
+            "options": [
+                {"value": "ask", "name": "Ask", "description": "Request permission before making changes"},
+                {"value": "code", "name": "Code", "description": "Write and modify code with full tool access"},
+            ],
+        }
+    ]
+
+
+def model_options():
+    return [
+        {
+            "id": "model",
+            "name": "Model",
+            "category": "model",
+            "currentValue": MODEL["current"],
+            "options": [
+                {"value": "fast", "name": "Fast"},
+                {"value": "smart", "name": "Smart"},
+                {"value": "claude-sonnet-4-5", "name": "Claude Sonnet 4.5"},
+                {"value": "gpt-5", "name": "GPT-5"},
+            ],
+        }
+    ]
+
+
+def config_options():
+    return mode_options() + model_options()
+
+
 while True:
     line = sys.stdin.readline()
     if not line:
@@ -44,7 +84,25 @@ while True:
             }
         )
     elif method == "session/new":
-        send({"jsonrpc": "2.0", "id": mid, "result": {"sessionId": "fake-session-1"}})
+        send(
+            {
+                "jsonrpc": "2.0",
+                "id": mid,
+                "result": {"sessionId": "fake-session-1", "configOptions": config_options()},
+            }
+        )
+    elif method == "session/set_config_option":
+        if params.get("configId") == "mode":
+            MODE["current"] = params.get("value") or MODE["current"]
+        if params.get("configId") == "model":
+            MODEL["current"] = params.get("value") or MODEL["current"]
+        send(
+            {
+                "jsonrpc": "2.0",
+                "id": mid,
+                "result": {"configOptions": config_options()},
+            }
+        )
     elif method == "session/prompt":
         sid = params.get("sessionId", "")
         text = "".join(

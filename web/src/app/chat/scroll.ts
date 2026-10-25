@@ -5,3 +5,15 @@ export function isNearBottom(
 ): boolean {
   return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
 }
+
+/** Which edges of a scrollport hide content beyond them (for its fades). */
+export function scrollFades(
+  el: { scrollTop: number; scrollHeight: number; clientHeight: number },
+  edge = 2,
+): { top: boolean; bottom: boolean } {
+  const max = el.scrollHeight - el.clientHeight;
+  return {
+    top: el.scrollTop > edge,
+    bottom: max > edge && el.scrollTop < max - edge,
+  };
+}
