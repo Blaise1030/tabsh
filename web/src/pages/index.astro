@@ -350,6 +350,27 @@ const table = drawTable(features, widths);
       </div>
 
       <footer>
+        <p class="ph">
+          <a
+            href="https://www.producthunt.com/products/tabsh?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-tabsh"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <picture>
+              <source
+                srcset="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1292068&amp;theme=dark&amp;t=1792921688542"
+                media="(prefers-color-scheme: dark)"
+              />
+              <img
+                src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1292068&amp;theme=neutral&amp;t=1792921688542"
+                alt="tabsh - A calmer way to work with agents, in a browser tab | Product Hunt"
+                width="250"
+                height="54"
+                decoding="async"
+              />
+            </picture>
+          </a>
+        </p>
         <p>
           <span class="mark">&gt;</span> Get it: <a href="/docs/">install tabsh</a>.
           Press: <a href="/press/">press kit</a>.
@@ -489,6 +510,10 @@ const table = drawTable(features, widths);
   .table { white-space: pre; }
 
   footer { margin-top: 3rem; }
+  /* The Product Hunt badge carries its own frame; keep the link quiet. */
+  footer .ph { margin: 0 0 1rem; }
+  footer .ph a { display: inline-block; border: 0; }
+  footer .ph img { display: block; width: 250px; height: 54px; }
 
   /* FAQ: each question a [+] line that opens to [-]. */
   .faq { margin-bottom: 1rem; }
