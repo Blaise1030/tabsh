@@ -1,0 +1,50 @@
+name: Launch feedback
+description: You tried tabsh from the launch and have an opinion, not necessarily a bug.
+title: "feedback: "
+labels: [feedback]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for trying it. This is for the "I wish it did X" and "I
+        stopped at Y" kind of feedback, which is more useful than a star.
+  - type: textarea
+    id: tried
+    attributes:
+      label: What did you try?
+      description: Install, the demo, the board, an agent, the phone view?
+    validations:
+      required: true
+  - type: textarea
+    id: friction
+    attributes:
+      label: Where did you stop or get stuck?
+      description: The first moment it felt slower, confusing, or not for you.
+    validations:
+      required: true
+  - type: textarea
+    id: wish
+    attributes:
+      label: What would make it fit your workflow?
+      description: One thing. Concrete is better than "more AI".
+  - type: input
+    id: agent
+    attributes:
+      label: Which coding agent(s) do you use?
+      placeholder: Claude Code, Codex, Cursor CLI, OpenCode, other
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS
+        - Linux
+        - Windows (not supported yet)
+        - Other
+  - type: checkboxes
+    id: contact
+    attributes:
+      label: Can I follow up here?
+      options:
+        - label: Yes, reply in this issue.
+        - label: I'd rather not be contacted.
