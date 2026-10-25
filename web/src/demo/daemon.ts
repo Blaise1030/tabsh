@@ -204,19 +204,44 @@ const claude = addShell(
   SHOP,
   'needs_input',
   lines(
-    `${orange('●')} The refund path now checks the order status first.`,
+    `${orange('>')} review the refund path before I merge`,
     '',
-    `  ${dim('2 files changed,')} ${green('+18')} ${red('−4')}`,
+    `${orange('⏺')} I'll trace the refund flow, check the order-status guard, and run the tests.`,
+    '',
+    `${orange('⏺')} ${bold('Read')}(src/refund.ts)`,
+    `  ${dim('⎿')}  Read 12 lines`,
+    '',
+    `${orange('⏺')} ${bold('Read')}(src/orders.rs)`,
+    `  ${dim('⎿')}  Read 18 lines`,
+    '',
+    `${orange('⏺')} ${bold('Read')}(src/refund.test.ts)`,
+    `  ${dim('⎿')}  Read 41 lines`,
+    '',
+    `${orange('⏺')} The refund path now checks the order status first.`,
+    `  ${dim('⎿')}  Updated src/refund.ts ${green('(+12)')} ${red('(−4)')}`,
+    `  ${dim('⎿')}  Updated src/orders.rs ${green('(+6)')}`,
+    `  ${dim('⎿')}  Added src/refund.test.ts ${green('(+18)')}`,
+    '',
+    `${orange('⏺')} ${bold('Bash')}(cargo test)`,
+    `  ${dim('⎿')}  ${green('42 passed')} in 0.81s`,
+    '',
+    `${orange('⏺')} The fix is idempotent: an already-refunded order returns the original`,
+    '  refund instead of issuing a second one. The diff is limited to the refund path.',
     '',
     `Run the tests before I commit? ${dim('(y/n)')}`,
+    `  ${dim('⏵⏵ accept edits on (shift+tab to cycle)')}   ${dim('Claude Sonnet 4.5')}`,
   ),
   {
-    prompt: `${orange('›')} `,
+    prompt: orange('> '),
     reply: (cmd) => {
       if (!/^y(es)?$/i.test(cmd))
-        return /^n(o)?$/i.test(cmd) ? lines(`${orange('●')} Okay, leaving it uncommitted.`) : null;
+        return /^n(o)?$/i.test(cmd) ? lines(`${orange('⏺')} Okay, leaving it uncommitted.`) : null;
       setTimeout(() => hook(claude, 'completed', 'Committed a1c9e04'), 600);
-      return lines(`${orange('●')} Running cargo test…`, `  48 passed. Committed as ${dim('a1c9e04')}.`);
+      return lines(
+        `${orange('⏺')} ${bold('Bash')}(cargo test)`,
+        `  ${dim('⎿')}  ${green('42 passed')} in 0.81s`,
+        `${orange('⏺')} Committed as ${dim('a1c9e04')}.`,
+      );
     },
   },
 );
@@ -620,16 +645,11 @@ const remote = {
   ],
 };
 const demoModels = {
-  current: 'deepseek-v4.1',
+  current: 'claude-sonnet',
   options: [
-    { id: 'deepseek-v4.1', name: 'DeepSeek V4.1 Flash' },
     { id: 'claude-sonnet', name: 'Claude Sonnet 4.5' },
     { id: 'claude-opus', name: 'Claude Opus 4.1' },
-    { id: 'gpt-5-codex', name: 'GPT-5 Codex' },
-    { id: 'gpt-5', name: 'GPT-5' },
-    { id: 'gemini-pro', name: 'Gemini 3 Pro' },
-    { id: 'grok-4', name: 'Grok 4' },
-    { id: 'qwen-3-coder', name: 'Qwen 3 Coder' },
+    { id: 'claude-haiku', name: 'Claude Haiku 4.5' },
   ],
 };
 

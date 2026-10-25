@@ -6,14 +6,16 @@ import { chromium } from '@playwright/test';
 const base = process.env.SHOT_BASE ?? 'http://127.0.0.1:4321/demo/?view=board&layout=list';
 // The review card's demo id; the same split view fig. 1 opens live.
 const split = `${base}&tab=demo-9&drawer=1`;
+// The shop: npm run dev card, a real terminal rather than a chat.
+const terminal = `${base}&tab=demo-1&drawer=1`;
 const dir = new URL('../public/shots/', import.meta.url);
 mkdirSync(dir, { recursive: true });
 
 const browser = await chromium.launch();
 
-async function open(scheme = 'dark', url = base) {
+async function open(scheme = 'dark', url = base, viewport = { width: 1440, height: 900 }) {
   const p = await browser.newPage({
-    viewport: { width: 1440, height: 900 },
+    viewport,
     colorScheme: scheme,
     deviceScaleFactor: 2,
   });
@@ -24,32 +26,44 @@ async function open(scheme = 'dark', url = base) {
   return p;
 }
 
-// The list: every card, both projects, one scroll.
+// The list with a live shell beside it, and the same cards as columns.
 for (const scheme of ['dark', 'light']) {
-  const p = await open(scheme);
-  await p.screenshot({ path: new URL(`list-${scheme}.png`, dir).pathname });
+  const p = await open(scheme, terminal);
+  await p.screenshot({ path: new URL(`list-terminal-${scheme}.png`, dir).pathname });
+  await p.close();
+}
+const columns = new URL(base);
+columns.searchParams.delete('layout');
+columns.searchParams.delete('tab');
+columns.searchParams.delete('drawer');
+for (const scheme of ['dark', 'light']) {
+  const p = await open(scheme, columns.href);
+  await p.screenshot({ path: new URL(`board-${scheme}.png`, dir).pathname });
   await p.close();
 }
 
 // The poster for fig. 1: the same app with the review card open in split view.
+// The frame's app area is 16:9 (16:10 window minus the chrome and URL bar), so
+// capturing that shape keeps the message box from being cropped at the bottom.
 for (const scheme of ['dark', 'light']) {
-  const p = await open(scheme, split);
+  const p = await open(scheme, split, { width: 1440, height: 810 });
   await p.screenshot({ path: new URL(`../preview-${scheme}.png`, dir).pathname });
   await p.close();
 }
 
-// Model configuration: a UI card's drawer, with the model picker open.
+// The agent surfaces close up, for fig. 4: Claude Code's TUI and UI. The list
+// already has its own figures, so these are the drawer alone; at the page's
+// width the terminal and chat stay readable instead of shrinking to half size.
 for (const scheme of ['dark', 'light']) {
-  const p = await open(scheme);
-  await p.getByRole('region', { name: 'Board' }).getByText('Review the auth flow', { exact: true }).click();
-  await p.waitForTimeout(1800);
-  // Widen the drawer so the chat and the model menu are readable in a still.
-  await p.evaluate(() => document.documentElement.style.setProperty('--drawer-width', '0.62'));
-  await p.waitForTimeout(600);
-  await p.locator('.chat-model-chip').click();
-  await p.waitForTimeout(700);
-  await p.screenshot({ path: new URL(`models-${scheme}.png`, dir).pathname });
-  await p.close();
+  for (const [name, tab] of [['tui-panel', 'demo-3'], ['ui-panel', 'demo-9']]) {
+    const p = await open(scheme, `${base}&tab=${tab}&drawer=1`);
+    // The drawer bar carries the card name and status; the side-tab strip is
+    // app chrome that would crowd the close-up.
+    await p.addStyleTag({ content: '#session-bar { display: none !important; }' });
+    await p.waitForTimeout(300);
+    await p.locator('#frame').screenshot({ path: new URL(`${name}-${scheme}.png`, dir).pathname });
+    await p.close();
+  }
 }
 
 // Agent providers: the list, then one provider's settings. Both cropped to

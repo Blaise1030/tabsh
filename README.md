@@ -1,9 +1,14 @@
 # tabsh
 
-Your shells and agents, in a browser tab. A small Rust daemon runs your shells
-on your machine, and a board keeps every card in one place. Open it from any
-browser tab at https://tabsh.cc; shells and agents survive reloads, restarts
-and closed laptops.
+A calmer way to work with agents, in a browser tab.
+
+tabsh runs your shells and agents in the browser tab next to your work, and the list view puts
+every card, across every project, in one calm scroll: what's moving, what needs you, and what's
+done.
+
+A small Rust daemon runs your shells on your machine, and a board keeps every card in one place.
+Open it from any browser tab at https://tabsh.cc; shells and agents survive reloads, restarts and
+closed laptops.
 
 ```sh
 curl -fsSL https://tabsh.cc/install.sh | sh

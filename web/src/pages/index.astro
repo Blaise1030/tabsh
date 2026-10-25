@@ -33,15 +33,14 @@ const table = drawTable(features, widths);
 ---
 
 <Site
-  title="tabsh: every project, one list"
-  description="A tiny Rust daemon runs your shells and agents locally. The list view keeps every card, across every project, in one browser tab."
+  title="tabsh: a calmer way to work with agents"
+  description="A calmer way to work with agents, in a browser tab. tabsh runs your shells and agents in a small daemon and keeps every card in one list."
 >
-      <h1><span class="mark">#</span> YOUR WHOLE BOARD, ONE LIST</h1>
+      <h1><span class="mark">#</span> YOUR SHELLS AND AGENTS, ONE CALM SCROLL</h1>
 
       <p>
         tabsh runs your shells and agents in the browser tab next to your work.
-        The list view puts every card, across every project, in one calm scroll:
-        what's moving, what needs you, and what's done.
+        The list catches you up: what's moving, what needs you, and what's done.
       </p>
 
       <pre class="cmd"><span class="mark">$</span> {INSTALL_COMMAND}  <button type="button" class="copy" data-copy={INSTALL_COMMAND} aria-label="Copy install command">[copy]</button>
@@ -94,7 +93,7 @@ const table = drawTable(features, widths);
             <div class="app">
               <button type="button" class="poster" data-run>
                 <!-- One still, chosen here so the other file is never requested. -->
-                <img alt="" decoding="async" data-light="/preview-light.png?v=6" data-dark="/preview-dark.png?v=6" />
+                <img alt="" decoding="async" data-light="/preview-light.png?v=7" data-dark="/preview-dark.png?v=7" />
                 <script is:inline>
                   const still = document.currentScript.previousElementSibling;
                   const scheme = matchMedia('(prefers-color-scheme: light)');
@@ -110,25 +109,65 @@ const table = drawTable(features, widths);
         </div>
       </figure>
 
+      <h2 id="browser"><span class="mark">##</span> WHY A BROWSER TAB?</h2>
+      <ul class="steps">
+        <li>
+          <b>Your work already happens in the browser.</b> The issue, the pull
+          request, the docs, the design, your team's chat, the AI you ask for
+          help and the app you're building on localhost are all tabs. The
+          terminal is the last tool still in a window of its own.
+        </li>
+        <li>
+          <b>Your apps already work great in a tab.</b> Other tools pull them
+          into their own window instead: a built-in browser, a pull request
+          panel, a chat pane. Each copy is a little worse than the real thing,
+          without your extensions or your logins, so you end up keeping both.
+          tabsh leaves GitHub as GitHub and Slack as Slack, and makes the shell
+          one more tab.
+        </li>
+        <li>
+          <b>Attention is scarce, and app switching kills it.</b> Every ⌘-Tab
+          out to a terminal window costs you your train of thought. In tabsh the
+          terminal sits in the tab next to the thing it builds.
+        </li>
+      </ul>
+
       <h2 id="list"><span class="mark">##</span> ONE LIST, EVERY PROJECT</h2>
       <p>
         Columns move one card. The list catches you up: every card, every
-        project, one scroll, grouped by status and tagged with its folder.
+        project, one scroll, grouped by status and tagged with its folder. Open
+        a card and its shell is right there.
       </p>
-      <figure class="shot still-fig">
-        <picture>
-          <source srcset="/shots/list-dark.png" media="(prefers-color-scheme: dark)" />
-          <img
-            src="/shots/list-light.png"
-            alt="The tabsh board in list view: Backlog, In progress, Needs input, Completed and Archived groups, with cards from the shop and api projects in one scroll."
-            width="2880"
-            height="1800"
-            loading="lazy"
-            decoding="async"
-          />
-        </picture>
-        <figcaption class="caption"><span class="mark">fig. 2</span> the list view: shop and api in one scroll, grouped by status.</figcaption>
-      </figure>
+      <div class="demo-pair">
+        <figure class="still-fig">
+          <picture>
+            <source srcset="/shots/list-terminal-dark.png" media="(prefers-color-scheme: dark)" />
+            <img
+              src="/shots/list-terminal-light.png"
+              alt="The tabsh list beside a live terminal: cards from the shop and api projects grouped by status on the left, the shop: npm run dev shell on the right."
+              width="2880"
+              height="1800"
+              loading="lazy"
+              decoding="async"
+            />
+          </picture>
+          <figcaption class="caption"><span class="mark">fig. 2</span> the list, with a shell beside it.</figcaption>
+        </figure>
+        <figure class="still-fig">
+          <picture>
+            <source srcset="/shots/board-dark.png" media="(prefers-color-scheme: dark)" />
+            <img
+              src="/shots/board-light.png"
+              alt="The tabsh board as columns: Backlog, In progress, Needs input, Completed and Archived, with cards from the shop and api projects."
+              width="2880"
+              height="1800"
+              loading="lazy"
+              decoding="async"
+            />
+          </picture>
+          <figcaption class="caption"><span class="mark">fig. 3</span> the same cards as a board, when you want to drag one across.</figcaption>
+        </figure>
+      </div>
       <ol class="steps">
         <li>
           <b>Every project, one place.</b> A shop card and an api card, one
@@ -144,43 +183,42 @@ const table = drawTable(features, widths);
         </li>
       </ol>
 
-      <h2 id="browser"><span class="mark">##</span> WHY A BROWSER TAB?</h2>
-      <ol class="steps">
-        <li>
-          <b>It lives where you already are.</b> The issue, the pull request,
-          the docs and the app on localhost are already tabs. tabsh makes your
-          shells and agents one more tab, not another window.
-        </li>
-        <li>
-          <b>Nothing to install on your desktop.</b> A small local daemon serves
-          a plain page. No second editor, no Electron app, no new place to sign
-          in.
-        </li>
-        <li>
-          <b>Quiet by default.</b> A tab badge and one chime when a card needs
-          you or is done; both can be turned off. No feed, no unread count.
-        </li>
-      </ol>
-
       <h2 id="agents"><span class="mark">##</span> YOUR AGENTS, YOUR CALL</h2>
       <p>
         Pick the agent per card: Claude Code, Codex, Cursor CLI, OpenCode, or
         any CLI that takes a prompt. Run it as a terminal (TUI) or a chat (UI);
         switch per card. Models change in the chat.
       </p>
-      <figure class="shot still-fig">
-        <picture>
-          <source srcset="/shots/models-dark.png" media="(prefers-color-scheme: dark)" />
-          <img
-            src="/shots/models-light.png"
-            alt="The tabsh board in list view with a UI card's chat open beside it: a long review conversation, and a model picker listing several models including DeepSeek V4.1 Flash, Claude Sonnet 4.5 and GPT-5 Codex."
-            width="2880"
-            height="1800"
-            loading="lazy"
-            decoding="async"
-          />
-        </picture>
-        <figcaption class="caption"><span class="mark">fig. 3</span> one card's chat: pick a model, keep the list in view.</figcaption>
+      <figure class="agent-pair">
+        <div class="agent-panel">
+          <p class="agent-label"><b>TUI</b> Claude Code in a real terminal</p>
+          <picture>
+            <source srcset="/shots/tui-panel-dark.png" media="(prefers-color-scheme: dark)" />
+            <img
+              src="/shots/tui-panel-light.png"
+              alt="Claude Code running as a terminal in a tabsh card: its refund transcript, tool lines, test result, and a prompt asking whether to commit."
+              width="1440"
+              height="1800"
+              loading="lazy"
+              decoding="async"
+            />
+          </picture>
+        </div>
+        <div class="agent-panel">
+          <p class="agent-label"><b>UI</b> Claude Code as a chat</p>
+          <picture>
+            <source srcset="/shots/ui-panel-dark.png" media="(prefers-color-scheme: dark)" />
+            <img
+              src="/shots/ui-panel-light.png"
+              alt="Claude Code running as a chat in a tabsh card: the refund conversation, the message composer, and the Claude Sonnet 4.5 model picker."
+              width="1440"
+              height="1800"
+              loading="lazy"
+              decoding="async"
+            />
+          </picture>
+        </div>
+        <figcaption class="caption"><span class="mark">fig. 4</span> one agent, two surfaces: a real terminal (TUI, left) or a chat (UI, right).</figcaption>
       </figure>
       <p>
         Providers are commands. Pick one to set its startup, resume and ACP
@@ -200,7 +238,6 @@ const table = drawTable(features, widths);
             decoding="async"
           />
         </picture>
-        <div class="flow-arrow" aria-hidden="true">↓</div>
         <picture>
           <source srcset="/shots/providers-detail-dark.png" media="(prefers-color-scheme: dark)" />
           <img
@@ -212,7 +249,7 @@ const table = drawTable(features, widths);
             decoding="async"
           />
         </picture>
-        <figcaption class="caption"><span class="mark">fig. 4</span> pick a provider, then set its startup, resume and ACP commands.</figcaption>
+        <figcaption class="caption"><span class="mark">fig. 5</span> pick a provider, then set its startup, resume and ACP commands.</figcaption>
       </figure>
       <p>
         There is no worktree choreography. Agents run in the folder you started
@@ -240,64 +277,12 @@ const table = drawTable(features, widths);
             decoding="async"
           />
         </picture>
-        <figcaption class="caption"><span class="mark">fig. 5</span> optional: serve the same board to a phone over Tailscale.</figcaption>
+        <figcaption class="caption"><span class="mark">fig. 6</span> optional: serve the same board to a phone over Tailscale.</figcaption>
       </figure>
-
-      <h2 id="differs"><span class="mark">##</span> HOW IT DIFFERS</h2>
-      <p>
-        Most agent tools ask you to move into a new app. tabsh adds a view to
-        the one you already have.
-      </p>
-      <div class="compare-wrap">
-        <table class="compare">
-          <thead>
-            <tr><th></th><th>tabsh</th><th>Agent IDEs</th><th>Agent control planes</th></tr>
-          </thead>
-          <tbody>
-            <tr><th scope="row">Where it lives</th><td>A browser tab you already have</td><td>A new editor window</td><td>A new desktop or web app</td></tr>
-            <tr><th scope="row">What you watch</th><td>One board, one list</td><td>The editor, plus notifications</td><td>A kanban or a queue</td></tr>
-            <tr><th scope="row">Signal</th><td>A tab badge and one chime</td><td>OS notifications, often more</td><td>An inbox, mentions, badges</td></tr>
-            <tr><th scope="row">Agents</th><td>Claude Code, Codex, Cursor CLI, OpenCode, any command</td><td>Usually the editor's own agent</td><td>A fixed set, or bring your own</td></tr>
-            <tr><th scope="row">TUI or UI</th><td>Per card</td><td>Chat-first</td><td>Varies</td></tr>
-            <tr><th scope="row">Isolation</th><td>None: your checkout</td><td>Worktrees or copies</td><td>Worktrees or containers</td></tr>
-            <tr><th scope="row">Setup</th><td>One daemon, one browser tab</td><td>Install the editor</td><td>Sign in, connect a repo</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <p class="muted">
-        <span class="mark">&gt;</span> Agent IDEs: Zed, Cursor. Agent control planes: T3 Code, Conductor,
-        Vibe Kanban. Zed can quiet its notifications, and T3 Code has a good mobile app; the
-        difference is that tabsh doesn't ask you to add another surface to your day.
-      </p>
 
       <h2 id="features"><span class="mark">##</span> FEATURES</h2>
       <pre class="table" data-rows={JSON.stringify(features)}>{table}</pre>
       <p class="muted"><span class="mark">&gt;</span> Keys are the Mac defaults. Change any of them from ⌘K.</p>
-
-      <h2 id="how"><span class="mark">##</span> HOW IT CONNECTS</h2>
-      <p>
-        The app you open here is a plain page. It talks to the daemon on your own
-        machine at <code>{DAEMON_URL}</code>. There is no server of ours in between.
-      </p>
-      <pre class="diagram">[ browser tab ]     this site, /app/
-       │
-       │  HTTP + WebSocket, 127.0.0.1 only
-       ▼
-[ tabsh daemon ]    your machine
-       │
-       │  PTY
-       ▼
-[ your shells ]     zsh, bash, fish…</pre>
-      <ol class="steps">
-        <li><b>Run the daemon.</b> It listens on loopback only and creates a secret token in <code>~/.tabsh/token</code>.</li>
-        <li><b>Open the link it prints.</b> The token rides in the URL fragment, which browsers never send to a web server.</li>
-        <li><b>That's it.</b> The daemon only accepts requests from this site that carry the token. Other sites get nothing.</li>
-      </ol>
-      <p class="muted">
-        <span class="mark">&gt;</span> Chrome may ask to let this site access apps on your device. That's the
-        connection to the daemon; allow it once. Lost the link? Open <code>{DAEMON_URL}</code> in
-        this browser and the daemon sends you here, paired.
-      </p>
 
       <h2 id="faq"><span class="mark">##</span> FAQ</h2>
       <div class="faq">
@@ -344,22 +329,6 @@ const table = drawTable(features, widths);
           </p>
         </details>
         <details>
-          <summary>Which agents does the board work with?</summary>
-          <p>
-            Claude Code, Codex, Cursor CLI and OpenCode out of the box, resumed after restarts. Any
-            other command works for a new card, and any agent with hooks can keep its card current.
-            Each card can run in a real terminal or a chat panel. <a href="/docs/">How to connect one</a>.
-          </p>
-        </details>
-        <details>
-          <summary>Do you use worktrees?</summary>
-          <p>
-            No. Agents run in the folder you started them in, on your branch. That keeps setup
-            simple and means they share the checkout; run one agent per folder if they would edit
-            the same files.
-          </p>
-        </details>
-        <details>
           <summary>Which systems does it run on?</summary>
           <p>macOS and Linux. There's no Windows build.</p>
         </details>
@@ -380,9 +349,14 @@ const table = drawTable(features, widths);
         </details>
       </div>
 
-      <h2 id="install"><span class="mark">##</span> GET IT</h2>
-      <pre class="cmd"><span class="mark">$</span> {INSTALL_COMMAND}  <button type="button" class="copy" data-copy={INSTALL_COMMAND} aria-label="Copy install command">[copy]</button>
-<span class="mark">$</span> tabsh</pre>
+      <footer>
+        <p>
+          <span class="mark">&gt;</span> Get it: <a href="/docs/">install tabsh</a>.
+        </p>
+        <p>
+          Built with care by <a href="https://blaisetiong.dev">Blaise</a>.
+        </p>
+      </footer>
 
       <p class="sig end">~*~ EOF ~*~</p>
 
@@ -511,7 +485,9 @@ const table = drawTable(features, widths);
 </style>
 
 <style>
-  .table, .diagram { white-space: pre; }
+  .table { white-space: pre; }
+
+  footer { margin-top: 3rem; }
 
   /* FAQ: each question a [+] line that opens to [-]. */
   .faq { margin-bottom: 1rem; }
@@ -523,9 +499,6 @@ const table = drawTable(features, widths);
   .faq summary:hover { color: var(--link); }
   .faq details p { margin: .25rem 0 .75rem 4ch; color: var(--muted); }
   .faq details p code { color: var(--fg); }
-  /* Centred and never scrolled; slightly smaller on phones so the longest line fits. */
-  .diagram { line-height: 1.2; width: fit-content; margin-inline: auto; overflow: visible; }
-  @media (max-width: 420px) { .diagram { font-size: min(.875em, calc((100vw - 2rem) / 26)); } }
   /* fig. 1 breaks out of the text column: up to 72rem, centred on the page,
      never wider than the viewport minus the usual 1rem gutters. */
   .shot {
@@ -572,8 +545,39 @@ const table = drawTable(features, widths);
   }
   .still-fig .caption { margin: .5rem 0 0; }
 
-  /* The comparison table uses the shared markdown table style; it scrolls on narrow screens. */
-  .compare-wrap { overflow-x: auto; margin: 1.5rem 0; }
-  .compare { min-width: 40rem; font-size: .85em; line-height: 1.45; }
-  .compare tbody th { font-weight: 400; white-space: nowrap; }
+  /* Figs. 2-3: the list and the board, side by side. */
+  .demo-pair {
+    --shot-w: min(72rem, 100vw - 2rem);
+    width: var(--shot-w); margin: 1.5rem 0 1.5rem calc((100% - var(--shot-w)) / 2);
+    display: grid; grid-template-columns: 1fr 1fr; column-gap: .75rem;
+  }
+  .demo-pair .still-fig { margin: 0; }
+  @media (max-width: 720px) { .demo-pair { grid-template-columns: 1fr; row-gap: 1.5rem; } }
+
+  /* Fig. 4: the two agent surfaces, close up, side by side. */
+  .agent-pair {
+    --shot-w: min(72rem, 100vw - 2rem);
+    width: var(--shot-w); margin: 1.5rem 0 1.5rem calc((100% - var(--shot-w)) / 2);
+    display: grid; grid-template-columns: 1fr 1fr; column-gap: .75rem;
+  }
+  .agent-pair .agent-label { margin: 0 0 .375rem; color: var(--muted); font-size: .85em; letter-spacing: .04em; }
+  .agent-pair .agent-label b { color: var(--fg); }
+  .agent-pair picture { display: block; }
+  .agent-pair img {
+    display: block; width: 100%; height: auto;
+    border: 1px solid color-mix(in srgb, var(--fg) 14%, var(--bg));
+    border-radius: 10px;
+  }
+  .agent-pair .caption { grid-column: 1 / -1; margin: .75rem 0 0; }
+  @media (max-width: 720px) { .agent-pair { grid-template-columns: 1fr; row-gap: 1.5rem; } }
+
+  /* Fig. 5: the provider list and one provider's settings, side by side.
+     Breaks out of the text column (like fig. 1) so both dialogs stay readable. */
+  .provider-flow {
+    --shot-w: min(72rem, 100vw - 2rem);
+    width: var(--shot-w); margin-left: calc((100% - var(--shot-w)) / 2);
+    display: grid; grid-template-columns: 1fr 1fr; column-gap: .75rem;
+  }
+  .provider-flow .caption { grid-column: 1 / -1; }
+  @media (max-width: 720px) { .provider-flow { grid-template-columns: 1fr; row-gap: 1.5rem; } }
 </style>

@@ -3,9 +3,9 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { OG_IMAGE, pageSeo } from './seo.ts';
 
-const title = 'tabsh: every project, one list';
+const title = 'tabsh: a calmer way to work with agents';
 const description =
-  'A tiny Rust daemon runs your shells and agents locally. The list view keeps every card, across every project, in one browser tab.';
+  'A calmer way to work with agents, in a browser tab. tabsh runs your shells and agents in a small daemon and keeps every card in one list.';
 
 test('the landing page canonical and social image are absolute', () => {
   const seo = pageSeo({ title, description, pathname: '/' });

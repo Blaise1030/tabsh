@@ -2,7 +2,7 @@
 // loading="lazy": WebKit gives a lazily loaded frame no Navigation API entry,
 // so every navigation in it aborts and the framed app never shows a tab.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 const landing = readFileSync(new URL('../pages/index.astro', import.meta.url), 'utf8');
@@ -31,4 +31,41 @@ test('fig 1 loads when its poster is clicked', () => {
   assert.match(fig1, /<iframe\b[^>]*data-src="\/demo\/\?view=board&layout=list/);
   assert.match(fig1, /<iframe\b[^>]*\bdata-click\b/);
   assert.match(landing, /querySelectorAll\('\[data-run\]'\)/);
+});
+
+test('the first screen carries the value prop without repeating it', () => {
+  const layout = readFileSync(new URL('../layouts/Site.astro', import.meta.url), 'utf8');
+  const tagline = /A CALMER WAY TO WORK WITH AGENTS, IN A BROWSER TAB/;
+
+  assert.match(layout, tagline);
+  assert.match(landing, /title="tabsh: a calmer way to work with agents"/);
+  assert.match(landing, /A calmer way to work with agents, in a browser tab\./);
+
+  const h1 = landing.match(/<h1[^>]*>([\s\S]*?)<\/h1>/)?.[1] ?? '';
+  assert.doesNotMatch(h1, tagline);
+  assert.match(h1, /ONE CALM SCROLL/);
+});
+
+test('the install command is offered once', () => {
+  assert.equal(landing.split('data-copy={INSTALL_COMMAND}').length - 1, 1);
+});
+
+test('fig 4 compares the TUI and UI close-ups side by side', () => {
+  const fig4 = landing.match(/<figure[^>]*class="[^"]*agent-pair[^"]*"[\s\S]*?<\/figure>/)?.[0] ?? '';
+
+  assert.match(fig4, /tui-panel-light\.png/);
+  assert.match(fig4, /tui-panel-dark\.png/);
+  assert.match(fig4, /ui-panel-light\.png/);
+  assert.match(fig4, /ui-panel-dark\.png/);
+  assert.match(fig4, /<b>TUI<\/b>/);
+  assert.match(fig4, /<b>UI<\/b>/);
+  assert.match(fig4, /fig\. 4/);
+
+  for (const name of ['tui-panel-light', 'tui-panel-dark', 'ui-panel-light', 'ui-panel-dark']) {
+    const path = new URL(`../../public/shots/${name}.png`, import.meta.url);
+    assert.ok(existsSync(path), `${name}.png exists`);
+    const png = readFileSync(path);
+    assert.equal(png.readUInt32BE(16), 1440, `${name}.png is 1440 wide`);
+    assert.equal(png.readUInt32BE(20), 1800, `${name}.png is 1800 high`);
+  }
 });

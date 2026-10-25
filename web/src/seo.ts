@@ -5,7 +5,7 @@ export const OG_IMAGE = {
   path: '/og.png',
   width: 1200,
   height: 630,
-  alt: 'tabsh board beside a terminal',
+  alt: 'A calmer way to work with agents in a browser tab',
 } as const;
 
 // Cloudflare serves these pages with a trailing slash (`html_handling: auto-trailing-slash`).
@@ -45,7 +45,7 @@ export function pageSeo(input: { title: string; description: string; pathname: s
       '@type': 'SoftwareApplication',
       name: 'tabsh',
       applicationCategory: 'DeveloperApplication',
-      operatingSystem: 'macOS',
+      operatingSystem: 'macOS and Linux',
       url: canonical,
       image,
       description: input.description,
