@@ -29,7 +29,7 @@ use tokio::sync::{broadcast, watch};
 
 use super::{
     acp::{AcpClient, AcpEvent},
-    models::ModelConfig,
+    models::{ConfigOptions, ModeConfig, ModelConfig},
     normalize::{UiChunk, to_chunks},
     transcript,
 };
@@ -75,8 +75,8 @@ struct LiveChat {
     acp_session_id: String,
     tx: broadcast::Sender<UiChunk>,
     history: Mutex<Vec<UiChunk>>,
-    /// Model select from ACP `configOptions`, if the agent advertises one.
-    models: Mutex<Option<ModelConfig>>,
+    /// Select options from ACP `configOptions` (model, mode, …).
+    config: Mutex<ConfigOptions>,
     data_dir: PathBuf,
     card_id: String,
     board: Option<BoardPipe>,
@@ -133,6 +133,9 @@ struct Inner {
     /// The latest start failure for a card that never became live, so an
     /// SSE subscriber can show it. Cleared once a chat does start.
     failures: Mutex<HashMap<String, String>>,
+    /// Per-card "approve permission requests automatically". Survives
+    /// before the agent is live; dropped with the live chat on exit.
+    approvals: Mutex<HashMap<String, bool>>,
     /// Set once the daemon (or a test) has a database. Chats started
     /// before that do not move board cards.
     board: Mutex<Option<BoardPipe>>,
@@ -176,6 +179,7 @@ impl ChatManager {
                 surfaces: Mutex::new(Surfaces::default()),
                 data_dir,
                 failures: Mutex::new(HashMap::new()),
+                approvals: Mutex::new(HashMap::new()),
                 board: Mutex::new(None),
                 self_url: Mutex::new(String::new()),
             }),
@@ -459,7 +463,7 @@ impl ChatManager {
             acp_session_id: created.session_id,
             tx: broadcast::channel(256).0,
             history: Mutex::new(transcript::load(&self.inner.data_dir, session_id)),
-            models: Mutex::new(created.models),
+            config: Mutex::new(created.config),
             data_dir: self.inner.data_dir.clone(),
             card_id: session_id.to_string(),
             board,
@@ -467,6 +471,8 @@ impl ChatManager {
             launch_sent: AtomicBool::new(false),
             exited: AtomicBool::new(false),
         });
+        // A toggle set before the handshake finished applies to this process.
+        live.client.set_auto_approve(self.approvals(session_id));
         // Stop may have landed while this was `Starting`. Settle the
         // launch prompt before the chat is live and before waiters wake:
         // a parked message must not clear the latch first.
@@ -745,10 +751,45 @@ impl ChatManager {
     /// Models the live session advertises. `None` when not live or empty.
     pub(crate) fn models(&self, session_id: &str) -> Option<ModelConfig> {
         let live = self.live(session_id)?;
-        live.models
+        live.config
             .lock()
             .unwrap_or_else(|e| e.into_inner())
+            .model
             .clone()
+    }
+
+    /// Session modes the live session advertises. `None` when not live or empty.
+    pub(crate) fn modes(&self, session_id: &str) -> Option<ModeConfig> {
+        let live = self.live(session_id)?;
+        live.config
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .mode
+            .clone()
+    }
+
+    /// Whether this card's live agent auto-approves permission requests.
+    pub(crate) fn approvals(&self, session_id: &str) -> bool {
+        self.inner
+            .approvals
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(session_id)
+            .copied()
+            .unwrap_or(false)
+    }
+
+    /// Sets auto-approval for this card. Works before the agent starts and
+    /// updates a live process at once.
+    pub(crate) fn set_approvals(&self, session_id: &str, auto: bool) {
+        self.inner
+            .approvals
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(session_id.to_string(), auto);
+        if let Some(live) = self.live(session_id) {
+            live.client.set_auto_approve(auto);
+        }
     }
 
     /// Selects a model on the live ACP session. Refused while a turn is open.
@@ -757,41 +798,63 @@ impl ChatManager {
         session_id: &str,
         model_id: &str,
     ) -> ChatResult<ModelConfig> {
+        self.set_select(session_id, |c| c.model.as_ref(), "model", model_id)
+            .await
+    }
+
+    /// Selects a session mode (how the agent asks permission) on the live
+    /// ACP session. Refused while a turn is open.
+    pub(crate) async fn set_mode(&self, session_id: &str, mode_id: &str) -> ChatResult<ModeConfig> {
+        self.set_select(session_id, |c| c.mode.as_ref(), "mode", mode_id)
+            .await
+    }
+
+    async fn set_select(
+        &self,
+        session_id: &str,
+        pick: fn(&ConfigOptions) -> Option<&super::models::SelectConfig>,
+        kind: &str,
+        value: &str,
+    ) -> ChatResult<super::models::SelectConfig> {
         let live = self.live(session_id).ok_or(ChatError::NotLive)?;
         {
             let history = live.history.lock().unwrap_or_else(|e| e.into_inner());
             if transcript_turn_open(&history) {
-                return Err(ChatError::Invalid(
-                    "Wait for the current turn to finish before changing the model.".into(),
-                ));
+                return Err(ChatError::Invalid(format!(
+                    "Wait for the current turn to finish before changing the {kind}."
+                )));
             }
         }
         let config_id = {
-            let models = live.models.lock().unwrap_or_else(|e| e.into_inner());
-            let Some(cfg) = models.as_ref() else {
-                return Err(ChatError::Invalid(
-                    "This agent does not expose a model list.".into(),
-                ));
+            let config = live.config.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(cfg) = pick(&config) else {
+                return Err(ChatError::Invalid(format!(
+                    "This agent does not expose a {kind} list."
+                )));
             };
-            if !cfg.options.iter().any(|o| o.id == model_id) {
-                return Err(ChatError::Invalid(format!("Unknown model: {model_id}")));
+            if !cfg.options.iter().any(|o| o.id == value) {
+                return Err(ChatError::Invalid(format!("Unknown {kind}: {value}")));
             }
             cfg.config_id.clone()
         };
         let refreshed = live
             .client
-            .set_config_option(&live.acp_session_id, &config_id, model_id)
+            .set_config_option(&live.acp_session_id, &config_id, value)
             .await
             .map_err(|e| ChatError::Failed(e.to_string()))?;
-        let mut models = live.models.lock().unwrap_or_else(|e| e.into_inner());
+        let mut config = live.config.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(next) = refreshed {
-            *models = Some(next);
-        } else if let Some(cfg) = models.as_mut() {
-            cfg.current = model_id.to_string();
+            *config = next;
+        } else if let Some(cfg) = if kind == "model" {
+            config.model.as_mut()
+        } else {
+            config.mode.as_mut()
+        } {
+            cfg.current = value.to_string();
         }
-        models
-            .clone()
-            .ok_or_else(|| ChatError::Invalid("This agent does not expose a model list.".into()))
+        pick(&config)
+            .cloned()
+            .ok_or_else(|| ChatError::Invalid(format!("This agent does not expose a {kind} list.")))
     }
 
     /// Drops the live chat, if any; the agent process dies with its last
@@ -807,6 +870,13 @@ impl ChatManager {
         if matches!(surfaces.chats.get(session_id), Some(Entry::Live(_))) {
             surfaces.chats.remove(session_id);
         }
+        drop(surfaces);
+        // A fresh agent process starts at Ask, not with the last card's choice.
+        self.inner
+            .approvals
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(session_id);
     }
 
     /// The assembled transcript: the live history when a chat is running,

@@ -652,6 +652,7 @@ const demoModels = {
     { id: 'claude-haiku', name: 'Claude Haiku 4.5' },
   ],
 };
+const demoApprovals = new Map<string, boolean>();
 
 async function answer(method: string, url: URL, body: unknown): Promise<Response> {
   const path = url.pathname;
@@ -736,6 +737,14 @@ async function answer(method: string, url: URL, body: unknown): Promise<Response
       if (method === 'GET' && sub === 'stream') return chatEvents(sh.info.id);
       if (method === 'GET' && sub === 'models') return json(demoModels);
       if (method === 'POST' && sub === 'start') return empty(204);
+      if (sub === 'approvals') {
+        if (method === 'GET') return json({ auto: demoApprovals.get(sh.info.id) ?? false });
+        if (method === 'POST') {
+          const auto = Boolean((b as { auto?: boolean }).auto);
+          demoApprovals.set(sh.info.id, auto);
+          return json({ auto });
+        }
+      }
       if (method === 'POST' && sub === 'model') {
         const id = (b as { id?: string }).id;
         if (typeof id === 'string') demoModels.current = id;

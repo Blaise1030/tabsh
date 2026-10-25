@@ -12,7 +12,7 @@ use std::{
     path::Path,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 
@@ -40,11 +40,11 @@ pub(crate) struct InitializeResult {
     pub(crate) auth_methods: Vec<Value>,
 }
 
-/// `session/new` result: id plus optional model list from `configOptions`.
+/// `session/new` result: id plus the select options from `configOptions`.
 #[derive(Debug, Clone)]
 pub(crate) struct SessionNew {
     pub(crate) session_id: String,
-    pub(crate) models: Option<super::models::ModelConfig>,
+    pub(crate) config: super::models::ConfigOptions,
 }
 
 /// An agent→client occurrence, buffered while a prompt turn runs.
@@ -121,6 +121,9 @@ pub(crate) struct AcpClient {
     stdin: Arc<AsyncMutex<ChildStdin>>,
     rpc: Arc<Mutex<RpcWait>>,
     permissions: Arc<Mutex<HashMap<String, OpenPermission>>>,
+    /// Answer permission requests as allow without showing them. Per live
+    /// agent process, so a restart goes back to Ask.
+    auto_approve: Arc<AtomicBool>,
     events: mpsc::UnboundedSender<AcpEvent>,
     event_rx: Mutex<Option<mpsc::UnboundedReceiver<AcpEvent>>>,
     reader: tokio::task::JoinHandle<()>,
@@ -248,11 +251,13 @@ impl AcpClient {
         }));
         let permissions: Arc<Mutex<HashMap<String, OpenPermission>>> =
             Arc::new(Mutex::new(HashMap::new()));
+        let auto_approve = Arc::new(AtomicBool::new(false));
         let (events, event_rx) = mpsc::unbounded_channel();
         let reader = {
             let stdin = stdin.clone();
             let rpc = rpc.clone();
             let permissions = permissions.clone();
+            let auto_approve = auto_approve.clone();
             let events = events.clone();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stdout).lines();
@@ -285,6 +290,18 @@ impl AcpClient {
                                 Value::String(s) => s.clone(),
                                 other => other.to_string(),
                             };
+                            // Allow-all answers here, before the UI ever sees
+                            // the prompt. The turn continues as if approved.
+                            if auto_approve.load(Ordering::SeqCst) {
+                                let outcome = permission_outcome(true, &options);
+                                let _ = write_line(
+                                    &stdin,
+                                    &json!({"jsonrpc": "2.0", "id": id,
+                                            "result": {"outcome": outcome}}),
+                                )
+                                .await;
+                                continue;
+                            }
                             permissions
                                 .lock()
                                 .unwrap_or_else(|e| e.into_inner())
@@ -356,6 +373,7 @@ impl AcpClient {
             stdin,
             rpc,
             permissions,
+            auto_approve,
             events,
             event_rx: Mutex::new(Some(event_rx)),
             reader,
@@ -417,20 +435,21 @@ impl AcpClient {
             .and_then(Value::as_str)
             .map(str::to_string)
             .ok_or_else(|| "ACP session/new gave no sessionId".to_string())?;
-        let models = result
+        let config = result
             .get("configOptions")
-            .and_then(super::models::parse_model_config);
-        Ok(SessionNew { session_id, models })
+            .map(super::models::parse_config_options)
+            .unwrap_or_default();
+        Ok(SessionNew { session_id, config })
     }
 
     /// Changes a session config option (model, mode, …). Returns the
-    /// refreshed model list when the agent echoes `configOptions`.
+    /// refreshed configuration when the agent echoes `configOptions`.
     pub(crate) async fn set_config_option(
         &self,
         session_id: &str,
         config_id: &str,
         value: &str,
-    ) -> Result<Option<super::models::ModelConfig>> {
+    ) -> Result<Option<super::models::ConfigOptions>> {
         let result = self
             .request(
                 "session/set_config_option",
@@ -443,7 +462,7 @@ impl AcpClient {
             .await?;
         Ok(result
             .get("configOptions")
-            .and_then(super::models::parse_model_config))
+            .map(super::models::parse_config_options))
     }
 
     fn emit_prompt_end(&self, session_id: &str, stop_reason: &str) {
@@ -514,6 +533,11 @@ impl AcpClient {
             .to_string();
         self.emit_prompt_end(session_id, &stop_reason);
         Ok(())
+    }
+
+    /// Answer permission requests as allow without showing them, or stop.
+    pub(crate) fn set_auto_approve(&self, auto: bool) {
+        self.auto_approve.store(auto, Ordering::SeqCst);
     }
 
     /// `allow` picks an allow option; otherwise a reject option. With no
@@ -629,6 +653,7 @@ def update(session_id, upd):
           "params": {"sessionId": session_id, "update": upd}})
 
 MODEL = {"current": "fast"}
+MODE = {"current": "ask"}
 
 def model_options():
     return [{
@@ -639,6 +664,21 @@ def model_options():
             {"value": "smart", "name": "Smart"},
         ],
     }]
+
+def mode_options():
+    return [{
+        "id": "mode", "name": "Session Mode", "category": "mode",
+        "currentValue": MODE["current"],
+        "options": [
+            {"value": "ask", "name": "Ask",
+             "description": "Request permission before making changes"},
+            {"value": "code", "name": "Code",
+             "description": "Write and modify code with full tool access"},
+        ],
+    }]
+
+def config_options():
+    return mode_options() + model_options()
 
 while True:
     line = sys.stdin.readline()
@@ -659,12 +699,14 @@ while True:
     elif method == "session/new":
         send({"jsonrpc": "2.0", "id": mid, "result": {
             "sessionId": "fake-session-1",
-            "configOptions": model_options()}})
+            "configOptions": config_options()}})
     elif method == "session/set_config_option":
         if params.get("configId") == "model":
             MODEL["current"] = params.get("value") or MODEL["current"]
+        if params.get("configId") == "mode":
+            MODE["current"] = params.get("value") or MODE["current"]
         send({"jsonrpc": "2.0", "id": mid, "result": {
-            "configOptions": model_options()}})
+            "configOptions": config_options()}})
     elif method == "session/prompt":
         sid = params.get("sessionId", "")
         text = "".join(c.get("text", "") for c in params.get("prompt", [])

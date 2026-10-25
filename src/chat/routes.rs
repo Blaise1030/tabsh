@@ -32,6 +32,12 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/api/sessions/{id}/chat/approve", post(approve))
         .route("/api/sessions/{id}/chat/models", get(models))
         .route("/api/sessions/{id}/chat/model", post(set_model))
+        .route("/api/sessions/{id}/chat/modes", get(modes))
+        .route("/api/sessions/{id}/chat/mode", post(set_mode))
+        .route(
+            "/api/sessions/{id}/chat/approvals",
+            get(approvals).post(set_approvals),
+        )
         .route("/api/sessions/{id}/chat/start", post(start))
 }
 
@@ -191,8 +197,8 @@ struct Message {
     text: String,
 }
 
-/// Bring up the ACP agent with no prompt so the composer can read models.
-/// 204 when already live or starting; 202 after a fresh handshake.
+/// Bring up the ACP agent with no prompt so the composer can read models
+/// and modes. 204 when already live or starting; 202 after a fresh handshake.
 async fn start(State(st): State<AppState>, Path(id): Path<String>) -> Result<StatusCode, Response> {
     let Some(card) = card_row(&st, &id) else {
         return Err(StatusCode::NOT_FOUND.into_response());
@@ -306,7 +312,7 @@ async fn approve(
 }
 
 #[derive(Serialize)]
-struct ModelsBody {
+struct SelectBody {
     current: Option<String>,
     options: Vec<super::models::ModelChoice>,
 }
@@ -316,17 +322,17 @@ struct ModelsBody {
 async fn models(
     State(st): State<AppState>,
     Path(id): Path<String>,
-) -> Result<Json<ModelsBody>, StatusCode> {
+) -> Result<Json<SelectBody>, StatusCode> {
     if card_row(&st, &id).is_none() {
         return Err(StatusCode::NOT_FOUND);
     }
     let Some(cfg) = st.chats.models(&id) else {
-        return Ok(Json(ModelsBody {
+        return Ok(Json(SelectBody {
             current: None,
             options: Vec::new(),
         }));
     };
-    Ok(Json(ModelsBody {
+    Ok(Json(SelectBody {
         current: Some(cfg.current),
         options: cfg.options,
     }))
@@ -343,7 +349,7 @@ async fn set_model(
     State(st): State<AppState>,
     Path(id): Path<String>,
     Json(body): Json<SetModel>,
-) -> Result<Json<ModelsBody>, Response> {
+) -> Result<Json<SelectBody>, Response> {
     if card_row(&st, &id).is_none() {
         return Err(StatusCode::NOT_FOUND.into_response());
     }
@@ -352,10 +358,86 @@ async fn set_model(
         .set_model(&id, &body.id)
         .await
         .map_err(chat_error)?;
-    Ok(Json(ModelsBody {
+    Ok(Json(SelectBody {
         current: Some(cfg.current),
         options: cfg.options,
     }))
+}
+
+/// Session modes the live ACP session advertises. Empty when the chat is
+/// not live or the agent has no mode `configOptions`.
+async fn modes(
+    State(st): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<SelectBody>, StatusCode> {
+    if card_row(&st, &id).is_none() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let Some(cfg) = st.chats.modes(&id) else {
+        return Ok(Json(SelectBody {
+            current: None,
+            options: Vec::new(),
+        }));
+    };
+    Ok(Json(SelectBody {
+        current: Some(cfg.current),
+        options: cfg.options,
+    }))
+}
+
+#[derive(Deserialize)]
+struct SetMode {
+    id: String,
+}
+
+/// Selects a session mode (how the agent asks permission) via ACP
+/// `session/set_config_option`. 409 when a turn is open; 400 when the id
+/// is unknown or the agent has no mode option.
+async fn set_mode(
+    State(st): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<SetMode>,
+) -> Result<Json<SelectBody>, Response> {
+    if card_row(&st, &id).is_none() {
+        return Err(StatusCode::NOT_FOUND.into_response());
+    }
+    let cfg = st.chats.set_mode(&id, &body.id).await.map_err(chat_error)?;
+    Ok(Json(SelectBody {
+        current: Some(cfg.current),
+        options: cfg.options,
+    }))
+}
+
+#[derive(Serialize, Deserialize)]
+struct ApprovalsBody {
+    auto: bool,
+}
+
+/// Whether this card auto-approves the agent's permission requests.
+async fn approvals(
+    State(st): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<ApprovalsBody>, StatusCode> {
+    if card_row(&st, &id).is_none() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    Ok(Json(ApprovalsBody {
+        auto: st.chats.approvals(&id),
+    }))
+}
+
+/// Ask (false) or allow every permission request (true). Works before the
+/// agent starts; a new agent process starts at Ask.
+async fn set_approvals(
+    State(st): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<ApprovalsBody>,
+) -> Result<Json<ApprovalsBody>, StatusCode> {
+    if card_row(&st, &id).is_none() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    st.chats.set_approvals(&id, body.auto);
+    Ok(Json(ApprovalsBody { auto: body.auto }))
 }
 
 #[cfg(test)]
@@ -637,6 +719,141 @@ mod tests {
         .await;
         assert_eq!(code, StatusCode::BAD_REQUEST);
         st.chats.forget(&id);
+    }
+
+    #[tokio::test]
+    async fn chat_modes_list_and_set_via_fake_acp() {
+        let st = test_state();
+        let id = create_ui_card(&st, "hi").await;
+        move_in_progress(&st, &id).await;
+        wait_live(&st, &id).await;
+        wait_for_text(&st, &id, "fake reply: hi").await;
+
+        let (code, body) = req(
+            &st,
+            Method::GET,
+            &format!("/api/sessions/{id}/chat/modes"),
+            serde_json::Value::Null,
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "{body}");
+        assert_eq!(body["current"], "ask");
+        assert_eq!(body["options"].as_array().map(|a| a.len()), Some(2));
+        assert_eq!(
+            body["options"][0]["description"],
+            "Request permission before making changes"
+        );
+
+        let (code, body) = req(
+            &st,
+            Method::POST,
+            &format!("/api/sessions/{id}/chat/mode"),
+            serde_json::json!({"id": "code"}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "{body}");
+        assert_eq!(body["current"], "code");
+
+        // The reply carries the whole configuration state; the model
+        // picker must not lose its list when the mode changes.
+        let (code, body) = req(
+            &st,
+            Method::GET,
+            &format!("/api/sessions/{id}/chat/models"),
+            serde_json::Value::Null,
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "{body}");
+        assert_eq!(body["current"], "fast");
+        st.chats.forget(&id);
+    }
+
+    #[tokio::test]
+    async fn chat_set_mode_rejects_unknown_id() {
+        let st = test_state();
+        let id = create_ui_card(&st, "hi").await;
+        move_in_progress(&st, &id).await;
+        wait_live(&st, &id).await;
+        wait_for_text(&st, &id, "fake reply: hi").await;
+
+        let (code, _) = req(
+            &st,
+            Method::POST,
+            &format!("/api/sessions/{id}/chat/mode"),
+            serde_json::json!({"id": "nope"}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::BAD_REQUEST);
+        st.chats.forget(&id);
+    }
+
+    #[tokio::test]
+    async fn chat_approvals_auto_allow_permission_requests() {
+        let st = test_state();
+        let id = create_ui_card(&st, "").await;
+        move_in_progress(&st, &id).await;
+        wait_live(&st, &id).await;
+
+        let (code, body) = req(
+            &st,
+            Method::GET,
+            &format!("/api/sessions/{id}/chat/approvals"),
+            serde_json::Value::Null,
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "{body}");
+        assert_eq!(body["auto"], false);
+
+        let (code, body) = req(
+            &st,
+            Method::POST,
+            &format!("/api/sessions/{id}/chat/approvals"),
+            serde_json::json!({"auto": true}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "{body}");
+        assert_eq!(body["auto"], true);
+
+        let (code, _) = req(
+            &st,
+            Method::POST,
+            &format!("/api/sessions/{id}/chat/message"),
+            serde_json::json!({"text": "needs permission"}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::ACCEPTED);
+        wait_for_text(&st, &id, "permission outcome: selected:allow").await;
+
+        // The user never saw a prompt to answer.
+        let (_, body) = req(
+            &st,
+            Method::GET,
+            &format!("/api/sessions/{id}/chat"),
+            serde_json::Value::Null,
+        )
+        .await;
+        assert!(
+            body["messages"]
+                .as_array()
+                .is_some_and(|msgs| msgs.iter().all(|m| m["type"] != "permission")),
+            "auto-approved request reached the transcript: {body}"
+        );
+        st.chats.forget(&id);
+    }
+
+    #[tokio::test]
+    async fn chat_approvals_reject_unknown_cards() {
+        let st = test_state();
+        for method in [Method::GET, Method::POST] {
+            let (code, _) = req(
+                &st,
+                method,
+                "/api/sessions/nope/chat/approvals",
+                serde_json::json!({"auto": true}),
+            )
+            .await;
+            assert_eq!(code, StatusCode::NOT_FOUND);
+        }
     }
 
     #[tokio::test]

@@ -498,6 +498,9 @@ file-tree-container {
   /* Fade only the top into the session bar; the sticky dock has its own edge. */
   mask-image: linear-gradient(to bottom, transparent, #000 1.5rem, #000);
 }
+/* A mask clips everything painted inside, fixed popovers too: an open
+   model/mode menu drops the fade rather than lose its search field. */
+.chat-transcript:has(.chat-select-menu [aria-expanded="true"]) { mask-image: none; }
 .chat-scroll {
   box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0;
   display: flex; flex-direction: column;
@@ -789,36 +792,79 @@ file-tree-container {
   border-radius: var(--radius, .5rem);
 }
 .chat-attach-btn svg { width: 14px; height: 14px; }
-/* Model chip reuses New card Tags/Folder chip chrome (nc-chip / nc-pop). */
-.chat-model-menu { display: inline-flex; position: relative; flex: none; }
-.chat-model-chip {
+/* Model/mode chip reuses New card Tags/Folder chip chrome (nc-chip / nc-pop). */
+.chat-select-menu { display: inline-flex; position: relative; flex: none; }
+.chat-select-chip {
   max-width: 16rem; height: 1.875rem; box-sizing: border-box;
+  padding-inline: .5rem; gap: .375rem; font-size: .8125rem;
   color: var(--foreground);
 }
-.chat-model-chip:disabled { opacity: .55; cursor: default; }
-.chat-model-menu > .chat-model-popover[data-popover] {
+.chat-select-chip:disabled { opacity: .55; cursor: default; }
+.chat-select-menu > .chat-select-popover[data-popover] {
   /* Fixed so the sticky composer does not clip it; same look as .nc-pop. */
   position: fixed; top: auto; left: auto; margin: 0; z-index: 40;
-  width: 18rem; max-width: calc(100vw - 2rem);
-  min-width: 14rem; overflow: hidden;
+  box-sizing: border-box; overflow: hidden;
+  width: 20rem; max-width: calc(100vw - 2rem);
+  min-width: 14rem;
 }
-.chat-model-menu .chat-model-popover > .nc-search {
-  flex: none; border-bottom: 1px solid var(--border);
+.chat-select-search {
+  flex: 0 0 auto; display: flex; align-items: center;
+  height: 2rem; box-sizing: border-box;
 }
-.chat-model-options {
+.chat-select-search > svg {
+  flex: none; width: 13px; height: 13px; margin-left: .5rem;
+  color: var(--muted-foreground); pointer-events: none;
+}
+.chat-select-search > .nc-search {
+  flex: 1; min-width: 0; height: 100%; box-sizing: border-box;
+  padding-left: .375rem;
+}
+.chat-select-options {
+  --fade-t: 0px; --fade-b: 0px;
   display: flex; flex-direction: column;
-  flex: 1; min-height: 0; max-height: 14rem; overflow-y: auto;
+  flex: 0 1 auto; min-height: 0; max-height: 14rem; overflow-y: auto;
 }
-.chat-model-options .menu-check {
+.chat-select-options[data-fade-top],
+.chat-select-options[data-fade-bottom] {
+  mask-image: linear-gradient(to bottom,
+    transparent, rgb(0 0 0 / .35) calc(var(--fade-t) * .45), #000 var(--fade-t),
+    #000 calc(100% - var(--fade-b)), rgb(0 0 0 / .35) calc(100% - var(--fade-b) * .45), transparent);
+  transition: --fade-t .2s ease, --fade-b .2s ease;
+}
+.chat-select-options[data-fade-top] { --fade-t: 1.25rem; }
+.chat-select-options[data-fade-bottom] { --fade-b: 1.25rem; }
+.chat-select-options .menu-check {
   display: flex; align-items: center; justify-content: space-between; gap: .5rem;
   min-height: 2.25rem; padding: .5rem .625rem; box-sizing: border-box;
   cursor: default; border-radius: calc(var(--radius, .5rem) - 2px);
 }
-.chat-model-options .menu-check:hover { background: var(--accent); }
-.chat-model-options .menu-check > span:first-child {
-  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.chat-select-options .menu-check:hover { background: var(--accent); }
+.chat-select-option {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: .5rem;
 }
-.chat-model-options .menu-check svg { flex: none; width: 14px; height: 14px; }
+.chat-select-option-icon {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 1rem; color: var(--muted-foreground);
+}
+.chat-select-option-icon svg { width: 14px; height: 14px; }
+.chat-select-option-text { min-width: 0; display: flex; flex-direction: column; gap: .1rem; }
+.chat-select-option-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.chat-select-option-desc {
+  font-size: .7rem; line-height: 1.25; color: var(--muted-foreground);
+}
+.chat-select-options .menu-check > svg { flex: none; width: 14px; height: 14px; }
+/* Approval posture: Ask waits in the chat, Allow all answers automatically. */
+.chat-approvals-chip {
+  gap: .375rem; height: 1.875rem; box-sizing: border-box;
+  padding-inline: .5rem; font-size: .8125rem; cursor: pointer;
+  color: var(--foreground);
+}
+.chat-approvals-chip > svg { flex: none; width: 14px; height: 14px; color: var(--muted-foreground); }
+.chat-approvals-chip[data-on] { background: var(--muted); }
+.chat-approvals-chip[data-on] > svg { color: var(--foreground); }
+.chat-approvals-chip:disabled { opacity: .55; cursor: default; }
 .chat-composer {
   display: grid;
   grid-template-columns: 1.75rem minmax(0, 1fr) auto;
