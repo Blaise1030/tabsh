@@ -4,6 +4,8 @@ import { defineConfig } from 'astro/config';
 
 export default defineConfig({
   output: 'static',
+  // The dev toolbar sits over the page's bottom edge; it is not part of the site.
+  devToolbar: { enabled: false },
   integrations: [solid()],
   vite: {
     plugins: [tailwindcss()],

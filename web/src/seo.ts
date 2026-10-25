@@ -1,11 +1,11 @@
 import { SITE_URL } from './site.ts';
 
-/** Social preview. 1200×630 is the size Facebook, LinkedIn and X expect. */
+/** Social preview: the landing page's fig. 1 poster, used as a direct capture. */
 export const OG_IMAGE = {
   path: '/og.png',
-  width: 1200,
-  height: 630,
-  alt: 'tabsh board beside a terminal',
+  width: 2638,
+  height: 1724,
+  alt: "The tabsh list and a card's Claude chat open in a browser tab on a painted background.",
 } as const;
 
 // Cloudflare serves these pages with a trailing slash (`html_handling: auto-trailing-slash`).
@@ -45,7 +45,7 @@ export function pageSeo(input: { title: string; description: string; pathname: s
       '@type': 'SoftwareApplication',
       name: 'tabsh',
       applicationCategory: 'DeveloperApplication',
-      operatingSystem: 'macOS',
+      operatingSystem: 'macOS and Linux',
       url: canonical,
       image,
       description: input.description,

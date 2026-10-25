@@ -22,6 +22,7 @@ const CARGO_INSTALL = `cargo install --git ${REPO_URL}`;
     <p><span class="mark">&gt;</span> CONTENTS</p>
     <ol>
       <li><a href="#start">Getting started</a></li>
+      <li><a href="#how">How it connects</a></li>
       <li><a href="#setup">Connect an agent</a></li>
       <li><a href="#hooks">Hooks the agent runs</a></li>
       <li><a href="#done">What you should see</a></li>
@@ -48,6 +49,31 @@ const CARGO_INSTALL = `cargo install --git ${REPO_URL}`;
     serves the app at <code>http://tabsh.localhost:7681</code>, and this site sends Safari there.
   </p>
   <p class="muted"><span class="mark">&gt;</span> Next, <a href="#setup">connect an agent</a> so its card moves on its own.</p>
+
+  <h2 id="how"><span class="mark">##</span> HOW IT CONNECTS</h2>
+  <p>
+    The app you open here is a plain page. It talks to the daemon on your own
+    machine at <code>{DAEMON_URL}</code>. There is no server of ours in between.
+  </p>
+  <pre class="diagram">[ browser tab ]     this site, /app/
+       │
+       │  HTTP + WebSocket, 127.0.0.1 only
+       ▼
+[ tabsh daemon ]    your machine
+       │
+       │  PTY
+       ▼
+[ your shells ]     zsh, bash, fish…</pre>
+  <ol class="steps">
+    <li><b>Run the daemon.</b> It listens on loopback only and creates a secret token in <code>~/.tabsh/token</code>.</li>
+    <li><b>Open the link it prints.</b> The token rides in the URL fragment, which browsers never send to a web server.</li>
+    <li><b>That's it.</b> The daemon only accepts requests from this site that carry the token. Other sites get nothing.</li>
+  </ol>
+  <p class="muted">
+    <span class="mark">&gt;</span> Chrome may ask to let this site access apps on your device. That's the
+    connection to the daemon; allow it once. Lost the link? Open <code>{DAEMON_URL}</code> in
+    this browser and the daemon sends you here, paired.
+  </p>
 
   <h2 id="setup"><span class="mark">##</span> CONNECT AN AGENT</h2>
   <p>
@@ -243,10 +269,9 @@ const CARGO_INSTALL = `cargo install --git ${REPO_URL}`;
   .toc li::marker, .steps li::marker { color: var(--muted); }
   .toc li + li, .steps li + li { margin-top: .5rem; }
   .toc { margin-bottom: 2.5rem; }
+  .diagram { white-space: pre; line-height: 1.2; width: fit-content; margin-inline: auto; overflow: visible; }
+  @media (max-width: 420px) { .diagram { font-size: min(.875em, calc((100vw - 2rem) / 26)); } }
   .scroll { overflow-x: auto; margin: 0 0 1rem; }
-  table { width: 100%; border-collapse: collapse; margin: 0; }
-  th, td { text-align: left; vertical-align: top; padding: .5rem 1rem .5rem 0; border-bottom: 1px solid var(--line); font-weight: 400; }
-  th { color: var(--muted); font-weight: 600; }
   td code { white-space: normal; }
   @media (max-width: 520px) {
     .scroll { overflow-x: visible; }

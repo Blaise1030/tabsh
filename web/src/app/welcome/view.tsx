@@ -334,11 +334,13 @@ function IntroMessage(): JSX.Element {
         </li>
         <li>
           <strong>Keep the real thing open.</strong>
-          {' Tabsh leaves GitHub as GitHub, Slack as Slack, and makes the shell one more tab beside them.'}
+          {' Tabsh leaves GitHub as GitHub, Slack as Slack, and makes your shells and agents one more tab beside them.'}
         </li>
         <li>
           <strong>Switch less, stay with the work.</strong>
-          {' The terminal sits next to the thing it builds, so your train of thought has fewer places to fall off.'}
+          {
+            ' Your shells and agents sit next to the thing they build, so your train of thought has fewer places to fall off.'
+          }
         </li>
       </ul>
     </section>

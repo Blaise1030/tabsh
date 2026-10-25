@@ -45,7 +45,7 @@ const seo = pageSeo({ title, description, pathname: Astro.url.pathname });
       <header class="masthead">
         <div>
           <p><a class="home" href="/">TABSH</a> <span class="cursor" aria-hidden="true"></span></p>
-          <p>YOUR TERMINAL, IN A BROWSER TAB</p>
+          <p>A CALMER WAY TO WORK WITH AGENTS, IN A BROWSER TAB</p>
           <p>2026</p>
         </div>
         <nav aria-label="Primary">
@@ -66,7 +66,7 @@ const seo = pageSeo({ title, description, pathname: Astro.url.pathname });
   :root {
     /* Same palette as the app's "tabsh" theme (src/pages/app/index.astro):
        greys are mixed from bg and fg exactly as the app derives its own. */
-    --bg: #f7f7f7;
+    --bg: #eeeeee;
     --fg: #1a1a1a;
     --line: #c9d6ec;
     --link: #3b78d8;
@@ -127,6 +127,15 @@ const seo = pageSeo({ title, description, pathname: Astro.url.pathname });
 
 
   pre { font: inherit; line-height: 1.45; overflow-x: auto; scrollbar-width: thin; }
+
+  /* Markdown tables: a muted header row and hairline rules, no box. */
+  table { width: 100%; border-collapse: collapse; margin: 0; }
+  th, td {
+    text-align: left; vertical-align: top; padding: .5rem 1rem .5rem 0;
+    border-bottom: 1px solid var(--line); font-weight: 400;
+  }
+  th { color: var(--muted); font-weight: 600; }
+
   .masthead a { color: var(--fg); border: 0; }
   .masthead nav a:hover { color: var(--link); }
 </style>

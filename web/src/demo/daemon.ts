@@ -204,19 +204,44 @@ const claude = addShell(
   SHOP,
   'needs_input',
   lines(
-    `${orange('●')} The refund path now checks the order status first.`,
+    `${orange('>')} review the refund path before I merge`,
     '',
-    `  ${dim('2 files changed,')} ${green('+18')} ${red('−4')}`,
+    `${orange('⏺')} I'll trace the refund flow, check the order-status guard, and run the tests.`,
+    '',
+    `${orange('⏺')} ${bold('Read')}(src/refund.ts)`,
+    `  ${dim('⎿')}  Read 12 lines`,
+    '',
+    `${orange('⏺')} ${bold('Read')}(src/orders.rs)`,
+    `  ${dim('⎿')}  Read 18 lines`,
+    '',
+    `${orange('⏺')} ${bold('Read')}(src/refund.test.ts)`,
+    `  ${dim('⎿')}  Read 41 lines`,
+    '',
+    `${orange('⏺')} The refund path now checks the order status first.`,
+    `  ${dim('⎿')}  Updated src/refund.ts ${green('(+12)')} ${red('(−4)')}`,
+    `  ${dim('⎿')}  Updated src/orders.rs ${green('(+6)')}`,
+    `  ${dim('⎿')}  Added src/refund.test.ts ${green('(+18)')}`,
+    '',
+    `${orange('⏺')} ${bold('Bash')}(cargo test)`,
+    `  ${dim('⎿')}  ${green('42 passed')} in 0.81s`,
+    '',
+    `${orange('⏺')} The fix is idempotent: an already-refunded order returns the original`,
+    '  refund instead of issuing a second one. The diff is limited to the refund path.',
     '',
     `Run the tests before I commit? ${dim('(y/n)')}`,
+    `  ${dim('⏵⏵ accept edits on (shift+tab to cycle)')}   ${dim('Claude Sonnet 4.5')}`,
   ),
   {
-    prompt: `${orange('›')} `,
+    prompt: orange('> '),
     reply: (cmd) => {
       if (!/^y(es)?$/i.test(cmd))
-        return /^n(o)?$/i.test(cmd) ? lines(`${orange('●')} Okay, leaving it uncommitted.`) : null;
+        return /^n(o)?$/i.test(cmd) ? lines(`${orange('⏺')} Okay, leaving it uncommitted.`) : null;
       setTimeout(() => hook(claude, 'completed', 'Committed a1c9e04'), 600);
-      return lines(`${orange('●')} Running cargo test…`, `  48 passed. Committed as ${dim('a1c9e04')}.`);
+      return lines(
+        `${orange('⏺')} ${bold('Bash')}(cargo test)`,
+        `  ${dim('⎿')}  ${green('42 passed')} in 0.81s`,
+        `${orange('⏺')} Committed as ${dim('a1c9e04')}.`,
+      );
     },
   },
 );
@@ -231,6 +256,8 @@ claude.info.agent_command = 'claude';
 // two waiting in Backlog, tags, and two cards that move on their own once the
 // frame is in view, as their hooks would move them.
 const tags: Record<string, string[]> = {};
+// The UI-mode card the screenshots open: its drawer shows the chat panel.
+let uiCardId: string | null = null;
 if (new URLSearchParams(location.search).get('view') === 'board') {
   claude.info.name = 'Fix refund status · #142';
   tags[claude.info.id] = ['bug'];
@@ -254,6 +281,12 @@ if (new URLSearchParams(location.search).get('view') === 'board') {
   const deps = card('Bump Vite to 7', SHOP, 'in_progress', 'gemini', ['chore']);
   const limit = card('Rate-limit login', API, 'in_progress', 'opencode', ['api']);
   card('Cache product images', SHOP, 'completed', 'codex', ['perf'], { note: 'Opened PR #139' });
+  const review = card('Review the auth flow', SHOP, 'needs_input', 'claude', ['review'], {
+    mode: 'ui',
+    acp_command: 'npx --yes @agentclientprotocol/claude-agent-acp',
+    note: 'Two files changed',
+  });
+  uiCardId = review.info.id;
   // Moved once, a few seconds after the board first shows.
   let moved = false;
   new IntersectionObserver((seen) => {
@@ -460,10 +493,90 @@ const chatFans = new Map<string, Set<(frame: Uint8Array) => void>>();
 function scriptedChat(id: string): ChatChunk[] {
   let rows = transcripts.get(id);
   if (!rows) {
-    rows = [
-      { type: 'text_delta', session_id: id, text: 'This demo agent is ready.' },
-      { type: 'turn_end', session_id: id, stop_reason: 'end_turn' },
-    ];
+    rows =
+      id === uiCardId
+        ? [
+            { type: 'user_text', session_id: id, text: 'Review the refund path before I merge.' },
+            {
+              type: 'text_delta',
+              session_id: id,
+              text: 'The refund path now checks the order status first. Two files changed: `src/refund.ts` and `src/orders.rs`.',
+            },
+            { type: 'turn_end', session_id: id, stop_reason: 'end_turn' },
+            { type: 'user_text', session_id: id, text: 'What happens if the order was already refunded?' },
+            {
+              type: 'tool_call',
+              session_id: id,
+              tool_call: { toolCallId: 'tc-refund', title: 'Read src/refund.ts', status: 'completed' },
+            },
+            {
+              type: 'text_delta',
+              session_id: id,
+              text: 'It returns the original refund id instead of charging again. I added a regression test for the double-refund case.',
+            },
+            { type: 'turn_end', session_id: id, stop_reason: 'end_turn' },
+            { type: 'user_text', session_id: id, text: 'Run the tests and check the diff.' },
+            {
+              type: 'tool_call',
+              session_id: id,
+              tool_call: { toolCallId: 'tc-test', title: 'shell: npm test', status: 'completed' },
+            },
+            {
+              type: 'text_delta',
+              session_id: id,
+              text: 'All 42 tests pass. The diff is limited to `src/refund.ts`, `src/orders.rs` and `src/refund.test.ts`.',
+            },
+            { type: 'turn_end', session_id: id, stop_reason: 'end_turn' },
+            { type: 'user_text', session_id: id, text: 'Log the refund id when we short-circuit.' },
+            {
+              type: 'tool_call',
+              session_id: id,
+              tool_call: { toolCallId: 'tc-log', title: 'Edit src/refund.ts', status: 'completed' },
+            },
+            {
+              type: 'text_delta',
+              session_id: id,
+              text: 'Added the refund id to the existing info log. Nothing else changed.',
+            },
+            { type: 'turn_end', session_id: id, stop_reason: 'end_turn' },
+            { type: 'user_text', session_id: id, text: 'Does the API return the same shape?' },
+            {
+              type: 'text_delta',
+              session_id: id,
+              text: 'Yes. The response still has `refund_id`, `status` and `amount`; the short-circuit path returns the original values.',
+            },
+            { type: 'turn_end', session_id: id, stop_reason: 'end_turn' },
+            { type: 'user_text', session_id: id, text: 'Great. Summarize the change for the PR.' },
+            {
+              type: 'text_delta',
+              session_id: id,
+              text: 'Refunds are idempotent: an already-refunded order returns the original refund instead of issuing a second one. Tests cover the short-circuit path, and the refund id is logged.',
+            },
+            { type: 'turn_end', session_id: id, stop_reason: 'end_turn' },
+            { type: 'user_text', session_id: id, text: 'Can you add a changelog entry?' },
+            {
+              type: 'tool_call',
+              session_id: id,
+              tool_call: { toolCallId: 'tc-changelog', title: 'Edit CHANGELOG.md', status: 'completed' },
+            },
+            {
+              type: 'text_delta',
+              session_id: id,
+              text: 'Added a line under Fixed: refunds are now idempotent when the order was already refunded.',
+            },
+            { type: 'turn_end', session_id: id, stop_reason: 'end_turn' },
+            { type: 'user_text', session_id: id, text: 'Perfect. Anything else I should check?' },
+            {
+              type: 'text_delta',
+              session_id: id,
+              text: 'Only the migration note: no schema change, so nothing to run. The branch is ready for review.',
+            },
+            { type: 'turn_end', session_id: id, stop_reason: 'end_turn' },
+          ]
+        : [
+            { type: 'text_delta', session_id: id, text: 'This demo agent is ready.' },
+            { type: 'turn_end', session_id: id, stop_reason: 'end_turn' },
+          ];
     transcripts.set(id, rows);
   }
   return rows;
@@ -514,7 +627,31 @@ function chatMessage(id: string, body: Record<string, unknown>): Response {
   return empty(202);
 }
 
-let settings: Record<string, unknown> = { boardOnboarded: true, welcomeSeen: true };
+const demoQuery = new URLSearchParams(location.search);
+let settings: Record<string, unknown> = {
+  boardOnboarded: true,
+  welcomeSeen: true,
+  ...(demoQuery.get('layout') === 'list' ? { boardLayout: 'list' } : {}),
+};
+const remote = {
+  enabled: true,
+  address: '100.101.102.103',
+  port: 7681,
+  host: null as string | null,
+  error: null as string | null,
+  devices: [
+    { id: 'demo-device-1', name: 'iPhone', created: now() - 86400, last_seen: now() - 120 },
+    { id: 'demo-device-2', name: 'MacBook Air', created: now() - 172800, last_seen: now() - 7200 },
+  ],
+};
+const demoModels = {
+  current: 'claude-sonnet',
+  options: [
+    { id: 'claude-sonnet', name: 'Claude Sonnet 4.5' },
+    { id: 'claude-opus', name: 'Claude Opus 4.1' },
+    { id: 'claude-haiku', name: 'Claude Haiku 4.5' },
+  ],
+};
 
 async function answer(method: string, url: URL, body: unknown): Promise<Response> {
   const path = url.pathname;
@@ -541,6 +678,27 @@ async function answer(method: string, url: URL, body: unknown): Promise<Response
   if (path === '/api/settings') {
     if (method === 'PUT') settings = body as Record<string, unknown>;
     return method === 'PUT' ? empty(204) : json(settings);
+  }
+
+  // The remote page's demo: sharing is on, with two paired devices.
+  if (path === '/api/remote') {
+    if (method === 'PUT') {
+      const on = !!(body as { enabled?: boolean } | undefined)?.enabled;
+      remote.enabled = on;
+      return json(remote);
+    }
+    return json(remote);
+  }
+  if (path === '/api/remote/devices' && method === 'POST') {
+    const name = (body as { name?: string } | undefined)?.name ?? 'Device';
+    const device = { id: `demo-device-${remote.devices.length + 1}`, name, created: now(), last_seen: now() };
+    remote.devices.push(device);
+    return json({ ...device, url: `http://100.101.102.103:7681/#token=demo` });
+  }
+  if (path.startsWith('/api/remote/devices/') && method === 'DELETE') {
+    const id = path.slice('/api/remote/devices/'.length);
+    remote.devices = remote.devices.filter((d) => d.id !== id);
+    return empty(204);
   }
 
   if (path.startsWith('/api/sessions')) {
@@ -576,6 +734,13 @@ async function answer(method: string, url: URL, body: unknown): Promise<Response
     if (action === 'chat') {
       if (method === 'GET' && !sub) return json({ messages: [...scriptedChat(sh.info.id)] });
       if (method === 'GET' && sub === 'stream') return chatEvents(sh.info.id);
+      if (method === 'GET' && sub === 'models') return json(demoModels);
+      if (method === 'POST' && sub === 'start') return empty(204);
+      if (method === 'POST' && sub === 'model') {
+        const id = (b as { id?: string }).id;
+        if (typeof id === 'string') demoModels.current = id;
+        return json(demoModels);
+      }
       if (method === 'POST' && sub === 'message') return chatMessage(sh.info.id, b);
       if (method === 'POST' && (sub === 'stop' || sub === 'approve')) return empty(204);
       return empty(404);

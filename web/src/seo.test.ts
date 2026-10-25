@@ -3,16 +3,16 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { OG_IMAGE, pageSeo } from './seo.ts';
 
-const title = 'tabsh: your terminal, in a browser tab';
+const title = 'tabsh: a calmer way to work with agents';
 const description =
-  'A tiny Rust daemon runs your shells locally. Open them from any browser tab; they survive reloads and restarts.';
+  'A calmer way to work with agents, in a browser tab. tabsh runs your shells and agents in a small daemon and keeps every card in one list.';
 
 test('the landing page canonical and social image are absolute', () => {
   const seo = pageSeo({ title, description, pathname: '/' });
   assert.equal(seo.canonical, 'https://tabsh.cc/');
   assert.equal(seo.image, 'https://tabsh.cc/og.png');
-  assert.equal(seo.imageWidth, 1200);
-  assert.equal(seo.imageHeight, 630);
+  assert.equal(seo.imageWidth, 2638);
+  assert.equal(seo.imageHeight, 1724);
   const graph = JSON.parse(seo.jsonLd)['@graph'] as { '@type': string }[];
   assert.deepEqual(
     graph.map((node) => node['@type']),

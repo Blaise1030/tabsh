@@ -1,8 +1,14 @@
 # tabsh
 
-Your terminal, in a browser tab. A small Rust daemon runs your shells on your
-machine. Open them from any browser tab at https://tabsh.cc, and they survive
-reloads, restarts and closed laptops.
+A calmer way to work with agents, in a browser tab.
+
+tabsh runs your shells and agents in the browser tab next to your work, and the list view puts
+every card, across every project, in one calm scroll: what's moving, what needs you, and what's
+done.
+
+A small Rust daemon runs your shells on your machine, and a board keeps every card in one place.
+Open it from any browser tab at https://tabsh.cc; shells and agents survive reloads, restarts and
+closed laptops.
 
 ```sh
 curl -fsSL https://tabsh.cc/install.sh | sh
@@ -42,8 +48,9 @@ app you're building, running on localhost.
 The browser has quietly become where we work. The terminal is the last tool
 still in a separate window, one ⌘-Tab away from everything it touches.
 
-tabsh brings it home: the terminal sits where the work already is, in the tab
-next to the thing it builds.
+tabsh brings it home: your shells and agents sit where the work already is,
+with a board that keeps every card in one place, in the tab next to the thing
+it builds.
 
 ## Features
 
@@ -58,12 +65,13 @@ next to the thing it builds.
 
 ## The board
 
-Every terminal is a card on a kanban board (⌘B): Backlog, In progress,
-Needs input, Completed, and a collapsed Archive. Drag cards to change their
-status; click one to go to its terminal.
+Every card is a shell or an agent on a kanban board (⌘B): Backlog, In progress,
+Needs input, Completed, and a collapsed Archive. The same cards also have a
+list view: one scroll, grouped by status, across every project. Drag cards to
+change their status; click one to open its terminal or chat.
 
-Let your coding agent keep the board current. Tell Claude Code, Gemini CLI,
-Codex or any agent with hooks:
+Let your coding agent keep the board current. Tell Claude Code, Codex, Cursor
+CLI, OpenCode or any agent with hooks:
 
 > Run `tabsh setup` and follow it.
 
@@ -73,7 +81,8 @@ and the agent marks it Completed when the task is done. Outside tabsh the
 hooks do nothing. The agent reports what it changed and how to undo it.
 
 New card (`+`) can start an agent on a first prompt: `claude {prompt}` by
-default, or any command, such as `gemini -i {prompt}`.
+default, or any command, such as `gemini -i {prompt}`. Each card runs in a
+terminal (TUI) or a chat panel (UI).
 
 `tabsh status <status> [--note <text>]` sets the card by hand.
 
