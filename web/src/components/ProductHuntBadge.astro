@@ -1,22 +1,19 @@
 ---
-// Product Hunt's official "featured" badge, themed to match the page.
+// Product Hunt's official "featured" badge, always dark to match the page.
 const href =
   'https://www.producthunt.com/products/tabsh?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-tabsh';
-const image = (theme: 'neutral' | 'dark') =>
-  `https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1292068&theme=${theme}&t=1792921688542`;
+const src =
+  'https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1292068&theme=dark&t=1792922682137';
 ---
 
 <a class="ph-badge" href={href} target="_blank" rel="noopener noreferrer">
-  <picture>
-    <source srcset={image('dark')} media="(prefers-color-scheme: dark)" />
-    <img
-      src={image('neutral')}
-      alt="tabsh - A calmer way to work with agents, in a browser tab | Product Hunt"
-      width="250"
-      height="54"
-      decoding="async"
-    />
-  </picture>
+  <img
+    src={src}
+    alt="tabsh - A calmer way to work with agents, in a browser tab | Product Hunt"
+    width="250"
+    height="54"
+    decoding="async"
+  />
 </a>
 
 <style>
