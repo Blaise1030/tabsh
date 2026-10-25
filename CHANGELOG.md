@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.0.0
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.41...v1.0.0)
+
+### Features
+
+- **web:** Add the press kit and refresh the social card ([2bd0ba1](https://github.com/Blaise1030/tabsh/commit/2bd0ba1))
+
 ## v0.1.41
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.40...v0.1.41)
