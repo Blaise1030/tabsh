@@ -225,6 +225,7 @@ await page.setViewportSize({ width: 240, height: 240 });
 await page.setContent(thumb, { waitUntil: 'networkidle' });
 await page.evaluate(() => document.fonts.ready);
 await page.screenshot({ path: `${PRESS}icon-240.png` });
+await page.screenshot({ path: `${OUT}icon-240.png` });
 console.log('press/icon-240.png 240x240');
 
 await browser.close();
