@@ -3,6 +3,10 @@
 The launch version should already be live before the Product Hunt listing goes
 up. This is the exact path.
 
+> **Done 25 October 2026.** v1.0.0 is published, Homebrew is on 1.0.0, and
+> tabsh.cc serves the launch site. CI run `40171553357` was green for build,
+> e2e, site, publish, tap and deploy. Keep this file for the next release.
+
 ## Why 1.0
 
 `0.1.40` reads as a prototype on a launch page, and the core is not one: the
@@ -23,6 +27,9 @@ and keep the version out of launch copy. Do not launch `0.1.40` as-is.
 - [ ] `npm run build` in `web/` is committed: `src/app.html` and
       `src/app-assets/` match the web source. The release workflow fails
       otherwise.
+- [ ] Run `npm ci` in `web/` before that build. A stale local `node_modules`
+      produces different asset hashes from CI; that is exactly how the first
+      1.0.0 attempt failed at "Check the daemon's copy of the app page".
 - [ ] `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` exist as repository
       secrets, otherwise the deploy step is skipped with a warning.
 - [ ] `HOMEBREW_TAP_DEPLOY_KEY` exists, otherwise the tap update fails after

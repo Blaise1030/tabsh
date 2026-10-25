@@ -18,7 +18,7 @@ about tabsh.
 | Platforms | macOS and Linux (Apple silicon, Intel, x86-64 Linux, arm64 Linux) |
 | Install | `curl -fsSL https://tabsh.cc/install.sh | sh` or `brew install blaise1030/tap/tabsh` |
 | Data | Localhost only; no account, no relay, no telemetry |
-| Status | 1.0 (launching) |
+| Status | 1.0.0, released 25 October 2026 |
 
 ## One-liners
 

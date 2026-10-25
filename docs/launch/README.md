@@ -17,7 +17,7 @@ editing the PNG by hand.
 | Launch-day timeline and channel drafts | `05-launch-day.md` | Ready |
 | Press kit copy and fact sheet | `06-press-kit.md` | Ready |
 | Product Hunt field-by-field checklist | `07-submit.md` | Ready |
-| 1.0.0 release and verification | `08-release.md` | Ready to run |
+| 1.0.0 release and verification | `08-release.md` | Done — v1.0.0 is live |
 | Known-limitations issue | `09-known-limitations.md` | Post on launch day |
 | `/press/` page | `web/src/pages/press.astro` | Ready to deploy |
 
@@ -36,17 +36,27 @@ editing the PNG by hand.
 
 ## The only things left for you
 
-1. **Deploy and release:** merge the landing branch, run the release PR with
-   `version=1.0.0`, merge it, verify (see `08-release.md`). This deploys the new
-   site and updates Homebrew.
-2. **Submit the listing:** Product Hunt has no API. Paste the fields in
+1. **Submit the listing:** Product Hunt has no API. Paste the fields in
    `07-submit.md`, upload the gallery and thumbnail, add the YouTube link for
    the video, post and pin the first comment.
-3. **Be the maker:** reply to comments, post the X thread and Show HN, and
+2. **Be the maker:** reply to comments, post the X thread and Show HN, and
    answer the "Windows?" question 40 times. The reply bank is there so you don't
    have to write from scratch at 6am.
-4. **Optional:** record a founder voiceover or a 45–60s cut. The current video
+3. **Optional:** record a founder voiceover or a 45–60s cut. The current video
    is silent and captioned, which is enough.
+
+## What is already shipped (25 Oct 2026)
+
+- `v1.0.0` is published with four binaries and checksums:
+  https://github.com/Blaise1030/tabsh/releases/tag/v1.0.0
+- The Homebrew tap points at 1.0.0:
+  `brew install blaise1030/tap/tabsh`
+- https://tabsh.cc serves the new landing page, the 1200 × 630 social card and
+  `/press/`.
+- The install script was verified end to end on macOS arm64:
+  `TABSH_VERSION=1.0.0` installed and `tabsh --version` printed `tabsh 1.0.0`.
+- CI: build (4 targets), full e2e, site check, publish, Homebrew and deploy all
+  green in run `40171553357`.
 
 ## Honest gaps
 
