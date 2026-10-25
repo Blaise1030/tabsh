@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.5.0
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v1.3.0...v1.5.0)
+
+### Features
+
+- **chat:** Add agent mode and approvals controls ([c1f5d51](https://github.com/Blaise1030/tabsh/commit/c1f5d51))
+
+### Fixes
+
+- **web:** Rebuild embedded app assets from a clean checkout ([952685d](https://github.com/Blaise1030/tabsh/commit/952685d))
+
 ## v1.4.0
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v1.3.0...v1.4.0)
