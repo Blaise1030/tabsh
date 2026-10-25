@@ -1,5 +1,6 @@
 ---
 import Site from '../layouts/Site.astro';
+import ProductHuntBadge from '../components/ProductHuntBadge.astro';
 import { BREW_INSTALL_COMMAND, DAEMON_URL, INSTALL_COMMAND, REPO_URL } from '../site';
 
 const features = [
@@ -46,6 +47,8 @@ const table = drawTable(features, widths);
       <pre class="cmd"><span class="mark">$</span> {INSTALL_COMMAND}  <button type="button" class="copy" data-copy={INSTALL_COMMAND} aria-label="Copy install command">[copy]</button>
 <span class="mark">$</span> tabsh  <span class="mark"># opens the app in your browser, paired</span>
 <span class="mark"># or Homebrew: {BREW_INSTALL_COMMAND}</span></pre>
+
+      <p class="ph"><ProductHuntBadge /></p>
 
       <p class="caption">
         <span class="mark">fig. 1</span> what you get when you install: the full app, running&nbsp;live.
@@ -350,9 +353,9 @@ const table = drawTable(features, widths);
       </div>
 
       <footer>
+        <p class="ph"><ProductHuntBadge /></p>
         <p>
           <span class="mark">&gt;</span> Get it: <a href="/docs/">install tabsh</a>.
-          Press: <a href="/press/">press kit</a>.
         </p>
         <p>
           Built with care by <a href="https://blaisetiong.dev">Blaise</a>.
@@ -489,6 +492,7 @@ const table = drawTable(features, widths);
   .table { white-space: pre; }
 
   footer { margin-top: 3rem; }
+  .ph { margin: 0 0 1rem; }
 
   /* FAQ: each question a [+] line that opens to [-]. */
   .faq { margin-bottom: 1rem; }

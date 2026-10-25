@@ -78,20 +78,20 @@ test('the board shows its setup screen until it is marked as onboarded', () => {
   assert.equal(cleanSettings({ boardOnboarded: true }, true).boardOnboarded, true);
   assert.equal(cleanSettings({ boardOnboarded: 'yes' }, true).boardOnboarded, false);
 });
-test('the board is laid out in columns unless list is saved', () => {
-  assert.equal(defaults(true).boardLayout, 'columns');
-  assert.equal(cleanSettings({ boardLayout: 'list' }, true).boardLayout, 'list');
-  assert.equal(cleanSettings({ boardLayout: 'grid' }, true).boardLayout, 'columns');
+test('the board is laid out as a list unless columns is saved', () => {
+  assert.equal(defaults(true).boardLayout, 'list');
+  assert.equal(cleanSettings({ boardLayout: 'columns' }, true).boardLayout, 'columns');
+  assert.equal(cleanSettings({ boardLayout: 'grid' }, true).boardLayout, 'list');
 });
-test('welcomeSeen and startView keep only the allowed values', () => {
+test('welcomeSeen keeps only the allowed value and there is no start view', () => {
   const d = defaults(true);
   assert.equal(d.welcomeSeen, false);
-  assert.equal(d.startView, 'terms');
+  assert.equal('startView' in d, false);
   assert.equal(cleanSettings({}, true).welcomeSeen, false);
   assert.equal(cleanSettings({ welcomeSeen: true }, true).welcomeSeen, true);
   assert.equal(cleanSettings({ welcomeSeen: 'yes' }, true).welcomeSeen, false);
-  assert.equal(cleanSettings({ startView: 'board' }, true).startView, 'board');
-  assert.equal(cleanSettings({ startView: 'kanban' }, true).startView, 'terms');
+  // The old choice no longer opens the app: the board is the only workspace.
+  assert.equal('startView' in cleanSettings({ startView: 'terms' }, true), false);
 });
 test('cleanSettings fills keyBack and keyForward', () => {
   assert.equal(cleanSettings({}, true).keyBack, 'ctrl+shift+Minus');

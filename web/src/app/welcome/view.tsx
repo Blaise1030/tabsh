@@ -4,6 +4,8 @@
 // The view, theme, font, sound and agents screens carry their choices.
 import { createEffect, createSignal, For, type JSX, Match, onCleanup, onMount, Show, Switch } from 'solid-js';
 import { SETUP_PROMPT, type Status } from '../board/model.ts';
+import { setStatus } from '../board/status.ts';
+import { openSetupCard } from '../board/view.tsx';
 import { gateMode } from '../daemon/client.ts';
 import { go } from '../nav/router.ts';
 import { FONTS, fontStack, THEMES, TYPING_SOUNDS } from '../settings/catalog.ts';
@@ -11,7 +13,9 @@ import { current, saveSetting, saveSettings } from '../settings/settings.ts';
 import { keySound, loadPack, playSample, SOUND_PACKS } from '../sound/packs.ts';
 import { glyph, type Icon, icons, providerIcon } from '../ui/icons.tsx';
 import {
+  agentSetupPatch,
   clampStep,
+  closesAfterSetup,
   dismissWelcome,
   PREVIEW_COMMAND,
   typingBeats,
@@ -25,10 +29,13 @@ import {
 const [step, setStep] = createSignal(0);
 // The view picked on this opening, null until one is: its being set is also
 // what makes closing move the app there.
-const [pickedView, setPickedView] = createSignal<'tabs' | 'kanban' | 'list' | null>(null);
+const [pickedView, setPickedView] = createSignal<'kanban' | 'list' | null>(null);
 // The agents screen's providers and the chosen one.
 const [providers, setProviders] = createSignal<string[]>([]);
 const [provider, setProvider] = createSignal('');
+// The agents screen's setup card is on its way: Set up, Back and the two
+// finish buttons wait.
+const [busy, setBusy] = createSignal(false);
 const [chosenTheme, setChosenTheme] = createSignal(current.saved.theme);
 const [chosenFont, setChosenFont] = createSignal(current.saved.font);
 const [chosenSound, setChosenSound] = createSignal<string | null>(null);
@@ -38,25 +45,26 @@ const on = () => WELCOME_SCREENS[step()];
 // The preview and the answer share a row and stay centered with each other.
 const el = () => document.getElementById('welcome') as HTMLDialogElement;
 
-// The view screen's three choices, as the saved settings name the chosen one.
-const chosenView = (): 'tabs' | 'kanban' | 'list' => viewChoice(current.saved.startView, current.saved.boardLayout);
+// The view screen's two choices, as the saved layout names the chosen one.
+const chosenView = (): 'kanban' | 'list' => viewChoice(current.saved.boardLayout);
 
-function pickView(choice: 'tabs' | 'kanban' | 'list'): void {
-  saveSettings(viewSettings(choice, current.saved.boardLayout));
+function pickView(choice: 'kanban' | 'list'): void {
+  saveSettings(viewSettings(choice));
   setPickedView(choice);
 }
 
 // Every way out of the tour lands here: the dialog closes and, if this
-// opening picked a view, the router moves the app there. It writes nothing —
-// a caller saves first.
-function closeWelcome(): void {
+// opening picked a view, the router moves the app there. The last screen can
+// ask for the split: the board and the terminal beside it, naming the setup
+// card when there is one. It writes nothing — a caller saves first.
+function closeWelcome(split = false, tab?: string): void {
   el().close();
-  if (pickedView() !== null) go({ view: current.saved.startView });
+  if (split) go({ view: 'board', drawer: true, ...(tab ? { tab } : {}) });
+  else if (pickedView() !== null) go({ view: 'board' });
 }
 
-const VIEW_NAMES: Record<'tabs' | 'kanban' | 'list', string> = { tabs: 'Tabs', kanban: 'Kanban', list: 'List' };
-const VIEW_DETAILS: Record<'tabs' | 'kanban' | 'list', string> = {
-  tabs: 'A terminal strip for quick switching.',
+const VIEW_NAMES: Record<'kanban' | 'list', string> = { kanban: 'Kanban', list: 'List' };
+const VIEW_DETAILS: Record<'kanban' | 'list', string> = {
   kanban: 'Cards grouped by work status.',
   list: 'The same cards in compact rows.',
 };
@@ -347,11 +355,11 @@ function IntroMessage(): JSX.Element {
   );
 }
 
-function ViewChoices(props: { selected: () => 'tabs' | 'kanban' | 'list' }): JSX.Element {
+function ViewChoices(props: { selected: () => 'kanban' | 'list' }): JSX.Element {
   return (
     <div class="welcome-choice-panel">
       <div class="welcome-choice-list welcome-view-list">
-        <For each={['tabs', 'kanban', 'list'] as const}>
+        <For each={['kanban', 'list'] as const}>
           {(choice) => (
             <ChoiceCard
               label={VIEW_NAMES[choice]}
@@ -507,8 +515,31 @@ function AgentChoices(props: { names: () => string[]; chosen: () => string }): J
   );
 }
 
+// The agents screen's Set up: opens the chosen provider's setup card, and
+// only then saves the patch that ends the tour and deals with the board in
+// one write, starts the card's agent, and closes. A card that didn't open
+// leaves the dialog on Agents, nothing saved.
+async function setUpAgent(): Promise<void> {
+  if (busy()) return;
+  const chosen = current.saved.providers.find((p) => p.name === provider()) ?? current.saved.providers[0];
+  if (!chosen) return;
+  // Choosing a layout this opening puts the setup card on the board without
+  // pulling the terminal in front of it; otherwise the new tab takes focus.
+  const toBoard = pickedView() !== null;
+  setBusy(true);
+  const s = await openSetupCard({ command: chosen.command, resume: chosen.resume, focus: !toBoard });
+  if (!closesAfterSetup(s !== null) || s === null) {
+    setBusy(false);
+    return;
+  }
+  saveSettings(agentSetupPatch(chosen.name));
+  await setStatus(s, 'in_progress').catch(console.error); // starts its agent
+  setBusy(false);
+  closeWelcome(true, s.id);
+}
+
 function AppPreview(props: {
-  selected: () => 'tabs' | 'kanban' | 'list';
+  selected: () => 'kanban' | 'list';
   theme: () => string;
   font: () => string;
 }): JSX.Element {
@@ -708,7 +739,7 @@ export function Welcome(): JSX.Element {
   const font$ = chosenFont;
   const sound$ = chosenSound;
   const screen = () => WELCOME_SCREENS[step$()];
-  const selected = (): 'tabs' | 'kanban' | 'list' => picked$() ?? chosenView();
+  const selected = (): 'kanban' | 'list' => picked$() ?? chosenView();
 
   createEffect(() => {
     if (screen().id !== 'sound') stopTyping();
@@ -772,6 +803,7 @@ export function Welcome(): JSX.Element {
                 class="btn"
                 data-variant="ghost"
                 hidden={step$() === 0}
+                disabled={busy()}
                 on:click={() => {
                   setStep(clampStep(step() - 1));
                 }}
@@ -783,6 +815,7 @@ export function Welcome(): JSX.Element {
                 class="btn"
                 data-variant="ghost"
                 hidden={!screen().skip}
+                disabled={busy()}
                 on:click={() => {
                   saveSetting('welcomeSeen', dismissWelcome().welcomeSeen);
                   closeWelcome();
@@ -790,27 +823,38 @@ export function Welcome(): JSX.Element {
               >
                 Skip
               </button>
-              <button
-                type="button"
-                class="btn"
-                // showModal() would put the first focus on Skip (Back is hidden
-                // at step 0), and an accidental Enter there ends the tour for
-                // good: focus lands on the safe button instead.
-                autofocus
-                // Finish onboarding ends the tour without dealing with the
-                // board: its setup screen still waits. Until then clampStep
-                // keeps the tour on the screen.
-                on:click={() => {
-                  if (screen().setup) {
+              <Show when={screen().setup}>
+                {/* The explicit way past the last screen without wiring an
+                    agent: the board's own setup screen still waits. */}
+                <button
+                  type="button"
+                  class="btn"
+                  data-variant="ghost"
+                  disabled={busy()}
+                  on:click={() => {
                     saveSettings(dismissWelcome());
-                    closeWelcome();
-                    return;
-                  }
-                  setStep(clampStep(step() + 1));
-                }}
-              >
-                {screen().setup ? 'Finish onboarding' : 'Continue'}
-              </button>
+                    closeWelcome(true);
+                  }}
+                >
+                  Finish without setup
+                </button>
+                <button type="button" class="btn" autofocus disabled={busy()} on:click={() => void setUpAgent()}>
+                  {busy() ? 'Setting up…' : 'Set up'}
+                </button>
+              </Show>
+              <Show when={!screen().setup}>
+                <button
+                  type="button"
+                  class="btn"
+                  // showModal() would put the first focus on Skip (Back is hidden
+                  // at step 0), and an accidental Enter there ends the tour for
+                  // good: focus lands on the safe button instead.
+                  autofocus
+                  on:click={() => setStep(clampStep(step() + 1))}
+                >
+                  Continue
+                </button>
+              </Show>
             </div>
           </footer>
         </div>
@@ -829,6 +873,7 @@ export function showWelcome(): void {
   if (palette?.open) palette.close();
   setStep(0);
   setPickedView(null);
+  setBusy(false);
   const names = current.saved.providers.map((p) => p.name);
   setProviders(names);
   // The dropdown starts on the provider New card offers first.

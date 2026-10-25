@@ -24,7 +24,7 @@ test('the welcome screens match the tour copy', () => {
     {
       id: 'view',
       title: 'Choose your workspace.',
-      body: 'Tabs for the terminals, a kanban for the cards, or the same cards as a list.',
+      body: 'A kanban for the cards, or the same cards as a list.',
       skip: true,
       setup: false,
     },
@@ -54,20 +54,14 @@ test('clampStep keeps the step on the screens', () => {
   assert.equal(clampStep(6), 5);
 });
 
-test('the view choice writes startView and the board layout', () => {
-  assert.deepEqual(viewSettings('tabs', 'list'), { startView: 'terms', boardLayout: 'list' });
-  assert.deepEqual(viewSettings('tabs', 'columns'), { startView: 'terms', boardLayout: 'columns' });
-  assert.deepEqual(viewSettings('kanban', 'list'), { startView: 'board', boardLayout: 'columns' });
-  assert.deepEqual(viewSettings('kanban', 'columns'), { startView: 'board', boardLayout: 'columns' });
-  assert.deepEqual(viewSettings('list', 'list'), { startView: 'board', boardLayout: 'list' });
-  assert.deepEqual(viewSettings('list', 'columns'), { startView: 'board', boardLayout: 'list' });
+test('the view choice writes only the board layout', () => {
+  assert.deepEqual(viewSettings('kanban'), { boardLayout: 'columns' });
+  assert.deepEqual(viewSettings('list'), { boardLayout: 'list' });
 });
 
-test('viewChoice names the chosen button from the saved settings, inverting viewSettings', () => {
-  assert.equal(viewChoice('terms', 'list'), 'tabs');
-  assert.equal(viewChoice('terms', 'columns'), 'tabs');
-  assert.equal(viewChoice('board', 'columns'), 'kanban');
-  assert.equal(viewChoice('board', 'list'), 'list');
+test('viewChoice names the chosen button from the saved layout, inverting viewSettings', () => {
+  assert.equal(viewChoice('columns'), 'kanban');
+  assert.equal(viewChoice('list'), 'list');
 });
 
 test('finishing on the agents screen marks the tour seen and sets the provider', () => {

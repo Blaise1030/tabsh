@@ -168,13 +168,15 @@ function onNavigate(e: NavigateEvent): void {
       if (e.navigationType === 'push' && !before.palette && to.palette) {
         paletteEntryKey = navigation.currentEntry?.key ?? null;
       }
-      // The tab step always runs at startup; after it, the file step always
+      // The tab and view steps always run at startup (the board is home, but
+      // its signal starts hidden); after the tab step, the file step always
       // does (the file is the tab's), as it does after one left unfinished.
       const due = changed(applied, to);
       const run = STEPS.filter(
         (s) =>
           due.includes(s) ||
           (s === 'tab' && initial) ||
+          (s === 'view' && initial) ||
           (s === 'file' && (fileStale || initial || due.includes('tab'))),
       );
       const patch: Partial<Place> = {};

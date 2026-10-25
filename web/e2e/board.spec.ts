@@ -63,6 +63,22 @@ test.afterEach(async ({ page, daemon }) => {
   }
 });
 
+test('a fresh settings blob opens the board as a list', async ({ page, daemon }) => {
+  const headers = { Authorization: `Bearer ${daemon.token}` };
+  // Put only the flags: every other field falls back to the app's defaults.
+  const put = await page.request.put(`${daemon.baseUrl}/api/settings`, {
+    headers,
+    data: { welcomeSeen: true, boardOnboarded: true },
+  });
+  expect(put.status()).toBe(204);
+  await page.goto(`${daemon.baseUrl}/app/#token=${daemon.token}`);
+
+  const board = page.locator('#board');
+  await expect(board).toBeVisible();
+  await expect(board).toHaveClass(/\blist\b/);
+  expect(new URL(page.url()).searchParams.get('view')).toBeNull();
+});
+
 test('cards move through the board', async ({ page, daemon, project }) => {
   await openApp(page, daemon);
   await boardAlone(page);
@@ -103,10 +119,10 @@ test('cards move through the board', async ({ page, daemon, project }) => {
   await expect(col(page, 'archived').locator('.board-card').filter({ hasText: 'Fix login' })).toBeVisible();
 });
 
-// The board shortcut steps through the terminals, the board as columns and the
-// board as a list. The list has the same statuses as headings over one-line
-// rows, as Linear's list view: dragging a row moves it on, a heading folds its
-// rows away, and the layout is saved.
+// The board shortcut switches between the columns and the list. The list has
+// the same statuses as headings over one-line rows, as Linear's list view:
+// dragging a row moves it on, a heading folds its rows away, and the layout is
+// saved. The terminal is the board's drawer now, never a third workspace.
 const BOARD_KEY = process.platform === 'darwin' ? 'Meta+KeyB' : 'Control+Shift+KeyB';
 
 test('the board shortcut steps through columns and a list', async ({ page, daemon, project }) => {
@@ -163,13 +179,13 @@ test('the board shortcut steps through columns and a list', async ({ page, daemo
   await expect(page.locator('#frame .drawer-title')).toHaveText('List me');
   await page.locator('#drawer-close').click();
 
-  // Then the terminals, and the board again, as columns.
-  await page.keyboard.press(BOARD_KEY);
-  await expect(page.locator('#board')).toBeHidden();
+  // Then the columns again, still on the board.
   await page.keyboard.press(BOARD_KEY);
   await expect(page.locator('#board')).toBeVisible();
   await expect(page.locator('#board')).not.toHaveClass(/\blist\b/);
   await expect(col(page, 'needs_input').locator('.board-card:not(.board-row)')).toHaveCount(1);
+  await page.keyboard.press(BOARD_KEY);
+  await expect(page.locator('#board')).toHaveClass(/\blist\b/);
 });
 
 test("a card made from In progress's + starts its agent at once", async ({ page, daemon, project }) => {
@@ -282,7 +298,7 @@ test('a card menu opens on right-click or from the keyboard, with no menu button
   await expect(menuCard).toBeFocused();
 });
 
-test('the board hides the tabs, and shows the open tab in its drawer', async ({ page, daemon }) => {
+test('the board hides the tabs, and the drawer expands over it', async ({ page, daemon }) => {
   await openApp(page, daemon);
   await expect(page.locator('#tabs')).toBeVisible();
   const tab = await page.locator('#tabs .tab[aria-selected="true"]').textContent();
@@ -293,6 +309,23 @@ test('the board hides the tabs, and shows the open tab in its drawer', async ({ 
   // The tab that was open stays in view, in the drawer.
   await expect(page.locator('#frame')).toHaveClass(/in-drawer/);
   await expect(page.locator('#frame .drawer-title')).toHaveText(tab ?? '');
+
+  // Expanded, the board and its list step aside and the terminal has the page;
+  // the drawer bar stays for the way back.
+  await page.locator('#drawer-expand').click();
+  await expect(page.locator('#board')).toBeHidden();
+  // The board's bar (Board, Filter, Settings) steps aside too; the drawer's
+  // own bar is the way back.
+  await expect(page.locator('.tabbar.on-board')).toBeHidden();
+  await expect(page.locator('#frame')).toBeVisible();
+  await expect(page.locator('#frame .drawer-title')).toHaveText(tab ?? '');
+  const frame = await page.locator('#frame').boundingBox();
+  expect(frame?.width ?? 0).toBeGreaterThan((page.viewportSize()?.width ?? 0) * 0.8);
+  await page.locator('#drawer-expand').click();
+  await expect(page.locator('.tabbar.on-board')).toBeVisible();
+  await expect(page.locator('#board')).toBeVisible();
+  await expect(page.locator('#frame')).toHaveClass(/in-drawer/);
+
   // Closed, the board has the whole page: no workspace.
   await page.locator('#drawer-close').click();
   await expect(page.locator('#workspace')).toBeHidden();
@@ -340,11 +373,11 @@ test('a card opens its terminal in a drawer beside the board', async ({ page, da
   await expect(page.locator('#frame')).toBeHidden();
   await expect(page.locator('#board')).toBeVisible();
 
-  // Expanding goes to the terminals.
+  // Expanding hides the board and gives the drawer the page.
   await card(page, 'In a drawer').click();
   await page.locator('#drawer-expand').click();
   await expect(page.locator('#board')).toBeHidden();
-  await expect(page.locator('#tabs .tab[aria-selected="true"]')).toHaveText(/In a drawer/);
+  await expect(page.locator('#frame .drawer-title')).toHaveText('In a drawer');
 });
 
 test("a card's Move menu sets its status, on the board and in the drawer", async ({ page, daemon, project }) => {
