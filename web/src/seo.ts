@@ -3,9 +3,9 @@ import { SITE_URL } from './site.ts';
 /** Social preview: the landing page's fig. 1 poster, used as a direct capture. */
 export const OG_IMAGE = {
   path: '/og.png',
-  width: 2638,
-  height: 1724,
-  alt: "The tabsh list and a card's Claude chat open in a browser tab on a painted background.",
+  width: 1200,
+  height: 630,
+  alt: "The tabsh list beside a live terminal, headed 'Your shells and agents, one calm scroll.'",
 } as const;
 
 // Cloudflare serves these pages with a trailing slash (`html_handling: auto-trailing-slash`).

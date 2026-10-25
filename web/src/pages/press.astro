@@ -1,0 +1,181 @@
+---
+import Site from '../layouts/Site.astro';
+import { REPO_URL, SITE_URL } from '../site';
+
+const short = 'Your shells and agents, one calm scroll.';
+const oneLiner =
+  'tabsh puts your shells and coding agents in a browser tab, next to your work. A board moves each card as its agent works. Free, MIT, localhost only.';
+const fifty =
+  'tabsh is a browser tab for your terminal and coding agents. A small Rust daemon runs your shells locally, so they survive reloads and restarts. A board keeps every card across every project in one list, and agents move their own cards. Free, open source, macOS and Linux.';
+const hundred =
+  "tabsh puts your shells and coding agents in the browser tab next to your work. A tiny Rust daemon runs the shells on your machine, so closing the tab, reloading or rebooting doesn't lose them. Every shell and agent is a card on a board: Backlog, In progress, Needs input, Completed. With tabsh setup, a coding agent moves its own card when you send a prompt, when it needs permission, and when it finishes. Each card is either a real terminal or a chat panel, and any CLI that takes a prompt can be a card. Free, MIT, and localhost only.";
+const boilerplate =
+  'tabsh is a browser tab for your shells and coding agents, with one board across every project. It is free, MIT licensed, and runs locally on macOS and Linux. https://tabsh.cc';
+
+const shots = [
+  ['01-hero.png', 'The tabsh cover: your shells and agents, one calm scroll.'],
+  ['02-one-list.png', 'The list: every card across every project, grouped by status, with a shell beside it.'],
+  ['03-agents.png', 'The same agent as a real terminal (TUI) or a chat panel (UI).'],
+  ['04-board.png', 'The board: Backlog, In progress, Needs input, Completed and Archived.'],
+  ['05-hooks.png', 'The tabsh status commands that let an agent move its own card.'],
+  ['06-providers.png', 'Agent providers as commands: Claude Code, Codex, Cursor CLI and OpenCode.'],
+];
+
+const facts = [
+  ['Name', 'tabsh'],
+  ['Site', SITE_URL],
+  ['Repo', REPO_URL],
+  ['What', 'A browser tab for your shells and coding agents, with one board across projects.'],
+  ['Maker', 'Blaise Tiong'],
+  ['Price', 'Free'],
+  ['License', 'MIT'],
+  ['Platforms', 'macOS (Apple silicon and Intel) and Linux (x86-64 and arm64)'],
+  ['Install', 'curl -fsSL https://tabsh.cc/install.sh | sh'],
+  ['Data', 'Localhost only. No account, no relay, no telemetry.'],
+];
+---
+
+<Site
+  title="Press kit · tabsh"
+  description="Assets, blurbs and facts for writing about tabsh, the browser tab for your shells and coding agents."
+>
+  <h1><span class="mark">#</span> PRESS KIT</h1>
+  <p>
+    Everything here can be used without asking. Screenshots are 1270 × 760
+    (dark), the mark is SVG, and the demo video is silent and captioned. If you
+    need something else, ask.
+  </p>
+  <p class="muted">
+    <span class="mark">&gt;</span> Contact: <a href="https://blaisetiong.dev">Blaise Tiong</a>
+    · <a href={REPO_URL}>GitHub</a>
+    · <a href="/demo/?view=board&layout=list&drawer=1">live demo</a>
+  </p>
+
+  <h2 id="short"><span class="mark">##</span> THE SHORT VERSION</h2>
+  <p class="lede">{short}</p>
+  <p>{oneLiner}</p>
+
+  <h2 id="facts"><span class="mark">##</span> FACT SHEET</h2>
+  <div class="scroll"><table>
+    <tbody>
+      {facts.map(([k, v]) => (
+        <tr><th>{k}</th><td>{v.startsWith('http') ? <a href={v}>{v}</a> : v}</td></tr>
+      ))}
+    </tbody>
+  </table></div>
+
+  <h2 id="screens"><span class="mark">##</span> SCREENSHOTS</h2>
+  <p class="muted">Click any image for the full-size PNG. All six are also in <code>/press/</code>.</p>
+  <div class="gallery">
+    {shots.map(([file, alt], i) => (
+      <figure>
+        <a href={`/press/${file}`}><img src={`/press/${file}`} alt={alt} width="1270" height="760" loading={i === 0 ? 'eager' : 'lazy'} decoding="async" /></a>
+        <figcaption class="caption"><span class="mark">fig. {i + 1}</span> {alt}</figcaption>
+      </figure>
+    ))}
+  </div>
+
+  <h2 id="mark"><span class="mark">##</span> MARK</h2>
+  <p>
+    <a href="/favicon.svg">favicon.svg</a> (vector) ·
+    <a href="/press/icon-240.png">icon-240.png</a> (Product Hunt thumbnail) ·
+    <a href="/og.png">og.png</a> (1200 × 630 social card)
+  </p>
+  <p class="logo"><img src="/favicon.svg" alt="The tabsh mark: a prompt chevron and underscore on a dark rounded square" width="64" height="64" /></p>
+
+  <h2 id="video"><span class="mark">##</span> VIDEO</h2>
+  <p>
+    A 25-second silent demo of the real app against an in-memory daemon.
+    Download it and upload to YouTube/Vimeo; Product Hunt takes a link, not a
+    file.
+  </p>
+  <video src="/press/tabsh-demo.webm" controls muted playsinline preload="metadata" width="1270" height="720"></video>
+  <p class="muted"><a href="/press/tabsh-demo.webm">Download tabsh-demo.webm</a> (1.1 MB)</p>
+
+  <h2 id="copy"><span class="mark">##</span> COPY</h2>
+  <div class="blurb">
+    <p class="label"><span class="mark">25 words</span> <button type="button" data-copy={oneLiner} aria-label="Copy the 25-word blurb">[copy]</button></p>
+    <p>{oneLiner}</p>
+  </div>
+  <div class="blurb">
+    <p class="label"><span class="mark">50 words</span> <button type="button" data-copy={fifty} aria-label="Copy the 50-word blurb">[copy]</button></p>
+    <p>{fifty}</p>
+  </div>
+  <div class="blurb">
+    <p class="label"><span class="mark">100 words</span> <button type="button" data-copy={hundred} aria-label="Copy the 100-word blurb">[copy]</button></p>
+    <p>{hundred}</p>
+  </div>
+  <div class="blurb">
+    <p class="label"><span class="mark">Boilerplate</span> <button type="button" data-copy={boilerplate} aria-label="Copy the boilerplate">[copy]</button></p>
+    <p>{boilerplate}</p>
+  </div>
+
+  <h2 id="quote"><span class="mark">##</span> QUOTE</h2>
+  <blockquote>
+    <p>
+      “I didn't want another terminal. I wanted the terminal to stop being the
+      one window I had to leave the work for. The board came later, when I
+      realised the hard part wasn't running an agent, it was knowing which one
+      needed me.”
+    </p>
+    <footer>— Blaise Tiong, maker</footer>
+  </blockquote>
+
+  <h2 id="notes"><span class="mark">##</span> ACCURACY</h2>
+  <ul class="steps">
+    <li>macOS and Linux only. There is no Windows build; say so if it matters.</li>
+    <li>Free and MIT. There is no paid tier and no account.</li>
+    <li>Shells and agents run locally. The app page is served from tabsh.cc, but keystrokes stay on 127.0.0.1.</li>
+    <li>Agents run in your checkout; there is no worktree isolation.</li>
+    <li>The demo runs the real app against a pretend daemon in the page. Nothing runs on the reader's machine.</li>
+  </ul>
+
+  <footer>
+    <p><span class="mark">&gt;</span> <a href="/">tabsh.cc</a> · <a href="/docs/">docs</a> · <a href={REPO_URL}>source</a></p>
+  </footer>
+</Site>
+
+<script>
+  for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-copy]')) {
+    btn.addEventListener('click', async () => {
+      await navigator.clipboard.writeText(btn.dataset.copy ?? '');
+      const was = btn.textContent;
+      btn.textContent = '[copied]';
+      setTimeout(() => (btn.textContent = was), 1500);
+    });
+  }
+</script>
+
+<style>
+  .lede { font-size: 1.35em; line-height: 1.45; letter-spacing: -.01em; }
+  .gallery { display: grid; gap: 1.5rem; margin: 1.5rem 0; }
+  .gallery figure { margin: 0; }
+  .gallery img {
+    display: block; width: 100%; height: auto;
+    border: 1px solid color-mix(in srgb, var(--fg) 14%, var(--bg)); border-radius: 8px;
+  }
+  .gallery .caption { margin: .4rem 0 0; color: var(--muted); font-size: .85em; }
+  .logo { margin-top: 1rem; }
+  .logo img { display: block; border-radius: 14px; }
+  video { display: block; width: 100%; height: auto; margin-top: 1rem; border-radius: 8px; background: #0c0c0d; }
+  .blurb { margin: 1.25rem 0; }
+  .blurb .label { margin: 0 0 .25rem; color: var(--muted); font-size: .85em; }
+  .blurb button {
+    padding: 0; border: 0; background: none; color: var(--link); font: inherit; cursor: pointer;
+  }
+  .blurb button:hover { color: var(--fg); }
+  blockquote {
+    margin: 1.5rem 0; padding-left: 1.25rem;
+    border-left: 1px solid var(--line); color: var(--fg);
+  }
+  blockquote p { margin: 0 0 .5rem; font-size: 1.05em; line-height: 1.6; }
+  blockquote footer { color: var(--muted); font-size: .9em; }
+  .scroll { overflow-x: auto; }
+  @media (max-width: 520px) {
+    .scroll { overflow-x: visible; }
+    table, tbody, tr, th, td { display: block; width: auto; }
+    tr { padding: .55rem 0; border-bottom: 1px solid var(--line); }
+    th, td { border: 0; padding: 0; }
+    td { overflow-wrap: anywhere; }
+  }
+</style>

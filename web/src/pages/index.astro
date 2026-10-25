@@ -352,6 +352,7 @@ const table = drawTable(features, widths);
       <footer>
         <p>
           <span class="mark">&gt;</span> Get it: <a href="/docs/">install tabsh</a>.
+          Press: <a href="/press/">press kit</a>.
         </p>
         <p>
           Built with care by <a href="https://blaisetiong.dev">Blaise</a>.
@@ -525,6 +526,9 @@ const table = drawTable(features, widths);
     opacity: 1; visibility: visible;
   }
   .cmd { padding: .75rem 1rem; border-radius: 4px; background: var(--code-bg); }
+  /* The install line is wider than a phone: wrap it instead of hiding the
+     copy button off the right edge. */
+  @media (max-width: 520px) { .cmd { white-space: pre-wrap; overflow-wrap: anywhere; } }
 
   .copy {
     padding: 0; border: 0; background: none; color: var(--link); font: inherit; letter-spacing: inherit; cursor: pointer;

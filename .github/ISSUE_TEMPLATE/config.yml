@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://tabsh.cc/docs/
+    about: Install, connect an agent, and reach the daemon over Tailscale.
+  - name: Live demo (no install)
+    url: https://tabsh.cc/demo/?view=board&layout=list&drawer=1
+    about: The real app against an in-memory daemon. Try it before filing.
+  - name: Security
+    url: https://github.com/Blaise1030/tabsh/security/advisories/new
+    about: Report a vulnerability privately; please do not open a public issue.

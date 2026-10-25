@@ -11,8 +11,8 @@ test('the landing page canonical and social image are absolute', () => {
   const seo = pageSeo({ title, description, pathname: '/' });
   assert.equal(seo.canonical, 'https://tabsh.cc/');
   assert.equal(seo.image, 'https://tabsh.cc/og.png');
-  assert.equal(seo.imageWidth, 2638);
-  assert.equal(seo.imageHeight, 1724);
+  assert.equal(seo.imageWidth, 1200);
+  assert.equal(seo.imageHeight, 630);
   const graph = JSON.parse(seo.jsonLd)['@graph'] as { '@type': string }[];
   assert.deepEqual(
     graph.map((node) => node['@type']),
