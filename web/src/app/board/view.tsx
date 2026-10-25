@@ -264,9 +264,9 @@ export function toggleBoardLayout(): void {
   saveSetting('boardLayout', layout() === 'list' ? 'columns' : 'list');
 }
 
-// The Board button's and its shortcut's three steps: the terminals, the board
-// as columns, the board as a list, and back to the terminals. A phone has no
-// terminals view: only columns and list.
+// The Board button's three steps: the terminals, the board as columns, the
+// board as a list, and back to the terminals. A phone has no terminals view:
+// only columns and list.
 export function cycleBoard(): void {
   if (!boardOpen()) {
     if (layout() !== 'columns') saveSetting('boardLayout', 'columns');
@@ -1059,7 +1059,7 @@ export function initBoard(): void {
   });
   const boardButton = document.getElementById('board-btn') as HTMLButtonElement;
   keyHint(boardButton, 'Board', 'keyToggleBoard');
-  boardButton.onclick = () => cycleBoard(); // as its shortcut: terminals, columns, list
+  boardButton.onclick = () => cycleBoard(); // terminals, columns, list
   addEventListener('pointerdown', (e) => {
     const t = e.target as Node;
     const btn = document.getElementById('board-filter-btn');
@@ -1078,7 +1078,8 @@ export function initBoard(): void {
       if (!matchesKey(e, current.saved.keyToggleBoard) || document.querySelector('dialog[open]')) return;
       e.preventDefault();
       e.stopPropagation(); // capture phase: keep it away from the terminal
-      cycleBoard();
+      // The whole terminal, or the board with it in the drawer: the layout stays.
+      toggleBoard();
     },
     true,
   );

@@ -103,21 +103,18 @@ test('cards move through the board', async ({ page, daemon, project }) => {
   await expect(col(page, 'archived').locator('.board-card').filter({ hasText: 'Fix login' })).toBeVisible();
 });
 
-// The board shortcut steps through the terminals, the board as columns and the
+// The Board button steps through the terminals, the board as columns and the
 // board as a list. The list has the same statuses as headings over one-line
 // rows, as Linear's list view: dragging a row moves it on, a heading folds its
 // rows away, and the layout is saved.
-const BOARD_KEY = process.platform === 'darwin' ? 'Meta+KeyB' : 'Control+Shift+KeyB';
-
-test('the board shortcut steps through columns and a list', async ({ page, daemon, project }) => {
+test('the Board button steps through columns and a list', async ({ page, daemon, project }) => {
   await openApp(page, daemon);
   await boardAlone(page);
   await col(page, 'backlog').locator('header .btn').click();
   await newCard(page, 'List me', project);
 
   await expect(page.locator('#board')).not.toHaveClass(/\blist\b/);
-  await expect(page.locator('dialog[open]')).toHaveCount(0); // the shortcut does nothing while a dialog is open
-  await page.keyboard.press(BOARD_KEY);
+  await page.locator('#board-btn').click();
   await expect(page.locator('#board')).toHaveClass(/\blist\b/);
   await expect(col(page, 'backlog').locator('.board-row').filter({ hasText: 'List me' })).toBeVisible();
   // The status heading keeps its band; a hovered row is lighter than it.
@@ -164,12 +161,47 @@ test('the board shortcut steps through columns and a list', async ({ page, daemo
   await page.locator('#drawer-close').click();
 
   // Then the terminals, and the board again, as columns.
-  await page.keyboard.press(BOARD_KEY);
+  await page.locator('#board-btn').click();
   await expect(page.locator('#board')).toBeHidden();
-  await page.keyboard.press(BOARD_KEY);
+  await page.locator('#board-btn').click();
   await expect(page.locator('#board')).toBeVisible();
   await expect(page.locator('#board')).not.toHaveClass(/\blist\b/);
   await expect(col(page, 'needs_input').locator('.board-card:not(.board-row)')).toHaveCount(1);
+});
+
+// The board shortcut switches between the whole terminal and the board with
+// that terminal in its drawer, and leaves the layout as it is.
+const BOARD_KEY = process.platform === 'darwin' ? 'Meta+KeyB' : 'Control+Shift+KeyB';
+
+test('the board shortcut switches between the terminal and the board, keeping the layout', async ({
+  page,
+  daemon,
+}) => {
+  await openApp(page, daemon);
+  const tab = await page.locator('#tabs .tab[aria-selected="true"]').textContent();
+  await page.locator('#board-btn').click(); // the board as columns
+  await expect(page.locator('#board')).not.toHaveClass(/\blist\b/);
+
+  await expect(page.locator('dialog[open]')).toHaveCount(0); // the shortcut does nothing while a dialog is open
+  await page.keyboard.press(BOARD_KEY);
+  await expect(page.locator('#board')).toBeHidden();
+  await expect(page.locator('#frame')).not.toHaveClass(/in-drawer/);
+  await expect(page.locator('#tabs')).toBeVisible();
+  await page.keyboard.press(BOARD_KEY);
+  await expect(page.locator('#board')).toBeVisible();
+  await expect(page.locator('#board')).not.toHaveClass(/\blist\b/);
+  await expect(page.locator('#frame')).toHaveClass(/in-drawer/);
+  await expect(page.locator('#frame .drawer-title')).toHaveText(tab ?? '');
+
+  // As a list, the board comes back as a list.
+  await page.locator('#board-btn').click();
+  await expect(page.locator('#board')).toHaveClass(/\blist\b/);
+  await page.keyboard.press(BOARD_KEY);
+  await expect(page.locator('#board')).toBeHidden();
+  await page.keyboard.press(BOARD_KEY);
+  await expect(page.locator('#board')).toHaveClass(/\blist\b/);
+  await expect(page.locator('#frame')).toHaveClass(/in-drawer/);
+  await leaveBoard(page);
 });
 
 test("a card made from In progress's + starts its agent at once", async ({ page, daemon, project }) => {
