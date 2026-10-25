@@ -127,14 +127,20 @@ export async function openApp(page: Page, daemon: Daemon, { phone = false } = {}
   // closed and the tour seen, so a click opens the sidebar.
   const headers = { Authorization: `Bearer ${daemon.token}` };
   const now = await (await page.request.get(`${daemon.baseUrl}/api/settings`, { headers })).json();
-  if (now.explorerOpen || now.welcomeSeen !== true) {
+  // Desktop specs drive the terminal workspace, whose board is columns by
+  // default here. Phone specs start on the board, where list is the default.
+  const wantedLayout = phone ? 'list' : 'columns';
+  if (now.explorerOpen || now.welcomeSeen !== true || now.boardLayout !== wantedLayout) {
     const put = await page.request.put(`${daemon.baseUrl}/api/settings`, {
       headers,
-      data: { ...now, explorerOpen: false, welcomeSeen: true },
+      data: { ...now, explorerOpen: false, welcomeSeen: true, boardLayout: wantedLayout },
     });
     expect(put.status()).toBe(204);
   }
-  await page.goto(`${daemon.baseUrl}/app/#token=${daemon.token}`);
+  // The board is home now; the terminal workspace is a legacy link, which is
+  // still the shortest way for a spec to drive a full tab strip.
+  const url = phone ? `${daemon.baseUrl}/app/` : `${daemon.baseUrl}/app/?view=terms`;
+  await page.goto(`${url}#token=${daemon.token}`);
   if (phone) {
     await expect(page.locator('#frame.in-drawer .term.active .xterm-screen')).toBeVisible();
     return;
@@ -200,14 +206,14 @@ export const TEST_PROVIDERS = ['true', 'touch launched', 'touch dragged'].map((c
 
 // Sets the stored `boardOnboarded` flag and the test providers, keeping the
 // other settings.
-// Back to the terminals from the board: the Board button steps through the
-// board as columns, then as a list, then the terminals.
+// Back to the terminal workspace from the board. The board is home now, so
+// this follows the legacy `view=terms` link; the daemon reattaches the tabs.
 export async function leaveBoard(page: Page): Promise<void> {
-  const board = page.locator('#board');
-  if (!(await board.evaluate((b) => b.classList.contains('list')))) await page.locator('#board-btn').click();
-  await expect(board).toHaveClass(/\blist\b/);
-  await page.locator('#board-btn').click();
-  await expect(board).toBeHidden();
+  const url = new URL(page.url());
+  url.searchParams.set('view', 'terms');
+  url.searchParams.delete('drawer');
+  await page.goto(url.toString());
+  await expect(page.locator('#board')).toBeHidden();
 }
 
 export async function setOnboarded(page: Page, daemon: Daemon, on: boolean): Promise<void> {

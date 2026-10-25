@@ -4,7 +4,15 @@
 import { createMemo, For, type JSX, untrack } from 'solid-js';
 import { DrawerMoveButton } from '../board/move-menu.tsx';
 import { NewCard } from '../board/new-card.tsx';
-import { Board, drawer as boardDrawer, shown as boardShown, FilterButton, layout } from '../board/view.tsx';
+import {
+  Board,
+  drawer as boardDrawer,
+  shown as boardShown,
+  drawerExpanded,
+  FilterButton,
+  layout,
+  toggleDrawerExpanded,
+} from '../board/view.tsx';
 import { ChatPanel } from '../chat/panel.tsx';
 import { open as explorerOpen, toggleExplorer } from '../explorer/explorer.ts';
 import { Sidebar } from '../explorer/sidebar.tsx';
@@ -132,6 +140,7 @@ function TabBar(): JSX.Element {
 // terminal view.
 function DrawerBar(): JSX.Element {
   const drawer = boardDrawer;
+  const expanded = drawerExpanded;
   const tab = active;
   const explorer = explorerOpen;
   const title = () => {
@@ -158,11 +167,12 @@ function DrawerBar(): JSX.Element {
         onClick={toggleExplorer}
       />
       <BarButton
-        icon={icons.expand}
-        label="Open in terminals"
-        title="Open in terminals"
+        icon={expanded() ? icons.collapse : icons.expand}
+        label={expanded() ? 'Collapse terminal' : 'Expand terminal'}
+        title={expanded() ? 'Collapse terminal' : 'Expand terminal'}
         id="drawer-expand"
-        onClick={() => go({ view: 'terms' })}
+        pressed={expanded()}
+        onClick={toggleDrawerExpanded}
       />
     </header>
   );
@@ -218,8 +228,9 @@ function Workspace(): JSX.Element {
 function Stage(): JSX.Element {
   const shown = boardShown;
   const drawer = boardDrawer;
+  const expanded = drawerExpanded;
   return (
-    <div id="stage">
+    <div id="stage" class={expanded() ? 'expanded' : ''}>
       <Board />
       <div id="drawer-divider" hidden={!drawer()} />
       <div id="frame" class={drawer() ? 'in-drawer' : ''} hidden={shown() && !drawer()}>

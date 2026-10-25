@@ -67,7 +67,7 @@ test('a reload keeps the tab', async ({ page, daemon }) => {
 
 test('an unknown tab falls back to a shown tab', async ({ page, daemon }) => {
   await openApp(page, daemon);
-  await page.goto(`${daemon.baseUrl}/app/?tab=nope`);
+  await page.goto(`${daemon.baseUrl}/app/?view=terms&tab=nope`);
   await expect(tabs(page).first()).toBeVisible();
   await expect.poll(() => selected(page)).toBeGreaterThanOrEqual(0);
   await expect.poll(() => urlTab(page)).not.toBe('nope');
@@ -257,7 +257,10 @@ test('a tab switch overtaken mid-load is still undone', async ({ page, daemon, p
   await newTab(page);
   const b = await onTab(page, 1);
   // B shows README, then back on A, with no file.
-  await page.evaluate((u) => navigation.navigate(u).finished, `?tab=${b}&file=${encodeURIComponent(`${project}/README.md`)}`);
+  await page.evaluate(
+    (u) => navigation.navigate(u).finished,
+    `?view=terms&tab=${b}&file=${encodeURIComponent(`${project}/README.md`)}`,
+  );
   await expect(page.locator('#pane .pane-head')).toContainText('README.md');
   await tabs(page).nth(0).click();
   await onTab(page, 0);
@@ -269,7 +272,7 @@ test('a tab switch overtaken mid-load is still undone', async ({ page, daemon, p
       await navigation.navigate(u).committed;
       await navigation.back().finished.catch(() => {});
     },
-    `?tab=${b}&file=${encodeURIComponent(`${project}/src/main.rs`)}`,
+    `?view=terms&tab=${b}&file=${encodeURIComponent(`${project}/src/main.rs`)}`,
   );
   await expect(tabs(page).nth(0)).toHaveAttribute('aria-selected', 'true');
   expect(urlTab(page)).toBe(a);
@@ -420,7 +423,8 @@ test('a stale URL is fixed', async ({ page, daemon }) => {
   await onTab(page, 0);
   const app = page.url().split('?')[0];
   await page.goto(`${app}?tab=nope&file=../../nope&line=abc&view=grid`);
-  await expect(page.locator('#tabs .tab:not(.mirror)[aria-selected="true"]')).toBeVisible();
+  // An unknown view falls back to the board, the app's home.
+  await expect(page.locator('#board')).toBeVisible();
   await expect.poll(() => urlTab(page)).not.toBe('nope');
   const q = new URL(page.url()).searchParams;
   expect(q.get('tab')).toBeTruthy();
@@ -486,8 +490,8 @@ test('a fresh launch reopens the remembered file and keeps the keyboard in the t
   await openLink(page, 'src/main.rs', 'src/main.rs');
   await expect.poll(() => urlFile(page)).toBe(`${project}/src/main.rs`);
 
-  // A plain launch: no tab or file in the URL.
-  await page.goto(`${daemon.baseUrl}/app/`);
+  // A terminal launch: no tab or file in the URL.
+  await page.goto(`${daemon.baseUrl}/app/?view=terms`);
   await expect(page.locator('#tabs .tab').first()).toBeVisible();
   await expect(page.locator('#pane .pane-head')).toContainText('main.rs');
   await expect.poll(() => urlFile(page)).toBe(`${project}/src/main.rs`);

@@ -6,7 +6,7 @@ import { render } from 'solid-js/web';
 import { initBoardEvents } from './board/events.ts';
 import { initMoveMenu } from './board/move-menu.tsx';
 import { initNotify } from './board/notify.ts';
-import { initBoard, leaveTermsOnPhone } from './board/view.tsx';
+import { initBoard, openTerminalOnPhone } from './board/view.tsx';
 import { deliverAgentText, focusAgentSurface } from './chat/deliver.ts';
 import { daemonFetch, waitForDaemon } from './daemon/client.ts';
 import { LOCAL_APP, MIXED_BLOCKED } from './daemon/config.ts';
@@ -172,15 +172,14 @@ createRoot(() => {
     const tab = (store.sessions.find((s) => s.id === activeId) ?? store.sessions[0])?.id ?? null;
     await startRouter({
       tab,
-      // Where the app opens when the URL doesn't say (the welcome tour's pick);
-      // a view query wins, as the URL merges over this fallback.
-      view: current.saved.startView,
-      // The tab's remembered file opens as part of the startup place, which
-      // doesn't take the keyboard. A URL naming another tab drops it.
+      // The board is home; a `view` query still wins, as the URL merges over
+      // this fallback. The tab's remembered file opens as part of the startup
+      // place, which doesn't take the keyboard. A URL naming another tab
+      // drops it.
       file: (tab && rememberedFiles()[tab]) || null,
       explorer: current.saved.explorerOpen,
     });
-    leaveTermsOnPhone();
+    openTerminalOnPhone();
     // The router has picked the active tab: attach its socket (sessions opened
     // during sync had no active tab yet, so they stayed parked).
     syncTerminalVisibility();

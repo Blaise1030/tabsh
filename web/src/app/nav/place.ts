@@ -16,7 +16,7 @@ export type Place = {
 export const HOME: Place = {
   tab: null,
   term: null,
-  view: 'terms',
+  view: 'board',
   drawer: false,
   file: null,
   line: null,
@@ -56,7 +56,8 @@ export function toQuery(p: Place, keep: URLSearchParams): string {
   for (const k of KEYS) q.delete(k);
   if (p.tab) q.set('tab', p.tab);
   if (p.term) q.set('term', p.term);
-  if (p.view !== 'terms') q.set('view', p.view);
+  // The drawer only exists on the board, so its link names the view too.
+  if (p.view !== 'board' || p.drawer) q.set('view', p.view);
   if (p.drawer) q.set('drawer', '1');
   if (p.file) {
     q.set('file', p.file);

@@ -248,6 +248,17 @@ body { font-family: var(--font-sans); }
   body:has(#stage.dragging) { user-select: none; cursor: col-resize; }
   body:has(#stage.dragging) iframe { pointer-events: none; }
 }
+/* The expanded drawer: the board, its list and the tab bar step aside while
+   the drawer takes the page. Its own bar is the way back. */
+#stage.expanded :is(#board, #drawer-divider) { display: none; }
+#stage.expanded #frame { flex: 1 1 100%; }
+#stage.expanded #frame.in-drawer::before { display: none; }
+/* The board's bar (Board, Filter, Settings) has nothing to act on here. */
+#app:has(#stage.expanded) > .tabbar { display: none; }
+@media (min-width: 800px) {
+  body:has(#stage.expanded) { display: flex; flex-direction: column; }
+  body:has(#stage.expanded) #frame.in-drawer { flex: 1 1 auto; width: auto; }
+}
 .drawer-bar {
   display: flex; align-items: center; gap: .375rem; height: 2.625rem; padding: 0 .5rem;
   box-sizing: border-box; background: var(--background); border: 0; box-shadow: none;

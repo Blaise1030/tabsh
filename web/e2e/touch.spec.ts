@@ -77,7 +77,8 @@ test('a phone has no tab mode: the board as columns or a list, terminals in the 
     await expect(page.locator('#board')).toBeVisible();
     layouts.push((await page.locator('#board').getAttribute('class')) ?? '');
   }
-  expect(layouts.map((c) => (/\blist\b/.test(c) ? 'list' : 'columns'))).toEqual(['list', 'columns', 'list']);
+  // It starts as a list; each tap switches to the other layout.
+  expect(layouts.map((c) => (/\blist\b/.test(c) ? 'list' : 'columns'))).toEqual(['columns', 'list', 'columns']);
   // A link to the terminals lands on the board, the terminal in its drawer.
   await page.goto(`${daemon.baseUrl}/app/?view=terms`);
   await expect(page.locator('#frame')).toHaveClass(/in-drawer/);

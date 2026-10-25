@@ -1,6 +1,6 @@
 // The welcome tour: the screens it shows, and the settings its choices write.
 // Pure data and decisions — the dialog lives in `view.ts`.
-import type { BoardLayout, StartView } from '../settings/schema.ts';
+import type { BoardLayout } from '../settings/schema.ts';
 
 // The tour's screens, in order. `skip` says whether the screen offers Skip
 // (the tour can be left early); `setup` marks the agents screen, the last
@@ -24,7 +24,7 @@ export const WELCOME_SCREENS: readonly WelcomeScreen[] = [
   {
     id: 'view',
     title: 'Choose your workspace.',
-    body: 'Tabs for the terminals, a kanban for the cards, or the same cards as a list.',
+    body: 'A kanban for the cards, or the same cards as a list.',
     skip: true,
     setup: false,
   },
@@ -51,23 +51,15 @@ export function clampStep(index: number): number {
   return Math.min(Math.max(index, 0), WELCOME_SCREENS.length - 1);
 }
 
-// The settings the view screen's choice writes: tabs keep the tour's terms
-// view and the layout as it is; kanban and list open on the board with
-// their layout.
-export function viewSettings(
-  choice: 'tabs' | 'kanban' | 'list',
-  boardLayout: BoardLayout,
-): { startView: 'terms' | 'board'; boardLayout: BoardLayout } {
-  if (choice === 'tabs') return { startView: 'terms', boardLayout };
-  if (choice === 'kanban') return { startView: 'board', boardLayout: 'columns' };
-  return { startView: 'board', boardLayout: 'list' };
+// The setting the view screen's choice writes: the board is the only
+// workspace, so the choice is its layout.
+export function viewSettings(choice: 'kanban' | 'list'): { boardLayout: BoardLayout } {
+  return { boardLayout: choice === 'kanban' ? 'columns' : 'list' };
 }
 
-// The view screen's choice, as the saved settings name the chosen one: tabs
-// are the tour's terms view, kanban and list are the board in their layout —
-// the inverse of viewSettings.
-export function viewChoice(startView: StartView, boardLayout: BoardLayout): 'tabs' | 'kanban' | 'list' {
-  if (startView === 'terms') return 'tabs';
+// The view screen's choice, as the saved layout names it — the inverse of
+// viewSettings.
+export function viewChoice(boardLayout: BoardLayout): 'kanban' | 'list' {
   return boardLayout === 'list' ? 'list' : 'kanban';
 }
 
