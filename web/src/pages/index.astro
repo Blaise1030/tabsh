@@ -30,21 +30,6 @@ const drawTable = (rows: string[][], widths: number[]) => {
 const widths = features[0].map((_, i) => Math.max(...features.map((r) => r[i].length)));
 const table = drawTable(features, widths);
 
-// The board, as ASCII: one card per column, the agent under its title.
-const board = [
-  ['BACKLOG', 'IN PROGRESS', 'NEEDS INPUT', 'COMPLETED'],
-  ['Dark mode', 'Fix refunds', 'Bump deps', 'Add search'],
-  ['claude', 'codex', 'gemini', 'opencode'],
-];
-const cell = 14;
-const boardRule = Array(4).fill(`+${'-'.repeat(cell)}+`).join(' ');
-const boardRow = (row: string[], box: boolean) =>
-  row.map((c) => (box ? `| ${c.padEnd(cell - 2)} |` : ` ${c.padEnd(cell)} `)).join(' ');
-const boardArt = [boardRow(board[0], false), boardRule, boardRow(board[1], true), boardRow(board[2], true), boardRule].join(
-  '\n',
-);
-const SETUP_PROMPT = 'Run `tabsh setup` and follow it.';
-
 ---
 
 <Site
@@ -127,9 +112,8 @@ const SETUP_PROMPT = 'Run `tabsh setup` and follow it.';
 
       <h2 id="list"><span class="mark">##</span> ONE LIST, EVERY PROJECT</h2>
       <p>
-        Columns are good for moving one card. The list is for catching up. Every
-        card from every project sits in the same scroll, grouped by status and
-        tagged with the folder it came from.
+        Columns move one card. The list catches you up: every card, every
+        project, one scroll, grouped by status and tagged with its folder.
       </p>
       <figure class="shot still-fig">
         <picture>
@@ -147,46 +131,42 @@ const SETUP_PROMPT = 'Run `tabsh setup` and follow it.';
       </figure>
       <ol class="steps">
         <li>
-          <b>Every project, one place.</b> A shop card and an api card sit in the
-          same list. Each card keeps its folder, so you can tell them apart
-          without opening a thing.
+          <b>Every project, one place.</b> A shop card and an api card, one
+          list. Each card keeps its folder.
         </li>
         <li>
           <b>Grouped, not scattered.</b> Backlog, In progress, Needs input,
-          Completed and Archived. Fold what's done and the board gets shorter.
+          Completed, Archived. Fold what's done.
         </li>
         <li>
-          <b>One scroll.</b> No columns to pan, no drawer to open, no tab to
-          hunt for. If a card needs you, it is already in front of you.
+          <b>One scroll.</b> No columns to pan, no drawer to open. If a card
+          needs you, it's already there.
         </li>
       </ol>
 
-      <h2 id="calm"><span class="mark">##</span> WHY CALMER?</h2>
+      <h2 id="browser"><span class="mark">##</span> WHY A BROWSER TAB?</h2>
       <ol class="steps">
-        <li>
-          <b>The board is the signal.</b> One status per card. No feed to clear,
-          no unread count, no second inbox. If nothing needs you, the board says
-          so and you get on with your day.
-        </li>
         <li>
           <b>It lives where you already are.</b> The issue, the pull request,
           the docs and the app on localhost are already tabs. tabsh makes your
-          shells and agents one more tab, instead of a window of their own.
+          shells and agents one more tab, not another window.
+        </li>
+        <li>
+          <b>Nothing to install on your desktop.</b> A small local daemon serves
+          a plain page. No second editor, no Electron app, no new place to sign
+          in.
         </li>
         <li>
           <b>Quiet by default.</b> A tab badge and one chime when a card needs
-          you or is done; both can be turned off. No per-agent notification
-          stream, no badge on every card.
+          you or is done; both can be turned off. No feed, no unread count.
         </li>
       </ol>
 
       <h2 id="agents"><span class="mark">##</span> YOUR AGENTS, YOUR CALL</h2>
       <p>
-        Pick the agent per card. Claude Code, Codex, Cursor CLI and OpenCode are
-        ready out of the box; any command that takes a prompt works too, up to
-        12 providers. Each card runs in a real terminal (TUI) or a chat panel
-        (UI), and you can switch per card. In a UI card, the model picker is
-        right there in the chat.
+        Pick the agent per card: Claude Code, Codex, Cursor CLI, OpenCode, or
+        any CLI that takes a prompt. Run it as a terminal (TUI) or a chat (UI);
+        switch per card. Models change in the chat.
       </p>
       <figure class="shot still-fig">
         <picture>
@@ -262,36 +242,6 @@ const SETUP_PROMPT = 'Run `tabsh setup` and follow it.';
         </picture>
         <figcaption class="caption"><span class="mark">fig. 5</span> optional: serve the same board to a phone over Tailscale.</figcaption>
       </figure>
-
-      <h2 id="board"><span class="mark">##</span> THE BOARD, LIVE</h2>
-      <p>
-        The board is the same cards in columns (⌘B switches between columns and
-        the list). Start an agent from a new card's prompt, then watch it move
-        as its hooks report in.
-      </p>
-      <p class="caption board-fig">
-        <span class="mark">fig. 6</span> the board, live. Keep watching: two agents are about to report&nbsp;in.
-      </p>
-      <figure class="shot board-fig">
-        <div class="browser board" role="group" aria-label="Interactive demo: the tabsh board">
-          <div class="urlbar" aria-hidden="true">
-            <span class="lights"><i></i><i></i><i></i></span>
-            <span class="url">tabsh.cc/app/?view=board</span>
-          </div>
-          <!-- The same demo as fig. 1, opened on the board: a fuller one, with scripted hooks. -->
-          <div class="app"><iframe data-src="/demo/?view=board" title="tabsh demo: the board"></iframe></div>
-        </div>
-      </figure>
-      <pre class="art" aria-label="A board with four columns: Backlog, In progress, Needs input and Completed, one agent's card in each">{boardArt}</pre>
-      <p>Tell Claude Code, Codex, Cursor CLI, OpenCode or any agent with hooks:</p>
-      <pre class="cmd"><span class="mark">&gt;</span> {SETUP_PROMPT}  <button type="button" class="copy" data-copy={SETUP_PROMPT} aria-label="Copy setup prompt">[copy]</button></pre>
-      <ol class="steps">
-        <li><b>It wires its own hooks</b> to <code>tabsh status</code>. Outside tabsh they do nothing.</li>
-        <li><b>A prompt moves the card to In progress.</b> A question or a stop moves it to Needs input; finished work lands in Completed.</li>
-        <li><b>You hear about it.</b> A desktop notification and a chime when an agent needs you or is done.</li>
-        <li><b>Agents pick up where they left off</b> when tabsh restarts.</li>
-      </ol>
-      <p class="muted"><span class="mark">&gt;</span> <a href="/docs/">How to set this up</a>, the hooks the agent runs, how to undo it, and <a href="/docs/#tailscale">Tailscale</a> if you need another device.</p>
 
       <h2 id="differs"><span class="mark">##</span> HOW IT DIFFERS</h2>
       <p>
@@ -466,21 +416,7 @@ const SETUP_PROMPT = 'Run `tabsh setup` and follow it.';
         });
       }
 
-      // Fig. 1 waits for a click. The others load as they near the screen.
-      // Not with loading="lazy": WebKit gives a lazily loaded frame no
-      // Navigation API entry, so every navigation in it aborts and the app's
-      // router never shows a tab.
-      const frames = new IntersectionObserver(
-        (entries) => {
-          for (const { isIntersecting, target } of entries) {
-            if (!isIntersecting || !(target instanceof HTMLIFrameElement)) continue;
-            frames.unobserve(target);
-            target.src = target.dataset.src ?? '';
-          }
-        },
-        { rootMargin: '600px 0px' },
-      );
-      for (const frame of document.querySelectorAll('iframe[data-src]:not([data-click])')) frames.observe(frame);
+      // Fig. 1 waits for a click, so the landing page does not boot the demo.
       for (const poster of document.querySelectorAll('[data-run]')) {
         poster.addEventListener('click', () => {
           const frame = poster.parentElement?.querySelector('iframe[data-src]');
@@ -570,25 +506,12 @@ const SETUP_PROMPT = 'Run `tabsh setup` and follow it.';
   }
   .poster:focus-visible { outline: 2px solid var(--link); outline-offset: -4px; }
   .app iframe { display: block; width: 100%; height: 100%; border: 0; }
-  /* fig. 6: fig. 1's 16:10, but in the text column and with no tab strip. */
-  .browser.board .urlbar { display: flex; align-items: center; gap: .75rem; }
-  .browser.board .lights { padding-bottom: 0; }
-  /* Zoomed out to 70%, like ⌘- in the browser, so more of the board fits. */
-  .browser.board .app { overflow: hidden; }
-  .browser.board iframe { width: calc(100% / .7); height: calc(100% / .7); transform: scale(.7); transform-origin: 0 0; }
-  .browser.board .url { flex: 1; max-width: 28rem; }
   /* 16:10 is too short to use on a phone. */
   @media (max-width: 520px) { .browser { aspect-ratio: auto; } .app { flex: none; height: 28rem; } .lights { display: none; } }
 </style>
 
 <style>
-  .table, .diagram, .art { white-space: pre; }
-  /* A phone gets the ASCII board: four columns of the real one are too narrow to read there. */
-  .art { display: none; }
-  @media (max-width: 520px) { .board-fig { display: none; } .art { display: block; } }
-  /* The board is 67 characters wide: shrink it on narrow screens so it never scrolls. */
-  .art { line-height: 1.3; }
-  @media (max-width: 720px) { .art { font-size: min(1em, calc((100vw - 2rem) / 41)); } }
+  .table, .diagram { white-space: pre; }
 
   /* FAQ: each question a [+] line that opens to [-]. */
   .faq { margin-bottom: 1rem; }
@@ -613,7 +536,6 @@ const SETUP_PROMPT = 'Run `tabsh setup` and follow it.';
   /* fig. 1's caption sits over the preview, tight to it. */
   .caption { position: relative; margin: 3rem 0 .5rem; color: var(--muted); font-size: .85em; }
   .caption + .shot { margin-top: 0; }
-  .shot.board-fig { width: auto; margin-left: 0; }
   .how { margin-left: .5ch; white-space: nowrap; }
   .how button {
     padding: 0; border: 0; background: none; color: var(--link); font: inherit; letter-spacing: inherit; cursor: help;

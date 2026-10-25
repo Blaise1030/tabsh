@@ -28,10 +28,7 @@ test('fig 1 loads when its poster is clicked', () => {
   assert.doesNotMatch(fig1, /src="\/preview-/);
   assert.doesNotMatch(fig1, /srcset=/);
   assert.doesNotMatch(fig1, /hero\.png/);
-  assert.match(fig1, /<iframe\b[^>]*data-src="\/demo\/\?view=board&layout=list"/);
+  assert.match(fig1, /<iframe\b[^>]*data-src="\/demo\/\?view=board&layout=list/);
   assert.match(fig1, /<iframe\b[^>]*\bdata-click\b/);
-  const boardFrame = landing.slice(landing.indexOf('shot board-fig')).match(/<iframe\b[^>]*>/)?.[0] ?? '';
-  assert.doesNotMatch(boardFrame, /data-click/);
-  assert.match(landing, /iframe\[data-src\]:not\(\[data-click\]\)/);
   assert.match(landing, /querySelectorAll\('\[data-run\]'\)/);
 });
