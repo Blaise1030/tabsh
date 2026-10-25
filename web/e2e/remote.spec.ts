@@ -58,11 +58,11 @@ async function addDevice(page: Page): Promise<string> {
 }
 
 // A second browser (its own storage, as a phone would have) opened on the
-// device's link, paired once the tab strip shows.
+// device's link, paired once the board shows.
 async function pairDevice(browser: Browser, link: string): Promise<Page> {
   const page = await (await browser.newContext()).newPage();
   await page.goto(link);
-  await expect(page.locator('#tabs')).toBeVisible();
+  await expect(page.locator('#board')).toBeVisible();
   await expect(page.locator('#gate')).toBeHidden();
   return page;
 }
@@ -112,7 +112,7 @@ test('share, pair a device and revoke it', async ({ page, browser, playwright, r
   // the gate only rises for a remote peer, which the guard's unit tests cover.)
   expect(await statusFor(playwright, remote, token)).toBe(401);
   await device.reload();
-  await expect(device.locator('#tabs')).toBeVisible();
+  await expect(device.locator('#board')).toBeVisible();
   await device.context().close();
 });
 

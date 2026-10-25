@@ -15,7 +15,14 @@ test('round-trips a full place', () => {
     explorer: true,
     palette: 'root',
   };
-  assert.deepEqual(fromQuery(new URLSearchParams(toQuery(p, new URLSearchParams()))), p);
+  assert.deepEqual({ ...HOME, ...fromQuery(new URLSearchParams(toQuery(p, new URLSearchParams()))) }, p);
+});
+
+test('the board is home and the terminals are an explicit link', () => {
+  assert.equal(HOME.view, 'board');
+  assert.equal(toQuery(HOME, new URLSearchParams()), '');
+  assert.equal(toQuery({ ...HOME, view: 'terms' }, new URLSearchParams()), '?view=terms');
+  assert.equal(fromQuery(new URLSearchParams('view=terms')).view, 'terms');
 });
 
 test('leaves defaults out', () => {

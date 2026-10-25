@@ -1,5 +1,5 @@
 // A card's side terminals: another shell in the card, not another card.
-import { dropSessions, expect, openApp, setOnboarded, test, typeInTerminal } from './fixture.ts';
+import { dropSessions, expect, leaveBoard, openApp, setOnboarded, test, typeInTerminal } from './fixture.ts';
 
 test.beforeEach(async ({ page, daemon }) => {
   await dropSessions(page, daemon);
@@ -33,9 +33,7 @@ test('a side terminal stays with its card', async ({ page, daemon }) => {
   await page.locator('#board-btn').click();
   await expect(page.locator('#board .board-card')).toHaveCount(1);
 
-  for (let i = 0; i < 3 && !(await page.locator('#tabs .tab').first().isVisible()); i++) {
-    await page.locator('#board-btn').click();
-  }
+  await leaveBoard(page);
   await page.locator('#tabs .tab:not(.mirror)').first().hover();
   await page.locator('#tabs .tab:not(.mirror)').first().getByRole('button', { name: 'Close terminal' }).click();
   await expect.poll(async () => {

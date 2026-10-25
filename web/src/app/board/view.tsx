@@ -55,6 +55,14 @@ export const [shown, setShown] = createSignal(false);
 // Whether the active tab's terminal shows in a drawer beside the board: set
 // only by the router's drawer step.
 export const [drawer, setDrawer] = createSignal(false);
+// The drawer takes the whole page: the board and list step out of its way,
+// and the drawer bar stays for the way back. It is not a workspace mode, so
+// it does not change the place.
+export const [drawerExpanded, setDrawerExpanded] = createSignal(false);
+export function toggleDrawerExpanded(): void {
+  if (!drawer()) return;
+  setDrawerExpanded(!drawerExpanded());
+}
 // A new value each time the view or drawer step brings the terminal into
 // view: the board then fits and focuses it. Written by the last of those
 // steps to run, after `shown` and `drawer`, so observers see those (and the
@@ -264,21 +272,31 @@ export function toggleBoardLayout(): void {
   saveSetting('boardLayout', layout() === 'list' ? 'columns' : 'list');
 }
 
-// The Board button's and its shortcut's three steps: the terminals, the board
-// as columns, the board as a list, and back to the terminals. A phone has no
-// terminals view: only columns and list.
+// The Board button and its shortcut switch the board's layout. From an
+// expanded terminal they return to the board; the board is home, so they
+// never leave for a terminals-only workspace.
 export function cycleBoard(): void {
-  if (!boardOpen()) {
-    if (layout() !== 'columns') saveSetting('boardLayout', 'columns');
-    toggleBoard(true);
-  } else if (layout() === 'columns') saveSetting('boardLayout', 'list');
-  else if (phone.matches) saveSetting('boardLayout', 'columns');
-  else toggleBoard(false);
+  if (drawerExpanded()) {
+    setDrawerExpanded(false);
+  } else if (!boardOpen()) {
+    go({ view: 'board', drawer: !!store.active });
+  } else {
+    saveSetting('boardLayout', layout() === 'list' ? 'columns' : 'list');
+  }
 }
 
-// Opening the board with a tab open keeps that tab in view, in the drawer.
-export function toggleBoard(open = !boardOpen()): void {
-  go(open ? { view: 'board', drawer: !!store.active } : { view: 'terms' });
+// The palette's Toggle board: show or hide the board. Hiding it gives the
+// drawer the page rather than opening the old terminals workspace.
+export function toggleBoard(): void {
+  if (drawerExpanded()) {
+    setDrawerExpanded(false);
+  } else if (!boardOpen()) {
+    go({ view: 'board', drawer: !!store.active });
+  } else if (drawer()) {
+    setDrawerExpanded(true);
+  } else if (store.active) {
+    go({ drawer: true });
+  }
 }
 
 function showBoard(open: boolean): void {
@@ -290,6 +308,7 @@ function showBoard(open: boolean): void {
   // With the drawer open, the drawer step follows to close it, and turns then.
   batch(() => {
     setShown(false);
+    setDrawerExpanded(false);
     if (!drawer()) setViewTurn({});
   });
 }
@@ -1029,29 +1048,34 @@ export function Board(): JSX.Element {
   );
 }
 
-// On a phone, the terminals view (a start view, a link, Back, a turn into
-// phone size) is the board with the terminal in its drawer.
+// On a phone, the board keeps the active terminal in its drawer: a legacy
+// terminals link and a board that started without one both get the drawer.
 const PHONE_FIX = { view: 'board', drawer: true } as const;
 
-// Startup's place, whose view step doesn't run when it is the default
-// (the terminals), gets the same fix once the router has started.
-export function leaveTermsOnPhone(): void {
-  if (phone.matches && here().view === 'terms') go(PHONE_FIX, 'replace');
+// Once the router has started, and on a turn into phone size, open the active
+// terminal's drawer. A board the person closed by hand is left alone after
+// startup.
+export function openTerminalOnPhone(): void {
+  if (!phone.matches) return;
+  if (here().view === 'terms' || (!here().drawer && store.active)) go(PHONE_FIX, 'replace');
 }
 
 export function initBoard(): void {
   onPlace('view', (to) => {
     const fix = to.view === 'terms' && phone.matches ? PHONE_FIX : undefined;
-    showBoard(to.view === 'board' || !!fix);
+    const board = to.view === 'board' || !!fix;
+    if (!board) setDrawerExpanded(false);
+    showBoard(board);
     // Board alone parks terminals so a drag that launches an agent does not
     // flood xterm while the cards are on screen.
     syncTerminalVisibility();
     return fix;
   });
-  phone.addEventListener('change', leaveTermsOnPhone);
+  phone.addEventListener('change', openTerminalOnPhone);
   onPlace('drawer', (to) => {
     batch(() => {
       setDrawer(to.drawer);
+      if (!to.drawer) setDrawerExpanded(false);
       if (to.drawer || !shown()) setViewTurn({});
     });
     syncTerminalVisibility();
@@ -1059,7 +1083,7 @@ export function initBoard(): void {
   });
   const boardButton = document.getElementById('board-btn') as HTMLButtonElement;
   keyHint(boardButton, 'Board', 'keyToggleBoard');
-  boardButton.onclick = () => cycleBoard(); // as its shortcut: terminals, columns, list
+  boardButton.onclick = () => cycleBoard(); // as its shortcut: list, columns, back from expanded
   addEventListener('pointerdown', (e) => {
     const t = e.target as Node;
     const btn = document.getElementById('board-filter-btn');
