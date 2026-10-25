@@ -1,8 +1,25 @@
 # Changelog
 
-## v0.1.41
+## v1.0.0
 
-[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.40...v0.1.41)
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v0.1.40...v1.0.0)
+
+Your shells and coding agents, one calm scroll. The first stable release puts
+the terminal and your agents in a browser tab, with one board across every
+project. Shells survive reloads, restarts and closed laptops; cards move when
+you move them, or when the agent reports what it is doing.
+
+### Highlights
+
+- **One board, every project.** Backlog, In progress, Needs input, Completed and Archived, as columns or as one list. Drag a card or open its terminal.
+- **Agents move their own cards.** `tabsh setup` adds hooks so a prompt, a permission request or a finished turn updates the card. Outside tabsh the hooks do nothing.
+- **TUI or UI per card.** A real terminal, or an ACP chat with models, tool calls, permission prompts, image attachments and path links. Claude Code, Codex, Cursor CLI and OpenCode are tested; any CLI that takes a prompt can be a provider.
+- **Local by default.** A Rust daemon on 127.0.0.1, a token in the URL fragment, no account, no relay, no telemetry. Tailscale is optional for another device.
+- **Installs that stay installed.** Checksum-verified macOS and Linux binaries, a Homebrew tap, and `brew services` to keep the daemon running from login.
+
+### Features
+
+- **web:** Add the press kit and refresh the social card ([2bd0ba1](https://github.com/Blaise1030/tabsh/commit/2bd0ba1))
 
 ## v0.1.40
 
