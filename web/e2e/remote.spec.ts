@@ -68,8 +68,7 @@ async function pairDevice(browser: Browser, link: string): Promise<Page> {
 }
 
 // What the daemon answers a request that carries `token` the way a browser
-// page does: with its Origin. (A loopback request with no Origin gets past the
-// token check, so without it `::1` would say nothing about revocation.)
+// page does: with its Origin.
 async function statusFor(playwright: PlaywrightWorkerArgs['playwright'], daemon: Daemon, token: string) {
   const origin = `http://[::1]:${port(daemon)}`;
   const ctx = await playwright.request.newContext();
@@ -107,9 +106,8 @@ test('share, pair a device and revoke it', async ({ page, browser, playwright, r
   await expect(item(page, 'Add device…')).toBeVisible();
   await expect(item(page, /^iPhone/)).toHaveCount(0);
 
-  // The revoked token is refused. (Not asserted as the pairing gate: over
-  // loopback a page's Origin-less GET of /api/about passes with any token, so
-  // the gate only rises for a remote peer, which the guard's unit tests cover.)
+  // The revoked token is refused, with or without an Origin: loopback
+  // alone no longer passes the guard.
   expect(await statusFor(playwright, remote, token)).toBe(401);
   await device.reload();
   await expect(device.locator('#board')).toBeVisible();

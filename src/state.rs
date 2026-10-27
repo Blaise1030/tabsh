@@ -163,6 +163,41 @@ mod tests {
             first_asset
         );
 
+        // Every privileged route requires a token when no Origin header:
+        // loopback alone is not a credential.
+        for (method, path) in guarded_routes {
+            let req = axum::http::Request::builder()
+                .method(method.clone())
+                .uri(*path)
+                .header("Host", "127.0.0.1:7681")
+                .extension(loopback_peer())
+                .body(axum::body::Body::empty())
+                .unwrap();
+            let app = router(state.clone());
+            let res = app.oneshot(req).await.unwrap();
+            // The page paths are the only exceptions, and only as GET/HEAD.
+            let page = (method == Method::GET || method == Method::HEAD)
+                && matches!(*path, "/" | "/open" | "/app" | "/app/")
+                || path.starts_with("/sounds/");
+            if page {
+                assert_ne!(
+                    res.status(),
+                    StatusCode::UNAUTHORIZED,
+                    "{} {} without Origin should reach the page",
+                    method,
+                    path
+                );
+            } else {
+                assert_eq!(
+                    res.status(),
+                    StatusCode::UNAUTHORIZED,
+                    "expected 401 for {} {} without Origin or token",
+                    method,
+                    path
+                );
+            }
+        }
+
         // File API requires token when no Origin header
         for path in &[
             "/api/files?session=x&path=a",

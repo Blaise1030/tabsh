@@ -462,7 +462,7 @@ mod tests {
             .method(method)
             .uri(uri)
             .header("Host", "127.0.0.1:7681")
-            .header("Authorization", "Bearer [REDACTED]")
+            .header("Authorization", format!("Bearer {}", st.token))
             .header("Content-Type", "application/json")
             .extension(crate::test_support::loopback_peer())
             .body(axum::body::Body::from(body.to_string()))
@@ -878,7 +878,7 @@ mod tests {
             .method(Method::GET)
             .uri(format!("/api/sessions/{id}/chat/stream"))
             .header("Host", "127.0.0.1:7681")
-            .header("Authorization", "Bearer [REDACTED]")
+            .header("Authorization", format!("Bearer {}", st.token))
             .extension(crate::test_support::loopback_peer())
             .body(axum::body::Body::empty())
             .unwrap();
@@ -916,7 +916,7 @@ mod tests {
             .method(Method::GET)
             .uri(format!("/api/sessions/{id}/chat/stream"))
             .header("Host", "127.0.0.1:7681")
-            .header("Authorization", "Bearer [REDACTED]")
+            .header("Authorization", format!("Bearer {}", st.token))
             .extension(crate::test_support::loopback_peer())
             .body(axum::body::Body::empty())
             .unwrap();
@@ -1077,7 +1077,7 @@ mod tests {
             .method(Method::GET)
             .uri(format!("/api/sessions/{id}/chat/stream"))
             .header("Host", "127.0.0.1:7681")
-            .header("Authorization", "Bearer [REDACTED]")
+            .header("Authorization", format!("Bearer {}", st.token))
             .extension(crate::test_support::loopback_peer())
             .body(axum::body::Body::empty())
             .unwrap();
