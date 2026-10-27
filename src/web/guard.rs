@@ -31,8 +31,15 @@ pub(crate) const LOCAL_NAME: &str = "tabsh.localhost";
 ///   main one or a device's), except for the page and its assets (`is_page`).
 /// - A device token never reaches `/api/remote*`.
 /// - No Origin: not a cross-site browser request (browsers always send it on
-///   cross-site writes and WebSockets; see `ws_handler`). The file API still
-///   needs a token (`admits_without_origin`).
+///   cross-site writes and WebSockets; see `ws_handler`). Only the page and
+///   its public assets pass without a token; every other route needs one
+///   (`admits_without_origin`). Trusted local callers (the `tabsh status`
+///   CLI and agent hooks) already read the token file and send it.
+///   Threat model: tabsh is single-user. The page routes (`/`, `/open`)
+///   deliberately hand the token to loopback browsers for pairing, and a
+///   process running as this user can read the token file anyway — so
+///   this guard is a boundary against browsers, DNS rebinding and remote
+///   peers, not a sandbox between local processes.
 /// - A hosted UI origin, or our own (the page at /app/): allowed, but only
 ///   with a token.
 /// - Anything else is refused.
@@ -75,7 +82,7 @@ pub(crate) async fn guard(
     }
     let headers = req.headers();
     let Some(origin) = headers.get(header::ORIGIN).cloned() else {
-        if !admits_without_origin(path, credential.as_ref()) {
+        if !admits_without_origin(req.method(), path, credential.as_ref()) {
             return StatusCode::UNAUTHORIZED.into_response();
         }
         return next.run(req).await;
@@ -122,10 +129,12 @@ pub(crate) async fn guard(
     res
 }
 
-/// Whether a request with no Origin may pass. The file API reads and writes
-/// any file the user can, so it always needs a token, whoever is asking.
-fn admits_without_origin(path: &str, credential: Option<&Credential>) -> bool {
-    !path.starts_with("/api/files") || credential.is_some()
+/// Whether a request with no Origin may pass. Only the page and its
+/// public assets are readable before pairing; everything else — sessions,
+/// settings, uploads, files, sockets — needs a token as a direct call.
+/// (Pairing itself is loopback-only by design; see the threat model above.)
+fn admits_without_origin(method: &Method, path: &str, credential: Option<&Credential>) -> bool {
+    is_page(method, path) || credential.is_some()
 }
 
 /// The page and its assets, which another device loads before it has a
@@ -361,6 +370,7 @@ mod tests {
         let req = Request::builder()
             .uri("/api/sessions")
             .header(header::HOST, "127.0.0.1:7681")
+            .header(header::AUTHORIZATION, format!("Bearer {}", st.token))
             .extension(ConnectInfo(mapped))
             .body(Body::empty())
             .unwrap();
@@ -484,7 +494,8 @@ mod tests {
             format!("Some(Device({id:?}))")
         );
         assert_eq!(who(LOOPBACK, Some("t0k3n")).await, "Some(Main)");
-        assert_eq!(who(LOOPBACK, None).await, "None");
+        // No token, no Origin: refused before the handler, so no credential.
+        assert_eq!(who(LOOPBACK, None).await, "");
     }
 
     #[test]
@@ -532,19 +543,64 @@ mod tests {
     }
 
     #[test]
-    fn file_api_needs_the_token_without_origin() {
+    fn privileged_routes_need_the_token_without_origin() {
         let device = Credential::Device("d1".into());
-        for path in ["/api/files", "/api/files/raw"] {
-            assert!(!admits_without_origin(path, None), "{path}");
+        for path in [
+            "/api/files",
+            "/api/files/raw",
+            "/api/sessions",
+            "/api/settings",
+            "/api/uploads",
+            "/api/about",
+            "/api/board/events",
+            "/ws",
+            "/api/remote",
+        ] {
+            assert!(!admits_without_origin(&Method::GET, path, None), "{path}");
             assert!(
-                admits_without_origin(path, Some(&Credential::Main)),
+                admits_without_origin(&Method::GET, path, Some(&Credential::Main)),
                 "{path}"
             );
-            assert!(admits_without_origin(path, Some(&device)), "{path}");
+            assert!(
+                admits_without_origin(&Method::GET, path, Some(&device)),
+                "{path}"
+            );
         }
-        // Everything else is left to its own hardening for now.
-        assert!(admits_without_origin("/api/sessions", None));
-        assert!(admits_without_origin("/ws", None));
+        // Only the page and its assets pass before pairing.
+        for path in ["/", "/open", "/app", "/app/", "/_astro/a.js"] {
+            assert!(admits_without_origin(&Method::GET, path, None), "{path}");
+            assert!(!admits_without_origin(&Method::POST, path, None), "{path}");
+        }
+    }
+
+    #[tokio::test]
+    async fn loopback_without_origin_or_token_is_refused() {
+        let st = test_state();
+        for (m, p) in [
+            (Method::GET, "/api/sessions"),
+            (Method::POST, "/api/sessions"),
+            (Method::GET, "/api/settings"),
+            (Method::POST, "/api/uploads?name=a"),
+            (Method::GET, "/api/about"),
+            (Method::GET, "/ws?id=x"),
+            (Method::GET, "/api/board/events"),
+        ] {
+            assert_eq!(
+                send(&st, m.clone(), p, LOOPBACK, None, None).await,
+                StatusCode::UNAUTHORIZED,
+                "{m} {p}"
+            );
+            assert_ne!(
+                send(&st, m.clone(), p, LOOPBACK, None, Some("t0k3n")).await,
+                StatusCode::UNAUTHORIZED,
+                "{m} {p} with token"
+            );
+        }
+        // The page itself still loads before pairing.
+        assert_eq!(
+            send(&st, Method::GET, "/app/", LOOPBACK, None, None).await,
+            StatusCode::OK
+        );
     }
 
     #[test]

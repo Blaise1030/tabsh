@@ -152,7 +152,16 @@ A refactor must not change any of these.
     and the token. The only exceptions are GET or HEAD of a single-segment
     `/_astro/{name}` and of the named PWA files under `/app/` (manifest,
     service worker, icons in `web/public/app/`, embedded by `build.rs`).
-  - Without an Origin, `/api/files*` still needs the token.
+  - Without an Origin, only GET/HEAD of the page (`/`, `/open`, `/app`,
+    `/app/`) and its assets pass without the token. Every other route
+    needs it as a direct call. Trusted local callers (`tabsh status`,
+    agent hooks) read the token file and send `Authorization: Bearer …`.
+  - **Threat model:** tabsh is a single-user daemon. `/` and `/open`
+    deliberately hand the token to loopback browsers so they can pair,
+    and a process running as this user can read the token file anyway.
+    The guard is therefore a boundary against browsers, DNS rebinding
+    and remote peers — not a sandbox between local processes. Do not
+    claim protection against local malware running as the user.
   - From a non-loopback peer, every route needs a token (the main one or a
     device's), with or without an Origin, except GET or HEAD of the page
     (`/`, `/open`, `/app`, `/app/`) and its assets (`/_astro/{name}`,
@@ -163,7 +172,18 @@ A refactor must not change any of these.
 - **Token:** it arrives in the URL fragment and is cleared from the address
   bar before any request, except on another device (the page's host is a
   non-loopback IP), where a home-screen app needs it in its saved address.
-  Nothing rendered from a file can read it.
+  Nothing rendered from a file can read it. Its file is opened with
+  `O_NOFOLLOW` and validated by `fstat` on that same descriptor, then
+  read, repaired (`0600`) or replaced through it — never re-resolved by
+  path. A symlink, a non-regular file or another user's file is refused.
+  Browser WebSockets carry
+  it as `?token=` (they cannot set headers); that accepted exposure is
+  limited to the daemon's own logs, never a proxy by default.
+- **Bind:** `HOST=0.0.0.0`/`::` is refused unless
+  `TABSH_ALLOW_INSECURE_BIND=1`. A specific non-loopback `HOST` is the
+  documented fixed-host mode and only warns: it exposes the same plain
+  HTTP API to that interface, so the warning, not the guard, is its
+  safeguard. Prefer Tailscale sharing or a trusted tunnel.
 - **File previews:**
   - HTML renders in `<iframe sandbox="allow-scripts allow-popups">`.
   - Markdown renders in `<iframe sandbox="allow-same-origin">`. Scripts stay off, so a file still cannot read the token or call the daemon; same origin only lets the pane read a text selection and offer Comment. SVG renders in `<iframe sandbox="">`.

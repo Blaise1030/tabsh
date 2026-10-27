@@ -37,6 +37,17 @@ async fn daemon() {
         .or_else(|| std::env::var("PORT").ok())
         .unwrap_or_else(|| "7681".into());
     let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".into());
+    match bind_policy(
+        &host,
+        std::env::var("TABSH_ALLOW_INSECURE_BIND").is_ok_and(|v| v == "1"),
+    ) {
+        Ok(Some(warning)) => eprintln!("tabsh: WARNING: {warning}"),
+        Ok(None) => {}
+        Err(e) => {
+            eprintln!("tabsh: {e}");
+            std::process::exit(2);
+        }
+    }
     let addr = format!("{host}:{port}");
 
     let db_path = std::env::var("TABSH_DB").unwrap_or_else(|_| {
@@ -158,6 +169,38 @@ async fn shutdown_signal() {
     }
 }
 
+/// Whether binding `host` is allowed, and the warning to print when it
+/// exposes the daemon beyond this machine. Binding every interface
+/// (`0.0.0.0`/`::`) over plain HTTP is refused unless
+/// `TABSH_ALLOW_INSECURE_BIND=1`: a leaked token then means remote shell
+/// access. A specific non-loopback address stays allowed (that is the
+/// documented fixed-`HOST` mode) but warns, preferring Tailscale/tunnel.
+fn bind_policy(host: &str, allow_insecure: bool) -> Result<Option<String>, String> {
+    if host.eq_ignore_ascii_case("localhost") {
+        return Ok(None);
+    }
+    let Ok(ip) = host.parse::<std::net::IpAddr>() else {
+        return Ok(Some(format!(
+            "HOST={host} is not loopback; tabsh serves plain HTTP and a leaked token \
+             means shell access — prefer Tailscale or a trusted tunnel"
+        )));
+    };
+    if ip.is_loopback() {
+        return Ok(None);
+    }
+    if ip.is_unspecified() && !allow_insecure {
+        return Err(format!(
+            "refusing to bind {host} (every interface) over plain HTTP; \
+             set TABSH_ALLOW_INSECURE_BIND=1 to allow it, or bind 127.0.0.1 \
+             and use Tailscale / a trusted tunnel instead"
+        ));
+    }
+    Ok(Some(format!(
+        "listening on {host} beyond this machine over plain HTTP; a leaked token \
+         means shell access — prefer Tailscale or a trusted tunnel"
+    )))
+}
+
 /// `host` when it isn't a loopback address: a name other than `localhost`, or
 /// an address on another interface (or every one, `0.0.0.0`).
 fn fixed_host(host: &str) -> Option<Arc<str>> {
@@ -195,6 +238,32 @@ mod self_url_tests {
         assert_eq!(self_url("::", "7681"), "http://127.0.0.1:7681");
         assert_eq!(self_url("::1", "7681"), "http://[::1]:7681");
         assert_eq!(self_url("example.test", "1"), "http://example.test:1");
+    }
+}
+
+#[cfg(test)]
+mod bind_policy_tests {
+    use super::bind_policy;
+
+    #[test]
+    fn loopback_binds_silently() {
+        for host in ["127.0.0.1", "::1", "localhost", "LocalHost"] {
+            assert_eq!(bind_policy(host, false), Ok(None), "{host}");
+        }
+    }
+
+    #[test]
+    fn every_interface_needs_the_explicit_opt_in() {
+        for host in ["0.0.0.0", "::"] {
+            assert!(bind_policy(host, false).is_err(), "{host}");
+            assert!(bind_policy(host, true).unwrap().is_some(), "{host}");
+        }
+    }
+
+    #[test]
+    fn a_specific_remote_address_warns_but_binds() {
+        assert!(bind_policy("192.168.1.2", false).unwrap().is_some());
+        assert!(bind_policy("example.test", false).unwrap().is_some());
     }
 }
 
