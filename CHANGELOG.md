@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.5.1
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v1.5.0...v1.5.1)
+
+### Fixes
+
+- **security:** Require token for origin-less API access ([9ccd678](https://github.com/Blaise1030/tabsh/commit/9ccd678))
+- **security:** Validate token file on its descriptor, document threat model ([580f288](https://github.com/Blaise1030/tabsh/commit/580f288))
+
 ## v1.5.0
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v1.3.0...v1.5.0)
