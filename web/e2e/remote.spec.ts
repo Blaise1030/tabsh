@@ -110,7 +110,10 @@ test('share, pair a device and revoke it', async ({ page, browser, playwright, r
   // alone no longer passes the guard.
   expect(await statusFor(playwright, remote, token)).toBe(401);
   await device.reload();
-  await expect(device.locator('#board')).toBeVisible();
+  // The revoked device is unpaired on reload: loopback no longer stands
+  // in for a token, so the pairing gate rises instead of the board.
+  await expect(device.locator('#gate')).toBeVisible();
+  await expect(device.locator('#board')).toBeHidden();
   await device.context().close();
 });
 
