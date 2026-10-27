@@ -163,8 +163,8 @@ mod tests {
             first_asset
         );
 
-        // Every privileged route requires a token when no Origin header:
-        // loopback alone is not a credential.
+        // Every privileged route requires a token when no Origin header,
+        // as a direct call (pairing via the page routes aside).
         for (method, path) in guarded_routes {
             let req = axum::http::Request::builder()
                 .method(method.clone())

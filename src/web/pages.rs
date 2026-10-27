@@ -64,6 +64,13 @@ pub(crate) fn open_browser(url: &str) {
 /// paired: the token rides in the fragment, which is never sent onward. Only
 /// browsers on this machine get it; with HOST set to a LAN address, others
 /// land on the pairing screen instead.
+///
+/// Threat model: this is intentional pairing, not an authentication
+/// boundary against local processes. tabsh is a single-user daemon — a
+/// process running as this user can read the token file directly, and a
+/// loopback client is treated as this user pairing a browser. The guard's
+/// token requirement stops browsers, DNS-rebinding pages and remote or
+/// unauthenticated direct API calls; it does not sandbox local processes.
 pub(crate) async fn open_app(
     State(st): State<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
@@ -312,5 +319,28 @@ mod tests {
         assert_eq!(location(mapped).await, "/app/#token=t0k3n");
         let remote = SocketAddr::from(([100, 64, 0, 1], 50000));
         assert_eq!(location(remote).await, "/app/");
+    }
+
+    // Pin the documented threat model: loopback pairing endpoints hand
+    // the token to this machine's browsers, and never to another machine.
+    // Changing that is a deliberate product change, not a refactor.
+    #[tokio::test]
+    async fn hosted_pairing_hands_the_token_only_to_loopback() {
+        let mut st = crate::test_support::test_state();
+        st.app_url = Some("https://tabsh.cc/app/".into());
+        let location = |peer: SocketAddr| {
+            let st = st.clone();
+            async move {
+                let res = open_app(State(st), ConnectInfo(peer)).await;
+                res.headers()[header::LOCATION].to_str().unwrap().to_owned()
+            }
+        };
+        let loopback = SocketAddr::from(([127, 0, 0, 1], 50000));
+        assert_eq!(
+            location(loopback).await,
+            "https://tabsh.cc/app/#token=t0k3n"
+        );
+        let remote = SocketAddr::from(([100, 64, 0, 1], 50000));
+        assert_eq!(location(remote).await, "https://tabsh.cc/app/");
     }
 }

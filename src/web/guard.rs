@@ -35,6 +35,11 @@ pub(crate) const LOCAL_NAME: &str = "tabsh.localhost";
 ///   its public assets pass without a token; every other route needs one
 ///   (`admits_without_origin`). Trusted local callers (the `tabsh status`
 ///   CLI and agent hooks) already read the token file and send it.
+///   Threat model: tabsh is single-user. The page routes (`/`, `/open`)
+///   deliberately hand the token to loopback browsers for pairing, and a
+///   process running as this user can read the token file anyway — so
+///   this guard is a boundary against browsers, DNS rebinding and remote
+///   peers, not a sandbox between local processes.
 /// - A hosted UI origin, or our own (the page at /app/): allowed, but only
 ///   with a token.
 /// - Anything else is refused.
@@ -126,9 +131,8 @@ pub(crate) async fn guard(
 
 /// Whether a request with no Origin may pass. Only the page and its
 /// public assets are readable before pairing; everything else — sessions,
-/// settings, uploads, files, sockets — needs a token, whoever is asking.
-/// An Origin-less loopback process is still just a process on this
-/// machine, and the API can start shells, so loopback is not a credential.
+/// settings, uploads, files, sockets — needs a token as a direct call.
+/// (Pairing itself is loopback-only by design; see the threat model above.)
 fn admits_without_origin(method: &Method, path: &str, credential: Option<&Credential>) -> bool {
     is_page(method, path) || credential.is_some()
 }
