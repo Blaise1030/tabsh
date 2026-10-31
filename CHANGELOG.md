@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.8.1
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v1.8.0...v1.8.1)
+
+### Fixes
+
+- **board:** Dock the folded Archived strip at the board's right edge ([6aad1b3](https://github.com/Blaise1030/tabsh/commit/6aad1b3))
+
 ## v1.8.0
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v1.7.0...v1.8.0)
