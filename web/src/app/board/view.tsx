@@ -8,7 +8,7 @@ import { DOCS_URL } from '../../site.ts';
 import { focusAgentSurface } from '../chat/deliver.ts';
 import { api } from '../daemon/client.ts';
 import { go, here, onPlace } from '../nav/router.ts';
-import { tagColor } from '../sessions/labels.ts';
+import { searchTags, tagColor } from '../sessions/labels.ts';
 import {
   isChatCard,
   newSession,
@@ -99,11 +99,13 @@ const [filterChoices, setFilterChoices] = createSignal<{ tags: string[]; folders
 let filterMenu: HTMLElement | null = null;
 // Columns side by side, or one list of rows under each status's heading.
 export const [layout, setLayout] = createSignal<BoardLayout>(current.saved.boardLayout);
-// The list layout's folded statuses, kept in this browser.
+// The folded statuses, kept in this browser: any heading in the list layout,
+// and Archived in the columns layout too. Archived starts folded, so done
+// work stays out of the way until it's opened.
 const COLLAPSED_KEY = 'tabsh.boardCollapsed';
 function loadCollapsed(): Status[] {
   try {
-    const raw: unknown = JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? '[]');
+    const raw: unknown = JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? '["archived"]');
     return Array.isArray(raw) ? raw.map(asStatus) : [];
   } catch {
     return [];
@@ -183,11 +185,18 @@ function openFilterMenu(): void {
 }
 
 // The open filter menu, on the page's body: its rows are checked as the
-// filter was when it opened, and stay as they're toggled.
+// filter is, so a row its search hides and shows again keeps its tick.
 function FilterMenu(): JSX.Element {
   const { tags, folders } = filterChoices();
-  const checkedTags = filterTags();
-  const checkedFolders = filterFolders();
+  // Its search narrows the tags and folders listed, ignoring case.
+  const [typed, setTyped] = createSignal('');
+  const foundTags = () => searchTags(tags, typed());
+  const foundFolders = () =>
+    folders
+      .map((folder) => ({ folder, name: shortPath(folder) || folder }))
+      .filter((x) => searchTags([x.name], typed()).length);
+  let field!: HTMLInputElement;
+  queueMicrotask(() => field.focus());
   return (
     <Portal
       ref={(host) => {
@@ -199,37 +208,51 @@ function FilterMenu(): JSX.Element {
       }}
     >
       <div class="row-menu tab-menu board-filter-menu" role="dialog" aria-label="Filter cards">
-        <Show when={tags.length}>
+        <input
+          ref={field}
+          type="text"
+          class="input"
+          placeholder="Search tags and folders…"
+          autocomplete="off"
+          spellcheck={false}
+          aria-label="Search tags and folders"
+          on:input={() => setTyped(field.value)}
+        />
+        <Show when={foundTags().length}>
           <div class="menu-heading">Tags</div>
           <div class="menu-list">
-            {tags.map((tag) => (
-              <CheckRow
-                text={tag}
-                checked={checkedTags.includes(tag)}
-                color={tagColor(tag)}
-                change={(checked) => toggleFilter('tags', tag, checked)}
-              />
-            ))}
+            <For each={foundTags()}>
+              {(tag) => (
+                <CheckRow
+                  text={tag}
+                  checked={filterTags().includes(tag)}
+                  color={tagColor(tag)}
+                  change={(checked) => toggleFilter('tags', tag, checked)}
+                />
+              )}
+            </For>
           </div>
         </Show>
-        <Show when={folders.length}>
-          <Show when={tags.length}>
+        <Show when={foundFolders().length}>
+          <Show when={foundTags().length}>
             <div class="menu-sep" />
           </Show>
           <div class="menu-heading">Folders</div>
           <div class="menu-list">
-            {folders.map((folder) => (
-              <CheckRow
-                text={shortPath(folder) || folder}
-                checked={checkedFolders.includes(folder)}
-                color={null}
-                change={(checked) => toggleFilter('folders', folder, checked)}
-              />
-            ))}
+            <For each={foundFolders()}>
+              {({ folder, name }) => (
+                <CheckRow
+                  text={name}
+                  checked={filterFolders().includes(folder)}
+                  color={null}
+                  change={(checked) => toggleFilter('folders', folder, checked)}
+                />
+              )}
+            </For>
           </div>
         </Show>
-        <Show when={!tags.length && !folders.length}>
-          <div class="menu-hint">No tags or folders yet</div>
+        <Show when={!foundTags().length && !foundFolders().length}>
+          <div class="menu-hint">{tags.length || folders.length ? 'No matches' : 'No tags or folders yet'}</div>
         </Show>
       </div>
     </Portal>
@@ -816,7 +839,10 @@ function NewCardButton(props: { status: Status; name: string }): JSX.Element {
 function Column(props: { status: Status; name: string; columns: () => Columns; asList: boolean }): JSX.Element {
   const { status, name, columns, asList } = props;
   const folds = collapsed;
-  const folded = () => asList && folds().includes(status);
+  // Every heading folds in the list layout; in columns only Archived does, to
+  // a strip.
+  const foldable = asList || status === 'archived';
+  const folded = () => foldable && folds().includes(status);
   const count = () => String(columns()[status].length);
   let list!: HTMLDivElement;
   let col!: HTMLElement;
@@ -843,7 +869,7 @@ function Column(props: { status: Status; name: string; columns: () => Columns; a
     for (const c of list.children) listSized.unobserve(c);
     resized.unobserve(col);
   });
-  const header = asList ? (
+  const header = foldable ? (
     <button type="button" class="col-toggle" aria-expanded={!folded()} onClick={() => toggleCollapsed(status)}>
       {icons.chevronDown()}
       <StatusGlyph status={status} />
@@ -861,6 +887,7 @@ function Column(props: { status: Status; name: string; columns: () => Columns; a
     <section
       ref={col}
       class="board-col"
+      classList={{ folded: folded() }}
       data-status={status}
       on:dragover={(e) => {
         e.preventDefault();
@@ -873,7 +900,7 @@ function Column(props: { status: Status; name: string; columns: () => Columns; a
       on:dragleave={(e) => !col.contains(e.relatedTarget as Node) && clearDropMarks()}
       on:drop={(e) => {
         e.preventDefault();
-        const before = cardBefore(list, e.clientY)?.dataset.id ?? null; // while the dragged card is still marked
+        const before = folded() ? null : (cardBefore(list, e.clientY)?.dataset.id ?? null); // while the dragged card is still marked
         endDrag();
         const id = e.dataTransfer?.getData(CARD_DRAG);
         if (id) void move(id, status, before);

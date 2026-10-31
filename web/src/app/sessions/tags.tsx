@@ -1,10 +1,21 @@
 // Tab labels: the repo a tab's shell is in, read from the daemon, and the tags
 // checked in the tab's right-click menu (kept in this browser). A tagged tab
 // shows its tags' colors, and the strip groups tabs by either (groups.tsx).
-import { createSignal, For, type JSX } from 'solid-js';
+import { createSignal, For, type JSX, Show } from 'solid-js';
 import { render } from 'solid-js/web';
 import { daemonFetch } from '../daemon/client.ts';
-import { cleanTag, type Labels, parseTags, repoName, sameTags, tagColor, toggleTag } from './labels.ts';
+import { icons } from '../ui/icons.tsx';
+import {
+  exactTag,
+  type Labels,
+  parseTags,
+  pickTyped,
+  repoName,
+  sameTags,
+  searchTags,
+  tagColor,
+  toggleTag,
+} from './labels.ts';
 import { onActivate, type Session, store } from './store.ts';
 
 const TAGS_KEY = 'tabsh.tags';
@@ -100,13 +111,34 @@ function CheckRow(props: {
   );
 }
 
-// The tab's right-click menu: a box to type a new tag, then a checkbox per tag
-// in use, checked for the tab's own. A typed tag is added to the tab and the
-// list, and the menu stays open.
+// A tag search's field and its last row, which makes the tag typed while it
+// names none in use. A tags panel and a tab's menu share them.
+export const SEARCH_TAGS = 'Search or create tag…';
+export function CreateTagRow(props: { typed: string; make: () => void }): JSX.Element {
+  return (
+    <button
+      type="button"
+      class="tags-create"
+      tabindex="-1"
+      // As a tag row: a press mustn't move focus, which a chip's popover
+      // would take for leaving it.
+      on:mousedown={(e) => e.preventDefault()}
+      on:click={() => props.make()}
+    >
+      {icons.plus()}
+      <span>Create “{props.typed.trim()}”</span>
+    </button>
+  );
+}
+
+// The tab's right-click menu: a box to search the tags in use or type a new
+// one, then a checkbox per tag it finds, checked for the tab's own. Enter
+// ticks the tag typed, making it when it's new, and the menu stays open.
 function TagMenu(props: { session: Session }): JSX.Element {
   const s = props.session;
   // Bumped to read the stored tags again, once a typed one is added.
   const [read, reread] = createSignal(0);
+  const [typed, setTyped] = createSignal('');
   const tags = () => {
     read();
     return usedTags();
@@ -116,6 +148,14 @@ function TagMenu(props: { session: Session }): JSX.Element {
     return storedTags()[s.id] ?? [];
   };
   let field!: HTMLInputElement;
+  const pick = () => {
+    if (!field.value.trim()) return;
+    setTags(s, pickTyped(storedTags()[s.id] ?? [], usedTags(), field.value));
+    field.value = '';
+    setTyped('');
+    reread((n) => n + 1);
+    field.focus();
+  };
   queueMicrotask(() => field.focus());
   return (
     <>
@@ -123,19 +163,19 @@ function TagMenu(props: { session: Session }): JSX.Element {
         ref={field}
         type="text"
         class="input"
-        placeholder="New tag…"
+        placeholder={SEARCH_TAGS}
         maxLength={24}
-        aria-label="New tag"
+        autocomplete="off"
+        aria-label="Search or create tag"
+        on:input={() => setTyped(field.value)}
         on:keydown={(e) => {
-          const tag = e.key === 'Enter' && cleanTag(field.value);
-          if (!tag) return;
-          setTags(s, toggleTag(storedTags()[s.id] ?? [], tag, true));
-          field.value = '';
-          reread((n) => n + 1);
+          if (e.key !== 'Enter' || e.isComposing) return;
+          e.preventDefault();
+          pick();
         }}
       />
       <div class="menu-list">
-        <For each={tags()}>
+        <For each={searchTags(tags(), typed())}>
           {(tag) => (
             <CheckRow
               kind="tag"
@@ -145,6 +185,9 @@ function TagMenu(props: { session: Session }): JSX.Element {
             />
           )}
         </For>
+        <Show when={typed().trim() && !exactTag(tags(), typed())}>
+          <CreateTagRow typed={typed()} make={pick} />
+        </Show>
       </div>
     </>
   );

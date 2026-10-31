@@ -1,5 +1,5 @@
-// The tags panel: every tag in use, checked when picked, and a field making
-// a new one; toggling keeps it open. The card menu's Tags submenu shows it
+// The tags panel: a field searching the tags in use, or making a new one, over
+// those it finds, checked when picked; toggling keeps it open. The card menu's Tags submenu shows it
 // for a card (its "Tags ›" row opens it beside the menu), and New card's Tags
 // chip for the card being made (`TagsPanel`). Basecoat's dropdown has no
 // submenus, so the panel is the card menu's own: fixed beside the row (the
@@ -10,9 +10,9 @@
 // biome-ignore-all lint/a11y/useFocusableInteractive: Basecoat's rows: the menu keeps focus and marks the active row
 import { createSignal, For, Show } from 'solid-js';
 import { menuStep } from '../explorer/listing.ts';
-import { addTag, tagColor, toggleTag } from '../sessions/labels.ts';
+import { exactTag, pickLeftover, pickTyped, searchTags, tagColor, toggleTag } from '../sessions/labels.ts';
 import type { Session } from '../sessions/store.ts';
-import { setTags, usedTags } from '../sessions/tags.tsx';
+import { CreateTagRow, SEARCH_TAGS, setTags, usedTags } from '../sessions/tags.tsx';
 import { icons } from '../ui/icons.tsx';
 
 export interface TagsSubmenu {
@@ -24,7 +24,9 @@ export interface TagsSubmenu {
 
 export interface TagsPanel {
   panel: HTMLElement;
-  field: HTMLInputElement; // making a new tag
+  field: HTMLInputElement; // searching the tags, or making a new one
+  // The picked tags with what's left in the field, when its form is sent.
+  withTyped(picked: string[]): string[];
   open(focus: boolean): void;
   close(): void;
 }
@@ -41,23 +43,33 @@ export function TagsPanel(
   // The tags offered: those in use when it opened, and any made since.
   const [offered, setOffered] = createSignal<string[]>([]);
   const has = (tag: string) => get().includes(tag);
+  // What's typed in the field: the list shows the tags holding it.
+  const [typed, setTyped] = createSignal('');
 
-  const items = (): HTMLElement[] => [...panel.querySelectorAll<HTMLElement>('input')];
+  const items = (): HTMLElement[] => [...panel.querySelectorAll<HTMLElement>('input, .tags-create')];
+  // Ticks the tag typed, making it when it's new.
+  const pick = () => {
+    if (!field.value.trim()) return;
+    const next = pickTyped(get(), offered(), field.value);
+    set(next);
+    setOffered([...new Set([...offered(), ...next])].sort());
+    field.value = '';
+    setTyped('');
+    field.focus();
+  };
   const field = (
     <input
       class="input"
-      placeholder="New tag…"
+      placeholder={SEARCH_TAGS}
       maxLength={24}
       autocomplete="off"
       spellcheck={false}
-      aria-label="New tag"
+      aria-label="Search or create tag"
+      on:input={() => setTyped(field.value)}
       on:keydown={(e) => {
         if (e.key !== 'Enter' || e.isComposing) return;
         e.preventDefault();
-        const added = addTag(get(), field.value);
-        set(added);
-        setOffered([...new Set([...offered(), ...added])].sort());
-        field.value = '';
+        pick();
       }}
     />
   ) as HTMLInputElement;
@@ -86,10 +98,10 @@ export function TagsPanel(
     >
       {field}
       <div class="tags-submenu-list">
-        <Show when={!offered().length}>
+        <Show when={!offered().length && !typed().trim()}>
           <div class="tags-submenu-empty">No tags yet</div>
         </Show>
-        <For each={offered()}>
+        <For each={searchTags(offered(), typed())}>
           {(tag) => {
             const dot = `background:${tagColor(tag)}`;
             let box!: HTMLInputElement;
@@ -116,12 +128,19 @@ export function TagsPanel(
             );
           }}
         </For>
+        <Show when={typed().trim() && !exactTag(offered(), typed())}>
+          <CreateTagRow typed={typed()} make={pick} />
+        </Show>
       </div>
     </div>
   ) as HTMLElement;
 
   function open(focus: boolean) {
-    if (!shown()) setOffered([...new Set([...usedTags(), ...get()])].sort());
+    if (!shown()) {
+      setOffered([...new Set([...usedTags(), ...get()])].sort());
+      field.value = '';
+      setTyped('');
+    }
     setShown(true);
     // Once it's laid out (and placed, by a submenu's frame queued first).
     if (focus) requestAnimationFrame(() => items()[0]?.focus());
@@ -129,7 +148,8 @@ export function TagsPanel(
   function close() {
     setShown(false);
   }
-  return { panel, field, open, close };
+  const withTyped = (picked: string[]) => pickLeftover(picked, offered(), field.value);
+  return { panel, field, withTyped, open, close };
 }
 
 export function TagsSubmenu(s: () => Session | null): TagsSubmenu {
