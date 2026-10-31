@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.6.0
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v1.5.1...v1.6.0)
+
+### Features
+
+- **cli:** Tabsh new and tabsh list for agents creating cards ([405c4ae](https://github.com/Blaise1030/tabsh/commit/405c4ae))
+
+### Fixes
+
+- **board:** Announce a new card instead of resyncing every page ([58b6931](https://github.com/Blaise1030/tabsh/commit/58b6931))
+
 ## v1.5.1
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v1.5.0...v1.5.1)
