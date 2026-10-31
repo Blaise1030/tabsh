@@ -1,44 +1,9 @@
 //! `tabsh status`: sets the card of the terminal it runs in. Hooks call it
 //! with `--hook`, which must never disturb the agent: silent, always exit 0.
 
+use super::daemon::{Env, request};
 use crate::board::STATUSES;
-use std::{
-    io::{Read, Write},
-    net::{TcpStream, ToSocketAddrs},
-    time::Duration,
-};
-
-const TIMEOUT: Duration = Duration::from_millis(500);
-
-/// What `tabsh status` reads from its surroundings.
-pub(super) struct Env {
-    pub(super) session: Option<String>,
-    pub(super) url: String,
-    pub(super) token: Option<String>,
-    /// The agent whose hook this is, when it says so in the environment
-    /// (Claude Code sets `CLAUDECODE=1` for everything it runs).
-    pub(super) agent: Option<&'static str>,
-}
-
-impl Env {
-    pub(super) fn from_process() -> Env {
-        let var = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
-        // The token sits next to the state database, as the daemon keeps it.
-        let token_path = match var("TABSH_DB") {
-            Some(db) => std::path::Path::new(&db).with_file_name("token"),
-            None => std::path::Path::new(&var("HOME").unwrap_or_else(|| ".".into()))
-                .join(".tabsh/token"),
-        };
-        Env {
-            session: var("TABSH_SESSION_ID"),
-            url: var("TABSH_URL").unwrap_or_else(|| "http://127.0.0.1:7681".into()),
-            token: std::fs::read_to_string(token_path)
-                .ok()
-                .map(|t| t.trim().to_owned()),
-            agent: (var("CLAUDECODE").as_deref() == Some("1")).then_some("claude"),
-        }
-    }
-}
+use std::io::Read;
 
 #[derive(Debug)]
 pub(super) struct Parsed {
@@ -168,51 +133,11 @@ fn set(args: &[String], env: &Env, stdin: &mut dyn Read) -> Result<(), String> {
         "agent_session": agent_session,
     })
     .to_string();
-    match patch(&env.url, env.token.as_deref(), &path, &body)? {
+    match request(env, "PATCH", &path, Some(&body))?.code {
         200 => Ok(()),
         404 => Err("this terminal's card no longer exists".into()),
         code => Err(format!("the daemon answered {code}")),
     }
-}
-
-/// A one-shot HTTP/1.1 PATCH over a plain socket: the daemon is on loopback
-/// and this keeps the binary free of an HTTP client crate.
-fn patch(url: &str, token: Option<&str>, path: &str, body: &str) -> Result<u16, String> {
-    let authority = url
-        .strip_prefix("http://")
-        .ok_or_else(|| format!("TABSH_URL must start with http:// (got '{url}')"))?
-        .split('/')
-        .next()
-        .unwrap_or_default();
-    let unreachable = |e: std::io::Error| format!("can't reach the tabsh daemon at {url}: {e}");
-    let addr = authority
-        .to_socket_addrs()
-        .map_err(unreachable)?
-        .next()
-        .ok_or_else(|| format!("can't resolve {authority}"))?;
-    let mut stream = TcpStream::connect_timeout(&addr, TIMEOUT).map_err(unreachable)?;
-    stream
-        .set_read_timeout(Some(TIMEOUT))
-        .map_err(unreachable)?;
-    stream
-        .set_write_timeout(Some(TIMEOUT))
-        .map_err(unreachable)?;
-    let auth = token
-        .map(|t| format!("Authorization: Bearer {t}\r\n"))
-        .unwrap_or_default();
-    write!(
-        stream,
-        "PATCH {path} HTTP/1.1\r\nHost: {authority}\r\n{auth}\
-         Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        body.len()
-    )
-    .map_err(unreachable)?;
-    let mut head = [0u8; 12]; // "HTTP/1.1 200"
-    stream.read_exact(&mut head).map_err(unreachable)?;
-    std::str::from_utf8(&head[9..12])
-        .ok()
-        .and_then(|c| c.parse().ok())
-        .ok_or_else(|| "the daemon sent an odd answer".into())
 }
 
 #[cfg(test)]
@@ -229,6 +154,7 @@ mod tests {
             url: url.into(),
             token: Some("t0k3n".into()),
             agent: None,
+            conversation: None,
         }
     }
 

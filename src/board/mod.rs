@@ -149,6 +149,11 @@ pub(crate) fn resume_line(
 pub(crate) enum BoardEvent {
     Status(StatusEvent),
     Activity(ActivityEvent),
+    /// A card was made (from a page, or by `tabsh new`, which no page asked
+    /// for): a page without it adds it where it is, and reorders nothing.
+    Created {
+        created: crate::sessions::SessionInfo,
+    },
 }
 
 /// A session printed (throttled) or rang its bell: pages mark a parked tab,

@@ -45,6 +45,10 @@ mod tests {
             "status needs_input --hook --if-not completed --note 'Agent finished its turn'"
         ));
         assert!(g.contains("status completed --note '<one line: what you did>'"));
+        assert!(
+            g.contains("'/opt/my tabsh/tabsh' new --help"),
+            "the instructions point the agent at handing work off as cards"
+        );
 
         // Test that paths with single quotes are escaped correctly for shell
         let g_quoted = guide("/opt/it's/tabsh", "http://127.0.0.1:7681");

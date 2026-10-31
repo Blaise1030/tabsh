@@ -355,10 +355,11 @@ async fn create_session(
         mode,
         acp_command,
     };
-    let db = st.db.lock().unwrap();
-    store::insert_card(&db, &card)
-        .map(Json)
-        .map_err(internal_error)
+    let card = store::insert_card(&st.db.lock().unwrap(), &card).map_err(internal_error)?;
+    let _ = st.events.send(crate::board::BoardEvent::Created {
+        created: card.clone(),
+    });
+    Ok(Json(card))
 }
 
 /// A side terminal of `parent`: a shell in that card's folder, named the
@@ -830,6 +831,19 @@ mod tests {
         assert_eq!(pending(&st, &body["id"]), None);
         let (_, body) = create(&st, serde_json::json!({})).await;
         assert_eq!(body["name"], "Terminal 1");
+    }
+
+    #[tokio::test]
+    async fn a_new_card_is_announced_to_open_pages() {
+        // `tabsh new` makes cards no page asked for: pages must hear of them.
+        // The card itself, not a resync: re-reading the whole list would undo
+        // the order a page just gave the card it made.
+        let st = test_state();
+        let mut rx = st.events.subscribe();
+        let (code, card) = create(&st, serde_json::json!({"cwd": "/tmp", "prompt": "hi"})).await;
+        assert_eq!(code, StatusCode::OK);
+        let ev = serde_json::to_value(rx.try_recv().expect("an event")).unwrap();
+        assert_eq!(ev, serde_json::json!({ "created": card }));
     }
 
     #[tokio::test]
