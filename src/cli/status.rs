@@ -66,6 +66,10 @@ pub(super) struct HookEvent {
     pub(super) message: Option<String>,
     /// The agent's conversation, which a restart resumes.
     pub(super) session: Option<String>,
+    /// The agent stopped only to wait for its subagents, which wake it again
+    /// (Claude Code's Stop payload lists them in `background_tasks`). Shells
+    /// and monitors don't count: a dev server may never end.
+    pub(super) waiting: bool,
 }
 
 pub(super) fn read_event(stdin: &mut dyn Read) -> HookEvent {
@@ -81,9 +85,19 @@ fn event_of(json: impl AsRef<[u8]>) -> HookEvent {
         return HookEvent::default();
     };
     let text = |k: &str| v.get(k).and_then(|x| x.as_str()).map(String::from);
+    let agent = |t: &serde_json::Value| {
+        matches!(
+            t.get("type").and_then(|x| x.as_str()),
+            Some("subagent" | "workflow")
+        )
+    };
     HookEvent {
         message: text("message"),
         session: text("session_id"),
+        waiting: v
+            .get("background_tasks")
+            .and_then(|x| x.as_array())
+            .is_some_and(|tasks| tasks.iter().any(agent)),
     }
 }
 
@@ -106,6 +120,10 @@ fn set(args: &[String], env: &Env, stdin: &mut dyn Read) -> Result<(), String> {
         (true, Some(json)) => event_of(json),
         (true, None) => read_event(stdin),
     };
+    // Its turn ended, but not its work: the card stays as it is.
+    if event.waiting {
+        return Ok(());
+    }
     let plain = |s: &str| {
         !s.is_empty()
             && s.chars()
@@ -244,9 +262,32 @@ mod tests {
             read_event(&mut &stdin[..]),
             HookEvent {
                 message: None,
-                session: Some("3f1c-9a".into())
+                session: Some("3f1c-9a".into()),
+                waiting: false,
             }
         );
+    }
+
+    #[test]
+    fn a_stop_with_agents_in_flight_is_waiting() {
+        let stop = |tasks: &str| {
+            event_of(format!(
+                r#"{{"hook_event_name":"Stop","background_tasks":{tasks}}}"#
+            ))
+            .waiting
+        };
+        assert!(stop(
+            r#"[{"id":"a1","type":"subagent","status":"running"}]"#
+        ));
+        assert!(stop(
+            r#"[{"id":"w1","type":"workflow","status":"pending"}]"#
+        ));
+        assert!(!stop("[]"));
+        assert!(
+            !stop(r#"[{"id":"b1","type":"shell","status":"running"}]"#),
+            "a dev server may never end, and never wakes the agent"
+        );
+        assert!(!event_of(r#"{"hook_event_name":"Stop"}"#).waiting);
     }
 
     #[test]
@@ -353,6 +394,44 @@ mod tests {
             .unwrap();
         assert_eq!(note.as_deref(), Some("finished"));
         assert_eq!(resume.as_deref(), Some("claude --resume s-1\r"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_stop_while_subagents_work_leaves_the_card_in_progress() {
+        let st = test_state();
+        let id = insert_session(&st.db.lock().unwrap(), None).unwrap().id;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let app = router(st.clone());
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+        });
+        let i = id.clone();
+        let code = tokio::task::spawn_blocking(move || {
+            let e = env(Some(&i), &url);
+            run(&args("in_progress --hook"), &e, &mut &b"{}"[..]);
+            run(
+                &args("needs_input --hook --if-not completed --note finished"),
+                &e,
+                &mut &br#"{"hook_event_name":"Stop","background_tasks":[{"id":"a1","type":"subagent","status":"running"}]}"#[..],
+            )
+        })
+        .await
+        .unwrap();
+        assert_eq!(code, 0);
+        let status: String = st
+            .db
+            .lock()
+            .unwrap()
+            .query_row("SELECT status FROM sessions WHERE id = ?1", [&id], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(status, "in_progress");
     }
 
     #[tokio::test(flavor = "multi_thread")]
