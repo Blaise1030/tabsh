@@ -229,12 +229,14 @@ enum Startup {
     Nothing,
 }
 
-/// What a session's fresh shell is sent first. A card still in Backlog
-/// waits for its drag to In progress; an archived one stays put.
+/// What a session's fresh shell is sent first. A started card keeps its
+/// session in every column but Archived, Backlog included when it was parked
+/// back there; a card that never started (its launch still pending) waits
+/// in Backlog for its drag to In progress.
 fn startup_input(status: &str, pending: bool, resume: Option<String>) -> Startup {
     match (status, resume) {
         ("in_progress", _) if pending => Startup::Launch,
-        ("in_progress" | "needs_input" | "completed", Some(line)) if !pending => {
+        ("in_progress" | "needs_input" | "completed" | "backlog", Some(line)) if !pending => {
             Startup::Resume(line)
         }
         _ => Startup::Nothing,
@@ -842,16 +844,22 @@ mod tests {
     }
 
     #[test]
-    fn a_restart_resumes_the_agent_of_an_active_card_only() {
+    fn a_restart_resumes_the_agent_of_a_started_card_outside_archived() {
         let line = || Some("claude --resume s-1\r".to_owned());
-        for status in ["in_progress", "needs_input", "completed"] {
+        // Backlog too: a started card parked back there has run, so it
+        // keeps its session.
+        for status in ["in_progress", "needs_input", "completed", "backlog"] {
             assert_eq!(
                 startup_input(status, false, line()),
                 Startup::Resume("claude --resume s-1\r".into())
             );
         }
-        assert_eq!(startup_input("backlog", false, line()), Startup::Nothing);
         assert_eq!(startup_input("archived", false, line()), Startup::Nothing);
+        assert_eq!(
+            startup_input("backlog", true, line()),
+            Startup::Nothing,
+            "a Backlog card that never started waits for its drag"
+        );
         assert_eq!(startup_input("in_progress", false, None), Startup::Nothing);
         assert_eq!(
             startup_input("in_progress", true, line()),
@@ -863,11 +871,22 @@ mod tests {
 
     #[test]
     fn a_restored_shell_types_its_resume_line() {
+        assert_restore_types_resume_line("needs_input");
+    }
+
+    #[test]
+    fn a_started_card_parked_in_backlog_resumes_after_a_restart() {
+        assert_restore_types_resume_line("backlog");
+    }
+
+    /// A card in `status` whose agent reported its conversation, and has no
+    /// launch pending, gets its resume line typed into the fresh shell.
+    fn assert_restore_types_resume_line(status: &str) {
         let st = test_state();
         let id = crate::sessions::store::insert_card(
             &st.db.lock().unwrap(),
             &crate::sessions::store::NewCard {
-                status: "needs_input",
+                status,
                 ..Default::default()
             },
         )
