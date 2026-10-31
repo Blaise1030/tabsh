@@ -149,6 +149,11 @@ pub(crate) fn resume_line(
 pub(crate) enum BoardEvent {
     Status(StatusEvent),
     Activity(ActivityEvent),
+    /// The list of cards changed without a page asking (`tabsh new`):
+    /// pages re-read it, as after missing events. Always `true`.
+    Resync {
+        resync: bool,
+    },
 }
 
 /// A session printed (throttled) or rang its bell: pages mark a parked tab,

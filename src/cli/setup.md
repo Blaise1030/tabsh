@@ -44,7 +44,8 @@ Do not use a single quote (') inside a note; escape it as needed by your shell i
    or whatever you read at the start of every session) a short rule: when `TABSH_SESSION_ID` is
    set and the user's task is done (not paused, not waiting on them), run
    `{tabsh} status completed --note '<one line: what you did>'`; never set any other status
-   yourself, because hooks handle those and archiving is the user's.
+   yourself, because hooks handle those and archiving is the user's. Add one more line: to hand
+   work off as separate cards on the board, use `{tabsh} new` (see `{tabsh} new --help`).
 6. **Verify.** If `TABSH_SESSION_ID` is set, run `{tabsh} status needs_input --note 'setup test'`
    and ask the user to confirm the card moved, then `{tabsh} status in_progress`. In any case run
    `env -u TABSH_SESSION_ID {tabsh} status needs_input --hook; echo $?` and check it prints `0`.
