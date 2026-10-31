@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.6.1
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v1.6.0...v1.6.1)
+
+### Fixes
+
+- **sessions:** Resume a started card parked back in Backlog after a restart ([d054598](https://github.com/Blaise1030/tabsh/commit/d054598))
+- **cli:** Keep the card In progress while Claude Code waits on its subagents ([26b6d7a](https://github.com/Blaise1030/tabsh/commit/26b6d7a))
+
 ## v1.6.0
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v1.5.1...v1.6.0)
