@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.7.0
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v1.6.1...v1.7.0)
+
+### Features
+
+- **palette:** Search sessions by title, > for sessions only ([e7956b3](https://github.com/Blaise1030/tabsh/commit/e7956b3))
+
 ## v1.6.1
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v1.6.0...v1.6.1)
