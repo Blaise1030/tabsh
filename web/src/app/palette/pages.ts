@@ -1,5 +1,7 @@
 // The command palette's pages: settings to pick, pages to open, and actions.
 
+import { STATUS_NAMES } from '../board/glyph.ts';
+import type { Status } from '../board/model.ts';
 import { lastSeen, remoteMessage, remoteScreen } from '../remote/model.ts';
 import type { RemoteView } from '../remote/share.ts';
 import { CARD_SOUNDS, FONT_SIZES, FONTS, THEMES, type ThemeColors, TYPING_SOUNDS } from '../settings/catalog.ts';
@@ -14,7 +16,7 @@ import {
 import { current, KEYBINDINGS, saveSetting } from '../settings/settings.ts';
 import type { AboutRow } from '../ui/about.ts';
 import { isMac } from '../ui/dom.ts';
-import { type Icon, icons, providerIcon } from '../ui/icons.tsx';
+import { glyph, type Icon, icons, providerIcon } from '../ui/icons.tsx';
 
 // An item either opens another page (`go`, after running `run` if it has
 // one), picks a setting (`key` + `value`, previewed while highlighted),
@@ -38,6 +40,16 @@ export interface PaletteItem {
   edit?: TextEdit;
   copy?: string;
   figure?: Element; // drawn full size in place of the row, not selectable
+  session?: PaletteSession; // a card, filtered by palette/search.ts
+}
+// A card the root page offers to go to, `rank` its place in recent order.
+export interface PaletteSession {
+  id: string;
+  title: string;
+  status: Status;
+  cwd: string | null;
+  note: string | null;
+  rank: number;
 }
 // The palette's input becomes a text box holding `value`. Enter saves:
 // `save` says why it can't (the input stays open), or the page to show.
@@ -73,12 +85,29 @@ export function pages(ctx: {
   searchFiles(): void;
   canGoBack: boolean;
   goBack(): void;
+  // The cards, most recent first, and going to one.
+  sessions: PaletteSession[];
+  goToSession(id: string): void;
 }): Record<string, () => PalettePage> {
   const { saved } = current;
   return {
     root: () => ({
-      placeholder: `Search settings…`,
+      placeholder: `Search sessions and settings…  (> for sessions only)`,
       groups: [
+        ...(ctx.sessions.length
+          ? [
+              {
+                heading: 'Sessions',
+                items: ctx.sessions.map((s) => ({
+                  label: s.title,
+                  icon: () => glyph(s.status),
+                  hint: STATUS_NAMES[s.status],
+                  session: s,
+                  run: () => ctx.goToSession(s.id),
+                })),
+              },
+            ]
+          : []),
         {
           heading: 'Appearance',
           items: [
