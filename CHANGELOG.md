@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.8.0
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v1.7.0...v1.8.0)
+
+### Features
+
+- **board:** Search tags where they're listed; Archived starts folded ([cb66c22](https://github.com/Blaise1030/tabsh/commit/cb66c22))
+
 ## v1.7.0
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v1.6.1...v1.7.0)
