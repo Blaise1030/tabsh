@@ -130,9 +130,13 @@ test('the key bar fades at an edge with more keys past it', async ({ page, daemo
   const bar = page.getByRole('toolbar', { name: 'Terminal keys' });
   await expect(bar).toHaveClass(/fade-right/);
   await expect(bar).not.toHaveClass(/fade-left/);
-  await bar.evaluate((el) => el.scrollTo({ left: el.scrollWidth }));
-  await expect(bar).toHaveClass(/fade-left/);
-  await expect(bar).not.toHaveClass(/fade-right/);
+  // The keys can still be laying out (growing the bar's scroll width) on a
+  // slow machine, so scroll to the end again until it holds.
+  await expect(async () => {
+    await bar.evaluate((el) => el.scrollTo({ left: el.scrollWidth }));
+    await expect(bar).toHaveClass(/fade-left/, { timeout: 1_000 });
+    await expect(bar).not.toHaveClass(/fade-right/, { timeout: 1_000 });
+  }).toPass({ timeout: 10_000 });
 });
 
 test("the key bar's paperclip uploads picked files and types their paths", async ({ page, daemon }) => {
