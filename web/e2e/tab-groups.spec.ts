@@ -44,7 +44,7 @@ async function tagTab(page: Page, name: string, ...tags: string[]): Promise<void
   const menu = page.locator('.tab-menu[aria-label="Tab tags"]');
   await expect(menu).toBeVisible();
   for (const tag of tags) {
-    await menu.locator('input[aria-label="New tag"]').fill(tag);
+    await menu.locator('input[aria-label="Search or create tag"]').fill(tag);
     await page.keyboard.press('Enter');
   }
   await page.keyboard.press('Escape');

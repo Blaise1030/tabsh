@@ -3,14 +3,18 @@ import { test } from 'node:test';
 import {
   addTag,
   cleanTag,
+  exactTag,
   groupTabs,
   joinGroup,
   moveTag,
   parseCollapsed,
   parseTagList,
   parseTags,
+  pickLeftover,
+  pickTyped,
   repoName,
   sameTags,
+  searchTags,
   TAG_COLORS,
   tagBar,
   tagColor,
@@ -138,4 +142,30 @@ test('tag lists are the same only with the same tags in the same order', () => {
   assert.equal(sameTags(['a', 'b'], ['a', 'b']), true);
   assert.equal(sameTags(['a', 'b'], ['b', 'a']), false);
   assert.equal(sameTags(['a'], ['a', 'b']), false);
+});
+
+test('a tag search keeps the tags holding the text, ignoring case, and blank keeps all', () => {
+  const tags = ['bug', 'Debug', 'docs'];
+  assert.deepEqual(searchTags(tags, ' BUG '), ['bug', 'Debug']);
+  assert.deepEqual(searchTags(tags, 'zz'), []);
+  assert.deepEqual(searchTags(tags, '  '), tags);
+});
+
+test('typed text names a known tag only when it is that tag, ignoring case', () => {
+  assert.equal(exactTag(['Bug', 'docs'], ' bug '), 'Bug');
+  assert.equal(exactTag(['Bug', 'docs'], 'bu'), null);
+  assert.equal(exactTag(['Bug'], '  '), null);
+});
+
+test('Enter in the tags field adds the known tag it names, or makes new ones', () => {
+  assert.deepEqual(pickTyped([], ['Bug'], 'bug'), ['Bug']);
+  assert.deepEqual(pickTyped(['ui'], ['Bug'], 'perf'), ['ui', 'perf']);
+  assert.deepEqual(pickTyped([], ['Bug'], 'a, b'), ['a', 'b']);
+});
+
+test('text left in the tags field counts on send, unless it is only a search', () => {
+  assert.deepEqual(pickLeftover(['ui'], ['bug', 'ui'], 'bu'), ['ui']);
+  assert.deepEqual(pickLeftover(['ui'], ['bug', 'ui'], 'BUG'), ['ui', 'bug']);
+  assert.deepEqual(pickLeftover(['ui'], ['bug', 'ui'], 'perf'), ['ui', 'perf']);
+  assert.deepEqual(pickLeftover(['ui'], ['bug'], ''), ['ui']);
 });

@@ -79,7 +79,7 @@ test('closing a tagged tab removes its copies', async ({ page, daemon }) => {
   await tagged.click({ button: 'right' });
   const menu = page.locator('.tab-menu[aria-label="Tab tags"]');
   for (const tag of ['a', 'b']) {
-    await menu.locator('input[aria-label="New tag"]').fill(tag);
+    await menu.locator('input[aria-label="Search or create tag"]').fill(tag);
     await page.keyboard.press('Enter');
   }
   await page.keyboard.press('Escape');
@@ -234,7 +234,7 @@ test("a tag added in another window shows on this window's tab", async ({ page, 
     await expect(tabs(other)).toHaveCount(1);
     await tabs(other).first().click({ button: 'right' });
     const menu = other.locator('.tab-menu[aria-label="Tab tags"]');
-    await menu.locator('input[aria-label="New tag"]').fill('elsewhere');
+    await menu.locator('input[aria-label="Search or create tag"]').fill('elsewhere');
     await other.keyboard.press('Enter');
     await other.keyboard.press('Escape');
     await expect(tabs(other).first()).toHaveClass(/tagged/);

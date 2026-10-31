@@ -39,6 +39,32 @@ export function addTag(picked: string[], raw: string): string[] {
   return [...new Set([...picked, ...parseTagList(raw)])];
 }
 
+// The tags holding what was typed, ignoring case: all of them when nothing was.
+export function searchTags(tags: string[], raw: string): string[] {
+  const q = raw.trim().toLowerCase();
+  return q ? tags.filter((t) => t.toLowerCase().includes(q)) : tags;
+}
+
+// The tag in `tags` that what was typed names, ignoring case, or null.
+export function exactTag(tags: string[], raw: string): string | null {
+  const t = cleanTag(raw)?.toLowerCase();
+  return (t && tags.find((x) => x.toLowerCase() === t)) || null;
+}
+
+// A tags panel's field searches the tags in use (`known`) and makes new ones.
+// Enter adds the tag it names, as spelled in `known`, or else each new tag in
+// it.
+export function pickTyped(picked: string[], known: string[], raw: string): string[] {
+  return addTag(picked, exactTag(known, raw) ?? raw);
+}
+
+// What the field still holds when its form is sent counts as Enter would,
+// unless it is only a search: text some known tags hold but none is named.
+export function pickLeftover(picked: string[], known: string[], raw: string): string[] {
+  const search = !exactTag(known, raw) && raw.trim() !== '' && searchTags(known, raw).length > 0;
+  return search ? picked : pickTyped(picked, known, raw);
+}
+
 // The stored tags (session id → its tags), dropping anything that isn't a
 // tag and repeats. A single string (one tag per tab, as first stored) is read
 // as a list of one.

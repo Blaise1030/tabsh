@@ -21,7 +21,6 @@
 import { type Accessor, createSignal, For, type JSX } from 'solid-js';
 import { ApiError, api, uploadFile } from '../daemon/client.ts';
 import { newTabGroup } from '../sessions/groups.tsx';
-import { addTag } from '../sessions/labels.ts';
 import { openTab, type Session, type SessionInfo, store } from '../sessions/store.ts';
 import { setName } from '../sessions/tabs.ts';
 import { setTags, tagBadge } from '../sessions/tags.tsx';
@@ -137,7 +136,7 @@ export function openEditCard(s: Session): void {
 }
 
 async function save(s: Session): Promise<void> {
-  const picked = addTag(pickedTags(), tagsPanel.field.value);
+  const picked = tagsPanel.withTyped(pickedTags());
   const chosen = provider() === editedProvider ? null : current.saved.providers.find((p) => p.name === provider());
   setBusy(true);
   setError(null);
@@ -185,7 +184,7 @@ async function submit(e: Event): Promise<void> {
   const saved = current.saved.providers;
   const chosen = saved.find((p) => p.name === provider()) ?? saved[0];
   const { command, resume } = chosen;
-  const picked = addTag(pickedTags(), tagsPanel.field.value); // a new tag typed but not entered still counts
+  const picked = tagsPanel.withTyped(pickedTags()); // a new tag typed but not entered still counts; a search doesn't
   const more = data.get('more') === 'on';
   setBusy(true);
   setError(null);

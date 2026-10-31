@@ -31,6 +31,13 @@ const card = (page: Page, name: string) => page.locator('#board .board-card').fi
 const col = (page: Page, status: string) => page.locator(`#board .board-col[data-status="${status}"]`);
 const visibleMenu = (page: Page) => page.locator('.move-menu [data-popover][aria-hidden="false"]');
 
+// Opens Archived, which starts folded (to a strip, in the columns layout).
+async function openArchived(page: Page): Promise<void> {
+  const toggle = col(page, 'archived').locator('.col-toggle');
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+  await expect(col(page, 'archived').locator('.board-cards')).toBeVisible();
+}
+
 // Opens the board on its own: with a tab open it shows that tab in its
 // drawer, so this closes the drawer, giving the columns the whole width.
 async function boardAlone(page: Page): Promise<void> {
@@ -111,11 +118,23 @@ test('cards move through the board', async ({ page, daemon, project }) => {
   await card(page, 'Fix login').dragTo(col(page, 'completed').locator('.board-cards'));
   await expect(col(page, 'completed').locator('.board-card').filter({ hasText: 'Fix login' })).toBeVisible();
 
-  // Archived is a column like the others: dropping a card there archives it.
-  await col(page, 'archived').scrollIntoViewIfNeeded(); // five columns overflow the viewport
-  await card(page, 'Fix login').dragTo(col(page, 'archived').locator('.board-cards'));
+  // Archived starts folded to a strip: dropping a card on it archives it.
+  await col(page, 'archived').scrollIntoViewIfNeeded();
+  await expect(col(page, 'archived')).toHaveClass(/folded/);
+  await card(page, 'Fix login').dragTo(col(page, 'archived'));
   await expect(col(page, 'completed').locator('.board-card')).toHaveCount(0);
   await expect(col(page, 'archived').locator('.col-count')).toHaveText('1');
+  await expect(col(page, 'archived').locator('.board-card').filter({ hasText: 'Fix login' })).toBeHidden();
+  // Its heading opens it into a column, and folds it back.
+  const toggle = col(page, 'archived').locator('.col-toggle');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(col(page, 'archived').locator('.board-card').filter({ hasText: 'Fix login' })).toBeVisible();
+  await toggle.click();
+  await expect(col(page, 'archived')).toHaveClass(/folded/);
+  // It stays as it was left, across a reload.
+  await openArchived(page);
+  await page.reload();
   await expect(col(page, 'archived').locator('.board-card').filter({ hasText: 'Fix login' })).toBeVisible();
 });
 
@@ -250,6 +269,7 @@ test("a completed card is archived from its menu, and has no Archive button", as
   await card(page, 'Ship it').click({ button: 'right' });
   await page.locator('.move-menu [data-popover][aria-hidden="false"] [role="menuitem"]').filter({ hasText: 'Archive' }).click();
   await expect(col(page, 'completed').locator('.board-card')).toHaveCount(0);
+  await openArchived(page);
   await expect(col(page, 'archived').locator('.board-card').filter({ hasText: 'Ship it' })).toBeVisible();
 });
 
@@ -410,6 +430,7 @@ test("a card's Move menu sets its status, on the board and in the drawer", async
 
   // An archived card has no buttons of its own; its menu restores it.
   await page.locator('#drawer-close').click();
+  await openArchived(page);
   await expect(card(page, 'Move me').getByRole('button', { name: /Restore|Delete/ })).toHaveCount(0);
   await card(page, 'Move me').click({ button: 'right' });
   await item('Restore').click();
@@ -440,10 +461,26 @@ test("a card's menu has a Tags submenu: tags made and toggled there show on the 
   await card(page, 'Tag from menu').click({ button: 'right' });
   await page.locator('.move-menu [data-popover][aria-hidden="false"] .tags-row').click();
   await expect(submenu).toBeVisible();
-  await submenu.getByRole('textbox', { name: 'New tag' }).fill('bug');
-  await submenu.getByRole('textbox', { name: 'New tag' }).press('Enter');
+  const field = submenu.getByRole('textbox', { name: 'Search or create tag' });
+  await field.fill('bug');
+  await expect(submenu.locator('.tags-create')).toHaveText('Create “bug”');
+  await field.press('Enter');
   await expect(card(page, 'Tag from menu').locator('.tag-badge')).toHaveText(['bug']);
   await expect(tagRow('bug')).toBeChecked();
+
+  // The field searches the tags; the Create row makes one it doesn't find.
+  await field.fill('docs');
+  await submenu.locator('.tags-create').click();
+  await field.fill('BU');
+  await expect(submenu.locator('.menu-check')).toHaveText(['bug']);
+  await expect(submenu.locator('.tags-create')).toHaveCount(1); // "BU" is no tag yet
+  await field.fill('DOCS');
+  await expect(submenu.locator('.menu-check')).toHaveText(['docs']);
+  await expect(submenu.locator('.tags-create')).toHaveCount(0); // names one, ignoring case
+  await field.fill('');
+  await expect(submenu.locator('.menu-check')).toHaveText(['bug', 'docs']);
+  await tagRow('docs').click();
+  await expect(card(page, 'Tag from menu').locator('.tag-badge')).toHaveText(['bug']);
 
   // Toggling keeps it open.
   await tagRow('bug').click();
@@ -535,8 +572,9 @@ test('only Backlog and In progress offer a new card', async ({ page, daemon }) =
   await openApp(page, daemon);
   await page.locator('#board-btn').click();
   for (const status of ['backlog', 'in_progress']) await expect(col(page, status).locator('header .btn')).toHaveCount(1);
-  for (const status of ['needs_input', 'completed']) await expect(col(page, status).locator('header .btn')).toHaveCount(0);
-  const heights = await page.locator('#board .board-col > header').evaluateAll((hs) => hs.map((h) => h.getBoundingClientRect().height));
+  for (const status of ['needs_input', 'completed', 'archived']) await expect(col(page, status).locator('header .btn')).toHaveCount(0);
+  // The open columns' headers line up (folded Archived runs down its strip).
+  const heights = await page.locator('#board .board-col:not(.folded) > header').evaluateAll((hs) => hs.map((h) => h.getBoundingClientRect().height));
   expect(new Set(heights).size).toBe(1);
 });
 
@@ -565,7 +603,7 @@ test('a long note is clamped, with Show more', async ({ page, daemon, project })
 
 test('tags ticked in the Tags panel show on the card, and are offered next time', async ({ page, daemon, project }) => {
   const chip = page.locator('#new-card button[aria-label="Tags"]');
-  const field = page.locator('#new-card input[aria-label="New tag"]');
+  const field = page.locator('#new-card input[aria-label="Search or create tag"]');
   const rows = page.locator('#new-card .tags-submenu .menu-check');
   await openApp(page, daemon);
   await page.locator('#board-btn').click();
@@ -588,6 +626,8 @@ test('tags ticked in the Tags panel show on the card, and are offered next time'
   await expect(page.locator('#new-card .tags-submenu')).toBeVisible();
   await rows.filter({ hasText: 'bug' }).click();
   await expect(rows.filter({ hasText: 'bug' }).locator('input')).not.toBeChecked();
+  await field.fill('bu'); // a search: it finds bug, and makes no tag
+  await expect(rows).toHaveText(['bug']);
   await field.fill('perf'); // typed but not entered: still counts
   await page.locator('#new-card button[type="submit"]').click();
 
@@ -660,7 +700,7 @@ test("the group's tag starts as a chip, and taking it off leaves the card untagg
   await openApp(page, daemon);
   // The active tab, tagged, with tabs grouped by tag: a new card joins its group.
   await page.locator('#tabs .tab[aria-selected="true"]').click({ button: 'right' });
-  await page.locator('.tab-menu input[aria-label="New tag"]').fill('deploy');
+  await page.locator('.tab-menu input[aria-label="Search or create tag"]').fill('deploy');
   await page.keyboard.press('Enter');
   await page.keyboard.press('Escape');
   await page.locator('#tab-group-btn').click();
@@ -700,7 +740,7 @@ test('the board filters cards by tag and folder', async ({ page, daemon, twins }
 
   await alphaTab.click({ button: 'right' });
   const menu = page.locator('.tab-menu[aria-label="Tab tags"]');
-  await menu.locator('input[aria-label="New tag"]').fill('ship');
+  await menu.locator('input[aria-label="Search or create tag"]').fill('ship');
   await page.keyboard.press('Enter');
   await page.keyboard.press('Escape');
   await page.locator('#board-btn').click();
@@ -710,6 +750,17 @@ test('the board filters cards by tag and folder', async ({ page, daemon, twins }
   await filterBtn.click();
   const filters = page.locator('.board-filter-menu');
   const ship = filters.getByRole('checkbox', { name: 'ship' });
+  // Its search narrows the tags and folders listed; a tick outlives a search.
+  const search = filters.getByRole('textbox', { name: 'Search tags and folders' });
+  await expect(search).toBeFocused();
+  await search.fill('SHI');
+  await expect(filters.locator('.menu-check')).toHaveText(['ship']);
+  await ship.check();
+  await search.fill('nothing like it');
+  await expect(filters.locator('.menu-hint')).toHaveText('No matches');
+  await search.fill('');
+  await expect(ship).toBeChecked();
+  await ship.uncheck();
   await ship.check();
   await expect(card(page, 'Alpha')).toBeVisible();
   await expect(card(page, 'Beta')).toHaveCount(0);
