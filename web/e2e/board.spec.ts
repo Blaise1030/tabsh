@@ -769,6 +769,31 @@ test('a new card goes on top; cards reorder within a column', async ({ page, dae
   await expect(page.locator('.drop-before, .drop-end')).toHaveCount(0);
 });
 
+// `tabsh new` makes a card no page asked for: an open board shows it without
+// a reload, and the cards already there keep their order.
+test('a card made by tabsh new shows up on an open board', async ({ page, daemon, project }) => {
+  const names = async () =>
+    (await col(page, 'backlog').locator('.board-card .card-title').allTextContents()).filter((n) =>
+      ['One', 'Two'].includes(n),
+    );
+  await openApp(page, daemon);
+  await page.locator('#board-btn').click();
+  for (const name of ['One', 'Two']) {
+    await col(page, 'backlog').locator('header .btn').click();
+    await newCard(page, name, project);
+    await expect(card(page, name)).toBeVisible();
+  }
+  await expect.poll(names).toEqual(['Two', 'One']);
+
+  const res = await page.request.post(`${daemon.baseUrl}/api/sessions`, {
+    headers: { Authorization: `Bearer ${daemon.token}` },
+    data: { cwd: project, name: 'From the CLI', prompt: 'hi' },
+  });
+  expect(res.status()).toBe(200);
+  await expect(card(page, 'From the CLI')).toBeVisible();
+  expect(await names()).toEqual(['Two', 'One']);
+});
+
 // A hook's move (as `tabsh status`) puts the card last in its new column, on
 // the page and in the daemon's order alike.
 test("a hook's move puts the card at the end of its new column", async ({ page, daemon, project }) => {

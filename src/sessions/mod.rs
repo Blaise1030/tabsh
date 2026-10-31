@@ -356,9 +356,9 @@ async fn create_session(
         acp_command,
     };
     let card = store::insert_card(&st.db.lock().unwrap(), &card).map_err(internal_error)?;
-    let _ = st
-        .events
-        .send(crate::board::BoardEvent::Resync { resync: true });
+    let _ = st.events.send(crate::board::BoardEvent::Created {
+        created: card.clone(),
+    });
     Ok(Json(card))
 }
 
@@ -834,14 +834,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_new_card_has_open_pages_reread_the_list() {
+    async fn a_new_card_is_announced_to_open_pages() {
         // `tabsh new` makes cards no page asked for: pages must hear of them.
+        // The card itself, not a resync: re-reading the whole list would undo
+        // the order a page just gave the card it made.
         let st = test_state();
         let mut rx = st.events.subscribe();
-        let (code, _) = create(&st, serde_json::json!({"cwd": "/tmp", "prompt": "hi"})).await;
+        let (code, card) = create(&st, serde_json::json!({"cwd": "/tmp", "prompt": "hi"})).await;
         assert_eq!(code, StatusCode::OK);
         let ev = serde_json::to_value(rx.try_recv().expect("an event")).unwrap();
-        assert_eq!(ev, serde_json::json!({"resync": true}));
+        assert_eq!(ev, serde_json::json!({ "created": card }));
     }
 
     #[tokio::test]

@@ -149,10 +149,10 @@ pub(crate) fn resume_line(
 pub(crate) enum BoardEvent {
     Status(StatusEvent),
     Activity(ActivityEvent),
-    /// The list of cards changed without a page asking (`tabsh new`):
-    /// pages re-read it, as after missing events. Always `true`.
-    Resync {
-        resync: bool,
+    /// A card was made (from a page, or by `tabsh new`, which no page asked
+    /// for): a page without it adds it where it is, and reorders nothing.
+    Created {
+        created: crate::sessions::SessionInfo,
     },
 }
 
