@@ -1259,8 +1259,10 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 #board.list.fade-top { --fade-t: 2.5rem; }
 #board.list.fade-bottom { --fade-b: 4rem; }
 /* Archived in the columns layout: its heading folds it to a narrow strip, its
-   name running down it; a card dropped on the strip is archived. */
-#board:not(.list) .board-col.folded { flex: 0 0 2.5rem; }
+   name running down it; a card dropped on the strip is archived. The strip
+   docks at the board's right edge, a rail apart from the columns, rather than
+   sitting mid-board after the last one. */
+#board:not(.list) .board-col.folded { flex: 0 0 3rem; margin-left: auto; padding-left: .5rem; border-left: 1px solid var(--border); }
 #board:not(.list) .board-col.folded > header { flex: 1; padding: 0; }
 #board:not(.list) .board-col.folded .col-toggle { flex-direction: column; justify-content: flex-start; padding: .5rem 0; gap: .625rem; }
 #board:not(.list) .board-col.folded .col-toggle:hover { background: var(--muted); }

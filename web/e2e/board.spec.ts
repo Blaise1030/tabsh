@@ -318,6 +318,23 @@ test('a card menu opens on right-click or from the keyboard, with no menu button
   await expect(menuCard).toBeFocused();
 });
 
+test("folded Archived docks at the board's right edge, not after the last column", async ({ page, daemon }) => {
+  await page.setViewportSize({ width: 1800, height: 700 });
+  await openApp(page, daemon);
+  await boardAlone(page);
+  const board = await page.locator('#board').boundingBox();
+  const strip = await col(page, 'archived').boundingBox();
+  const completed = await col(page, 'completed').boundingBox();
+  if (!board || !strip || !completed) throw new Error('board not laid out');
+  // Flush with the board's .75rem padding on the right, a wide gap on its left.
+  expect(Math.abs(board.x + board.width - 12 - (strip.x + strip.width))).toBeLessThan(2);
+  expect(strip.x - (completed.x + completed.width)).toBeGreaterThan(100);
+  // Opened, it takes its place as a column again.
+  await openArchived(page);
+  const open = await col(page, 'archived').boundingBox();
+  expect((open?.x ?? 0) - (completed.x + completed.width)).toBeLessThan(20);
+});
+
 test('the board hides the tabs, and the drawer expands over it', async ({ page, daemon }) => {
   await openApp(page, daemon);
   await expect(page.locator('#tabs')).toBeVisible();
