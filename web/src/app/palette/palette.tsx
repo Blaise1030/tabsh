@@ -20,7 +20,7 @@ import {
   revokeRemoteDevice,
   toggleSharing,
 } from '../remote/share.ts';
-import { cycleTab, isChatCard, onScreen, store } from '../sessions/store.ts';
+import { cycleTab, isChatCard, onActivate, onScreen, store } from '../sessions/store.ts';
 import { comboFromEvent, comboProblem, type KeyId, matchesKey } from '../settings/keys.ts';
 import type { Settings } from '../settings/schema.ts';
 import { applySettings, current, keyHint, saveSetting, setPreviewing } from '../settings/settings.ts';
@@ -31,7 +31,8 @@ import { isMac } from '../ui/dom.ts';
 import { icons } from '../ui/icons.tsx';
 import { type Performance, performanceRows } from '../ui/performance.ts';
 import { showWelcome } from '../welcome/view.tsx';
-import { type PaletteItem, pages, type TextEdit } from './pages.ts';
+import { type PaletteItem, type PaletteSession, pages, type TextEdit } from './pages.ts';
+import { itemMatches, parseQuery, recentFirst, sessionMatches, visit } from './search.ts';
 
 const paletteEl = () => document.getElementById('palette') as HTMLDialogElement;
 const paletteCmd = () => document.getElementById('palette-command') as HTMLElement & { refresh?: () => void };
@@ -43,12 +44,29 @@ let recording: KeyId | null = null; // the keybinding the next key press sets
 let editing: TextEdit | null = null; // the text the input holds instead of a search
 const rowItems = new WeakMap<Element, PaletteItem>();
 let performanceView: [string, string][] | null = null;
+// The cards gone to in this page, latest first, for the Sessions group's order.
+let visits: string[] = [];
 
 async function loadPerformance(): Promise<void> {
   const info: Performance | null = await daemonFetch('/api/performance')
     .then((r) => (r.ok ? r.json() : null))
     .catch(() => null);
   performanceView = info ? performanceRows(info) : [];
+}
+
+// The cards the root page lists, most recent first; archived ones last.
+function paletteSessions(): PaletteSession[] {
+  const cards = store.sessions
+    .filter((s) => !s.leaving())
+    .map((s) => ({ s, id: s.id, statusAt: s.card().statusAt, archived: s.card().status === 'archived' }));
+  return recentFirst(cards, visits, store.active?.id ?? null).map(({ s }, rank) => ({
+    id: s.id,
+    title: s.name(),
+    status: s.card().status,
+    cwd: s.card().cwd,
+    note: s.card().note,
+    rank,
+  }));
 }
 
 function palettePages(): ReturnType<typeof pages> {
@@ -69,6 +87,9 @@ function palettePages(): ReturnType<typeof pages> {
     searchFiles,
     canGoBack: navigation.canGoBack,
     goBack: backPastPalette,
+    sessions: paletteSessions(),
+    // Its tab; on the board, its card in the drawer (the terminals view has none).
+    goToSession: (id) => go({ tab: id, drawer: true }),
   });
 }
 
@@ -139,6 +160,7 @@ function PaletteRow(props: { id: string; item: PaletteItem }): JSX.Element {
       id={id}
       data-filter={item.label}
       data-keywords={item.keywords ?? ''}
+      data-session={item.session?.id}
       aria-disabled={item.disabled ? 'true' : undefined}
       data-keep-command-open={keep ? '' : undefined}
       data-checked={checked ? 'true' : undefined}
@@ -184,11 +206,26 @@ export function PaletteRows(): JSX.Element {
   return <>{rows()}</>;
 }
 
+// The rows the search matches (palette/search.ts): the menu filters manually,
+// so a leading `>` on the root page can narrow it to sessions. Basecoat then
+// takes the shown rows and highlights the first.
+function filterRows(): void {
+  const q = parseQuery(paletteInput().value, page() === 'root');
+  for (const row of paletteMenu().querySelectorAll('[role="menuitem"]')) {
+    const session = rowItems.get(row)?.session;
+    const label = row.getAttribute('data-filter') ?? '';
+    const keywords = row.getAttribute('data-keywords') ?? '';
+    const shown = session ? sessionMatches(session, q) : itemMatches({ label, keywords }, q);
+    row.setAttribute('aria-hidden', String(!shown));
+  }
+  paletteCmd().refresh?.();
+}
+
 // Once a page's rows are on the page: Basecoat's command menu caches its
 // items, so it takes the new ones; then the page starts on the current choice
 // rather than the first entry.
 function afterRender(): void {
-  paletteCmd().refresh?.();
+  filterRows();
   const chosen = paletteMenu().querySelector('[data-checked="true"]');
   if (chosen) {
     chosen.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
@@ -313,8 +350,13 @@ export function openGroupPalette(): void {
 
 export function initPalette(): void {
   paletteMenu().addEventListener('scroll', updatePaletteFades, { passive: true });
-  // Filtering hides items after this handler's turn; measure once it has.
-  paletteInput().addEventListener('input', () => requestAnimationFrame(updatePaletteFades));
+  paletteInput().addEventListener('input', () => {
+    filterRows();
+    requestAnimationFrame(updatePaletteFades);
+  });
+  onActivate(() => {
+    if (store.active) visits = visit(visits, store.active.id);
+  });
   new ResizeObserver(updatePaletteFades).observe(paletteMenu());
 
   // Live preview: whatever setting is highlighted (keyboard or mouse) is shown,

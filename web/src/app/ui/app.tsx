@@ -31,7 +31,8 @@ import { type Icon, icons } from './icons.tsx';
 function Palette(): JSX.Element {
   return (
     <dialog id="palette" class="command-dialog" aria-label="Command menu">
-      <div class="command" id="palette-command">
+      {/* The palette filters its own rows (palette/search.ts), for the `>` prefix. */}
+      <div class="command" id="palette-command" data-filter="manual">
         <header>
           {icons.search()}
           <input
