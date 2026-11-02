@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.8.2
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v1.8.1...v1.8.2)
+
+### Fixes
+
+- **files:** List any absolute path for the explorer, and keep `/` shallow so huge roots stay usable
+
 ## v1.8.1
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v1.8.0...v1.8.1)
