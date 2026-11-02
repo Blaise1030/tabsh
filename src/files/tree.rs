@@ -14,7 +14,8 @@ pub(super) const TREE_LIMIT_PATHS: usize = 20_000;
 
 /// A tree's listing. Paths are relative to `root`, with `/` after directories.
 /// `folders_only` marks a listing of a root too big to list whole: its
-/// folders, without their files.
+/// folders, plus the files sitting at the root (first level), so the sidebar
+/// still has something to open.
 #[derive(Debug, Serialize)]
 pub(super) struct Tree {
     pub(super) root: String,
@@ -102,11 +103,38 @@ pub(super) fn list_tree(root: &Path, limit: usize) -> Tree {
     }
 }
 
+/// Paths directly inside `root` (folders and files at the first level).
+fn list_shallow(root: &Path) -> Vec<String> {
+    walker(root)
+        .max_depth(Some(1))
+        .build()
+        .flatten()
+        .filter_map(|entry| {
+            if entry.depth() != 1 {
+                return None;
+            }
+            let Ok(rel) = entry.path().strip_prefix(root) else {
+                return None;
+            };
+            let is_dir = entry.file_type().is_some_and(|t| t.is_dir());
+            Some(tree_path(rel, is_dir))
+        })
+        .collect()
+}
+
+/// Whether `root` is the filesystem root (`/` on Unix). Walking it would
+/// crawl every mount; the sidebar only ever needs its first level.
+pub(super) fn is_filesystem_root(root: &Path) -> bool {
+    root.parent().is_none()
+}
+
 /// The sidebar's listing of `root`: everything, as `list_tree` lists it, or,
-/// past `limit` paths, its folders alone, gathered in the same walk. It gives
-/// up and lists nothing past `limit` folders, or once it has looked at
-/// `FOLDER_SCAN_FACTOR` times `limit` paths, so a huge root (a home folder)
-/// still answers quickly.
+/// past `limit` paths, its folders plus the files at the first level, gathered
+/// in the same walk. Past `limit` folders, or once it has looked at
+/// `FOLDER_SCAN_FACTOR` times `limit` paths, it still returns that shallow
+/// first level, so a huge root (a home folder) answers quickly without leaving
+/// the sidebar empty. The filesystem root itself is always shallow: a deep
+/// walk there never finishes in time for the page.
 pub(super) fn list_tree_or_folders(root: &Path, limit: usize) -> Tree {
     let tree = |paths, truncated, folders_only| Tree {
         root: root.to_string_lossy().into_owned(),
@@ -114,12 +142,20 @@ pub(super) fn list_tree_or_folders(root: &Path, limit: usize) -> Tree {
         truncated,
         folders_only,
     };
+    if is_filesystem_root(root) {
+        let shallow = list_shallow(root);
+        let any = !shallow.is_empty();
+        return tree(shallow, true, any);
+    }
     let mut paths = Vec::new();
     let mut folders = Vec::new();
+    let mut top_files = Vec::new();
     let mut whole = true;
     for (seen, entry) in walker(root).build().flatten().enumerate() {
         if seen == limit * FOLDER_SCAN_FACTOR {
-            return tree(Vec::new(), true, false);
+            let shallow = list_shallow(root);
+            let any = !shallow.is_empty();
+            return tree(shallow, true, any);
         }
         let Ok(rel) = entry.path().strip_prefix(root) else {
             continue;
@@ -130,9 +166,13 @@ pub(super) fn list_tree_or_folders(root: &Path, limit: usize) -> Tree {
         let is_dir = entry.file_type().is_some_and(|t| t.is_dir());
         if is_dir {
             if folders.len() == limit {
-                return tree(Vec::new(), true, false);
+                let shallow = list_shallow(root);
+                let any = !shallow.is_empty();
+                return tree(shallow, true, any);
             }
             folders.push(tree_path(rel, true));
+        } else if rel.components().count() == 1 {
+            top_files.push(tree_path(rel, false));
         }
         if whole && paths.len() == limit {
             whole = false;
@@ -145,8 +185,10 @@ pub(super) fn list_tree_or_folders(root: &Path, limit: usize) -> Tree {
     if whole {
         tree(paths, false, false)
     } else {
-        let any = !folders.is_empty();
-        tree(folders, true, any)
+        let mut reduced = folders;
+        reduced.extend(top_files);
+        let any = !reduced.is_empty();
+        tree(reduced, true, any)
     }
 }
 
@@ -230,7 +272,7 @@ mod tests {
     }
 
     #[test]
-    fn the_sidebar_lists_everything_or_past_the_cap_its_folders() {
+    fn the_sidebar_lists_everything_or_past_the_cap_its_folders_and_top_files() {
         let dir = scratch();
         touch(&dir, "src/deep/main.rs");
         touch(&dir, "docs/a.md");
@@ -238,24 +280,38 @@ mod tests {
         let whole = list_tree_or_folders(&dir, 10);
         assert!(!whole.truncated && !whole.folders_only);
         assert_eq!(sorted(&whole), sorted(&list_tree(&dir, 10)));
-        let folders = list_tree_or_folders(&dir, 4);
-        assert!(folders.truncated && folders.folders_only);
-        assert_eq!(sorted(&folders), ["docs/", "src/", "src/deep/"]);
+        let reduced = list_tree_or_folders(&dir, 4);
+        assert!(reduced.truncated && reduced.folders_only);
+        assert_eq!(sorted(&reduced), ["docs/", "src/", "src/deep/", "top.txt"]);
     }
 
     #[test]
-    fn the_sidebar_gives_up_past_the_folder_cap_or_the_scan_budget() {
+    fn the_sidebar_keeps_the_first_level_past_the_folder_cap_or_scan_budget() {
         let dir = scratch();
         for name in ["a/x", "b/x", "c/x"] {
             touch(&dir, name);
         }
         let over = list_tree_or_folders(&dir, 2);
-        assert!(over.truncated && !over.folders_only && over.paths.is_empty());
+        assert!(over.truncated && over.folders_only);
+        assert_eq!(sorted(&over), ["a/", "b/", "c/"]);
         let dir = scratch();
         for i in 0..20 {
             touch(&dir, &format!("one/{i}"));
         }
+        touch(&dir, "README.md");
         let over = list_tree_or_folders(&dir, 5);
-        assert!(over.truncated && !over.folders_only && over.paths.is_empty());
+        assert!(over.truncated && over.folders_only);
+        assert_eq!(sorted(&over), ["README.md", "one/"]);
+    }
+
+    #[test]
+    fn the_filesystem_root_is_listed_shallow_without_a_deep_walk() {
+        assert!(is_filesystem_root(Path::new("/")));
+        assert!(!is_filesystem_root(Path::new("/Users")));
+        let tree = list_tree_or_folders(Path::new("/"), TREE_LIMIT_PATHS);
+        assert!(tree.truncated && tree.folders_only);
+        assert_eq!(tree.root, "/");
+        assert!(!tree.paths.is_empty());
+        assert!(tree.paths.iter().all(|p| !p.trim_end_matches('/').contains('/')));
     }
 }
