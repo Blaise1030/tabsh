@@ -58,6 +58,10 @@ struct FoldersQuery {
 #[derive(Deserialize)]
 struct TreeQuery {
     session: Option<String>,
+    /// Absolute directory to list instead of the session's project root.
+    /// The explorer uses this to open a folder under a truncated listing
+    /// (home, `/`, …) without changing the shell's cwd.
+    path: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -153,8 +157,13 @@ async fn file_root(State(st): State<AppState>, Query(q): Query<TreeQuery>) -> Re
 
 async fn file_tree(State(st): State<AppState>, Query(q): Query<TreeQuery>) -> Response {
     let cwd = session_base_dir(&st, q.session.as_deref().unwrap_or(""));
+    let browse = q.path.filter(|p| PathBuf::from(p).is_absolute());
     let listed = tokio::task::spawn_blocking(move || {
-        list_tree_or_folders(&tree_root(&cwd), TREE_LIMIT_PATHS)
+        let root = match browse {
+            Some(path) => PathBuf::from(path),
+            None => tree_root(&cwd),
+        };
+        list_tree_or_folders(&root, TREE_LIMIT_PATHS)
     })
     .await;
     match listed {
@@ -344,6 +353,42 @@ mod tests {
         let body = to_bytes(res.into_body(), usize::MAX).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert!(json["root"].is_string());
+    }
+
+    #[tokio::test]
+    async fn tree_can_list_an_absolute_path_without_a_session() {
+        let dir = scratch();
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src/main.rs"), "").unwrap();
+        std::fs::write(dir.join("README.md"), "").unwrap();
+        let auth = [
+            ("Origin", "https://tabsh.cc"),
+            ("Authorization", "Bearer t0k3n"),
+        ];
+        let encoded = dir.to_str().unwrap().replace(' ', "%20");
+        let mut req = Request::builder()
+            .uri(format!("/api/files/tree?path={encoded}"))
+            .header("Host", "127.0.0.1:7681")
+            .extension(loopback_peer());
+        for (name, value) in auth {
+            req = req.header(name, value);
+        }
+        let res = router(test_state())
+            .oneshot(req.body(axum::body::Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["root"], dir.to_str().unwrap());
+        let mut paths: Vec<&str> = json["paths"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p.as_str().unwrap())
+            .collect();
+        paths.sort_unstable();
+        assert_eq!(paths, ["README.md", "src/", "src/main.rs"]);
     }
 
     #[tokio::test]
