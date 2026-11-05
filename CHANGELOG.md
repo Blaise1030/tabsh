@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.8.3
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v1.8.2...v1.8.3)
+
+### Fixes
+
+- **deps:** Update `undici` to 8.12.3 to resolve Dependabot security alerts
+
 ## v1.8.2
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v1.8.1...v1.8.2)
