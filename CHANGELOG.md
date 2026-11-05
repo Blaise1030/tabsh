@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.8.3
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v1.8.2...v1.8.3)
+
 ## v1.8.2
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v1.8.1...v1.8.2)
