@@ -312,6 +312,10 @@ mod tests {
         assert!(tree.truncated && tree.folders_only);
         assert_eq!(tree.root, "/");
         assert!(!tree.paths.is_empty());
-        assert!(tree.paths.iter().all(|p| !p.trim_end_matches('/').contains('/')));
+        assert!(
+            tree.paths
+                .iter()
+                .all(|p| !p.trim_end_matches('/').contains('/'))
+        );
     }
 }
