@@ -7,6 +7,7 @@
 ### Fixes
 
 - **deps:** Update `undici` to 8.12.3 to resolve Dependabot security alerts
+- **deps:** Update `tokio` to 1.53.3 for RUSTSEC-2026-0386
 
 ## v1.8.2
 
