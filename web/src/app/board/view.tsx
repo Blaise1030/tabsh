@@ -3,12 +3,11 @@
 // order. Its columns, cards and setup screen follow the sessions' states.
 // Names and notes are user text: child strings only.
 import { batch, createEffect, createMemo, createSignal, For, type JSX, on, onCleanup, Show } from 'solid-js';
-import { Portal } from 'solid-js/web';
 import { DOCS_URL } from '../../site.ts';
 import { focusAgentSurface } from '../chat/deliver.ts';
 import { api } from '../daemon/client.ts';
 import { go, here, onPlace } from '../nav/router.ts';
-import { searchTags, tagColor } from '../sessions/labels.ts';
+import { tagColor } from '../sessions/labels.ts';
 import {
   isChatCard,
   newSession,
@@ -20,33 +19,30 @@ import {
   store,
 } from '../sessions/store.ts';
 import { orderTabs } from '../sessions/tabs.ts';
-import { onTagsChange, tagBadge } from '../sessions/tags.tsx';
+import { tagBadge } from '../sessions/tags.tsx';
 import { syncTerminalVisibility } from '../sessions/terminal.tsx';
 import { matchesKey } from '../settings/keys.ts';
 import type { BoardLayout } from '../settings/schema.ts';
 import { current, keyHint, onSaved, saveSetting } from '../settings/settings.ts';
 import { phone } from '../ui/dom.ts';
 import { glyph, icons, providerIcon } from '../ui/icons.tsx';
+import { closeFilterMenu, FilterControls, filterNode, initFilter } from './filter-menu.tsx';
 import {
   asStatus,
-  type BoardFilter,
   COLUMNS,
   clippedTooltip,
   DEFAULT_COMMAND,
   dropOrder,
   fittingCount,
   folderName,
-  foldersOf,
   group,
-  matchesFilter,
-  parseFilter,
   SETUP_PROMPT,
   type Status,
   shortPath,
   since,
-  tagsInUse,
 } from './model.ts';
 import { CardMenu, type CardMenuHandle } from './move-menu.tsx';
+import { matches } from './query.ts';
 import { setStatus } from './status.ts';
 
 // Whether the board is shown (else the terminals are): set only by the
@@ -72,31 +68,6 @@ const [viewTurn, setViewTurn] = createSignal({});
 const [now, setNow] = createSignal(Math.floor(Date.now() / 1000));
 // Until the board is onboarded it shows its setup screen.
 const [onboarded, setOnboarded] = createSignal(current.saved.boardOnboarded);
-// Checked tags (a card needs any of them) and checked folders, kept in this
-// browser. Nothing checked shows every card.
-const FILTER_KEY = 'tabsh.boardFilter';
-function loadFilter(): BoardFilter {
-  try {
-    return parseFilter(JSON.parse(localStorage.getItem(FILTER_KEY) ?? '{}'));
-  } catch {
-    return { tags: [], folders: [] };
-  }
-}
-function saveFilter(): void {
-  try {
-    localStorage.setItem(FILTER_KEY, JSON.stringify({ tags: filterTags(), folders: filterFolders() }));
-  } catch {}
-}
-const saved = loadFilter();
-const [filterTags, setFilterTags] = createSignal<string[]>(saved.tags);
-const [filterFolders, setFilterFolders] = createSignal<string[]>(saved.folders);
-const [filterOpen, setFilterOpen] = createSignal(false);
-// What the open filter menu lists: the tags and folders in use when it opened.
-const [filterChoices, setFilterChoices] = createSignal<{ tags: string[]; folders: string[] }>({
-  tags: [],
-  folders: [],
-});
-let filterMenu: HTMLElement | null = null;
 // Columns side by side, or one list of rows under each status's heading.
 export const [layout, setLayout] = createSignal<BoardLayout>(current.saved.boardLayout);
 // The folded statuses, kept in this browser: any heading in the list layout,
@@ -132,162 +103,12 @@ export function setNewCard(fn: (status: Status) => void): void {
 
 export const boardOpen = (): boolean => shown();
 
-function closeFilterMenu(): void {
-  filterMenu = null;
-  setFilterOpen(false);
-}
-
-function CheckRow(props: {
-  text: string;
-  checked: boolean;
-  color: string | null;
-  change: (checked: boolean) => void;
-}): JSX.Element {
-  const dot = props.color ? `background:${props.color}` : '';
-  let box!: HTMLInputElement;
-  return (
-    <label class={`label menu-check${props.color ? '' : ' repo'}`}>
-      <input
-        ref={box}
-        type="checkbox"
-        class="input"
-        checked={props.checked}
-        on:change={() => props.change(box.checked)}
-      />
-      <i style={dot} />
-      <span>{props.text}</span>
-    </label>
-  );
-}
-
-function toggleFilter(kind: 'tags' | 'folders', value: string, checked: boolean): void {
-  if (kind === 'tags') {
-    const list = filterTags().filter((x) => x !== value);
-    setFilterTags(checked ? [...list, value] : list);
-  } else {
-    const list = filterFolders().filter((x) => x !== value);
-    setFilterFolders(checked ? [...list, value] : list);
-  }
-  saveFilter();
-}
-
-// Beside Settings: tags and folders in use, each a checkbox. Checking one
-// narrows the columns; the menu stays open so several can be checked.
-function openFilterMenu(): void {
-  const items = sessionList().map((s) => ({ card: s.card(), tags: s.tags() }));
-  const tags = tagsInUse(items);
-  const folders = foldersOf(items);
-  setFilterTags(filterTags().filter((t) => tags.includes(t)));
-  setFilterFolders(filterFolders().filter((f) => folders.includes(f)));
-  saveFilter();
-  setFilterChoices({ tags, folders });
-  setFilterOpen(true);
-}
-
-// The open filter menu, on the page's body: its rows are checked as the
-// filter is, so a row its search hides and shows again keeps its tick.
-function FilterMenu(): JSX.Element {
-  const { tags, folders } = filterChoices();
-  // Its search narrows the tags and folders listed, ignoring case.
-  const [typed, setTyped] = createSignal('');
-  const foundTags = () => searchTags(tags, typed());
-  const foundFolders = () =>
-    folders
-      .map((folder) => ({ folder, name: shortPath(folder) || folder }))
-      .filter((x) => searchTags([x.name], typed()).length);
-  let field!: HTMLInputElement;
-  queueMicrotask(() => field.focus());
-  return (
-    <Portal
-      ref={(host) => {
-        const menu = host.firstElementChild as HTMLElement;
-        const r = (document.getElementById('board-filter-btn') as HTMLElement).getBoundingClientRect();
-        menu.style.top = `${r.bottom + 4}px`;
-        menu.style.left = `${Math.max(8, r.right - menu.offsetWidth)}px`;
-        filterMenu = menu;
-      }}
-    >
-      <div class="row-menu tab-menu board-filter-menu" role="dialog" aria-label="Filter cards">
-        <input
-          ref={field}
-          type="text"
-          class="input"
-          placeholder="Search tags and folders…"
-          autocomplete="off"
-          spellcheck={false}
-          aria-label="Search tags and folders"
-          on:input={() => setTyped(field.value)}
-        />
-        <Show when={foundTags().length}>
-          <div class="menu-heading">Tags</div>
-          <div class="menu-list">
-            <For each={foundTags()}>
-              {(tag) => (
-                <CheckRow
-                  text={tag}
-                  checked={filterTags().includes(tag)}
-                  color={tagColor(tag)}
-                  change={(checked) => toggleFilter('tags', tag, checked)}
-                />
-              )}
-            </For>
-          </div>
-        </Show>
-        <Show when={foundFolders().length}>
-          <Show when={foundTags().length}>
-            <div class="menu-sep" />
-          </Show>
-          <div class="menu-heading">Folders</div>
-          <div class="menu-list">
-            <For each={foundFolders()}>
-              {({ folder, name }) => (
-                <CheckRow
-                  text={name}
-                  checked={filterFolders().includes(folder)}
-                  color={null}
-                  change={(checked) => toggleFilter('folders', folder, checked)}
-                />
-              )}
-            </For>
-          </div>
-        </Show>
-        <Show when={!foundTags().length && !foundFolders().length}>
-          <div class="menu-hint">{tags.length || folders.length ? 'No matches' : 'No tags or folders yet'}</div>
-        </Show>
-      </div>
-    </Portal>
-  );
-}
-
-// Shown only while the board is open and past its setup screen.
+// Beside Settings: the active view's chip and the Filter button, shown only
+// while the board is open and past its setup screen.
 export function FilterButton(): JSX.Element {
-  const open = filterOpen;
-  const tags = filterTags;
-  const folders = filterFolders;
   const board = shown;
   const ready = onboarded;
-  return (
-    <>
-      <button
-        type="button"
-        class="btn"
-        data-variant="ghost"
-        data-size="icon-sm"
-        aria-label="Filter"
-        title="Filter"
-        id="board-filter-btn"
-        aria-expanded={open()}
-        aria-pressed={tags().length > 0 || folders().length > 0}
-        hidden={!(board() && ready())}
-        onClick={() => (filterOpen() ? closeFilterMenu() : openFilterMenu())}
-      >
-        {icons.listFilter()}
-      </button>
-      <Show when={open()}>
-        <FilterMenu />
-      </Show>
-    </>
-  );
+  return <FilterControls visible={board() && ready()} />;
 }
 
 // The board's other layout: columns or list.
@@ -1006,12 +827,11 @@ export function Board(): JSX.Element {
   const inDrawer = drawer;
   const ready = onboarded;
   const shape = layout;
-  const tagFilter = filterTags;
-  const folderFilter = filterFolders;
+  const filter = filterNode;
   const list = sessionList;
   const sessions = createMemo((): Columns => {
-    const filter = { tags: tagFilter(), folders: folderFilter() };
-    const kept = list().filter((s) => matchesFilter({ card: s.card(), tags: s.tags() }, filter));
+    const node = filter();
+    const kept = list().filter((s) => matches(node, { status: s.card().status, cwd: s.card().cwd, tags: s.tags() }));
     const g = group(kept.map((s) => ({ s, card: s.card() })));
     return Object.fromEntries(Object.entries(g).map(([k, v]) => [k, v.map((x) => x.s)])) as Columns;
   });
@@ -1111,18 +931,7 @@ export function initBoard(): void {
   const boardButton = document.getElementById('board-btn') as HTMLButtonElement;
   keyHint(boardButton, 'Board', 'keyToggleBoard');
   boardButton.onclick = () => cycleBoard(); // as its shortcut: list, columns, back from expanded
-  addEventListener('pointerdown', (e) => {
-    const t = e.target as Node;
-    const btn = document.getElementById('board-filter-btn');
-    if (filterMenu && !filterMenu.contains(t) && !btn?.contains(t)) closeFilterMenu();
-  });
-  addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeFilterMenu();
-  });
-  onTagsChange(() => {
-    const tags = tagsInUse(sessionList().map((s) => ({ tags: s.tags() })));
-    setFilterTags(filterTags().filter((t) => tags.includes(t)));
-  });
+  initFilter();
   window.addEventListener(
     'keydown',
     (e) => {

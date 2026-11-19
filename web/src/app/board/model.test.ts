@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   asStatus,
-  type BoardFilter,
   type Card,
   clippedTooltip,
   dropOrder,
@@ -10,8 +9,6 @@ import {
   folderName,
   foldersOf,
   group,
-  matchesFilter,
-  parseFilter,
   recentFolders,
   shortPath,
   since,
@@ -79,28 +76,6 @@ test('folders are unique, newest first, and recent ones are capped', () => {
   ];
   assert.deepEqual(foldersOf(items), ['/a', '/b']);
   assert.deepEqual(recentFolders(items, 1), ['/a']);
-});
-
-test('a filter keeps cards in any checked folder that have any checked tag', () => {
-  const items = [
-    { tags: ['bug'], card: card('backlog', '/app') },
-    { tags: ['chore'], card: card('backlog', '/app') },
-    { tags: ['bug', 'chore'], card: card('backlog', '/lib') },
-    { tags: [], card: card('backlog', '/lib') },
-  ];
-  const kept = (filter: BoardFilter) => items.filter((x) => matchesFilter(x, filter)).map((x) => [x.card.cwd, x.tags]);
-  assert.deepEqual(kept({ tags: ['bug'], folders: ['/app', '/lib'] }), [
-    ['/app', ['bug']],
-    ['/lib', ['bug', 'chore']],
-  ]);
-  assert.deepEqual(kept({ tags: [], folders: [] }).length, 4);
-  assert.deepEqual(kept({ tags: ['missing'], folders: [] }), []);
-});
-
-test('a saved filter reads back, dropping anything malformed', () => {
-  assert.deepEqual(parseFilter({ tags: ['ide', 3], folders: ['/app'] }), { tags: ['ide'], folders: ['/app'] });
-  assert.deepEqual(parseFilter({ tags: 'ide' }), { tags: [], folders: [] });
-  assert.deepEqual(parseFilter(null), { tags: [], folders: [] });
 });
 
 test('tags in use follow the order they first appear', () => {

@@ -69,9 +69,11 @@ body { font-family: var(--font-sans); }
   display: flex; align-items: center; gap: .375rem; height: 2.625rem; padding: 0 .5rem;
   box-sizing: border-box; background: var(--background); border: 0; box-shadow: none;
 }
-.tabbar.on-board > :not(#board-btn, .settings-btn, #board-filter-btn) { display: none; }
+.tabbar.on-board > :not(#board-btn, .settings-btn, #board-filter-btn, #board-view-chip) { display: none; }
 .tabbar.on-board .settings-btn { margin-left: auto; }
 .tabbar.on-board #board-filter-btn:not([hidden]) { margin-left: auto; }
+.tabbar.on-board #board-view-chip:not([hidden]) { margin-left: auto; }
+.tabbar.on-board #board-view-chip:not([hidden]) ~ #board-filter-btn { margin-left: 0; }
 .tabbar.on-board #board-filter-btn:not([hidden]) ~ .settings-btn { margin-left: 0; }
 /* Edge fades show only where tabs are scrolled out of view; registered so
    they ease in and out instead of popping. */
@@ -1162,8 +1164,46 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 /* The board: Linear-style columns in the theme's own tokens. */
 #board-filter-btn[hidden] { display: none; }
 #board-filter-btn[aria-pressed="true"] { color: var(--foreground); background: var(--muted); }
-.board-filter-menu { max-width: 20rem; }
+.board-filter-menu { width: 20rem; max-width: calc(100vw - 16px); }
 .board-filter-menu .menu-list, .tab-menu > .menu-list { max-height: 16rem; overflow-y: auto; }
+.board-filter-menu .menu-sep { height: 1px; margin: .25rem -.25rem; background: var(--border); }
+/* Saved views: a row picks one (ticked when active); its ⋯ shows Rename and Delete. */
+.board-filter-menu .view-list { max-height: 10rem; }
+.view-row { display: flex; flex-wrap: wrap; align-items: center; }
+.view-row > .input { flex: 1; margin: .125rem 0; }
+.view-pick {
+  all: unset; box-sizing: border-box; flex: 1; min-width: 0; display: flex; align-items: center; gap: .375rem;
+  padding: .375rem .5rem; cursor: default; border-radius: calc(var(--radius, .5rem) - 2px);
+}
+.view-pick:hover, .view-pick:focus-visible { background: var(--accent); color: var(--accent-foreground); }
+.view-tick { flex: 0 0 .875rem; display: inline-flex; }
+.view-tick svg { width: .875rem; height: .875rem; }
+.view-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.view-more { opacity: .6; }
+.view-row:hover .view-more, .view-more[aria-expanded="true"] { opacity: 1; }
+.view-actions { flex-basis: 100%; display: flex; gap: .25rem; padding: 0 .5rem .25rem 1.75rem; }
+/* The query: its field, the suggestions under it, its error and its buttons. */
+.query-box { position: relative; }
+.query-field { width: 100%; font-family: var(--font-mono, ui-monospace, monospace); font-size: .75rem; }
+.query-field[aria-invalid="true"] { border-color: var(--destructive); }
+.query-suggestions {
+  position: absolute; left: 0; right: 0; top: calc(100% + 2px); z-index: 1; padding: .25rem;
+  background: var(--popover); border: 1px solid var(--border); border-radius: var(--radius, .5rem);
+  box-shadow: 0 4px 16px rgb(0 0 0 / .25);
+}
+.query-suggestion {
+  padding: .25rem .5rem; border-radius: calc(var(--radius, .5rem) - 2px); cursor: default;
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: .75rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.query-suggestion[aria-selected="true"], .query-suggestion:hover { background: var(--accent); color: var(--accent-foreground); }
+.query-error { padding: .25rem .5rem 0; font-size: .75rem; color: var(--destructive); }
+.query-actions { display: flex; gap: .25rem; padding: .375rem 0 .125rem; }
+.query-actions > .input { flex: 1; min-width: 0; }
+/* The active view, beside the Filter button: its name, a dot once edited. */
+#board-view-chip[hidden] { display: none; }
+#board-view-chip { max-width: 12rem; gap: .375rem; color: var(--foreground); background: var(--muted); }
+#board-view-chip .modified { flex-shrink: 0; width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
 #board,
 .welcome-preview-board {
   flex: 1; min-width: 0; min-height: 0; display: flex; gap: .75rem; padding: .75rem; overflow-x: auto; background: var(--background);

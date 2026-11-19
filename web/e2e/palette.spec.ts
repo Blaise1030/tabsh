@@ -3,7 +3,7 @@
 // page's items, not the old page's.
 import type { Page } from '@playwright/test';
 import type { Daemon } from './daemon.ts';
-import { dropSessions, expect, openApp, test } from './fixture.ts';
+import { dropSessions, expect, openApp, setOnboarded, test } from './fixture.ts';
 
 const items = (page: Page) => page.locator('#palette-menu [role="menuitem"]');
 const shown = (page: Page) => page.locator('#palette-menu [role="menuitem"]:not([aria-hidden="true"])');
@@ -125,4 +125,38 @@ test.describe('sessions in the palette', () => {
     await expect.poll(() => new URL(page.url()).searchParams.get('drawer')).toBe('1');
     await expect(page.locator('#board')).toBeVisible();
   });
+});
+
+// Saved board views are in the palette: picking one applies it; Clear view
+// turns it off.
+test.describe('board views in the palette', () => {
+  // The daemon is shared by the worker: put the setup screen back after.
+  test.afterEach(async ({ page, daemon }) => setOnboarded(page, daemon, false));
+
+test('a saved board view is picked and cleared from the palette', async ({ page, daemon }) => {
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem('seeded')) return;
+    sessionStorage.setItem('seeded', '1');
+    localStorage.setItem('tabsh.boardViews', '[{"id":"v","name":"Shipping","query":"tag:ship"}]');
+  });
+  await setOnboarded(page, daemon, true); // the filter shows once the board is set up
+  await openApp(page, daemon);
+  await page.locator('#board-btn').click();
+  const chip = page.locator('#board-view-chip');
+  await expect(chip).toBeHidden();
+  await page.locator('#settings-btn').click();
+  await expect.poll(() => paletteOpen(page)).toBe(true);
+  await page.locator('#palette-input').fill('View: Ship');
+  await expect(active(page)).toHaveAttribute('data-filter', 'View: Shipping');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => paletteOpen(page)).toBe(false);
+  await expect(chip).toBeVisible();
+  await expect(chip).toHaveText('Shipping');
+  await page.locator('#settings-btn').click();
+  await expect.poll(() => paletteOpen(page)).toBe(true);
+  await page.locator('#palette-input').fill('Clear view');
+  await expect(active(page)).toHaveAttribute('data-filter', 'Clear view');
+  await page.keyboard.press('Enter');
+  await expect(chip).toBeHidden();
+});
 });

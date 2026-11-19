@@ -5,6 +5,7 @@
 // biome-ignore-all lint/a11y/useSemanticElements: Basecoat's command markup, which its script and styles read
 // biome-ignore-all lint/a11y/useAriaPropsForRole: Basecoat's group heading, named by the group's aria-labelledby
 import { children, createEffect, createSignal, For, type JSX } from 'solid-js';
+import { activeViewId, applyView, boardViews } from '../board/filter-menu.tsx';
 import { toggleBoard, toggleBoardLayout } from '../board/view.tsx';
 import { focusAgentSurface } from '../chat/deliver.ts';
 import { daemonFetch } from '../daemon/client.ts';
@@ -79,6 +80,9 @@ function palettePages(): ReturnType<typeof pages> {
     toggleExplorer,
     toggleBoard: () => toggleBoard(),
     toggleBoardLayout,
+    views: boardViews(),
+    activeView: activeViewId(),
+    applyView,
     showWelcome,
     remote: remoteView(),
     toggleSharing: () => void toggleSharing(),

@@ -93,28 +93,6 @@ export function recentFolders(items: { card: Card }[], limit = 8): string[] {
   return foldersOf(items).slice(0, limit);
 }
 
-// What the board is narrowed to. Nothing checked means every card.
-export interface BoardFilter {
-  tags: string[];
-  folders: string[];
-}
-
-// A saved filter read back: anything malformed counts as nothing checked.
-export function parseFilter(raw: unknown): BoardFilter {
-  const strings = (v: unknown): string[] =>
-    Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
-  const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
-  return { tags: strings(o.tags), folders: strings(o.folders) };
-}
-
-// A card stays when it is in any checked folder (if a folder is checked) and
-// has any checked tag (if a tag is checked).
-export function matchesFilter(item: { card: Card; tags: string[] }, filter: BoardFilter): boolean {
-  if (filter.folders.length > 0 && !filter.folders.includes(item.card.cwd ?? '')) return false;
-  if (filter.tags.length > 0 && !filter.tags.some((t) => item.tags.includes(t))) return false;
-  return true;
-}
-
 // Tags in use, in the order they first show up.
 export function tagsInUse(items: { tags: string[] }[]): string[] {
   const seen = new Set<string>();
