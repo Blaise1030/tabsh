@@ -66,3 +66,10 @@ export function updateView(views: View[], id: string, query: string): View[] {
 export function deleteView(views: View[], id: string): View[] {
   return views.filter((v) => v.id !== id);
 }
+
+// A new view's id: 32 hex digits. `crypto.randomUUID` exists only on secure
+// pages, and another device opens tabsh over plain HTTP.
+export function newViewId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}

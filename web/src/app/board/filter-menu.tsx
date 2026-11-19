@@ -23,6 +23,7 @@ import {
   addView,
   deleteView,
   nameTaken,
+  newViewId,
   parseCurrent,
   parseViews,
   renameView,
@@ -263,10 +264,11 @@ function FilterMenu(): JSX.Element {
     folders
       .map((folder) => ({ folder, name: shortPath(folder) || folder }))
       .filter((x) => searchTags([x.name], typed()).length);
-  // Autocomplete: what's offered at the caret, the highlighted one, and
-  // whether Esc has put the list away until the next keystroke.
+  // Autocomplete: what's offered at the caret, the highlighted one (none, -1,
+  // until an arrow key, so Enter applies what's typed), and whether Esc has
+  // put the list away until the next keystroke.
   const [caret, setCaret] = createSignal(0);
-  const [pick, setPick] = createSignal(0);
+  const [pick, setPick] = createSignal(-1);
   const [listed, setListed] = createSignal(true);
   const suggestions = () => {
     if (!listed()) return [];
@@ -285,7 +287,7 @@ function FilterMenu(): JSX.Element {
     field.setSelectionRange(at, at);
     setDraft(text);
     setCaret(at);
-    setPick(0);
+    setPick(-1);
     setListed(true);
     window.clearTimeout(pause);
     if (now) apply(text);
@@ -314,7 +316,7 @@ function FilterMenu(): JSX.Element {
       setNameError('A view already has that name');
       return;
     }
-    const view = { id: crypto.randomUUID(), name, query: query() };
+    const view = { id: newViewId(), name, query: query() };
     saveViews(addView(views(), view));
     setViewId(view.id);
     saveCurrent();
@@ -365,11 +367,12 @@ function FilterMenu(): JSX.Element {
               if (e.isComposing) return;
               if (list.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
                 e.preventDefault();
+                const from = pick() < 0 ? (e.key === 'ArrowDown' ? -1 : 0) : pick();
                 const step = e.key === 'ArrowDown' ? 1 : -1;
-                setPick((pick() + step + list.length) % list.length);
-              } else if (list.length && (e.key === 'Enter' || e.key === 'Tab')) {
+                setPick((from + step + list.length) % list.length);
+              } else if (list.length && (e.key === 'Tab' || (e.key === 'Enter' && pick() >= 0))) {
                 e.preventDefault();
-                choose(list[Math.min(pick(), list.length - 1)].insert);
+                choose(list[Math.min(Math.max(pick(), 0), list.length - 1)].insert);
               } else if (e.key === 'Enter') {
                 apply(field.value);
               } else if (e.key === 'Escape' && list.length) {

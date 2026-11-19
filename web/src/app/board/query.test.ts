@@ -152,9 +152,10 @@ test('a value still being typed does not blank the board', () => {
   const elsewhere = liveQuery('tag:b', 2, known); // caret elsewhere: taken as typed
   assert.ok(elsewhere.ok);
   assert.equal(matches(elsewhere.node, card(['bug'])), false);
-  const unknown = liveQuery('tag:zz', 6, known); // a prefix of nothing: taken as typed
-  assert.ok(unknown.ok);
-  assert.equal(matches(unknown.node, card(['bug'])), false);
+  const typo = liveQuery('tag:x tag:bgu', 13, known); // names nothing in use: left out too
+  assert.ok(typo.ok);
+  assert.equal(matches(typo.node, card(['x'])), true);
+  assert.equal(liveText('folder:/Users/me/Doc', 20, { tags: [], folders: ['~/Documents'] }), '');
 });
 
 test('an old filter becomes the same query', () => {

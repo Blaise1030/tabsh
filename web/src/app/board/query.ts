@@ -346,15 +346,15 @@ function candidates(field: Field, known: Known): string[] {
 }
 
 // The text to apply while a query is being typed: a last value the caret is
-// still at the end of, naming nothing in use but the start of something, is
-// left out until it's finished, so `tag:b` on its way to `tag:bug` doesn't
-// empty the board (and `status:need` isn't an error yet).
+// still at the end of that names nothing in use is left out until it does, so
+// `tag:b` on its way to `tag:bug`, or a typo, doesn't empty the board (and
+// `status:need` isn't an error yet). Enter applies the text as typed.
 export function liveText(text: string, caret: number, known: Known): string {
   const c = completionAt(text, caret);
   if (!c?.field || c.end !== caret || text.slice(caret).trim()) return text;
   const v = c.partial.toLowerCase();
   const names = candidates(c.field, known).map((x) => x.toLowerCase());
-  if (names.includes(v) || !names.some((x) => x.startsWith(v))) return text;
+  if (names.includes(v)) return text;
   const rest = cut(text, [{ start: c.start - c.field.length - 1, end: caret }]);
   return parseQuery(rest).ok ? rest : text;
 }

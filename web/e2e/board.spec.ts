@@ -835,10 +835,20 @@ test('a filter query saves as a view and comes back after a reload', async ({ pa
   await page.waitForTimeout(500);
   await expect(card(page, 'Alpha')).toBeVisible();
   await expect(card(page, 'Beta')).toBeVisible();
-  // Picking the suggestion finishes the term and applies it.
+  // Nothing is highlighted until an arrow key: Enter applies the text as
+  // typed, so an exact value is never swapped for a longer one.
   await field.press('Enter');
+  await expect(field).toHaveValue('tag:shi');
+  // Tab takes the first suggestion, finishing the term and applying it.
+  await field.press('Tab');
   await expect(field).toHaveValue('tag:ship ');
   await expect(card(page, 'Beta')).toHaveCount(0);
+  // ↓ then Enter picks the highlighted one.
+  await field.fill('tag:sh');
+  await field.press('ArrowDown');
+  await expect(filters.getByRole('option', { name: 'ship' })).toHaveAttribute('aria-selected', 'true');
+  await field.press('Enter');
+  await expect(field).toHaveValue('tag:ship ');
 
   await field.fill('-tag:ship');
   await field.press('Enter');

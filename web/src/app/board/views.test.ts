@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { addView, deleteView, nameTaken, parseCurrent, parseViews, renameView, updateView } from './views.ts';
+import {
+  addView,
+  deleteView,
+  nameTaken,
+  newViewId,
+  parseCurrent,
+  parseViews,
+  renameView,
+  updateView,
+} from './views.ts';
 
 test('saved views read back, dropping anything malformed', () => {
   assert.deepEqual(parseViews([{ id: 'a', name: 'Bugs', query: 'tag:bug' }, { id: 'b', name: 3 }, null]), [
@@ -35,4 +44,17 @@ test('views are added, renamed, updated and deleted; names stay unique', () => {
     deleteView(v, '1').map((x) => x.id),
     ['2'],
   );
+});
+
+test('a view id is made without crypto.randomUUID (missing over plain HTTP)', () => {
+  const real = crypto.randomUUID;
+  Object.defineProperty(crypto, 'randomUUID', { value: undefined, configurable: true });
+  try {
+    const a = newViewId();
+    const b = newViewId();
+    assert.match(a, /^[0-9a-f]{32}$/);
+    assert.notEqual(a, b);
+  } finally {
+    Object.defineProperty(crypto, 'randomUUID', { value: real, configurable: true });
+  }
 });
