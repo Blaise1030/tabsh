@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.9.0
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v1.8.3...v1.9.0)
+
+### Features
+
+- **board:** A query language for filtering cards ([eebbef1](https://github.com/Blaise1030/tabsh/commit/eebbef1))
+- **board:** Edit, complete and migrate filter queries ([6bf36db](https://github.com/Blaise1030/tabsh/commit/6bf36db))
+- **board:** Saved views and the current filter ([00603fe](https://github.com/Blaise1030/tabsh/commit/00603fe))
+- **board:** Filter by query and save views ([393a713](https://github.com/Blaise1030/tabsh/commit/393a713))
+- **palette:** Pick a board view from the palette ([3a2e059](https://github.com/Blaise1030/tabsh/commit/3a2e059))
+
+### Fixes
+
+- **board:** Enter applies the typed query; view ids without randomUUID ([7842282](https://github.com/Blaise1030/tabsh/commit/7842282))
+
 ## v1.8.3
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v1.8.2...v1.8.3)
