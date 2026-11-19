@@ -77,6 +77,10 @@ export function pages(ctx: {
   toggleExplorer(): void;
   toggleBoard(): void;
   toggleBoardLayout(): void;
+  // The board's saved views, the active one, and picking one (null clears).
+  views: { id: string; name: string }[];
+  activeView: string | null;
+  applyView(id: string | null): void;
   showWelcome(): void;
   remote: RemoteView;
   toggleSharing(): void;
@@ -177,6 +181,23 @@ export function pages(ctx: {
               keywords: 'kanban list rows columns vertical view',
               run: ctx.toggleBoardLayout,
             },
+            ...ctx.views.map((v) => ({
+              label: `View: ${v.name}`,
+              icon: icons.listFilter,
+              hint: v.id === ctx.activeView ? 'Active' : undefined,
+              keywords: 'board filter saved query view',
+              run: () => ctx.applyView(v.id),
+            })),
+            ...(ctx.activeView
+              ? [
+                  {
+                    label: 'Clear view',
+                    icon: icons.listFilter,
+                    keywords: 'board filter saved query view reset all cards',
+                    run: () => ctx.applyView(null),
+                  },
+                ]
+              : []),
             {
               label: 'Group tabs…',
               icon: icons.group,
