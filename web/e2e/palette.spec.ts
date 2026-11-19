@@ -148,6 +148,7 @@ test('a saved board view is picked and cleared from the palette', async ({ page,
   await page.locator('#palette-input').fill('View: Ship');
   await expect(active(page)).toHaveAttribute('data-filter', 'View: Shipping');
   await page.keyboard.press('Enter');
+  await expect.poll(() => paletteOpen(page)).toBe(false);
   await expect(chip).toBeVisible();
   await expect(chip).toHaveText('Shipping');
   await openPaletteWithKeys(page);
