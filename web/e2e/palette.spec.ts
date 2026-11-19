@@ -144,14 +144,16 @@ test('a saved board view is picked and cleared from the palette', async ({ page,
   await page.locator('#board-btn').click();
   const chip = page.locator('#board-view-chip');
   await expect(chip).toBeHidden();
-  await openPaletteWithKeys(page);
+  await page.locator('#settings-btn').click();
+  await expect.poll(() => paletteOpen(page)).toBe(true);
   await page.locator('#palette-input').fill('View: Ship');
   await expect(active(page)).toHaveAttribute('data-filter', 'View: Shipping');
   await page.keyboard.press('Enter');
   await expect.poll(() => paletteOpen(page)).toBe(false);
   await expect(chip).toBeVisible();
   await expect(chip).toHaveText('Shipping');
-  await openPaletteWithKeys(page);
+  await page.locator('#settings-btn').click();
+  await expect.poll(() => paletteOpen(page)).toBe(true);
   await page.locator('#palette-input').fill('Clear view');
   await expect(active(page)).toHaveAttribute('data-filter', 'Clear view');
   await page.keyboard.press('Enter');
