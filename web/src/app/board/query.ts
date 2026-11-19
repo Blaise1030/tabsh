@@ -237,3 +237,140 @@ export function formatTerm(field: Field, value: string): string {
   if (value && !/[\s()"\\]/.test(value)) return `${field}:${value}`;
   return `${field}:"${value.replace(/[\\"]/g, (c) => `\\${c}`)}"`;
 }
+
+type Term = Extract<QueryNode, { kind: 'term' }>;
+
+const sameValue = (field: Field, a: string, b: string): boolean =>
+  field === 'folder' ? a.replace(/(.)\/+$/, '$1') === b.replace(/(.)\/+$/, '$1') : a.toLowerCase() === b.toLowerCase();
+
+// The terms a checkbox owns: plain positive terms the whole query must have.
+function topTerms(node: QueryNode | null): Term[] {
+  if (node?.kind === 'term') return [node];
+  if (node?.kind === 'and') return node.children.filter((c): c is Term => c.kind === 'term');
+  return [];
+}
+
+function findTop(text: string, field: 'tag' | 'folder', value: string): Term[] | null {
+  const p = parseQuery(text);
+  if (!p.ok) return null;
+  return topTerms(p.node).filter((t) => t.field === field && sameValue(field, t.value, value));
+}
+
+// Whether a checkbox for `value` shows ticked.
+export function hasTerm(text: string, field: 'tag' | 'folder', value: string): boolean {
+  return (findTop(text, field, value) ?? []).length > 0;
+}
+
+// The query with `field:value` required too. Under a top-level `or` the query
+// is bracketed first, so it keeps its meaning.
+export function withTerm(text: string, field: 'tag' | 'folder', value: string): string {
+  if (hasTerm(text, field, value)) return text;
+  const term = formatTerm(field, value);
+  const rest = text.trim();
+  if (!rest) return term;
+  const p = parseQuery(rest);
+  return p.ok && p.node?.kind === 'or' ? `(${rest}) ${term}` : `${rest} ${term}`;
+}
+
+// `text` without the spans given, each taking the space after it (or before
+// it, at the end), and without an `and`, `or` or `not` left dangling.
+function cut(text: string, spans: { start: number; end: number }[]): string {
+  let out = text;
+  for (const { start, end } of [...spans].sort((a, b) => b.start - a.start)) {
+    let a = start;
+    let b = end;
+    while (b < out.length && isSpace(out[b])) b++;
+    if (b === out.length) while (a > 0 && isSpace(out[a - 1])) a--;
+    out = out.slice(0, a) + out.slice(b);
+  }
+  return out
+    .replace(/(^|\s)and\s+(?=and\b)/gi, '$1')
+    .replace(/^\s*and\s+/i, '')
+    .replace(/(\s+(and|or|not)|\s*-|\s*\()+\s*$/i, '')
+    .trim();
+}
+
+export function withoutTerm(text: string, field: 'tag' | 'folder', value: string): string {
+  const found = findTop(text, field, value);
+  if (!found?.length) return text;
+  return cut(text, found);
+}
+
+// What autocomplete offers at the caret: a field name while a bare word is
+// typed (`field: null`), else the value after `field:`. `start`..`end` is
+// the span a pick replaces (a quoted value's span takes in its quote).
+export interface Completion {
+  field: Field | null;
+  partial: string;
+  start: number;
+  end: number;
+}
+
+export function completionAt(text: string, caret: number): Completion | null {
+  const before = text.slice(0, caret);
+  // Inside an open quote: the value since it.
+  const quotes = before.replace(/\\./g, '').split('"').length - 1;
+  if (quotes % 2 === 1) {
+    const q = before.lastIndexOf('"');
+    const m = /([A-Za-z]+):$/.exec(before.slice(0, q));
+    const field = FIELDS.find((f) => f === m?.[1].toLowerCase());
+    return field ? { field, partial: before.slice(q + 1).replace(/\\(.)/g, '$1'), start: q, end: caret } : null;
+  }
+  let start = caret;
+  while (start > 0 && !stops(text[start - 1]) && text[start - 1] !== '"') start--;
+  if (text[start] === '-') start++;
+  let end = caret;
+  while (end < text.length && !stops(text[end])) end++;
+  const word = text.slice(start, caret);
+  if (!word) return null;
+  const colon = word.indexOf(':');
+  if (colon < 0) {
+    if (['and', 'or', 'not'].includes(word.toLowerCase())) return null;
+    return { field: null, partial: word, start, end };
+  }
+  const field = FIELDS.find((f) => f === word.slice(0, colon).toLowerCase());
+  if (!field || word[colon + 1] === '"') return null; // a closed quote is a finished value
+  return { field, partial: word.slice(colon + 1), start: start + colon + 1, end };
+}
+
+// The tags and folders (as `shortPath` shows them) in use.
+export interface Known {
+  tags: string[];
+  folders: string[];
+}
+
+function candidates(field: Field, known: Known): string[] {
+  if (field === 'tag') return known.tags;
+  if (field === 'folder') return known.folders;
+  return STATUSES.flatMap((s) => [s, STATUS_NAMES[s]]);
+}
+
+// The query to apply while it's being typed: a last value the caret is still
+// at the end of, naming nothing in use but the start of something, is left
+// out until it's finished, so `tag:b` on its way to `tag:bug` doesn't empty
+// the board (and `status:need` isn't an error yet).
+export function liveQuery(text: string, caret: number, known: Known): Parsed {
+  const full = parseQuery(text);
+  const c = completionAt(text, caret);
+  if (!c?.field || c.end !== caret || text.slice(caret).trim()) return full;
+  const v = c.partial.toLowerCase();
+  const names = candidates(c.field, known).map((x) => x.toLowerCase());
+  if (names.includes(v) || !names.some((x) => x.startsWith(v))) return full;
+  const rest = parseQuery(cut(text, [{ start: c.start - c.field.length - 1, end: caret }]));
+  return rest.ok ? rest : full;
+}
+
+// The old filter, `{ tags, folders }` (a card needed any checked tag and any
+// checked folder), as the query that means the same.
+export function migrateFilter(raw: unknown): string {
+  const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const strings = (v: unknown): string[] =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x !== '') : [];
+  const group = (terms: string[]): string => (terms.length > 1 ? `(${terms.join(' or ')})` : (terms[0] ?? ''));
+  return [
+    group(strings(o.tags).map((t) => formatTerm('tag', t))),
+    group(strings(o.folders).map((f) => formatTerm('folder', shortPath(f)))),
+  ]
+    .filter(Boolean)
+    .join(' ');
+}

@@ -1,7 +1,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Status } from './model.ts';
-import { formatTerm, matches, parseQuery, type Subject } from './query.ts';
+import {
+  completionAt,
+  formatTerm,
+  hasTerm,
+  liveQuery,
+  matches,
+  migrateFilter,
+  parseQuery,
+  type Subject,
+  withoutTerm,
+  withTerm,
+} from './query.ts';
 
 const s = (tags: string[], cwd: string | null = '/Users/me/app', status: Status = 'backlog'): Subject => ({
   tags,
@@ -85,4 +96,71 @@ test('formatTerm quotes only when needed', () => {
   assert.equal(formatTerm('tag', 'say "hi"'), 'tag:"say \\"hi\\""');
   assert.equal(formatTerm('tag', 'or'), 'tag:or');
   assert.equal(formatTerm('folder', '~/my app'), 'folder:"~/my app"');
+});
+
+test('ticking adds a term; unticking removes it', () => {
+  assert.equal(withTerm('', 'tag', 'bug'), 'tag:bug');
+  assert.equal(withTerm('tag:a', 'tag', 'two words'), 'tag:a tag:"two words"');
+  assert.equal(withTerm('tag:a', 'tag', 'A'), 'tag:a'); // already there
+  assert.equal(withoutTerm('tag:a tag:"two words" -tag:c', 'tag', 'two words'), 'tag:a -tag:c');
+  assert.equal(withoutTerm('tag:bug', 'tag', 'BUG'), '');
+  assert.equal(withoutTerm('tag:a and tag:b', 'tag', 'b'), 'tag:a');
+  assert.equal(withoutTerm('tag:a and tag:b and tag:c', 'tag', 'b'), 'tag:a and tag:c');
+  assert.equal(withoutTerm('tag:a oops', 'tag', 'a'), 'tag:a oops'); // invalid: left alone
+});
+
+test('ticking under a top-level or keeps its meaning', () => {
+  assert.equal(withTerm('tag:a or tag:b', 'tag', 'c'), '(tag:a or tag:b) tag:c');
+});
+
+test('a box is ticked only for a plain top-level term', () => {
+  assert.equal(hasTerm('tag:a tag:b', 'tag', 'b'), true);
+  assert.equal(hasTerm('tag:B', 'tag', 'b'), true);
+  assert.equal(hasTerm('-tag:b', 'tag', 'b'), false);
+  assert.equal(hasTerm('tag:a or tag:b', 'tag', 'b'), false);
+  assert.equal(hasTerm('folder:~/app', 'folder', '~/app'), true);
+  assert.equal(hasTerm('tag:a oops', 'tag', 'a'), false);
+});
+
+test('completion knows the field and what is typed', () => {
+  assert.deepEqual(completionAt('ta', 2), { field: null, partial: 'ta', start: 0, end: 2 });
+  assert.deepEqual(completionAt('-tag:bu', 7), { field: 'tag', partial: 'bu', start: 5, end: 7 });
+  assert.deepEqual(completionAt('(status:ne', 10), { field: 'status', partial: 'ne', start: 8, end: 10 });
+  assert.deepEqual(completionAt('tag:"two wo', 11), { field: 'tag', partial: 'two wo', start: 4, end: 11 });
+  assert.equal(completionAt('tag:a ', 6), null);
+  assert.equal(completionAt('tag:"a b" ', 10), null);
+  assert.equal(completionAt('colour:r', 8), null);
+});
+
+test('a value still being typed does not blank the board', () => {
+  const known = { tags: ['bug'], folders: [] };
+  const card = (tags: string[]): Subject => ({ tags, cwd: null, status: 'backlog' });
+  const live = liveQuery('tag:x tag:b', 11, known);
+  assert.ok(live.ok);
+  assert.equal(matches(live.node, card(['x'])), true);
+  const alone = liveQuery('tag:b', 5, known);
+  assert.ok(alone.ok);
+  assert.equal(alone.node, null);
+  const either = liveQuery('tag:x or tag:b', 14, known);
+  assert.ok(either.ok);
+  assert.equal(matches(either.node, card(['x'])), true);
+  const status = liveQuery('status:need', 11, known);
+  assert.ok(status.ok);
+  assert.equal(status.node, null);
+  const elsewhere = liveQuery('tag:b', 2, known); // caret elsewhere: taken as typed
+  assert.ok(elsewhere.ok);
+  assert.equal(matches(elsewhere.node, card(['bug'])), false);
+  const unknown = liveQuery('tag:zz', 6, known); // a prefix of nothing: taken as typed
+  assert.ok(unknown.ok);
+  assert.equal(matches(unknown.node, card(['bug'])), false);
+});
+
+test('an old filter becomes the same query', () => {
+  assert.equal(
+    migrateFilter({ tags: ['a', 'two words'], folders: ['/Users/me/app'] }),
+    '(tag:a or tag:"two words") folder:~/app',
+  );
+  assert.equal(migrateFilter({ tags: ['a'], folders: [] }), 'tag:a');
+  assert.equal(migrateFilter(null), '');
+  assert.equal(migrateFilter({ tags: 'a' }), '');
 });
