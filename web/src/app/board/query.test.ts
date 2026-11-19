@@ -6,10 +6,12 @@ import {
   formatTerm,
   hasTerm,
   liveQuery,
+  liveText,
   matches,
   migrateFilter,
   parseQuery,
   type Subject,
+  suggestionsFor,
   withoutTerm,
   withTerm,
 } from './query.ts';
@@ -163,4 +165,30 @@ test('an old filter becomes the same query', () => {
   assert.equal(migrateFilter({ tags: ['a'], folders: [] }), 'tag:a');
   assert.equal(migrateFilter(null), '');
   assert.equal(migrateFilter({ tags: 'a' }), '');
+});
+
+test('the live text is what is applied while typing', () => {
+  const known = { tags: ['bug', 'build'], folders: ['~/app'] };
+  assert.equal(liveText('tag:x tag:b', 11, known), 'tag:x');
+  assert.equal(liveText('tag:x tag:bug', 13, known), 'tag:x tag:bug');
+  assert.equal(liveText('tag:x -tag:b', 12, known), 'tag:x');
+});
+
+test('suggestions: fields for a bare word, values after a field', () => {
+  const known = { tags: ['bug', 'build', 'two words'], folders: ['~/app', '~/web'] };
+  assert.deepEqual(suggestionsFor({ field: null, partial: 'f', start: 0, end: 1 }, known), [
+    { label: 'folder:', insert: 'folder:' },
+  ]);
+  assert.deepEqual(
+    suggestionsFor({ field: 'tag', partial: 'u', start: 4, end: 5 }, known).map((x) => x.insert),
+    ['bug', 'build'],
+  );
+  assert.deepEqual(suggestionsFor({ field: 'tag', partial: 'two', start: 4, end: 7 }, known), [
+    { label: 'two words', insert: '"two words"' },
+  ]);
+  assert.deepEqual(suggestionsFor({ field: 'tag', partial: 'bug', start: 4, end: 7 }, known), []);
+  assert.deepEqual(
+    suggestionsFor({ field: 'status', partial: 'in', start: 7, end: 9 }, known).map((x) => x.insert),
+    ['"In progress"', '"Needs input"'],
+  );
 });

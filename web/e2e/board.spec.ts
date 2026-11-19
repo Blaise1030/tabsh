@@ -744,7 +744,8 @@ test("the group's tag starts as a chip, and taking it off leaves the card untagg
   await grouping('No grouping').click();
 });
 
-test('the board filters cards by tag and folder', async ({ page, daemon, twins }) => {
+// Alpha (tagged ship) and Beta, each in its own folder, with the board open.
+async function twoCards(page: Page, daemon: Daemon, twins: { alpha: string; beta: string }): Promise<void> {
   const alphaTab = page.locator('#tabs .tab:not(.mirror)').filter({ hasText: 'Alpha' });
   await openApp(page, daemon);
   await page.locator('#board-btn').click();
@@ -761,38 +762,115 @@ test('the board filters cards by tag and folder', async ({ page, daemon, twins }
   await page.keyboard.press('Enter');
   await page.keyboard.press('Escape');
   await page.locator('#board-btn').click();
+}
 
+// The checkboxes write the query: ticking adds a term (all must match),
+// unticking removes it.
+test('the board filters cards by tag and folder', async ({ page, daemon, twins }) => {
+  await twoCards(page, daemon, twins);
   const filterBtn = page.locator('#board-filter-btn');
   await expect(filterBtn).toBeVisible();
   await filterBtn.click();
   const filters = page.locator('.board-filter-menu');
+  const field = filters.getByRole('combobox', { name: 'Filter query' });
+  await expect(field).toBeFocused();
   const ship = filters.getByRole('checkbox', { name: 'ship' });
   // Its search narrows the tags and folders listed; a tick outlives a search.
   const search = filters.getByRole('textbox', { name: 'Search tags and folders' });
-  await expect(search).toBeFocused();
   await search.fill('SHI');
   await expect(filters.locator('.menu-check')).toHaveText(['ship']);
   await ship.check();
+  await expect(field).toHaveValue('tag:ship');
   await search.fill('nothing like it');
   await expect(filters.locator('.menu-hint')).toHaveText('No matches');
   await search.fill('');
   await expect(ship).toBeChecked();
   await ship.uncheck();
+  await expect(field).toHaveValue('');
   await ship.check();
   await expect(card(page, 'Alpha')).toBeVisible();
   await expect(card(page, 'Beta')).toHaveCount(0);
+  await expect(page.locator('#board-view-chip')).toHaveText('Custom filter');
+  await expect(page.locator('#board-view-chip')).toBeVisible();
 
   const alpha = await card(page, 'Alpha').locator('.card-meta span').first().textContent();
-  await filters.getByRole('checkbox', { name: alpha ?? '' }).check();
+  const alphaBox = filters.getByRole('checkbox', { name: alpha ?? '' });
+  await alphaBox.check();
+  await expect(field).toHaveValue(new RegExp(`^tag:ship folder:`));
   await expect(card(page, 'Beta')).toHaveCount(0);
   await ship.uncheck();
-  await filters.getByRole('checkbox', { name: alpha ?? '' }).uncheck();
+  await alphaBox.uncheck();
+  await expect(field).toHaveValue('');
   const beta = await card(page, 'Beta').locator('.card-meta span').first().textContent();
   await filters.getByRole('checkbox', { name: beta ?? '' }).check();
   await expect(card(page, 'Alpha')).toHaveCount(0);
   await expect(card(page, 'Beta')).toBeVisible();
   await filters.getByRole('checkbox', { name: beta ?? '' }).uncheck();
   await expect(card(page, 'Alpha')).toBeVisible();
+  await expect(page.locator('#board-view-chip')).toBeHidden();
+});
+
+// A query excludes, keeps the last good result while it's wrong or half
+// typed, and saves as a view that's there after a reload.
+test('a filter query saves as a view and comes back after a reload', async ({ page, daemon, twins }) => {
+  await twoCards(page, daemon, twins);
+  const filters = page.locator('.board-filter-menu');
+  const field = filters.getByRole('combobox', { name: 'Filter query' });
+  await page.locator('#board-filter-btn').click();
+  await field.fill('-tag:ship');
+  await field.press('Enter');
+  await expect(card(page, 'Alpha')).toHaveCount(0);
+  await expect(card(page, 'Beta')).toBeVisible();
+
+  await field.fill('tag:ship oops');
+  await field.press('Enter');
+  await expect(filters.locator('.query-error')).toHaveText('Unknown term "oops". Did you mean tag:oops?');
+  await expect(card(page, 'Beta')).toBeVisible(); // the last good query still applies
+
+  // Half typed, with the caret at its end: the board doesn't empty.
+  await field.fill('');
+  await field.press('Enter');
+  await field.pressSequentially('tag:shi');
+  await expect(filters.getByRole('option', { name: 'ship' })).toBeVisible();
+  await page.waitForTimeout(500);
+  await expect(card(page, 'Alpha')).toBeVisible();
+  await expect(card(page, 'Beta')).toBeVisible();
+  // Picking the suggestion finishes the term and applies it.
+  await field.press('Enter');
+  await expect(field).toHaveValue('tag:ship ');
+  await expect(card(page, 'Beta')).toHaveCount(0);
+
+  await field.fill('-tag:ship');
+  await field.press('Enter');
+  await filters.getByRole('button', { name: 'Save as view' }).click();
+  await filters.getByRole('textbox', { name: 'View name' }).fill('Not shipping');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#board-view-chip')).toHaveText('Not shipping');
+  await page.keyboard.press('Escape');
+  await page.reload();
+  await expect(page.locator('#board-view-chip')).toHaveText('Not shipping');
+  await expect(card(page, 'Alpha')).toHaveCount(0);
+  await page.locator('#board-view-chip').click();
+  await filters.getByRole('menuitemradio', { name: 'Not shipping' }).click(); // clears
+  await expect(card(page, 'Alpha')).toBeVisible();
+  await expect(page.locator('#board-view-chip')).toBeHidden();
+});
+
+// The old filter carries over as a query; unreadable saved views are dropped.
+test('an old saved filter becomes a query', async ({ page, daemon, twins }) => {
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem('seeded')) return;
+    sessionStorage.setItem('seeded', '1');
+    localStorage.setItem('tabsh.boardViews', '{');
+    localStorage.setItem('tabsh.boardFilter', '{"tags":["ship"],"folders":[]}');
+  });
+  await twoCards(page, daemon, twins);
+  await expect(card(page, 'Alpha')).toBeVisible();
+  await expect(card(page, 'Beta')).toHaveCount(0);
+  await page.locator('#board-filter-btn').click();
+  await expect(page.locator('.board-filter-menu').getByRole('combobox', { name: 'Filter query' })).toHaveValue(
+    'tag:ship',
+  );
 });
 
 test('a card name with markup is shown as text', async ({ page, daemon }) => {

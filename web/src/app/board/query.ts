@@ -345,19 +345,40 @@ function candidates(field: Field, known: Known): string[] {
   return STATUSES.flatMap((s) => [s, STATUS_NAMES[s]]);
 }
 
-// The query to apply while it's being typed: a last value the caret is still
-// at the end of, naming nothing in use but the start of something, is left
-// out until it's finished, so `tag:b` on its way to `tag:bug` doesn't empty
-// the board (and `status:need` isn't an error yet).
-export function liveQuery(text: string, caret: number, known: Known): Parsed {
-  const full = parseQuery(text);
+// The text to apply while a query is being typed: a last value the caret is
+// still at the end of, naming nothing in use but the start of something, is
+// left out until it's finished, so `tag:b` on its way to `tag:bug` doesn't
+// empty the board (and `status:need` isn't an error yet).
+export function liveText(text: string, caret: number, known: Known): string {
   const c = completionAt(text, caret);
-  if (!c?.field || c.end !== caret || text.slice(caret).trim()) return full;
+  if (!c?.field || c.end !== caret || text.slice(caret).trim()) return text;
   const v = c.partial.toLowerCase();
   const names = candidates(c.field, known).map((x) => x.toLowerCase());
-  if (names.includes(v) || !names.some((x) => x.startsWith(v))) return full;
-  const rest = parseQuery(cut(text, [{ start: c.start - c.field.length - 1, end: caret }]));
-  return rest.ok ? rest : full;
+  if (names.includes(v) || !names.some((x) => x.startsWith(v))) return text;
+  const rest = cut(text, [{ start: c.start - c.field.length - 1, end: caret }]);
+  return parseQuery(rest).ok ? rest : text;
+}
+
+export function liveQuery(text: string, caret: number, known: Known): Parsed {
+  return parseQuery(liveText(text, caret, known));
+}
+
+// What autocomplete lists for a completion, at most 8: field names for a bare
+// word, else the values in use containing what's typed (ignoring case). Each
+// `insert` replaces the completion's span.
+export function suggestionsFor(c: Completion, known: Known): { label: string; insert: string }[] {
+  const typed = c.partial.toLowerCase();
+  if (!c.field) {
+    return FIELDS.map((f) => `${f}:`)
+      .filter((f) => f.startsWith(typed))
+      .map((f) => ({ label: f, insert: f }));
+  }
+  const field = c.field;
+  const values = field === 'status' ? STATUSES.map((s) => STATUS_NAMES[s]) : candidates(field, known);
+  return values
+    .filter((v) => v.toLowerCase().includes(typed) && v.toLowerCase() !== typed)
+    .slice(0, 8)
+    .map((v) => ({ label: v, insert: formatTerm(field, v).slice(field.length + 1) }));
 }
 
 // The old filter, `{ tags, folders }` (a card needed any checked tag and any
