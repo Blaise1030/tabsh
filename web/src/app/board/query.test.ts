@@ -2,12 +2,15 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Status } from './model.ts';
 import {
+  addTerm,
   completionAt,
+  dropTerm,
   formatTerm,
   hasTerm,
   liveQuery,
   liveText,
   matches,
+  mentions,
   migrateFilter,
   parseQuery,
   type Subject,
@@ -192,4 +195,52 @@ test('suggestions: fields for a bare word, values after a field', () => {
     suggestionsFor({ field: 'status', partial: 'in', start: 7, end: 9 }, known).map((x) => x.insert),
     ['"In progress"', '"Needs input"'],
   );
+});
+
+test('& and | are short for and and or', () => {
+  assert.equal(m('tag:a & tag:b', s(['a'])), false);
+  assert.equal(m('tag:a&tag:b', s(['a', 'b'])), true);
+  assert.equal(m('tag:a | tag:b', s(['b'])), true);
+  assert.equal(m('tag:a || tag:b && tag:c', s(['a'])), true);
+  assert.equal(m('tag:a & (tag:b | tag:c)', s(['a', 'c'])), true);
+  assert.equal(parseQuery('tag:a |').ok, false);
+  assert.equal(formatTerm('tag', 'r&d'), 'tag:"r&d"');
+  assert.equal(withoutTerm('tag:a & tag:b', 'tag', 'b'), 'tag:a');
+  assert.equal(withoutTerm('tag:a & tag:b & tag:c', 'tag', 'b'), 'tag:a & tag:c');
+});
+
+test('mentions: a positive term anywhere ticks its box', () => {
+  assert.equal(mentions('tag:a | tag:b', 'tag', 'b'), true);
+  assert.equal(mentions('tag:a & (tag:b | tag:c)', 'tag', 'C'), true);
+  assert.equal(mentions('-tag:b', 'tag', 'b'), false);
+  assert.equal(mentions('tag:a & -(tag:b)', 'tag', 'b'), false);
+  assert.equal(mentions('status:"needs input"', 'status', 'Needs input'), true);
+  assert.equal(mentions('tag:a oops', 'tag', 'a'), false);
+});
+
+test('addTerm follows an operator just clicked, else means and', () => {
+  assert.equal(addTerm('', 'tag', 'bug'), 'tag:bug');
+  assert.equal(addTerm('tag:bug | ', 'tag', 'ui'), 'tag:bug | tag:ui');
+  assert.equal(addTerm('tag:bug &', 'tag', 'ui'), 'tag:bug & tag:ui');
+  assert.equal(addTerm('tag:bug -', 'tag', 'wip'), 'tag:bug -tag:wip');
+  assert.equal(addTerm('tag:bug (', 'tag', 'ui'), 'tag:bug (tag:ui');
+  assert.equal(addTerm('tag:a', 'status', 'Needs input'), 'tag:a and status:"Needs input"');
+  assert.equal(addTerm('tag:a | tag:b', 'tag', 'c'), '(tag:a | tag:b) and tag:c');
+  assert.equal(addTerm('tag:bug or ', 'tag', 'ui'), 'tag:bug or tag:ui');
+});
+
+test('dropTerm removes a term and the operator joining it', () => {
+  assert.equal(dropTerm('tag:a | tag:b', 'tag', 'b'), 'tag:a');
+  assert.equal(dropTerm('tag:a | tag:b | tag:c', 'tag', 'b'), 'tag:a | tag:c');
+  assert.equal(dropTerm('tag:b & tag:c', 'tag', 'b'), 'tag:c');
+  assert.equal(dropTerm('tag:a & (tag:b | tag:c)', 'tag', 'c'), 'tag:a & (tag:b)');
+  assert.equal(dropTerm('tag:bug', 'tag', 'bug'), '');
+  assert.equal(dropTerm('tag:a and tag:b', 'tag', 'b'), 'tag:a');
+});
+
+test('a query ending in an operator just clicked still shows its ticks', () => {
+  assert.equal(mentions('tag:ship or ', 'tag', 'ship'), true);
+  assert.equal(mentions('tag:a and -', 'tag', 'a'), true);
+  assert.equal(dropTerm('tag:ship or ', 'tag', 'ship'), '');
+  assert.equal(dropTerm('tag:a or tag:b and ', 'tag', 'b'), 'tag:a and');
 });

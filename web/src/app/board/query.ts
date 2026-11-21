@@ -47,7 +47,7 @@ const fail = (message: string, start: number, end: number): never => {
 };
 
 const isSpace = (c: string): boolean => /\s/.test(c);
-const stops = (c: string): boolean => isSpace(c) || c === '(' || c === ')';
+const stops = (c: string): boolean => isSpace(c) || '()&|'.includes(c);
 
 // A status named by its id (`needs_input`) or its name (`needs input`).
 export function statusOf(value: string): Status | null {
@@ -86,6 +86,11 @@ function tokenize(text: string): Token[] {
     } else if (c === '(' || c === ')') {
       out.push({ type: c, start: i, end: i + 1 });
       i++;
+    } else if (c === '&' || c === '|') {
+      // `&` and `|` (or `&&` and `||`) are short for `and` and `or`.
+      const end = text[i + 1] === c ? i + 2 : i + 1;
+      out.push({ type: c === '&' ? 'and' : 'or', start: i, end });
+      i = end;
     } else if (c === '-' && i + 1 < text.length && !isSpace(text[i + 1]) && !')-'.includes(text[i + 1])) {
       out.push({ type: 'not', start: i, end: i + 1 });
       i++;
@@ -234,14 +239,17 @@ export function matches(node: QueryNode | null, s: Subject): boolean {
 
 // A term as it's written in a query, quoted when its value needs it.
 export function formatTerm(field: Field, value: string): string {
-  if (value && !/[\s()"\\]/.test(value)) return `${field}:${value}`;
+  if (value && !/[\s()"\\&|]/.test(value)) return `${field}:${value}`;
   return `${field}:"${value.replace(/[\\"]/g, (c) => `\\${c}`)}"`;
 }
 
 type Term = Extract<QueryNode, { kind: 'term' }>;
 
-const sameValue = (field: Field, a: string, b: string): boolean =>
-  field === 'folder' ? a.replace(/(.)\/+$/, '$1') === b.replace(/(.)\/+$/, '$1') : a.toLowerCase() === b.toLowerCase();
+const sameValue = (field: Field, a: string, b: string): boolean => {
+  if (field === 'folder') return a.replace(/(.)\/+$/, '$1') === b.replace(/(.)\/+$/, '$1');
+  if (field === 'status') return statusOf(a) !== null && statusOf(a) === statusOf(b);
+  return a.toLowerCase() === b.toLowerCase();
+};
 
 // The terms a checkbox owns: plain positive terms the whole query must have.
 function topTerms(node: QueryNode | null): Term[] {
@@ -284,9 +292,9 @@ function cut(text: string, spans: { start: number; end: number }[]): string {
     out = out.slice(0, a) + out.slice(b);
   }
   return out
-    .replace(/(^|\s)and\s+(?=and\b)/gi, '$1')
-    .replace(/^\s*and\s+/i, '')
-    .replace(/(\s+(and|or|not)|\s*-|\s*\()+\s*$/i, '')
+    .replace(/(^|\s)(and|&&?)\s+(?=(and\b|&))/gi, '$1')
+    .replace(/^\s*(and\b|&&?)\s*/i, '')
+    .replace(/(\s+(and|or|not)|\s*(&&?|\|\|?)|\s*-|\s*\()+\s*$/i, '')
     .trim();
 }
 
@@ -394,4 +402,63 @@ export function migrateFilter(raw: unknown): string {
   ]
     .filter(Boolean)
     .join(' ');
+}
+
+// Terms that must match: any not under a `not`.
+function positiveTerms(node: QueryNode | null): Term[] {
+  if (!node || node.kind === 'not') return [];
+  if (node.kind === 'term') return [node];
+  return node.children.flatMap(positiveTerms);
+}
+
+// An operator left at the end, as one is just after its button is clicked.
+const TRAILING_OP = /(\s*(\|\|?|&&?|\band|\bor|\bnot|-|\())+\s*$/i;
+
+function findPositive(text: string, field: Field, value: string): Term[] | null {
+  // Read without a trailing operator (the spans stay put: only the end goes).
+  const p = parseQuery(text).ok ? parseQuery(text) : parseQuery(text.replace(TRAILING_OP, ''));
+  if (!p.ok) return null;
+  return positiveTerms(p.node).filter((t) => t.field === field && sameValue(field, t.value, value));
+}
+
+// Whether a tick box for `field:value` shows ticked: the query asks for it
+// anywhere, not under a `not`.
+export function mentions(text: string, field: Field, value: string): boolean {
+  return (findPositive(text, field, value) ?? []).length > 0;
+}
+
+// The query with `field:value` ticked: straight after an operator just put at
+// its end (`or`, `and`, `|`, `&`, `-`, `not`, `(`), else joined (a top-level
+// `or` bracketed first, so it keeps its meaning) with `and`.
+export function addTerm(text: string, field: Field, value: string): string {
+  const term = formatTerm(field, value);
+  const rest = text.replace(/\s+$/, '');
+  if (!rest) return term;
+  if (/[-(]$/.test(rest)) return rest + term;
+  if (/(\||&|\band|\bor|\bnot)$/i.test(rest)) return `${rest} ${term}`;
+  if (mentions(rest, field, value)) return text;
+  const p = parseQuery(rest);
+  return p.ok && p.node?.kind === 'or' ? `(${rest}) and ${term}` : `${rest} and ${term}`;
+}
+
+const OP_BEFORE = /\s*(?:\|\|?|&&?|\band\b|\bor\b)\s*$/i;
+const OP_AFTER = /^\s*(?:\|\|?|&&?|\band\b|\bor\b)\s*/i;
+
+// The query with `field:value` unticked: each term that asks for it goes,
+// with the operator joining it to its neighbour.
+export function dropTerm(text: string, field: Field, value: string): string {
+  const found = findPositive(text, field, value);
+  if (!found?.length) return text;
+  let out = text;
+  for (const t of [...found].sort((a, b) => b.start - a.start)) {
+    let a = t.start;
+    let b = t.end;
+    const before = OP_BEFORE.exec(out.slice(0, a));
+    const after = OP_AFTER.exec(out.slice(b));
+    if (before) a -= before[0].length;
+    else if (after) b += after[0].length;
+    else while (b < out.length && isSpace(out[b])) b++;
+    out = out.slice(0, a) + out.slice(b);
+  }
+  return out.trim();
 }
