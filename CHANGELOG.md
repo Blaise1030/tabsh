@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.10.0
+
+[compare changes](https://github.com/Blaise1030/tabsh/compare/v1.9.0...v1.10.0)
+
+### Features
+
+- **board:** & and ([ in queries; tick helpers for the filter editor](https://github.com/Blaise1030/tabsh/commit/ in queries; tick helpers for the filter editor))
+- **board:** Redesign the filter menu; tags and views apart ([ad320da](https://github.com/Blaise1030/tabsh/commit/ad320da))
+
 ## v1.9.0
 
 [compare changes](https://github.com/Blaise1030/tabsh/compare/v1.8.3...v1.9.0)
