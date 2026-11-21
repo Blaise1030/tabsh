@@ -1164,42 +1164,111 @@ body:has(#gate:not([hidden])) .tabbar { visibility: hidden; }
 /* The board: Linear-style columns in the theme's own tokens. */
 #board-filter-btn[hidden] { display: none; }
 #board-filter-btn[aria-pressed="true"] { color: var(--foreground); background: var(--muted); }
-.board-filter-menu { width: 20rem; max-width: calc(100vw - 16px); }
-.board-filter-menu .menu-list, .tab-menu > .menu-list { max-height: 16rem; overflow-y: auto; }
-.board-filter-menu .menu-sep { height: 1px; margin: .25rem -.25rem; background: var(--border); }
-/* Saved views: a row picks one (ticked when active); its ⋯ shows Rename and Delete. */
-.board-filter-menu .view-list { max-height: 10rem; }
-.view-row { display: flex; flex-wrap: wrap; align-items: center; }
-.view-row > .input { flex: 1; margin: .125rem 0; }
-.view-pick {
-  all: unset; box-sizing: border-box; flex: 1; min-width: 0; display: flex; align-items: center; gap: .375rem;
-  padding: .375rem .5rem; cursor: default; border-radius: calc(var(--radius, .5rem) - 2px);
+.board-filter-menu { width: 18rem; min-width: 0; max-width: calc(100vw - 16px); padding: .25rem; gap: 0; }
+.fm-sep { height: 1px; margin: .25rem -.25rem; background: var(--border); }
+.fm-search { all: unset; box-sizing: border-box; width: 100%; padding: .375rem .5rem; font-size: .75rem; color: var(--foreground); }
+.fm-search::placeholder { color: var(--muted-foreground); }
+button.fm-row { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: .5rem; padding: .3125rem .5rem; cursor: default; border-radius: calc(var(--radius, .5rem) - 2px); }
+button.fm-row:hover, button.fm-row:focus-visible { background: var(--accent); color: var(--accent-foreground); }
+/* The filter menu: saved views by default; the query editor only while a
+   view is made or edited. Quiet: no boxes, one rule above the footer. */
+.fm-views { display: flex; flex-direction: column; max-height: 16rem; overflow-y: auto; }
+.fm-view-row { display: flex; align-items: center; border-radius: calc(var(--radius, .5rem) - 2px); }
+.fm-view-row:hover { background: var(--accent); }
+.fm-view {
+  all: unset; box-sizing: border-box; flex: 1; min-width: 0; display: flex; align-items: center; gap: .5rem;
+  padding: .375rem .5rem; cursor: default;
 }
-.view-pick:hover, .view-pick:focus-visible { background: var(--accent); color: var(--accent-foreground); }
-.view-tick { flex: 0 0 .875rem; display: inline-flex; }
-.view-tick svg { width: .875rem; height: .875rem; }
-.view-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.view-more { opacity: .6; }
-.view-row:hover .view-more, .view-more[aria-expanded="true"] { opacity: 1; }
-.view-actions { flex-basis: 100%; display: flex; gap: .25rem; padding: 0 .5rem .25rem 1.75rem; }
-/* The query: its field, the suggestions under it, its error and its buttons. */
-.query-box { position: relative; }
-.query-field { width: 100%; font-family: var(--font-mono, ui-monospace, monospace); font-size: .75rem; }
-.query-field[aria-invalid="true"] { border-color: var(--destructive); }
-.query-suggestions {
-  position: absolute; left: 0; right: 0; top: calc(100% + 2px); z-index: 1; padding: .25rem;
-  background: var(--popover); border: 1px solid var(--border); border-radius: var(--radius, .5rem);
-  box-shadow: 0 4px 16px rgb(0 0 0 / .25);
+.fm-view:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; border-radius: inherit; }
+.fm-check { flex: 0 0 .875rem; display: inline-flex; color: var(--foreground); }
+.fm-check svg { width: .875rem; height: .875rem; }
+.fm-name { flex-shrink: 1; min-width: 0; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fm-query {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right;
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: .6875rem; color: var(--muted-foreground);
+  opacity: 0; transition: opacity .12s;
 }
-.query-suggestion {
-  padding: .25rem .5rem; border-radius: calc(var(--radius, .5rem) - 2px); cursor: default;
+/* A view's query shows only while its row is hovered or focused. */
+.fm-view-row:hover .fm-query, .fm-view:focus-visible .fm-query { opacity: 1; }
+.fm-icon { opacity: 0; color: var(--muted-foreground); }
+.fm-view-row:hover .fm-icon, .fm-icon:focus-visible, .fm-head .fm-icon { opacity: 1; }
+.fm-icon svg { width: .875rem; height: .875rem; }
+.fm-custom .fm-name { color: var(--muted-foreground); }
+.fm-empty { padding: .25rem .5rem .375rem; font-size: .75rem; color: var(--muted-foreground); }
+.fm-foot {
+  display: flex; align-items: center; gap: .25rem; margin: .25rem -.25rem -.25rem; padding: .25rem .5rem;
+  border-top: 1px solid var(--border);
+}
+.fm-spacer { flex: 1; }
+.fm-link {
+  all: unset; display: inline-flex; align-items: center; gap: .375rem; padding: .25rem .25rem; cursor: default;
+  font-size: .75rem; color: var(--foreground); border-radius: calc(var(--radius, .5rem) - 2px);
+}
+.fm-link:hover, .fm-link:focus-visible { background: var(--accent); }
+.fm-link svg { width: .875rem; height: .875rem; }
+.fm-link.fm-muted { margin-left: auto; color: var(--muted-foreground); }
+.fm-save-ticks { margin: .125rem .25rem .25rem; color: var(--muted-foreground); }
+.fm-save-ticks:hover { color: var(--foreground); }
+.fm-delete { gap: .375rem; color: var(--muted-foreground); }
+.fm-delete svg { width: .875rem; height: .875rem; }
+.fm-delete:hover { color: var(--destructive); background: color-mix(in oklab, var(--destructive) 10%, transparent); }
+/* A tick box in the list, drawn rather than native, to match the menu. */
+.fm-box {
+  flex-shrink: 0; width: .875rem; height: .875rem; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); border-radius: 3px; background: var(--background);
+}
+.fm-box[data-checked] { background: var(--foreground); border-color: var(--foreground); color: var(--background); }
+.fm-box svg { width: .625rem; height: .625rem; stroke-width: 3; }
+/* What's wrong with the query or the name, at the bottom of the page. */
+.fm-toast {
+  position: fixed; left: 50%; bottom: 1.25rem; z-index: 60; transform: translateX(-50%);
+  display: flex; align-items: center; gap: .5rem; max-width: min(28rem, calc(100vw - 32px));
+  padding: .5rem .75rem; font-size: .8125rem; color: var(--popover-foreground); background: var(--popover);
+  border: 1px solid var(--border); border-radius: var(--radius, .5rem); box-shadow: 0 6px 24px rgb(0 0 0 / .18);
+  animation: fm-toast-in .16s ease-out;
+}
+.fm-toast svg { flex-shrink: 0; width: 1rem; height: 1rem; color: var(--destructive); }
+@keyframes fm-toast-in { from { opacity: 0; transform: translate(-50%, 6px); } }
+@media (prefers-reduced-motion: reduce) { .fm-toast { animation: none; } }
+/* The editor: a name, the query, the operator buttons, then what can be added. */
+.fm-head { display: flex; align-items: center; gap: .25rem; padding-bottom: .125rem; }
+.fm-name-field, .fm-query-field {
+  all: unset; box-sizing: border-box; width: 100%; min-width: 0; padding: .375rem .5rem; color: var(--foreground);
+}
+.fm-name-field { font-weight: 500; border-radius: calc(var(--radius, .5rem) - 2px); }
+.fm-name-field[aria-invalid="true"] { box-shadow: inset 0 0 0 1px var(--destructive); }
+.fm-name-field::placeholder, .fm-query-field::placeholder { color: var(--muted-foreground); }
+.fm-query-field {
   font-family: var(--font-mono, ui-monospace, monospace); font-size: .75rem;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  background: var(--muted); border-radius: calc(var(--radius, .5rem) - 2px);
 }
-.query-suggestion[aria-selected="true"], .query-suggestion:hover { background: var(--accent); color: var(--accent-foreground); }
-.query-error { padding: .25rem .5rem 0; font-size: .75rem; color: var(--destructive); }
-.query-actions { display: flex; gap: .25rem; padding: .375rem 0 .125rem; }
-.query-actions > .input { flex: 1; min-width: 0; }
+.fm-query-field[aria-invalid="true"] { box-shadow: inset 0 0 0 1px var(--destructive); }
+.fm-ops { display: flex; flex-wrap: wrap; align-items: center; gap: .1875rem; padding: .5rem 0 .375rem; }
+/* The operators and fields as small outlined buttons; a field's stays filled
+   while the list shows only its values. */
+.fm-op {
+  all: unset; min-width: 1.5rem; height: 1.5rem; padding: 0 .375rem; box-sizing: border-box; text-align: center;
+  line-height: calc(1.5rem - 2px); cursor: pointer; border: 1px solid var(--border);
+  border-radius: calc(var(--radius, .5rem) - 2px); background: var(--background); color: var(--foreground);
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: .75rem;
+  box-shadow: 0 1px 1px rgb(0 0 0 / .04); transition: background .1s, border-color .1s;
+}
+.fm-op:hover { background: var(--accent); border-color: var(--ring, var(--border)); }
+.fm-op:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.fm-op:active { transform: translateY(.5px); }
+.fm-op[aria-pressed="true"] { background: var(--foreground); border-color: var(--foreground); color: var(--background); }
+.fm-op-gap { width: 1px; height: .875rem; margin: 0 .125rem; background: var(--border); }
+.fm-error { padding: 0 .5rem .25rem; font-size: .6875rem; color: var(--destructive); }
+.fm-list { display: flex; flex-direction: column; max-height: 14rem; overflow-y: auto; }
+.fm-row {
+  display: flex; align-items: center; gap: .5rem; padding: .3125rem .5rem; cursor: default;
+  border-radius: calc(var(--radius, .5rem) - 2px);
+}
+.fm-row:hover, .fm-row[aria-selected="true"] { background: var(--accent); color: var(--accent-foreground); }
+.fm-row .fm-name { flex: 1; max-width: none; }
+.fm-dot { flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; }
+.fm-heading { padding: .5rem .5rem .1875rem; font-size: .6875rem; color: var(--muted-foreground); }
+.fm-heading:first-child { padding-top: .25rem; }
 /* The active view, beside the Filter button: its name, a dot once edited. */
 #board-view-chip[hidden] { display: none; }
 #board-view-chip { max-width: 12rem; gap: .375rem; color: var(--foreground); background: var(--muted); }

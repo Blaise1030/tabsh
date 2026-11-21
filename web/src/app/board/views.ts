@@ -1,18 +1,19 @@
 // The board's saved views and its current filter, with no DOM. A view is a
 // named query; views live in this browser, as tags do.
 
-import { migrateFilter } from './query.ts';
-
 export interface View {
   id: string;
   name: string;
   query: string;
 }
 
-// The filter on the board: its query, and the view it came from (if any).
+// The filter on the board: the view picked (if any) and its query, and the
+// tags and folders ticked, a quick filter of their own on top of it.
 export interface Current {
   query: string;
   viewId: string | null;
+  tags: string[];
+  folders: string[];
 }
 
 const record = (v: unknown): Record<string, unknown> | null =>
@@ -28,15 +29,20 @@ export function parseViews(raw: unknown): View[] {
   });
 }
 
-// The current filter read back. The old `{ tags, folders }` filter becomes
-// the query that means the same, with no view.
+const strings = (v: unknown): string[] =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x !== '') : [];
+
+// The current filter read back; anything malformed counts as nothing. The old
+// filter (`{ tags, folders }`, ticks only) reads back as the same ticks.
 export function parseCurrent(raw: unknown): Current {
   const o = record(raw);
-  if (!o) return { query: '', viewId: null };
-  if (typeof o.query === 'string') {
-    return { query: o.query, viewId: typeof o.viewId === 'string' ? o.viewId : null };
-  }
-  return { query: migrateFilter(o), viewId: null };
+  if (!o) return { query: '', viewId: null, tags: [], folders: [] };
+  return {
+    query: typeof o.query === 'string' ? o.query : '',
+    viewId: typeof o.viewId === 'string' ? o.viewId : null,
+    tags: strings(o.tags),
+    folders: strings(o.folders),
+  };
 }
 
 // Whether another view already has this name, ignoring case and spaces at

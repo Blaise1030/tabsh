@@ -19,12 +19,19 @@ test('saved views read back, dropping anything malformed', () => {
   assert.deepEqual(parseViews(undefined), []);
 });
 
-test('the current filter reads back, migrating the old shape', () => {
-  assert.deepEqual(parseCurrent({ query: 'tag:a', viewId: 'v1' }), { query: 'tag:a', viewId: 'v1' });
-  assert.deepEqual(parseCurrent({ query: 'tag:a', viewId: 4 }), { query: 'tag:a', viewId: null });
-  assert.deepEqual(parseCurrent({ tags: ['a'], folders: [] }), { query: 'tag:a', viewId: null });
-  assert.deepEqual(parseCurrent(undefined), { query: '', viewId: null });
-  assert.deepEqual(parseCurrent('{'), { query: '', viewId: null });
+test('the current filter reads back: a view, its query and the ticked tags and folders', () => {
+  const none = { query: '', viewId: null, tags: [], folders: [] };
+  assert.deepEqual(parseCurrent({ query: 'tag:a', viewId: 'v1', tags: ['b'], folders: ['/x'] }), {
+    query: 'tag:a',
+    viewId: 'v1',
+    tags: ['b'],
+    folders: ['/x'],
+  });
+  assert.deepEqual(parseCurrent({ query: 'tag:a', viewId: 4, tags: 'b' }), { ...none, query: 'tag:a' });
+  // The old filter was only ticks: they stay ticks.
+  assert.deepEqual(parseCurrent({ tags: ['a'], folders: ['/x'] }), { ...none, tags: ['a'], folders: ['/x'] });
+  assert.deepEqual(parseCurrent(undefined), none);
+  assert.deepEqual(parseCurrent('{'), none);
 });
 
 test('views are added, renamed, updated and deleted; names stay unique', () => {
