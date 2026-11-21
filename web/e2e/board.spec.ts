@@ -764,59 +764,51 @@ async function twoCards(page: Page, daemon: Daemon, twins: { alpha: string; beta
   await page.locator('#board-btn').click();
 }
 
-// The checkboxes write the query: ticking adds a term (all must match),
-// unticking removes it.
+// Ticked tags and folders are a quick filter of their own (any ticked tag,
+// any ticked folder), shown on the chip; they never touch a saved view.
 test('the board filters cards by tag and folder', async ({ page, daemon, twins }) => {
   await twoCards(page, daemon, twins);
   const filterBtn = page.locator('#board-filter-btn');
   await expect(filterBtn).toBeVisible();
   await filterBtn.click();
   const filters = page.locator('.board-filter-menu');
-  const field = filters.getByRole('combobox', { name: 'Filter query' });
-  await expect(field).toBeFocused();
-  const ship = filters.getByRole('checkbox', { name: 'ship' });
-  // Its search narrows the tags and folders listed; a tick outlives a search.
-  const search = filters.getByRole('textbox', { name: 'Search tags and folders' });
-  await search.fill('SHI');
-  await expect(filters.locator('.menu-check')).toHaveText(['ship']);
-  await ship.check();
-  await expect(field).toHaveValue('tag:ship');
-  await search.fill('nothing like it');
-  await expect(filters.locator('.menu-hint')).toHaveText('No matches');
-  await search.fill('');
-  await expect(ship).toBeChecked();
-  await ship.uncheck();
-  await expect(field).toHaveValue('');
-  await ship.check();
+  // Views, Tags and Folders always show; the query editor doesn't.
+  await expect(filters.locator('.fm-heading')).toHaveText(['Views', 'Tags', 'Folders']);
+  await expect(filters.getByRole('combobox', { name: 'Filter query' })).toHaveCount(0);
+  const tick = (name: string) => filters.locator('button.fm-row', { hasText: name });
+  await tick('ship').click();
+  await expect(tick('ship')).toHaveAttribute('aria-pressed', 'true');
   await expect(card(page, 'Alpha')).toBeVisible();
   await expect(card(page, 'Beta')).toHaveCount(0);
-  await expect(page.locator('#board-view-chip')).toHaveText('Custom filter');
-  await expect(page.locator('#board-view-chip')).toBeVisible();
+  const chip = page.locator('#board-view-chip');
+  await expect(chip).toBeVisible();
+  await expect(chip).toHaveText('ship');
 
-  const alpha = await card(page, 'Alpha').locator('.card-meta span').first().textContent();
-  const alphaBox = filters.getByRole('checkbox', { name: alpha ?? '' });
-  await alphaBox.check();
-  await expect(field).toHaveValue(new RegExp(`^tag:ship folder:`));
+  const alphaDir = twins.alpha.split('/').pop() as string;
+  const betaDir = twins.beta.split('/').pop() as string;
+  await tick(alphaDir).click();
   await expect(card(page, 'Beta')).toHaveCount(0);
-  await ship.uncheck();
-  await alphaBox.uncheck();
-  await expect(field).toHaveValue('');
-  const beta = await card(page, 'Beta').locator('.card-meta span').first().textContent();
-  await filters.getByRole('checkbox', { name: beta ?? '' }).check();
+  await tick('ship').click();
+  await tick(alphaDir).click();
+  await expect(card(page, 'Beta')).toBeVisible();
+  await tick(betaDir).click();
   await expect(card(page, 'Alpha')).toHaveCount(0);
   await expect(card(page, 'Beta')).toBeVisible();
-  await filters.getByRole('checkbox', { name: beta ?? '' }).uncheck();
+  await tick(betaDir).click();
   await expect(card(page, 'Alpha')).toBeVisible();
-  await expect(page.locator('#board-view-chip')).toBeHidden();
+  await expect(chip).toBeHidden();
 });
 
-// A query excludes, keeps the last good result while it's wrong or half
-// typed, and saves as a view that's there after a reload.
+// A view is made in the editor: the query excludes, keeps the last good
+// result while it's wrong or half typed (saying why in a toast), and the view
+// is there after a reload, alongside any ticks.
 test('a filter query saves as a view and comes back after a reload', async ({ page, daemon, twins }) => {
   await twoCards(page, daemon, twins);
   const filters = page.locator('.board-filter-menu');
-  const field = filters.getByRole('combobox', { name: 'Filter query' });
   await page.locator('#board-filter-btn').click();
+  await filters.getByRole('button', { name: 'New view' }).click();
+  const field = filters.getByRole('combobox', { name: 'Filter query' });
+  await field.click();
   await field.fill('-tag:ship');
   await field.press('Enter');
   await expect(card(page, 'Alpha')).toHaveCount(0);
@@ -824,7 +816,8 @@ test('a filter query saves as a view and comes back after a reload', async ({ pa
 
   await field.fill('tag:ship oops');
   await field.press('Enter');
-  await expect(filters.locator('.query-error')).toHaveText('Unknown term "oops". Did you mean tag:oops?');
+  await expect(page.locator('.fm-toast')).toHaveText('Unknown term "oops". Did you mean tag:oops?');
+  await expect(field).toHaveAttribute('aria-invalid', 'true');
   await expect(card(page, 'Beta')).toBeVisible(); // the last good query still applies
 
   // Half typed, with the caret at its end: the board doesn't empty.
@@ -835,39 +828,55 @@ test('a filter query saves as a view and comes back after a reload', async ({ pa
   await page.waitForTimeout(500);
   await expect(card(page, 'Alpha')).toBeVisible();
   await expect(card(page, 'Beta')).toBeVisible();
-  // Nothing is highlighted until an arrow key: Enter applies the text as
-  // typed, so an exact value is never swapped for a longer one.
+  // Enter applies the text as typed; Tab takes the first suggestion.
   await field.press('Enter');
   await expect(field).toHaveValue('tag:shi');
-  // Tab takes the first suggestion, finishing the term and applying it.
   await field.press('Tab');
   await expect(field).toHaveValue('tag:ship ');
   await expect(card(page, 'Beta')).toHaveCount(0);
-  // ↓ then Enter picks the highlighted one.
-  await field.fill('tag:sh');
-  await field.press('ArrowDown');
-  await expect(filters.getByRole('option', { name: 'ship' })).toHaveAttribute('aria-selected', 'true');
-  await field.press('Enter');
-  await expect(field).toHaveValue('tag:ship ');
+
+  // The and / or buttons, and a field's button narrowing the list to tick.
+  await filters.getByRole('button', { name: 'or', exact: true }).click();
+  await filters.getByRole('button', { name: 'tag', exact: true }).click();
+  await expect(filters.locator('.fm-heading')).toHaveText(['Tags']);
+  await filters.getByRole('option', { name: 'ship' }).click(); // already in: unticks it
+  await expect(field).toHaveValue('');
 
   await field.fill('-tag:ship');
   await field.press('Enter');
-  await filters.getByRole('button', { name: 'Save as view' }).click();
+  await filters.getByRole('button', { name: 'Save view' }).click();
+  await expect(page.locator('.fm-toast')).toHaveText('Give the view a name');
   await filters.getByRole('textbox', { name: 'View name' }).fill('Not shipping');
-  await page.keyboard.press('Enter');
+  await filters.getByRole('button', { name: 'Save view' }).click();
   await expect(page.locator('#board-view-chip')).toHaveText('Not shipping');
   await page.keyboard.press('Escape');
   await page.reload();
   await expect(page.locator('#board-view-chip')).toHaveText('Not shipping');
   await expect(card(page, 'Alpha')).toHaveCount(0);
   await page.locator('#board-view-chip').click();
-  await filters.getByRole('menuitemradio', { name: 'Not shipping' }).click(); // clears
+  await filters.getByRole('menuitemradio', { name: /Not shipping/ }).click(); // clears
   await expect(card(page, 'Alpha')).toBeVisible();
   await expect(page.locator('#board-view-chip')).toBeHidden();
 });
 
-// The old filter carries over as a query; unreadable saved views are dropped.
-test('an old saved filter becomes a query', async ({ page, daemon, twins }) => {
+// Ticks become a view on request; the view then stands for them.
+test('ticked tags save as a view', async ({ page, daemon, twins }) => {
+  await twoCards(page, daemon, twins);
+  const filters = page.locator('.board-filter-menu');
+  await page.locator('#board-filter-btn').click();
+  await filters.locator('button.fm-row', { hasText: 'ship' }).click();
+  await filters.getByRole('button', { name: 'Save these as a view' }).click();
+  await expect(filters.getByRole('combobox', { name: 'Filter query' })).toHaveValue('tag:ship');
+  await filters.getByRole('textbox', { name: 'View name' }).fill('Shipping');
+  await filters.getByRole('button', { name: 'Save view' }).click();
+  await expect(page.locator('#board-view-chip')).toHaveText('Shipping');
+  await expect(filters.locator('button.fm-row[aria-pressed="true"]')).toHaveCount(0);
+  await expect(card(page, 'Beta')).toHaveCount(0);
+});
+
+// The filter saved before views (ticks only) comes back as the same ticks;
+// unreadable saved views are dropped.
+test('an old saved filter comes back as ticks', async ({ page, daemon, twins }) => {
   await page.addInitScript(() => {
     if (sessionStorage.getItem('seeded')) return;
     sessionStorage.setItem('seeded', '1');
@@ -877,9 +886,11 @@ test('an old saved filter becomes a query', async ({ page, daemon, twins }) => {
   await twoCards(page, daemon, twins);
   await expect(card(page, 'Alpha')).toBeVisible();
   await expect(card(page, 'Beta')).toHaveCount(0);
+  await expect(page.locator('#board-view-chip')).toHaveText('ship');
   await page.locator('#board-filter-btn').click();
-  await expect(page.locator('.board-filter-menu').getByRole('combobox', { name: 'Filter query' })).toHaveValue(
-    'tag:ship',
+  await expect(page.locator('.board-filter-menu button.fm-row', { hasText: 'ship' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
   );
 });
 
